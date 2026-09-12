@@ -381,8 +381,13 @@ class NgSpiceBackend(SimulationBackend):
         return self.run(HEALTH_NETLIST, keep_workspace=keep_workspace)
 
     def simulate(self, netlist: str, analyses: tuple = ("op",), cas_store=None) -> SimulationResult:
-        """Run scientific simulation (F7-B1 DC operating point)."""
+        """Run scientific simulation (DC, Transient, AC, Noise, Sensitivity, Monte Carlo)."""
+        from academic_core.domain.engineering.simulation import MonteCarloAnalysis, run_monte_carlo
         from academic_core.infrastructure.ngspice_parser import parse_ngspice_op
+
+        for a in analyses:
+            if isinstance(a, MonteCarloAnalysis):
+                return run_monte_carlo(netlist, a, self, cas_store=cas_store)
 
         job = SimulationJob(netlist, analyses=analyses)
         deck = job.build_netlist()
