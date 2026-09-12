@@ -21,9 +21,15 @@ Headless smoke: `$env:QT_QPA_PLATFORM="offscreen"; python -m academic_core`.
 ## Tree
 
 ```
-src/academic_core/  app.py  config/  domain/  storage/  engines/
-tests/  docs/{architecture,adr,migration,domain,security,testing,roadmap}/
+src/academic_core/  app.py(Qt validación)  config/  domain/  storage/
+                    engines/  infrastructure/  application/
+tests/ (41: identity, domain, grading, schedule, persistence, app, ui, arch)
+docs/{architecture,adr×12,migration,domain,security,testing,roadmap,gates}/
 ```
+
+## Fase 1 (actual)
+Modelo canónico + IDs estables + SQLite sin ORM + grading Decimal equivalente
++ horarios/conflictos + servicios + UI validación. Gate: `docs/gates/GATE-F1.md`.
 
 ## Fase 0 answers (short)
 1-4. Inventories + MATRIX.md (MIGRATE/REWRITE/ADAPT/REFERENCE/REJECT/INVESTIGATE).

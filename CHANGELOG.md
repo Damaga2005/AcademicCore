@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 — Fase 1 Domain & Academic Foundation (2026-09-12)
+- Domain: 20 entidades (University→Subject→Topic/Assignment/Exam/Project/Lab/
+  Task/Deadline/Grade/Tag/Bookmark/Annotation/StudySpace/Session/Notification),
+  Term genérico, invariantes con DomainError.
+- Identity: 16 kinds, slugify NFKD, IdAllocator + counters persistidos.
+- Grading Decimal HALF_UP + equivalencia (ADR-0011); schedule/conflictos puros.
+- Persistence: sqlite3 stdlib, 4 migraciones, repos explícitos (ADR-0012).
+- Application: Academic/Grading/Schedule services + Search/Backup/AppLock.
+- UI Qt validación (selectores, subjects CRUD, 4 tabs) + gate F1: 41 passed.
+
 ## 0.1.0 — Fase 0 foundation (2026-09-12)
 - Audits: Conversor (monolito 6.051 lín + lab 16 módulos), Gestion (Flask,
   28 tablas, 152 rutas, 672 docs), Sistemes (91 fuentes, 2896 fórmulas,
