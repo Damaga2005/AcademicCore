@@ -55,19 +55,27 @@ class IngestConfig:
 
 
 @dataclass
+class SimulationConfig:
+    ngspice_path: str = ""
+    timeout_seconds: float = 30.0
+    integration_tests_enabled: bool = True
+
+
+@dataclass
 class Settings:
     storage: StorageConfig = field(default_factory=StorageConfig)
     ai: AIConfig = field(default_factory=AIConfig)
     providers: ProvidersConfig = field(default_factory=ProvidersConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
+    simulation: SimulationConfig = field(default_factory=SimulationConfig)
 
     @classmethod
     def load(cls, path: str | os.PathLike | None = None, overrides: dict | None = None) -> "Settings":
         s = cls()
         if path and Path(path).exists():
             raw = json.loads(Path(path).read_text(encoding="utf-8"))
-            for section in ("storage", "ai", "providers", "tools", "ingest"):
+            for section in ("storage", "ai", "providers", "tools", "ingest", "simulation"):
                 if section in raw:
                     getattr(s, section).__dict__.update(raw[section])
         env = os.environ

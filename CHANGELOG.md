@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0 — F7-A Simulation Runtime Foundation (2026-09-12)
+- ngspice runtime discovery, version verification, isolated execution,
+  stdout/stderr/exit capture, timeout, cancellation and cleanup.
+- Windows setup/runtime documentation and separate external integration test.
+- Real ngspice is unavailable in this environment: F7-A status is UNVERIFIED;
+  no binary was downloaded or committed. F7-B was not started.
+
 ## 0.7.0 — Fase 6 Engineering Foundation (2026-09-12)
 - Decimal quantities, SI units/prefixes/dimensions and safe equation parser.
 - Deterministic electrical calculations with provenance digests.
