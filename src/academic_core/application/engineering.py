@@ -57,6 +57,16 @@ class EngineeringService:
             raise ValueError(f"unknown circuit: {circuit_name}")
         return circuit.to_netlist()
 
+    def simulate_circuit(self, project: str, circuit_name: str,
+                         analyses: tuple[str, ...] = ("op",),
+                         backend: S.SimulationBackend | None = None) -> S.SimulationResult:
+        circuit = self.repo.load_circuit(project, circuit_name)
+        if circuit is None:
+            raise ValueError(f"unknown circuit: {circuit_name}")
+        b = backend or self.backend
+        netlist = circuit.to_netlist()
+        return b.simulate(netlist, analyses=analyses)
+
     # -- calculations ------------------------------------------------------------------
     def calculate(self, inputs: dict[str, str], source: str, project: str = "",
                   circuit: str = "", name: str = "") -> C.CalculationResult:

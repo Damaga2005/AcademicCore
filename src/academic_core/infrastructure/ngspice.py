@@ -20,7 +20,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from academic_core.domain.engineering.simulation import SimulationBackend
+from academic_core.domain.engineering.simulation import (
+    SimulationBackend, SimulationJob, SimulationResult,
+)
 
 NGSPICE_VERSION = "47"
 HEALTH_NETLIST = """* AcademicCore F7-A health check
@@ -378,9 +380,14 @@ class NgSpiceBackend(SimulationBackend):
     def health_check(self, keep_workspace: bool = False) -> SimulationExecution:
         return self.run(HEALTH_NETLIST, keep_workspace=keep_workspace)
 
-    def simulate(self, netlist: str, analyses: tuple = ("health",)) -> SimulationExecution:
-        """F7-A compatibility entry point; scientific parsing is F7-B."""
-        return self.run(netlist)
+    def simulate(self, netlist: str, analyses: tuple = ("op",), cas_store=None) -> SimulationResult:
+        """Run scientific simulation (F7-B1 DC operating point)."""
+        from academic_core.infrastructure.ngspice_parser import parse_ngspice_op
+
+        job = SimulationJob(netlist, analyses=analyses)
+        deck = job.build_netlist()
+        execution = self.run(deck)
+        return parse_ngspice_op(execution, netlist=deck, cas_store=cas_store, analyses=analyses)
 
 
 def _now() -> str:
