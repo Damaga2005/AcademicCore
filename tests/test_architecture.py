@@ -51,6 +51,29 @@ def test_no_sqlalchemy_anywhere():
     assert not violations, violations
 
 
+def test_domain_knows_no_backends():
+    """Domain != Qt, sqlite3, FTS5, filesystem, network.
+
+    Parsed with ast: only real imports count (docstring prose mentioning a
+    backend by name is documentation, not a dependency).
+    """
+    import ast
+    forbidden = {"os", "pathlib", "sqlite3", "urllib", "socket", "hashlib",
+                 "PySide6", "ftplib", "http"}
+    violations = []
+    for f in _texts("domain"):
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    if a.name.split(".")[0] in forbidden:
+                        violations.append(f"{f.relative_to(SRC)} imports {a.name}")
+            elif isinstance(node, ast.ImportFrom):
+                if (node.module or "").split(".")[0] in forbidden:
+                    violations.append(f"{f.relative_to(SRC)} imports from {node.module}")
+    assert not violations, violations
+
+
 def test_engines_do_not_import_each_other_circularly():
     import academic_core.engines as e
     assert hasattr(e, "PDFService") and hasattr(e, "AIRouter")

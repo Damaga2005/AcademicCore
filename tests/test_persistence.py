@@ -70,4 +70,4 @@ def test_migrations_are_incremental_and_rerunnable(tmp_path):
     Database(path).connect().close()
     import sqlite3
     vers = sqlite3.connect(path).execute("SELECT version FROM schema_version ORDER BY version").fetchall()
-    assert [v[0] for v in vers] == [1, 2, 3, 4]
+    assert [v[0] for v in vers] == [1, 2, 3, 4, 5, 6]

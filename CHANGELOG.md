@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — Fase 2 Resource Engine (2026-09-12)
+- Ports (`BlobStore/Extractor/Indexer/Records`) + `Resource/Version/Provenance`.
+- CAS: streaming SHA-256, atomic, integrity-checked, traversal-safe.
+- Adapters file/md/html/pdf (+ZIP refused); pipeline idempotente + versiones.
+- FTS5 derivado con rebuild + filtros; tab Resources; `ingest.max_bytes`.
+- ADR-0013/0014; gate F2: 81 passed (41 F0/F1 + 40 F2).
+
 ## 0.2.0 — Fase 1 Domain & Academic Foundation (2026-09-12)
 - Domain: 20 entidades (University→Subject→Topic/Assignment/Exam/Project/Lab/
   Task/Deadline/Grade/Tag/Bookmark/Annotation/StudySpace/Session/Notification),

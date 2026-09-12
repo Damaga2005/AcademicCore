@@ -14,20 +14,23 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox,
-    QPushButton, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QHBoxLayout, QFileDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMainWindow, QMessageBox, QPushButton, QTabWidget, QTextEdit, QVBoxLayout,
+    QWidget,
 )
 
 from academic_core import __version__
 from academic_core.application import (
-    AcademicService, GradingService, ScheduleService, SimpleSearchService,
+    AcademicService, GradingService, IngestionService, ScheduleService,
+    SimpleSearchService,
 )
 from academic_core.application.services import ApplicationError
 from academic_core.config import Settings
 from academic_core.domain import entities as E
 from academic_core.domain.identity import slugify
 from academic_core.infrastructure import (
-    AcademicRepository, Database, GradingRepository, PlanningRepository,
+    AcademicRepository, Database, FileBlobStore, FtsResourceIndexer,
+    GradingRepository, PlanningRepository, SqliteResourceRecords,
     StudyRepository,
 )
 
@@ -88,6 +91,13 @@ class MainWindow(QMainWindow):
         self.grading = GradingService(self.grading_repo)
         self.schedule = ScheduleService(self.planning)
         self.search = SimpleSearchService(self.academic, self.planning)
+        cas_root = Path(settings.ingest.cas_dir or Path(settings.storage.location) / "cas")
+        self.blobs = FileBlobStore(cas_root)
+        self.resources = SqliteResourceRecords(db)
+        self.fts = FtsResourceIndexer(db)
+        self.ingest = IngestionService(
+            self.blobs, self.resources, self.fts, self.academic, self.planning,
+            max_bytes=settings.ingest.max_bytes)
         ensure_demo(self.academic)
 
         # -- left: hierarchy selectors + subjects ---------------------------
@@ -123,6 +133,27 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tab_tasks, "Tasks")
         self.tabs.addTab(self.tab_sched, "Schedule")
         self.tabs.addTab(self.tab_grades, "Grades")
+        # Resources tab: thin validation panel over IngestionService.
+        res_tab = QWidget()
+        res_layout = QVBoxLayout(res_tab)
+        res_row = QHBoxLayout()
+        self.res_search = QLineEdit()
+        self.res_search.setPlaceholderText("Search resources (FTS5)…")
+        self.btn_res_import = QPushButton("Import file…")
+        self.btn_res_reindex = QPushButton("Reindex")
+        res_row.addWidget(self.res_search)
+        res_row.addWidget(self.btn_res_import)
+        res_row.addWidget(self.btn_res_reindex)
+        res_layout.addLayout(res_row)
+        self.res_list = QListWidget()
+        self.res_detail = QTextEdit(readOnly=True)
+        res_layout.addWidget(self.res_list)
+        res_layout.addWidget(self.res_detail)
+        self.tabs.addTab(res_tab, "Resources")
+        self.btn_res_import.clicked.connect(self._import_resource)
+        self.btn_res_reindex.clicked.connect(self._reindex_resources)
+        self.res_search.textChanged.connect(lambda _t: self._refresh_resources())
+        self.res_list.currentRowChanged.connect(lambda _i: self._show_resource())
         # one action row above the tabs (no business logic in UI slots beyond
         # calling Application services)
         actions = QHBoxLayout()
@@ -301,6 +332,7 @@ class MainWindow(QMainWindow):
         if not sub:
             for tab in (self.tab_assign, self.tab_tasks, self.tab_sched, self.tab_grades):
                 tab.setPlainText("Select a subject")
+            self._refresh_resources()
             return
         assigns = self.planning.assignments_of(sub.stable_id)
         self.tab_assign.setPlainText("\n".join(
@@ -315,6 +347,65 @@ class MainWindow(QMainWindow):
         verdict = self.grading.calculate(sub.stable_id)
         self.tab_grades.setPlainText(
             f"grade={verdict.grade} evaluated={verdict.evaluated} state={verdict.state}")
+        self._refresh_resources()
+
+    # -- resources ---------------------------------------------------------------
+    def _refresh_resources(self) -> None:
+        query = self.res_search.text().strip()
+        self.res_list.clear()
+        self._res_cache = []
+        if query:
+            hits = self.fts.search(query, limit=50)
+            for h in hits:
+                self._res_cache.append(h["stable_id"])
+                item = QListWidgetItem(f"{h['title']} [{h['kind']}] {h['stable_id']}")
+                self.res_list.addItem(item)
+        else:
+            for sid in self.resources.all_ids():
+                res = self.resources.get(sid)
+                self._res_cache.append(sid)
+                self.res_list.addItem(
+                    QListWidgetItem(f"{res.title} [{res.kind}] v{res.current_version} {sid}"))
+
+    def _show_resource(self) -> None:
+        i = self.res_list.currentRow()
+        cache = getattr(self, "_res_cache", [])
+        if not (0 <= i < len(cache)):
+            return
+        res = self.resources.get(cache[i])
+        if not res:
+            return
+        cur = res.current()
+        p = cur.provenance
+        lines = [f"id: {res.stable_id}", f"kind: {res.kind}", f"title: {res.title}",
+                 f"version: {cur.version} (of {len(res.versions)})",
+                 f"hash: {cur.content_hash}", f"size: {cur.size} bytes",
+                 f"origin: {p.origin}", f"source: {p.source}",
+                 f"adapter: {p.adapter} v{p.adapter_version}",
+                 f"imported: {p.imported_at}", f"extraction: {p.extraction_status}"]
+        for v in res.versions:
+            lines.append(f"  v{v.version}: {v.content_hash[:12]}… {v.provenance.imported_at}")
+        self.res_detail.setPlainText("\n".join(lines))
+
+    def _import_resource(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import resource")
+        if not path:
+            return
+        sub = self._current_subject()
+        try:
+            rep = self.ingest.import_file(
+                path, subject_id=sub.stable_id if sub else None)
+        except Exception as e:  # UnsupportedType / TooLarge / SecurityError surface here
+            QMessageBox.warning(self, "Import", f"{type(e).__name__}: {e}")
+            return
+        QMessageBox.information(
+            self, "Import", f"{rep.outcome}: {rep.stable_id} v{rep.version}")
+        self._refresh_resources()
+
+    def _reindex_resources(self) -> None:
+        n = self.ingest.reindex()
+        QMessageBox.information(self, "Reindex", f"{n} entries rebuilt from canonical store")
+        self._refresh_resources()
 
 
 def main(argv: list[str] | None = None) -> int:

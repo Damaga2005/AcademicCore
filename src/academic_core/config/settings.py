@@ -49,18 +49,25 @@ class ToolsConfig:
 
 
 @dataclass
+class IngestConfig:
+    max_bytes: int = 100 * 1024 * 1024  # 100 MiB per file (F2 default)
+    cas_dir: str = ""  # empty = <storage.location>/cas
+
+
+@dataclass
 class Settings:
     storage: StorageConfig = field(default_factory=StorageConfig)
     ai: AIConfig = field(default_factory=AIConfig)
     providers: ProvidersConfig = field(default_factory=ProvidersConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
+    ingest: IngestConfig = field(default_factory=IngestConfig)
 
     @classmethod
     def load(cls, path: str | os.PathLike | None = None, overrides: dict | None = None) -> "Settings":
         s = cls()
         if path and Path(path).exists():
             raw = json.loads(Path(path).read_text(encoding="utf-8"))
-            for section in ("storage", "ai", "providers", "tools"):
+            for section in ("storage", "ai", "providers", "tools", "ingest"):
                 if section in raw:
                     getattr(s, section).__dict__.update(raw[section])
         env = os.environ

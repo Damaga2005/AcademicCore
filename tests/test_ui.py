@@ -14,6 +14,6 @@ def test_main_window_boots_with_real_domain(qtbot, tmp_path, monkeypatch):
     win = MainWindow(settings)
     qtbot.addWidget(win)
     assert "Academic Core" in win.windowTitle()
-    assert win.tabs.count() == 4  # Assignments Tasks Schedule Grades
+    assert win.tabs.count() == 5  # Assignments Tasks Schedule Grades Resources
     assert win.subjects.count() >= 0
     assert win.cb_uni.count() >= 1  # demo hierarchy present
