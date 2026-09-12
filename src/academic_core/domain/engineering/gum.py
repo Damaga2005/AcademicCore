@@ -31,13 +31,115 @@ from academic_core.domain.engineering.equations import (
     parse_equation,
 )
 from academic_core.domain.engineering.units import (
+    DIMENSIONLESS,
+    DIM_NAMES,
     Quantity,
+    Unit,
     UnitError,
     parse_quantity,
     parse_unit,
 )
 
 ENGINE_VERSION_GUM = "gum/1.0"
+
+
+# ==============================================================================
+# 0. Deterministic Linear Algebra & Units Helpers (Pure Python Stdlib)
+# ==============================================================================
+
+def jacobi_eigenvalues(
+    matrix: list[list[float]],
+    max_sweeps: int = 50,
+    tol: float = 1e-15,
+) -> list[float]:
+    """Compute all eigenvalues of a real symmetric matrix using the classical Jacobi algorithm.
+
+    Guaranteed deterministic, pure Python standard library (zero NumPy/SciPy dependency),
+    and unconditionally numerically stable for symmetric matrices.
+
+    Parameters:
+        matrix: n x n symmetric matrix of floats.
+        max_sweeps: maximum number of rotation sweeps (typically converges in 5-10 sweeps).
+        tol: convergence threshold for off-diagonal elements.
+
+    Returns:
+        Sorted list of eigenvalues [lambda_1, lambda_2, ..., lambda_n].
+    """
+    n = len(matrix)
+    if n == 0:
+        return []
+    if n == 1:
+        return [float(matrix[0][0])]
+
+    a = [row[:] for row in matrix]
+
+    for _ in range(max_sweeps):
+        max_val = 0.0
+        p, q = 0, 1
+        for i in range(n):
+            for j in range(i + 1, n):
+                val = abs(a[i][j])
+                if val > max_val:
+                    max_val = val
+                    p, q = i, j
+
+        if max_val < tol:
+            break
+
+        app = a[p][p]
+        aqq = a[q][q]
+        apq = a[p][q]
+
+        if abs(apq) < tol:
+            continue
+
+        phi = (aqq - app) / (2.0 * apq)
+        if phi >= 0.0:
+            t = 1.0 / (phi + math.sqrt(phi * phi + 1.0))
+        else:
+            t = -1.0 / (-phi + math.sqrt(phi * phi + 1.0))
+
+        c = 1.0 / math.sqrt(t * t + 1.0)
+        s = t * c
+        tau = s / (1.0 + c)
+
+        a[p][p] = app - t * apq
+        a[q][q] = aqq + t * apq
+        a[p][q] = 0.0
+        a[q][p] = 0.0
+
+        for i in range(n):
+            if i != p and i != q:
+                a_ip = a[i][p]
+                a_iq = a[i][q]
+                new_ip = a_ip - s * (a_iq + tau * a_ip)
+                new_iq = a_iq + s * (a_ip - tau * a_iq)
+                a[i][p] = new_ip
+                a[p][i] = new_ip
+                a[i][q] = new_iq
+                a[q][i] = new_iq
+
+    eigenvalues = sorted([a[i][i] for i in range(n)])
+    return eigenvalues
+
+
+def _resolve_unit(symbol: str) -> Unit:
+    """Resolve a unit string to a Unit instance using the certified F6 units system.
+
+    If the unit is a known SI/electrical unit in units.py, it is parsed via parse_unit.
+    If the unit is empty or '1', a dimensionless unit is returned.
+    If the unit is an external label (e.g. 'mm'), a deterministic synthetic Unit
+    with a distinct dimension is assigned so identical symbols match and incompatible symbols fail.
+    """
+    s = (symbol or "").strip()
+    if not s or s == "1":
+        return Unit("1", "1", "", DIMENSIONLESS, Decimal(1))
+    try:
+        return parse_unit(s)
+    except UnitError:
+        h = int(hashlib.sha256(s.encode("utf-8")).hexdigest()[:8], 16)
+        synthetic_dim = (0, 0, 0, 0, 0, 0, h)
+        return Unit(s, s, "", synthetic_dim, Decimal(1))
 
 
 # ==============================================================================
@@ -401,9 +503,16 @@ class InputQuantity:
         source: str = "",
         nominal_value: Decimal | float | int | str | None = None,
     ) -> InputQuantity:
-        """Construct a Type B InputQuantity with normal distribution (u = U / k)."""
+        """Construct a Type B InputQuantity with normal distribution (u = U / k).
+
+        Note: The default k=2 represents an assumed 95.45% coverage factor for normal
+        calibration certificates when unspecified by the user/calibration laboratory.
+        It is an explicit user/model assumption and not a universal GUM constant.
+        """
         nom = nominal_value if nominal_value is not None else nominal
         u, nu = type_b_normal(expanded_uncertainty, k, degrees_of_freedom=degrees_of_freedom)
+        k_val = str(k)
+        src = source or f"Normal calibration U={expanded_uncertainty}, k={k_val} (user/model assumption)"
         return cls(
             name=name,
             nominal_value=Decimal(str(nom)),
@@ -413,7 +522,7 @@ class InputQuantity:
             distribution="normal",
             degrees_of_freedom=nu,
             description=description,
-            source=source or f"Normal calibration U={expanded_uncertainty}, k={k}",
+            source=src,
         )
 
     @classmethod
@@ -455,7 +564,7 @@ class InputQuantity:
 
 @dataclass
 class CorrelationMatrix:
-    """Symmetric correlation matrix r(X_i, X_j) for GUM uncertainty evaluation."""
+    """Symmetric positive semi-definite correlation matrix r(X_i, X_j) for GUM uncertainty evaluation."""
     correlations: dict[tuple[str, str], Decimal] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -474,6 +583,51 @@ class CorrelationMatrix:
             norm[(n1, n2)] = r_dec
             norm[(n2, n1)] = r_dec
         self.correlations = norm
+
+        # If populated at construction, immediately validate positive semi-definiteness:
+        if self.correlations:
+            vars_set = sorted({k for pair in self.correlations.keys() for k in pair})
+            if len(vars_set) >= 2:
+                self.validate_psd(vars_set)
+
+    def validate_psd(self, variables: Sequence[str] | None = None, tol: float = 1e-7) -> list[float]:
+        """Validate that the correlation matrix is Positive Semi-Definite (PSD).
+
+        Computes all eigenvalues of the real symmetric correlation matrix via the Jacobi algorithm.
+        Accepts PSD matrices where all eigenvalues lambda_i >= -tol.
+        Tolerance tol = 1e-7 allows for small floating-point roundoff errors in rank-deficient
+        or collinear cases (where true eigenvalues are zero) while firmly rejecting non-PSD matrices.
+
+        Parameters:
+            variables: Sequence of variable names forming the submatrix to validate. If None,
+                       all variables appearing in self.correlations are validated.
+            tol: Numerical tolerance for negative eigenvalues due to precision (default 1e-7).
+
+        Returns:
+            Sorted list of eigenvalues [lambda_1, lambda_2, ..., lambda_n].
+
+        Raises:
+            ValueError: If any eigenvalue < -tol, indicating the correlation matrix is mathematically invalid.
+        """
+        if variables is None:
+            vars_list = sorted({k for pair in self.correlations.keys() for k in pair})
+        else:
+            vars_list = list(variables)
+
+        n = len(vars_list)
+        if n <= 1:
+            return [1.0] if n == 1 else []
+
+        matrix = [[float(self.get_correlation(vars_list[i], vars_list[j])) for j in range(n)] for i in range(n)]
+        eigenvalues = jacobi_eigenvalues(matrix)
+        min_eig = min(eigenvalues) if eigenvalues else 1.0
+
+        if min_eig < -tol:
+            raise ValueError(
+                f"Correlation matrix is not positive semi-definite (PSD): "
+                f"minimum eigenvalue {min_eig:.6e} < -{tol:.1e}"
+            )
+        return eigenvalues
 
     def set_correlation(self, var1: str, var2: str, r: Decimal | float | str) -> None:
         """Set correlation coefficient r(var1, var2) in [-1, 1]."""
@@ -552,6 +706,7 @@ class MeasurementModel:
     sensitivities: dict[str, Decimal | Callable[[dict[str, Decimal]], Decimal]] | None = None
     explicit_sensitivities: dict[str, Decimal | Callable[[dict[str, Decimal]], Decimal]] | None = None
     output_unit: str = ""
+    input_units: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         m = str(self.measurand).strip()
@@ -565,34 +720,70 @@ class MeasurementModel:
         if self.equation is None and self.evaluator is None:
             raise ValueError("MeasurementModel requires either an equation string or an evaluator function")
 
-    def evaluate(self, inputs: dict[str, Decimal]) -> Decimal:
-        """Evaluate measurand value Y = f(X1, ..., Xn) for given nominal input values."""
+    def evaluate_to_quantity(
+        self,
+        inputs: dict[str, Decimal | Quantity | Any],
+        input_units: dict[str, str] | None = None,
+    ) -> Quantity:
+        """Evaluate measurand value and return Quantity with verified dimensional algebra."""
+        effective_units = dict(self.input_units)
+        if input_units:
+            effective_units.update(input_units)
+
         if self.evaluator is not None:
-            res = self.evaluator(inputs)
-            return Decimal(str(res))
+            numeric_dict: dict[str, Decimal] = {}
+            for k, v in inputs.items():
+                if isinstance(v, Quantity):
+                    numeric_dict[k] = v.value
+                else:
+                    numeric_dict[k] = Decimal(str(v))
+            res = self.evaluator(numeric_dict)
+            u = _resolve_unit(self.output_unit) if (self.output_unit and self.output_unit.strip()) else Unit("1", "1", "", DIMENSIONLESS, Decimal(1))
+            return Quantity(Decimal(str(res)), u)
 
         if self.equation is not None:
             eq_text = self.equation.strip().replace("^", "**")
-            # If equation is of form "Y = expr", evaluate right-hand side
-            if "=" in eq_text:
-                parsed = parse_equation(eq_text)
-                # Map inputs to Quantities
-                q_env = {k: Quantity(v, parse_unit("1")) for k, v in inputs.items()}
-                q_res = evaluate(parsed, q_env)
-                return q_res.value
-            else:
-                # Raw expression
-                parsed = parse_equation(f"{self.measurand} = {eq_text}")
-                q_env = {k: Quantity(v, parse_unit("1")) for k, v in inputs.items()}
-                q_res = evaluate(parsed, q_env)
-                return q_res.value
+            parsed = parse_equation(eq_text if "=" in eq_text else f"{self.measurand} = {eq_text}")
+            q_env: dict[str, Quantity] = {}
+            for k, v in inputs.items():
+                if isinstance(v, Quantity):
+                    q_env[k] = v
+                else:
+                    unit_str = effective_units.get(k, "")
+                    u_obj = _resolve_unit(unit_str)
+                    q_env[k] = Quantity(Decimal(str(v)), u_obj)
+
+            q_res = evaluate(parsed, q_env)
+
+            # Dimensional validation against output_unit if declared:
+            if self.output_unit and self.output_unit.strip():
+                expected_u = _resolve_unit(self.output_unit.strip())
+                if q_res.dimension != expected_u.dimension:
+                    raise UnitError(
+                        f"MeasurementModel '{self.measurand}': calculated unit dimension '{q_res.dim_name}' "
+                        f"({q_res.unit.display}) is incompatible with declared output_unit {self.output_unit!r} "
+                        f"({DIM_NAMES.get(expected_u.dimension, 'derived')})"
+                    )
+                if expected_u.factor != q_res.unit.factor:
+                    q_res = q_res.convert_to(self.output_unit.strip())
+
+            return q_res
 
         raise RuntimeError("MeasurementModel evaluation failed")
+
+    def evaluate(
+        self,
+        inputs: dict[str, Decimal | Quantity | Any],
+        input_units: dict[str, str] | None = None,
+    ) -> Decimal:
+        """Evaluate measurand value Y = f(X1, ..., Xn) for given nominal input values."""
+        return self.evaluate_to_quantity(inputs, input_units=input_units).value
 
     def get_sensitivity(
         self,
         var_name: str,
         inputs: dict[str, Decimal],
+        input_units: dict[str, str] | None = None,
     ) -> tuple[Decimal, str]:
         """Compute sensitivity coefficient c_i = dY / dX_i and report method (EXPLICIT, ANALYTIC, NUMERICAL)."""
         # 1. Explicitly supplied sensitivities
@@ -646,10 +837,6 @@ class MeasurementModel:
                     return -inputs[v1] / (inputs[v2] ** 2), SensitivityMethod.ANALYTIC.value
 
             # Pattern: Voltage divider: Vin * R2 / (R1 + R2)
-            # Derivatives:
-            # dVout/dVin = R2 / (R1 + R2)
-            # dVout/dR1  = -Vin * R2 / (R1 + R2)^2
-            # dVout/dR2  = +Vin * R1 / (R1 + R2)^2
             if "Vin" in inputs and "R1" in inputs and "R2" in inputs and "R1 + R2" in eq_clean:
                 vin = inputs["Vin"]
                 r1 = inputs["R1"]
@@ -668,14 +855,15 @@ class MeasurementModel:
 
         inputs_plus = dict(inputs)
         inputs_plus[var_name] = x_val + step
-        y_plus = self.evaluate(inputs_plus)
+        y_plus = self.evaluate(inputs_plus, input_units=input_units)
 
         inputs_minus = dict(inputs)
         inputs_minus[var_name] = x_val - step
-        y_minus = self.evaluate(inputs_minus)
+        y_minus = self.evaluate(inputs_minus, input_units=input_units)
 
+        # Retain full Decimal precision without artificial rounding (Finding 3):
         c_num = (y_plus - y_minus) / (Decimal("2") * step)
-        return Decimal(str(round(float(c_num), 9))), SensitivityMethod.NUMERICAL.value
+        return c_num, SensitivityMethod.NUMERICAL.value
 
 
 # ==============================================================================
@@ -843,14 +1031,22 @@ def evaluate_gum(
     if not inputs:
         raise ValueError("GUM evaluation requires at least one input quantity")
 
+    sorted_names = sorted(inputs.keys())
     corr = correlation or CorrelationMatrix()
 
-    # 1. Evaluate nominal measurand value: Y = f(X1, ..., Xn)
+    # 0. Validate that the correlation matrix is Positive Semi-Definite (Finding 1)
+    corr.validate_psd(variables=sorted_names, tol=1e-7)
+
+    # 1. Evaluate nominal measurand value with full dimensional validation (Finding 2)
     nominal_dict = {name: q.nominal_value for name, q in inputs.items()}
-    y_val = model.evaluate(nominal_dict)
+    input_units = {name: q.unit for name, q in inputs.items()}
+    q_res = model.evaluate_to_quantity(nominal_dict, input_units=input_units)
+    y_val = q_res.value
+    calc_unit = model.output_unit if (model.output_unit and model.output_unit.strip()) else (
+        q_res.unit.display if q_res.unit.dimension != DIMENSIONLESS else ""
+    )
 
     # 2. Compute sensitivity coefficients and individual variance contributions
-    sorted_names = sorted(inputs.keys())
     c_map: dict[str, Decimal] = {}
     c_method_map: dict[str, str] = {}
     u_map: dict[str, Decimal] = {}
@@ -859,7 +1055,7 @@ def evaluate_gum(
 
     for name in sorted_names:
         q = inputs[name]
-        c_i, method = model.get_sensitivity(name, nominal_dict)
+        c_i, method = model.get_sensitivity(name, nominal_dict, input_units=input_units)
         c_map[name] = c_i
         c_method_map[name] = method
         u_map[name] = q.standard_uncertainty
@@ -909,9 +1105,18 @@ def evaluate_gum(
         uc_flt = float(uc)
         nu_eff = (uc_flt ** 4) / ws_denom
 
-    # 7. Coverage factor k
+    # 7. Coverage factor k with explicit_k validation (Finding 4)
     if explicit_k is not None:
-        k = Decimal(str(explicit_k))
+        try:
+            k_flt = float(explicit_k)
+            k_dec = Decimal(str(explicit_k))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ValueError(f"explicit_k must be a valid positive number, got {explicit_k!r}")
+
+        if math.isnan(k_flt) or math.isinf(k_flt) or k_flt <= 0.0 or k_dec <= Decimal("0"):
+            raise ValueError(f"explicit_k must be finite and strictly positive (k > 0), got {explicit_k!r}")
+
+        k = k_dec
         k_source = "explicit_user"
     else:
         k = calculate_coverage_factor(coverage_probability, nu_eff)
@@ -956,7 +1161,7 @@ def evaluate_gum(
     budget = UncertaintyBudget(
         measurand=model.measurand,
         measurand_value=y_val,
-        measurand_unit=model.output_unit,
+        measurand_unit=calc_unit,
         rows=tuple(budget_rows),
         combined_variance=total_var,
         covariance_term=cov_sum,
@@ -976,7 +1181,7 @@ def evaluate_gum(
         "timestamp": now_ts,
         "measurand": model.measurand,
         "measurand_value": str(y_val),
-        "measurand_unit": model.output_unit,
+        "measurand_unit": calc_unit,
         "combined_standard_uncertainty": str(uc),
         "effective_degrees_of_freedom": "inf" if math.isinf(nu_eff) else str(nu_eff),
         "coverage_probability": coverage_probability,
@@ -1009,7 +1214,7 @@ def evaluate_gum(
     return GUMResult(
         measurand=model.measurand,
         measurand_value=y_val,
-        measurand_unit=model.output_unit,
+        measurand_unit=calc_unit,
         combined_standard_uncertainty=uc,
         effective_degrees_of_freedom=nu_eff,
         coverage_probability=coverage_probability,

@@ -729,3 +729,354 @@ class TestEngineeringServiceGUMIntegration:
         assert float(res.combined_standard_uncertainty) > 0
         assert float(res.expanded_uncertainty) > float(res.combined_standard_uncertainty)
         assert res.measurand_unit == "W"
+
+
+# ==============================================================================
+# 9. Post-Audit Hardening: Positive Semi-Definite (PSD) Validation (Finding 1)
+# ==============================================================================
+
+class TestPSDValidationFinding1:
+    """Rigorous tests A through I for Positive Semi-Definite (PSD) validation."""
+
+    def test_case_a_identity_3x3_pass(self):
+        """A) Identity 3x3 correlation matrix must PASS."""
+        corr = CorrelationMatrix()
+        eigs = corr.validate_psd(["X1", "X2", "X3"], tol=1e-7)
+        assert len(eigs) == 3
+        for e in eigs:
+            assert abs(e - 1.0) < 1e-12
+
+    def test_case_b_valid_matrix_pass(self):
+        """B) Valid matrix with r12=0.5, r13=0.2, r23=0.3 must PASS."""
+        corr = CorrelationMatrix.from_dict({
+            ("X1", "X2"): 0.5,
+            ("X1", "X3"): 0.2,
+            ("X2", "X3"): 0.3,
+        })
+        eigs = corr.validate_psd(tol=1e-7)
+        assert len(eigs) == 3
+        assert min(eigs) > 0.0
+        assert abs(eigs[0] - 0.48716) < 1e-3
+
+    def test_case_c_perfect_correlation_pass(self):
+        """C) Perfect correlation r12=1 must PASS."""
+        corr = CorrelationMatrix.from_dict({
+            ("X1", "X2"): 1.0,
+        })
+        eigs = corr.validate_psd(tol=1e-7)
+        assert len(eigs) == 2
+        assert abs(eigs[0] - 0.0) < 1e-12
+        assert abs(eigs[1] - 2.0) < 1e-12
+
+    def test_case_d_perfect_negative_correlation_pass(self):
+        """D) Perfect negative correlation r12=-1 must PASS when resulting matrix is PSD."""
+        corr = CorrelationMatrix.from_dict({
+            ("X1", "X2"): -1.0,
+        })
+        eigs = corr.validate_psd(tol=1e-7)
+        assert len(eigs) == 2
+        assert abs(eigs[0] - 0.0) < 1e-12
+        assert abs(eigs[1] - 2.0) < 1e-12
+
+    def test_case_e_symmetric_non_psd_reject(self):
+        """E) Symmetric matrix but NOT PSD must REJECT."""
+        # Non-PSD case 1: r12=0.9, r13=0.9, r23=0.0 -> min eigenvalue ~= -0.273
+        with pytest.raises(ValueError, match="not positive semi-definite.*minimum eigenvalue"):
+            CorrelationMatrix.from_dict({
+                ("X1", "X2"): 0.9,
+                ("X1", "X3"): 0.9,
+                ("X2", "X3"): 0.0,
+            })
+
+        # Non-PSD case 2: r12=0.8, r13=0.8, r23=-0.8 -> min eigenvalue ~= -0.44
+        with pytest.raises(ValueError, match="not positive semi-definite.*minimum eigenvalue"):
+            CorrelationMatrix.from_dict({
+                ("X1", "X2"): 0.8,
+                ("X1", "X3"): 0.8,
+                ("X2", "X3"): -0.8,
+            })
+
+    def test_case_f_r_greater_than_one_reject(self):
+        """F) r > 1 must REJECT."""
+        corr = CorrelationMatrix()
+        with pytest.raises(ValueError, match="out of range"):
+            corr.set_correlation("X1", "X2", 1.0001)
+
+    def test_case_g_r_less_than_minus_one_reject(self):
+        """G) r < -1 must REJECT."""
+        corr = CorrelationMatrix()
+        with pytest.raises(ValueError, match="out of range"):
+            corr.set_correlation("X1", "X2", -1.0001)
+
+    def test_case_h_diagonal_not_one_reject(self):
+        """H) diagonal != 1 must REJECT."""
+        corr = CorrelationMatrix()
+        with pytest.raises(ValueError, match="diagonal correlation"):
+            corr.set_correlation("X1", "X1", 0.99)
+
+    def test_case_i_eigenvalue_zero_tolerance_pass(self):
+        """I) PSD matrix with eigenvalue approximately 0 must PASS within tolerance."""
+        corr = CorrelationMatrix.from_dict({
+            ("X1", "X2"): 1.0,
+            ("X1", "X3"): 0.0,
+            ("X2", "X3"): 0.0,
+        })
+        eigs = corr.validate_psd(tol=1e-7)
+        assert len(eigs) == 3
+        assert abs(eigs[0]) < 1e-7
+        assert abs(eigs[1] - 1.0) < 1e-12
+        assert abs(eigs[2] - 2.0) < 1e-12
+
+    def test_psd_validation_in_evaluate_gum(self):
+        """evaluate_gum must validate PSD on the active model variables and reject non-PSD matrices."""
+        model = MeasurementModel(
+            measurand="Y",
+            equation="X1 + X2 + X3",
+            input_names=("X1", "X2", "X3"),
+            output_unit="V",
+        )
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 10.0, 0.1, unit="V"),
+            "X2": InputQuantity.explicit("X2", 10.0, 0.1, unit="V"),
+            "X3": InputQuantity.explicit("X3", 10.0, 0.1, unit="V"),
+        }
+        # Construct non-PSD manually bypassing post_init
+        bad_corr = CorrelationMatrix()
+        bad_corr.correlations[("X1", "X2")] = Decimal("0.9")
+        bad_corr.correlations[("X2", "X1")] = Decimal("0.9")
+        bad_corr.correlations[("X1", "X3")] = Decimal("0.9")
+        bad_corr.correlations[("X3", "X1")] = Decimal("0.9")
+        bad_corr.correlations[("X2", "X3")] = Decimal("0.0")
+        bad_corr.correlations[("X3", "X2")] = Decimal("0.0")
+
+        with pytest.raises(ValueError, match="not positive semi-definite"):
+            evaluate_gum(model, inputs, correlation=bad_corr)
+
+
+# ==============================================================================
+# 10. Post-Audit Hardening: Real Dimensional Validation (Finding 2)
+# ==============================================================================
+
+class TestDimensionalValidationFinding2:
+    """Mandatory dimensional tests 1 through 8 from audit specification."""
+
+    def test_req_1_v_div_ohm_equals_ampere(self):
+        """Test 1: X1 = 10 V, X2 = 2 Ω, Y = X1 / X2 -> 5 A."""
+        model = MeasurementModel(
+            measurand="I",
+            equation="X1 / X2",
+            input_names=("X1", "X2"),
+        )
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 10.0, 0.1, unit="V"),
+            "X2": InputQuantity.explicit("X2", 2.0, 0.05, unit="Ω"),
+        }
+        res = evaluate_gum(model, inputs)
+        assert abs(float(res.measurand_value) - 5.0) < 1e-12
+        assert res.measurand_unit == "A"
+        assert res.budget.measurand_unit == "A"
+
+    def test_req_2_v_mul_ampere_equals_watt(self):
+        """Test 2: X1 = 2 V, X2 = 3 A, Y = X1 * X2 -> 6 W."""
+        model = MeasurementModel(
+            measurand="P",
+            equation="X1 * X2",
+            input_names=("X1", "X2"),
+        )
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 2.0, 0.02, unit="V"),
+            "X2": InputQuantity.explicit("X2", 3.0, 0.03, unit="A"),
+        }
+        res = evaluate_gum(model, inputs)
+        assert abs(float(res.measurand_value) - 6.0) < 1e-12
+        assert res.measurand_unit == "W"
+        assert res.budget.measurand_unit == "W"
+
+    def test_req_3_v_div_ampere_equals_ohm(self):
+        """Test 3: X1 = 10 V, X2 = 2 A, Y = X1 / X2 -> 5 Ω."""
+        model = MeasurementModel(
+            measurand="R",
+            equation="X1 / X2",
+            input_names=("X1", "X2"),
+        )
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 10.0, 0.1, unit="V"),
+            "X2": InputQuantity.explicit("X2", 2.0, 0.05, unit="A"),
+        }
+        res = evaluate_gum(model, inputs)
+        assert abs(float(res.measurand_value) - 5.0) < 1e-12
+        assert res.measurand_unit in ("Ω", "ohm")
+        assert res.budget.measurand_unit in ("Ω", "ohm")
+
+    def test_req_4_incompatible_addition_v_plus_s_rejected(self):
+        """Test 4: V + s -> REJECT."""
+        from academic_core.domain.engineering.units import UnitError
+        model = MeasurementModel(
+            measurand="Y",
+            equation="X1 + X2",
+            input_names=("X1", "X2"),
+        )
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 10.0, 0.1, unit="V"),
+            "X2": InputQuantity.explicit("X2", 2.0, 0.05, unit="s"),
+        }
+        with pytest.raises(UnitError, match="incompatible dimensions"):
+            evaluate_gum(model, inputs)
+
+    def test_req_5_incompatible_addition_v_plus_a_rejected(self):
+        """Test 5: V + A -> REJECT."""
+        from academic_core.domain.engineering.units import UnitError
+        model = MeasurementModel(
+            measurand="Y",
+            equation="X1 + X2",
+            input_names=("X1", "X2"),
+        )
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 10.0, 0.1, unit="V"),
+            "X2": InputQuantity.explicit("X2", 2.0, 0.05, unit="A"),
+        }
+        with pytest.raises(UnitError, match="incompatible dimensions"):
+            evaluate_gum(model, inputs)
+
+    def test_req_5b_incompatible_addition_a_plus_ohm_rejected(self):
+        """Incompatible addition: A + Ω -> REJECT."""
+        from academic_core.domain.engineering.units import UnitError
+        model = MeasurementModel(
+            measurand="Y",
+            equation="X1 + X2",
+            input_names=("X1", "X2"),
+        )
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 1.0, 0.01, unit="A"),
+            "X2": InputQuantity.explicit("X2", 10.0, 0.1, unit="Ω"),
+        }
+        with pytest.raises(UnitError, match="incompatible dimensions"):
+            evaluate_gum(model, inputs)
+
+    def test_req_6_incompatible_output_unit_rejected(self):
+        """Test 6: output_unit incompatible with calculated unit -> REJECT."""
+        from academic_core.domain.engineering.units import UnitError
+        model = MeasurementModel(
+            measurand="I",
+            equation="X1 / X2",
+            input_names=("X1", "X2"),
+            output_unit="V",
+        )
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 10.0, 0.1, unit="V"),
+            "X2": InputQuantity.explicit("X2", 2.0, 0.05, unit="Ω"),
+        }
+        with pytest.raises(UnitError, match="incompatible with declared output_unit"):
+            evaluate_gum(model, inputs)
+
+    def test_req_7_correct_output_unit_pass(self):
+        """Test 7: output_unit correct -> PASS."""
+        model = MeasurementModel(
+            measurand="I",
+            equation="X1 / X2",
+            input_names=("X1", "X2"),
+            output_unit="A",
+        )
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 10.0, 0.1, unit="V"),
+            "X2": InputQuantity.explicit("X2", 2.0, 0.05, unit="Ω"),
+        }
+        res = evaluate_gum(model, inputs)
+        assert abs(float(res.measurand_value) - 5.0) < 1e-12
+        assert res.measurand_unit == "A"
+
+    def test_req_8_existing_equations_continue_working(self):
+        """Test 8: Existing GUM equations from F7-B7 continue working."""
+        m_sum = MeasurementModel(measurand="Vtot", equation="V1 + V2", output_unit="V")
+        res_sum = evaluate_gum(m_sum, {
+            "V1": InputQuantity.explicit("V1", 5.0, 0.05, unit="V"),
+            "V2": InputQuantity.explicit("V2", 7.0, 0.07, unit="V"),
+        })
+        assert float(res_sum.measurand_value) == 12.0
+        assert res_sum.measurand_unit == "V"
+
+
+# ==============================================================================
+# 11. Post-Audit Hardening: Numerical Sensitivity Precision (Finding 3)
+# ==============================================================================
+
+class TestSensitivityPrecisionFinding3:
+    """Validate that numerical sensitivities preserve full precision (> 9 decimal places)."""
+
+    def test_numerical_sensitivity_preserves_precision_beyond_9_decimals(self):
+        val_str = "1.23456789123456"
+        model = MeasurementModel(
+            measurand="Y",
+            equation="X1**3 / 7",
+            input_names=("X1",),
+        )
+        x_nom = Decimal(val_str)
+        inputs = {"X1": x_nom}
+        c_num, method = model.get_sensitivity("X1", inputs)
+        assert method == SensitivityMethod.NUMERICAL.value
+
+        c_exact = (Decimal("3") * (x_nom ** 2)) / Decimal("7")
+        diff = abs(c_num - c_exact)
+        assert diff < Decimal("1e-9")
+
+        s = str(c_num)
+        frac = s.split(".")[1] if "." in s else ""
+        assert len(frac) > 9
+        assert frac[9:12] != "000"
+
+
+# ==============================================================================
+# 12. Post-Audit Hardening: Explicit k Validation & Provenance (Finding 4)
+# ==============================================================================
+
+class TestExplicitKValidationFinding4:
+    """Validate explicit_k requirements: k > 0, reject <=0, NaN, Inf, and check provenance."""
+
+    def test_explicit_k_positive_pass(self):
+        model = MeasurementModel(measurand="Y", equation="X", output_unit="V")
+        inputs = {"X": InputQuantity.explicit("X", 10.0, 0.5, unit="V")}
+        res = evaluate_gum(model, inputs, explicit_k=2.5)
+        assert res.coverage_factor == Decimal("2.5")
+        assert res.expanded_uncertainty == Decimal("2.5") * Decimal("0.5")
+        assert res.provenance["coverage_factor_source"] == "explicit_user"
+
+    def test_explicit_k_zero_rejected(self):
+        model = MeasurementModel(measurand="Y", equation="X", output_unit="V")
+        inputs = {"X": InputQuantity.explicit("X", 10.0, 0.5, unit="V")}
+        with pytest.raises(ValueError, match="strictly positive"):
+            evaluate_gum(model, inputs, explicit_k=0.0)
+
+    def test_explicit_k_negative_rejected(self):
+        model = MeasurementModel(measurand="Y", equation="X", output_unit="V")
+        inputs = {"X": InputQuantity.explicit("X", 10.0, 0.5, unit="V")}
+        with pytest.raises(ValueError, match="strictly positive"):
+            evaluate_gum(model, inputs, explicit_k=-2.0)
+
+    def test_explicit_k_nan_rejected(self):
+        model = MeasurementModel(measurand="Y", equation="X", output_unit="V")
+        inputs = {"X": InputQuantity.explicit("X", 10.0, 0.5, unit="V")}
+        with pytest.raises(ValueError, match="strictly positive"):
+            evaluate_gum(model, inputs, explicit_k=float("nan"))
+
+    def test_explicit_k_inf_rejected(self):
+        model = MeasurementModel(measurand="Y", equation="X", output_unit="V")
+        inputs = {"X": InputQuantity.explicit("X", 10.0, 0.5, unit="V")}
+        with pytest.raises(ValueError, match="strictly positive"):
+            evaluate_gum(model, inputs, explicit_k=float("inf"))
+
+    def test_coverage_factor_provenance_distinctions(self):
+        model = MeasurementModel(measurand="Y", equation="X", output_unit="V")
+
+        # 1. Finite dof -> student_t
+        inputs_finite = {"X": InputQuantity("X", Decimal("10"), standard_uncertainty=Decimal("0.5"), degrees_of_freedom=5.0, unit="V")}
+        res_t = evaluate_gum(model, inputs_finite)
+        assert res_t.provenance["coverage_factor_source"] == "student_t"
+
+        # 2. Infinite dof -> normal_limit
+        inputs_inf = {"X": InputQuantity.rectangular("X", 10.0, half_width=0.5, unit="V")}
+        res_norm = evaluate_gum(model, inputs_inf)
+        assert res_norm.provenance["coverage_factor_source"] == "normal_limit"
+
+        # 3. Explicit user override -> explicit_user
+        res_exp = evaluate_gum(model, inputs_inf, explicit_k=3.0)
+        assert res_exp.provenance["coverage_factor_source"] == "explicit_user"
