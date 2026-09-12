@@ -1,0 +1,50 @@
+# Bytecode, venvs, build
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+
+# Qt / PyInstaller
+build/
+dist/
+*.spec
+*.exe
+
+# Data (never commit user data / DBs / documents)
+data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+instance/
+documentos/
+backups/
+assets/
+content/corpus/
+
+# Indexes / caches / models
+.index/
+.cache/
+models/
+*.bin
+*.onnx
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.code-workspace
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Temp
+*.tmp
+*.bak
+scratch/

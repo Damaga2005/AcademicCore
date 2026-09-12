@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "academic-core"
+version = "0.1.0"
+description = "Academic Engineering Environment / Academic OS for Windows (Phase 0 foundation)"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+  "PySide6>=6.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-qt>=4.4"]
+pdf = ["pypdf>=5.0"]
+html = ["beautifulsoup4>=4.12", "lxml>=5.0", "markdownify>=1.2", "mathml2latex>=0.1.0"]
+anki = ["genanki>=0.13.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+markers = [
+  "arch: architecture boundary tests",
+  "migration: migration / coverage gates",
+  "repro: reproducibility tests",
+]
