@@ -227,6 +227,192 @@ class ACAnalysis:
 
 
 @dataclass(frozen=True)
+class NoiseAnalysis:
+    """Specification for a Noise (.noise) small-signal analysis.
+
+    Evaluates output noise and input-referred noise over a frequency sweep.
+    Generates SPICE card: .noise <output_variable> <input_source> <sweep_type> <points> <fstart> <fstop>
+    """
+    output_variable: str  # e.g. "v(out)" or "V(OUT)"
+    input_source: str     # e.g. "V1"
+    sweep_type: str       # "DEC" | "OCT" | "LIN"
+    points: int
+    fstart: Decimal | str | float | int
+    fstop: Decimal | str | float | int
+
+    def __post_init__(self):
+        if not self.output_variable or not str(self.output_variable).strip():
+            raise ValueError("noise output variable must not be empty")
+        if not self.input_source or not str(self.input_source).strip():
+            raise ValueError("noise input source must not be empty")
+        if not self.sweep_type or not str(self.sweep_type).strip():
+            raise ValueError("noise sweep type must not be empty")
+        st = str(self.sweep_type).strip().upper()
+        if st not in ("DEC", "OCT", "LIN"):
+            raise ValueError(f"invalid noise sweep type: {st!r} (expected 'DEC', 'OCT', or 'LIN')")
+
+        try:
+            pts = int(self.points)
+        except Exception as exc:
+            raise ValueError(f"invalid points parameter for noise analysis: {exc}")
+        if pts <= 0:
+            raise ValueError(f"noise points must be positive, got {pts}")
+
+        try:
+            fstart_d = parse_spice_number(self.fstart)
+            fstop_d = parse_spice_number(self.fstop)
+        except Exception as exc:
+            raise ValueError(f"invalid frequency parameter for noise analysis: {exc}")
+
+        if fstart_d <= 0:
+            raise ValueError(f"noise start frequency must be positive, got {fstart_d}")
+        if fstop_d <= fstart_d:
+            raise ValueError(f"noise stop frequency ({fstop_d}) must be greater than start frequency ({fstart_d})")
+
+        out_var = str(self.output_variable).strip()
+        in_src = str(self.input_source).strip().upper()
+
+        object.__setattr__(self, "output_variable", out_var)
+        object.__setattr__(self, "input_source", in_src)
+        object.__setattr__(self, "sweep_type", st)
+        object.__setattr__(self, "points", pts)
+        object.__setattr__(self, "fstart", fstart_d)
+        object.__setattr__(self, "fstop", fstop_d)
+
+    def to_spice_card(self) -> str:
+        """Generate SPICE .noise directive line."""
+        def _fmt(d: Decimal) -> str:
+            if d == d.to_integral():
+                return str(int(d))
+            s = f"{d:f}"
+            if "." in s:
+                s = s.rstrip("0").rstrip(".")
+            return s
+
+        return f".noise {self.output_variable} {self.input_source} {self.sweep_type.lower()} {self.points} {_fmt(self.fstart)} {_fmt(self.fstop)}"
+
+    @classmethod
+    def from_string(cls, text: str) -> NoiseAnalysis:
+        """Parse from a line like '.noise v(out) V1 dec 10 1 100k' or 'noise v(out) v1 lin 50 100 10k'."""
+        cleaned = text.strip()
+        if cleaned.lower().startswith(".noise"):
+            cleaned = cleaned[6:].strip()
+        elif cleaned.lower().startswith("noise"):
+            cleaned = cleaned[5:].strip()
+        parts = cleaned.split()
+        if len(parts) < 6:
+            raise ValueError(f"malformed noise directive: {text!r} (expected 6 tokens: out_var in_source sweep_type points fstart fstop)")
+        out_var = parts[0]
+        in_src = parts[1]
+        sweep_type = parts[2]
+        points = int(parts[3])
+        fstart = parse_spice_number(parts[4])
+        fstop = parse_spice_number(parts[5])
+        return cls(output_variable=out_var, input_source=in_src, sweep_type=sweep_type, points=points, fstart=fstart, fstop=fstop)
+
+
+@dataclass(frozen=True)
+class SensitivityAnalysis:
+    """Specification for a Sensitivity (.sens) analysis.
+
+    Evaluates DC or AC small-signal sensitivities of output_variable with respect to circuit components.
+    Generates SPICE card:
+      DC: .sens <output_variable>
+      AC: .sens <output_variable> ac <sweep_type> <points> <fstart> <fstop>
+    """
+    output_variable: str  # e.g. "v(out)"
+    analysis_type: str = "DC"  # "DC" | "AC"
+    sweep_type: str = "DEC"    # "DEC" | "OCT" | "LIN" (when analysis_type is AC)
+    points: int = 10           # (when analysis_type is AC)
+    fstart: Decimal | str | float | int = Decimal(1)       # (when analysis_type is AC)
+    fstop: Decimal | str | float | int = Decimal(100000)   # (when analysis_type is AC)
+    parameters: tuple[str, ...] = ()  # Optional subset of parameters/components to print/evaluate
+
+    def __post_init__(self):
+        if not self.output_variable or not str(self.output_variable).strip():
+            raise ValueError("sensitivity output variable must not be empty")
+        an_type = str(self.analysis_type).strip().upper()
+        if an_type not in ("DC", "AC"):
+            raise ValueError(f"invalid sensitivity analysis type: {an_type!r} (expected 'DC' or 'AC')")
+
+        st = str(self.sweep_type).strip().upper()
+        if an_type == "AC":
+            if st not in ("DEC", "OCT", "LIN"):
+                raise ValueError(f"invalid AC sensitivity sweep type: {st!r} (expected 'DEC', 'OCT', or 'LIN')")
+            try:
+                pts = int(self.points)
+            except Exception as exc:
+                raise ValueError(f"invalid points parameter for AC sensitivity: {exc}")
+            if pts <= 0:
+                raise ValueError(f"sensitivity points must be positive, got {pts}")
+
+            try:
+                fstart_d = parse_spice_number(self.fstart)
+                fstop_d = parse_spice_number(self.fstop)
+            except Exception as exc:
+                raise ValueError(f"invalid frequency parameter for AC sensitivity: {exc}")
+
+            if fstart_d <= 0:
+                raise ValueError(f"sensitivity start frequency must be positive, got {fstart_d}")
+            if fstop_d <= fstart_d:
+                raise ValueError(f"sensitivity stop frequency ({fstop_d}) must be greater than start frequency ({fstart_d})")
+        else:
+            pts = int(self.points) if self.points else 1
+            fstart_d = Decimal(1)
+            fstop_d = Decimal(100000)
+
+        out_var = str(self.output_variable).strip()
+        params = tuple(str(p).strip().lower() for p in self.parameters if str(p).strip())
+
+        object.__setattr__(self, "output_variable", out_var)
+        object.__setattr__(self, "analysis_type", an_type)
+        object.__setattr__(self, "sweep_type", st)
+        object.__setattr__(self, "points", pts)
+        object.__setattr__(self, "fstart", fstart_d)
+        object.__setattr__(self, "fstop", fstop_d)
+        object.__setattr__(self, "parameters", params)
+
+    def to_spice_card(self) -> str:
+        """Generate SPICE .sens directive line."""
+        if self.analysis_type == "DC":
+            return f".sens {self.output_variable}"
+
+        def _fmt(d: Decimal) -> str:
+            if d == d.to_integral():
+                return str(int(d))
+            s = f"{d:f}"
+            if "." in s:
+                s = s.rstrip("0").rstrip(".")
+            return s
+
+        return f".sens {self.output_variable} ac {self.sweep_type.lower()} {self.points} {_fmt(self.fstart)} {_fmt(self.fstop)}"
+
+    @classmethod
+    def from_string(cls, text: str) -> SensitivityAnalysis:
+        """Parse from lines like '.sens v(out)', 'sens v(out)', or '.sens v(out) ac dec 10 1 100k'."""
+        cleaned = text.strip()
+        if cleaned.lower().startswith(".sens"):
+            cleaned = cleaned[5:].strip()
+        elif cleaned.lower().startswith("sens"):
+            cleaned = cleaned[4:].strip()
+        parts = cleaned.split()
+        if not parts:
+            raise ValueError(f"malformed sens directive: {text!r} (expected at least output variable)")
+        out_var = parts[0]
+        if len(parts) == 1:
+            return cls(output_variable=out_var, analysis_type="DC")
+        if len(parts) >= 2 and parts[1].lower() == "ac":
+            if len(parts) < 6:
+                raise ValueError(f"malformed AC sens directive: {text!r} (expected 6 tokens: out_var ac sweep_type points fstart fstop)")
+            sweep_type = parts[2]
+            points = int(parts[3])
+            fstart = parse_spice_number(parts[4])
+            fstop = parse_spice_number(parts[5])
+            return cls(output_variable=out_var, analysis_type="AC", sweep_type=sweep_type, points=points, fstart=fstart, fstop=fstop)
+        return cls(output_variable=out_var, analysis_type="DC")
+
+
+@dataclass(frozen=True)
 class DCSweepAnalysis:
     """Specification for a DC Sweep (.dc) analysis.
 
@@ -651,6 +837,143 @@ class SimulationResult:
         sig = self.get_complex_signal(signal_name)
         return sig.db_samples if sig else None
 
+    @property
+    def onoise_spectrum(self) -> Signal | None:
+        """Output noise spectral density Signal (V/sqrt(Hz) or A/sqrt(Hz)) if present."""
+        return self.get_signal("onoise_spectrum")
+
+    @property
+    def inoise_spectrum(self) -> Signal | None:
+        """Input-referred noise spectral density Signal (V/sqrt(Hz) or A/sqrt(Hz)) if present."""
+        return self.get_signal("inoise_spectrum")
+
+    @property
+    def onoise_total(self) -> Decimal | None:
+        """Integrated output noise (V_RMS or A_RMS) if present."""
+        val = self.data.get("onoise_total")
+        return Decimal(val) if val is not None else None
+
+    @property
+    def inoise_total(self) -> Decimal | None:
+        """Integrated input-referred noise (V_RMS or A_RMS) if present."""
+        val = self.data.get("inoise_total")
+        return Decimal(val) if val is not None else None
+
+    def sample_onoise_at(self, target_frequency: Decimal | str | float | int) -> Decimal | None:
+        """Sample output noise spectral density at or nearest to specified frequency."""
+        return self.sample_at("onoise_spectrum", target_frequency)
+
+    def sample_inoise_at(self, target_frequency: Decimal | str | float | int) -> Decimal | None:
+        """Sample input-referred noise spectral density at or nearest to specified frequency."""
+        return self.sample_at("inoise_spectrum", target_frequency)
+
+    @property
+    def sensitivities(self) -> dict[str, Decimal | ComplexSignal]:
+        """Component sensitivities dictionary if present."""
+        return {}
+
+    def get_sensitivity(self, param_name: str) -> Decimal | ComplexSignal | None:
+        """Accessor for component sensitivity if present."""
+        return None
+
+    def get_normalized_sensitivity(self, param_name: str) -> Decimal | ComplexSignal | None:
+        """Accessor for normalized component sensitivity if present."""
+        return None
+
+
+@dataclass(frozen=True)
+class NoiseResult(SimulationResult):
+    """Specialized simulation result for Noise (.noise) analysis.
+
+    Provides noise spectral density curves (onoise_spectrum, inoise_spectrum)
+    and integrated noise totals (onoise_total, inoise_total).
+    """
+    onoise_total_val: Decimal | None = None
+    inoise_total_val: Decimal | None = None
+
+    @property
+    def onoise_total(self) -> Decimal | None:
+        if self.onoise_total_val is not None:
+            return self.onoise_total_val
+        val = self.data.get("onoise_total")
+        return Decimal(val) if val is not None else None
+
+    @property
+    def inoise_total(self) -> Decimal | None:
+        if self.inoise_total_val is not None:
+            return self.inoise_total_val
+        val = self.data.get("inoise_total")
+        return Decimal(val) if val is not None else None
+
+
+@dataclass(frozen=True)
+class SensitivityResult(SimulationResult):
+    """Specialized simulation result for Sensitivity (.sens) analysis.
+
+    Contains component sensitivities (d(Output)/d(Parameter)) and normalized sensitivities.
+    For DC: sensitivities are scalar Decimals (e.g. V/Ohm, V/V, etc.).
+    For AC: sensitivities are ComplexSignals across the frequency sweep.
+    """
+    sensitivities_map: dict[str, Decimal | ComplexSignal] = field(default_factory=dict)
+    normalized_sensitivities: dict[str, Decimal | ComplexSignal] = field(default_factory=dict)
+    output_variable: str = ""
+
+    @property
+    def sensitivities(self) -> dict[str, Decimal | ComplexSignal]:
+        return self.sensitivities_map
+
+    def get_sensitivity(self, param_name: str) -> Decimal | ComplexSignal | None:
+        target = param_name.strip().lower()
+        for k, v in self.sensitivities_map.items():
+            if k.lower() == target:
+                return v
+        return None
+
+    def get_normalized_sensitivity(self, param_name: str) -> Decimal | ComplexSignal | None:
+        target = param_name.strip().lower()
+        for k, v in self.normalized_sensitivities.items():
+            if k.lower() == target:
+                return v
+        return None
+
+    def compute_normalized_sensitivities(
+        self,
+        nominal_params: dict[str, Decimal | float | int],
+        nominal_output: Any = None,
+    ) -> dict[str, Decimal | ComplexSignal]:
+        """Compute normalized sensitivities S_p = (p / Output) * (d Output / d p)."""
+        norm_map: dict[str, Decimal | ComplexSignal] = {}
+        for p_name, p_val in nominal_params.items():
+            sens = self.get_sensitivity(p_name)
+            if sens is None:
+                continue
+            p_dec = Decimal(str(p_val))
+            if isinstance(sens, Decimal):
+                if nominal_output is not None and not isinstance(nominal_output, (Signal, ComplexSignal)):
+                    out_dec = Decimal(str(nominal_output))
+                    if out_dec != 0:
+                        norm_map[p_name.lower()] = (p_dec / out_dec) * sens
+            elif isinstance(sens, ComplexSignal):
+                # Frequency-dependent AC normalized sensitivity: S_p(jw) = (p / H(jw)) * (dH(jw) / dp)
+                p_flt = float(p_dec)
+                if isinstance(nominal_output, ComplexSignal) and len(nominal_output) == len(sens):
+                    s_samples = []
+                    re_samples = []
+                    im_samples = []
+                    for h_val, dh_val in zip(nominal_output.raw_complex_samples, sens.raw_complex_samples):
+                        if h_val != 0:
+                            s_val = (p_flt / h_val) * dh_val
+                        else:
+                            s_val = 0j
+                        s_samples.append(s_val)
+                        re_samples.append(Decimal(str(s_val.real)))
+                        im_samples.append(Decimal(str(s_val.imag)))
+                    norm_map[p_name.lower()] = ComplexSignal(
+                        f"s_{p_name.lower()}", "normalized", "sensitivity",
+                        tuple(re_samples), tuple(im_samples), tuple(s_samples)
+                    )
+        return norm_map
+
 
 @dataclass(frozen=True)
 class SimulationJob:
@@ -672,6 +995,11 @@ class SimulationJob:
         has_dc_sweep = False
         has_tran = False
         has_ac = False
+        has_noise = False
+        has_sens = False
+        sens_params: tuple[str, ...] = ()
+        noise_in_src: str | None = None
+        sens_is_ac = False
 
         for a in self.analyses:
             if isinstance(a, DCSweepAnalysis):
@@ -683,6 +1011,17 @@ class SimulationJob:
             elif isinstance(a, ACAnalysis):
                 analysis_commands.append(a.to_spice_card())
                 has_ac = True
+            elif isinstance(a, NoiseAnalysis):
+                analysis_commands.append(a.to_spice_card())
+                has_noise = True
+                noise_in_src = a.input_source
+            elif isinstance(a, SensitivityAnalysis):
+                analysis_commands.append(a.to_spice_card())
+                has_sens = True
+                if a.analysis_type == "AC":
+                    sens_is_ac = True
+                if a.parameters:
+                    sens_params = a.parameters
             elif isinstance(a, str):
                 an = a.strip()
                 an_lower = an.lower()
@@ -703,6 +1042,21 @@ class SimulationJob:
                     ac = ACAnalysis.from_string(an)
                     analysis_commands.append(ac.to_spice_card())
                     has_ac = True
+                elif an_lower.startswith("noise ") or an_lower.startswith(".noise "):
+                    # Validate via NoiseAnalysis
+                    noise = NoiseAnalysis.from_string(an)
+                    analysis_commands.append(noise.to_spice_card())
+                    has_noise = True
+                    noise_in_src = noise.input_source
+                elif an_lower.startswith("sens ") or an_lower.startswith(".sens "):
+                    # Validate via SensitivityAnalysis
+                    sens = SensitivityAnalysis.from_string(an)
+                    analysis_commands.append(sens.to_spice_card())
+                    has_sens = True
+                    if sens.analysis_type == "AC":
+                        sens_is_ac = True
+                    if sens.parameters:
+                        sens_params = sens.parameters
                 elif not an.startswith("."):
                     analysis_commands.append(f".{an}")
                 else:
@@ -727,10 +1081,11 @@ class SimulationJob:
                 if print_card and print_card.lower() not in existing:
                     to_add.append(print_card)
 
-        # For AC in batch mode, ngspice requires an AC source excitation and a .print ac card
-        if has_ac:
+        # For AC / Noise / AC-Sens in batch mode, ensure AC source excitation is present
+        if has_ac or has_noise or (has_sens and sens_is_ac):
             has_ac_source = False
             first_v_idx = None
+            target_src_idx = None
             for idx, line in enumerate(lines):
                 l_strip = line.strip()
                 if not l_strip or l_strip.startswith("*") or l_strip.startswith("."):
@@ -743,16 +1098,36 @@ class SimulationJob:
                     if any(tok.lower() == "ac" for tok in parts):
                         has_ac_source = True
                         break
+                    if noise_in_src and ref == noise_in_src.upper():
+                        target_src_idx = idx
                     if first_v_idx is None and ref.startswith("V"):
                         first_v_idx = idx
-            if not has_ac_source and first_v_idx is not None:
-                lines[first_v_idx] = f"{lines[first_v_idx].rstrip()} ac 1"
+            if not has_ac_source:
+                chosen_idx = target_src_idx if target_src_idx is not None else first_v_idx
+                if chosen_idx is not None:
+                    lines[chosen_idx] = f"{lines[chosen_idx].rstrip()} ac 1"
 
-            has_print_ac = any(l.strip().lower().startswith(".print ac") or l.strip().lower().startswith("print ac") for l in lines)
-            if not has_print_ac:
-                print_card = self._build_print_ac_card(lines)
-                if print_card and print_card.lower() not in existing:
-                    to_add.append(print_card)
+            if has_ac:
+                has_print_ac = any(l.strip().lower().startswith(".print ac") or l.strip().lower().startswith("print ac") for l in lines)
+                if not has_print_ac:
+                    print_card = self._build_print_ac_card(lines)
+                    if print_card and print_card.lower() not in existing:
+                        to_add.append(print_card)
+
+        # For Noise in batch mode, ngspice requires a .print noise card
+        if has_noise:
+            has_print_noise = any(l.strip().lower().startswith(".print noise") or l.strip().lower().startswith("print noise") for l in lines)
+            if not has_print_noise:
+                to_add.append(".print noise all")
+
+        # For Sensitivity in batch mode, ngspice requires a .print sens card
+        if has_sens:
+            has_print_sens = any(l.strip().lower().startswith(".print sens") or l.strip().lower().startswith("print sens") for l in lines)
+            if not has_print_sens:
+                if sens_params:
+                    to_add.append(f".print sens {' '.join(sens_params)}")
+                else:
+                    to_add.append(".print sens all")
 
         if end_idx is not None:
             new_lines = lines[:end_idx] + to_add + lines[end_idx:]
@@ -922,6 +1297,19 @@ class MockSimulationBackend(SimulationBackend):
                     dec_tuple = (Decimal(0),)
                     flt_tuple = (0.0,)
                 signals[k_lower] = Signal(k_lower, unit, axis, dec_tuple, flt_tuple)
+        if any(isinstance(a, NoiseAnalysis) or (isinstance(a, str) and a.strip().lower().startswith("noise")) for a in analyses) or "onoise_total" in self.payload:
+            on_tot = Decimal(str(self.payload["onoise_total"])) if "onoise_total" in self.payload else None
+            in_tot = Decimal(str(self.payload["inoise_total"])) if "inoise_total" in self.payload else None
+            return NoiseResult(self.name, digest, tuple(analyses),
+                               dict(self.payload), mocked=True, signals=signals,
+                               complex_signals=complex_signals,
+                               onoise_total_val=on_tot, inoise_total_val=in_tot)
+        if any(isinstance(a, SensitivityAnalysis) or (isinstance(a, str) and a.strip().lower().startswith("sens")) for a in analyses) or "sensitivities" in self.payload:
+            sens_map = dict(self.payload.get("sensitivities", {}))
+            return SensitivityResult(self.name, digest, tuple(analyses),
+                                     dict(self.payload), mocked=True, signals=signals,
+                                     complex_signals=complex_signals,
+                                     sensitivities_map=sens_map)
         return SimulationResult(self.name, digest, tuple(analyses),
                                 dict(self.payload), mocked=True, signals=signals,
                                 complex_signals=complex_signals)

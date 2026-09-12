@@ -13,7 +13,15 @@ import re
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from academic_core.domain.engineering.simulation import ComplexSignal, Signal, SimulationResult
+from academic_core.domain.engineering.simulation import (
+    ComplexSignal,
+    NoiseAnalysis,
+    NoiseResult,
+    SensitivityAnalysis,
+    SensitivityResult,
+    Signal,
+    SimulationResult,
+)
 
 if TYPE_CHECKING:
     from academic_core.infrastructure.cas import FileBlobStore
@@ -56,7 +64,7 @@ def parse_ngspice_output(
     elif execution.exit_code not in (0, None) and status == "COMPLETED":
         status = "FAILED"
 
-    # 2. Extract Signals from tabular sections (.op, .dc, .tran, .ac)
+    # 2. Extract Signals from tabular sections (.op, .dc, .tran, .ac, .noise, .sens)
     signals: dict[str, Signal] = {}
     complex_signals: dict[str, ComplexSignal] = {}
     data: dict[str, str] = {}
@@ -64,6 +72,8 @@ def parse_ngspice_output(
     _parse_op_tables(stdout, signals, data)
     _parse_index_tables(stdout, signals, data)
     _parse_ac_tables(stdout, signals, complex_signals, data)
+    noise_info = _parse_noise_tables(stdout, signals, data)
+    sens_info = _parse_sens_tables(stdout, signals, complex_signals, data)
 
     # 3. Digest and CAS raw artifact reference
     netlist_text = netlist or execution.input_hash
@@ -95,11 +105,72 @@ def parse_ngspice_output(
     }
 
     # If no signals extracted and execution was clean, but no circuit loaded or empty
-    if not signals and not complex_signals and status == "COMPLETED":
+    if not signals and not complex_signals and not sens_info.get("sensitivities") and status == "COMPLETED":
         if "no simulations run" in combined.lower() or "no circuits loaded" in combined.lower():
             status = "FAILED"
             if not errors_found:
                 errors_found.append("no simulations run")
+
+    is_noise_analysis = any(
+        isinstance(a, NoiseAnalysis) or (isinstance(a, str) and a.strip().lower().startswith("noise"))
+        for a in analyses
+    ) or noise_info.get("is_noise", False)
+
+    is_sens_analysis = any(
+        isinstance(a, SensitivityAnalysis) or (isinstance(a, str) and a.strip().lower().startswith("sens"))
+        for a in analyses
+    ) or sens_info.get("is_sens", False)
+
+    if is_noise_analysis:
+        return NoiseResult(
+            backend=execution.backend_id,
+            netlist_digest=netlist_digest,
+            analyses=tuple(analyses),
+            data=data,
+            mocked=False,
+            signals=signals,
+            complex_signals=complex_signals,
+            status=status,
+            exit_code=execution.exit_code,
+            duration_seconds=execution.duration_seconds,
+            started_at=execution.started_at,
+            finished_at=execution.finished_at,
+            raw_artifact_hash=raw_artifact_hash,
+            raw_stdout=stdout,
+            raw_stderr=stderr,
+            provenance=provenance,
+            errors=tuple(errors_found),
+            onoise_total_val=noise_info.get("onoise_total"),
+            inoise_total_val=noise_info.get("inoise_total"),
+        )
+
+    if is_sens_analysis:
+        out_var = ""
+        for a in analyses:
+            if isinstance(a, SensitivityAnalysis):
+                out_var = a.output_variable
+                break
+        return SensitivityResult(
+            backend=execution.backend_id,
+            netlist_digest=netlist_digest,
+            analyses=tuple(analyses),
+            data=data,
+            mocked=False,
+            signals=signals,
+            complex_signals=complex_signals,
+            status=status,
+            exit_code=execution.exit_code,
+            duration_seconds=execution.duration_seconds,
+            started_at=execution.started_at,
+            finished_at=execution.finished_at,
+            raw_artifact_hash=raw_artifact_hash,
+            raw_stdout=stdout,
+            raw_stderr=stderr,
+            provenance=provenance,
+            errors=tuple(errors_found),
+            sensitivities_map=sens_info.get("sensitivities", {}),
+            output_variable=out_var,
+        )
 
     return SimulationResult(
         backend=execution.backend_id,
@@ -207,15 +278,15 @@ def _parse_index_tables(text: str, signals: dict[str, Signal], data: dict[str, s
             continue
         if line_clean.startswith("-") or line_clean.startswith("="):
             continue
-        if line_clean.startswith("\x0c") or line_clean.startswith("Note:") or line_clean.startswith("Circuit:"):
+        if line_clean.startswith("\x0c") or line_clean.startswith("Note:") or line_clean.startswith("Circuit:") or "integrated noise" in line_clean.lower() or "noise spectral density" in line_clean.lower() or "sensitivity analysis" in line_clean.lower():
             active_headers = None
             continue
 
         parts = line_clean.split()
         if parts[0].lower() == "index":
             headers = [p.lower() for p in parts[1:]]
-            if headers and headers[0] == "frequency":
-                # AC analysis table handled by _parse_ac_tables
+            if headers and (headers[0] == "frequency" or any("noise" in h for h in headers)):
+                # AC analysis or Noise analysis table handled by specialized parsers
                 active_headers = None
                 continue
             active_headers = headers
@@ -298,7 +369,7 @@ def _parse_ac_tables(
             continue
         if line_clean.startswith("-") or line_clean.startswith("="):
             continue
-        if line_clean.startswith("Note:") or line_clean.startswith("Circuit:") or line_clean.startswith("Total "):
+        if line_clean.startswith("Note:") or line_clean.startswith("Circuit:") or line_clean.startswith("Total ") or "noise spectral density" in line_clean.lower() or "integrated noise" in line_clean.lower() or "sensitivity analysis" in line_clean.lower():
             active_headers = None
             continue
         if line_clean.startswith("\x0c"):
@@ -308,7 +379,7 @@ def _parse_ac_tables(
         parts = line_clean.split()
         if parts[0].lower() == "index":
             headers = [p.lower() for p in parts[1:]]
-            if headers and headers[0] == "frequency":
+            if headers and headers[0] == "frequency" and not any("noise" in h for h in headers):
                 active_headers = headers
                 for h in headers[1:]:
                     if h not in complex_columns:
@@ -403,3 +474,224 @@ def _parse_ac_tables(
             )
             complex_signals[col_name] = csig
             data[col_name] = str(c_samples)
+
+
+def _parse_noise_tables(text: str, signals: dict[str, Signal], data: dict[str, str]) -> dict:
+    """Parse ngspice .noise output tables (Integrated Noise and Noise Spectral Density Curves)."""
+    lines = text.splitlines()
+    result_info: dict = {"is_noise": False, "onoise_total": None, "inoise_total": None}
+
+    # 1. Parse Integrated Noise table
+    in_integrated = False
+    int_headers: list[str] = []
+    for line in lines:
+        line_clean = line.strip()
+        if "integrated noise" in line_clean.lower():
+            in_integrated = True
+            int_headers = []
+            continue
+        if in_integrated:
+            if line_clean.startswith("-") or line_clean.startswith("="):
+                continue
+            if not line_clean or line_clean.startswith("\x0c") or "noise spectral density" in line_clean.lower():
+                in_integrated = False
+                continue
+            parts = line_clean.split()
+            if parts and parts[0].lower() == "index":
+                int_headers = [p.lower() for p in parts[1:]]
+                continue
+            if parts and parts[0].isdigit() and int_headers:
+                result_info["is_noise"] = True
+                val_parts = parts[1:]
+                for h, v_str in zip(int_headers, val_parts):
+                    try:
+                        v_dec = Decimal(v_str)
+                        data[h] = str(v_dec)
+                        if "onoise" in h:
+                            result_info["onoise_total"] = v_dec
+                        elif "inoise" in h:
+                            result_info["inoise_total"] = v_dec
+                    except Exception:
+                        pass
+                in_integrated = False
+
+    # 2. Parse Noise Spectral Density Curves table
+    in_density = False
+    density_headers: list[str] = []
+    density_columns: dict[str, list[tuple[Decimal, float]]] = {}
+    for line in lines:
+        line_clean = line.strip()
+        if "noise spectral density" in line_clean.lower():
+            in_density = True
+            density_headers = []
+            continue
+        if in_density:
+            if line_clean.startswith("-") or line_clean.startswith("="):
+                continue
+            if line_clean.startswith("\x0c") or line_clean.startswith("Note:") or line_clean.startswith("Circuit:"):
+                in_density = False
+                continue
+            if not line_clean:
+                continue
+            parts = line_clean.split()
+            if parts and parts[0].lower() == "index":
+                density_headers = [p.lower() for p in parts[1:]]
+                for h in density_headers:
+                    if h not in density_columns:
+                        density_columns[h] = []
+                continue
+            if parts and parts[0].isdigit() and density_headers:
+                result_info["is_noise"] = True
+                val_parts = parts[1:]
+                for h, v_str in zip(density_headers, val_parts):
+                    try:
+                        dec = Decimal(v_str)
+                        flt = float(v_str)
+                        density_columns[h].append((dec, flt))
+                    except Exception:
+                        pass
+
+    for col_name, sample_pairs in density_columns.items():
+        if not sample_pairs:
+            continue
+        samples_dec = tuple(p[0] for p in sample_pairs)
+        samples_flt = tuple(p[1] for p in sample_pairs)
+
+        if col_name == "frequency":
+            sig = Signal("frequency", "Hz", "frequency", samples_dec, samples_flt)
+            signals["frequency"] = sig
+            data["frequency"] = str(samples_dec)
+        elif "onoise" in col_name:
+            sig = Signal("onoise_spectrum", "V/sqrt(Hz)", "noise_density", samples_dec, samples_flt)
+            signals["onoise_spectrum"] = sig
+            signals["onoise"] = sig
+            data["onoise_spectrum"] = str(samples_dec)
+        elif "inoise" in col_name:
+            sig = Signal("inoise_spectrum", "V/sqrt(Hz)", "noise_density", samples_dec, samples_flt)
+            signals["inoise_spectrum"] = sig
+            signals["inoise"] = sig
+            data["inoise_spectrum"] = str(samples_dec)
+        else:
+            sig = Signal(col_name, "V/sqrt(Hz)", "noise_density", samples_dec, samples_flt)
+            signals[col_name] = sig
+
+    return result_info
+
+
+def _parse_sens_tables(
+    text: str,
+    signals: dict[str, Signal],
+    complex_signals: dict[str, ComplexSignal],
+    data: dict[str, str],
+) -> dict:
+    """Parse ngspice .sens output tables (DC scalar sensitivity and AC complex sensitivity)."""
+    lines = text.splitlines()
+    result_info: dict = {"is_sens": False, "sensitivities": {}}
+    sens_map: dict[str, Decimal | ComplexSignal] = {}
+
+    in_sens = False
+    active_headers: list[str] | None = None
+    is_ac_sens = False
+    freq_samples: list[tuple[Decimal, float]] = []
+    ac_columns: dict[str, list[tuple[Decimal, Decimal, complex]]] = {}
+
+    for line in lines:
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+        if "sensitivity analysis" in line_clean.lower():
+            in_sens = True
+            active_headers = None
+            continue
+        if not in_sens:
+            continue
+
+        if line_clean.startswith("-") or line_clean.startswith("="):
+            continue
+        if line_clean.startswith("Note:") or line_clean.startswith("Circuit:") or line_clean.startswith("Total "):
+            in_sens = False
+            active_headers = None
+            continue
+        if line_clean.startswith("\x0c"):
+            # New page in paginated sens table
+            active_headers = None
+            continue
+
+        parts = line_clean.split()
+        if parts and parts[0].lower() == "index":
+            active_headers = [p.lower() for p in parts[1:]]
+            if active_headers and active_headers[0] == "frequency":
+                is_ac_sens = True
+                result_info["is_sens"] = True
+                for h in active_headers[1:]:
+                    if h not in ac_columns:
+                        ac_columns[h] = []
+            else:
+                is_ac_sens = False
+                result_info["is_sens"] = True
+            continue
+
+        if active_headers and parts and parts[0].isdigit():
+            result_info["is_sens"] = True
+            if is_ac_sens:
+                idx = int(parts[0])
+                try:
+                    freq_dec = Decimal(parts[1])
+                    freq_flt = float(parts[1])
+                except Exception:
+                    continue
+                if len(freq_samples) <= idx:
+                    freq_samples.append((freq_dec, freq_flt))
+
+                var_headers = active_headers[1:]
+                val_tokens = parts[2:]
+                token_idx = 0
+                for var_name in var_headers:
+                    if token_idx >= len(val_tokens):
+                        break
+                    re_str = val_tokens[token_idx].rstrip(",")
+                    token_idx += 1
+                    if token_idx < len(val_tokens):
+                        im_str = val_tokens[token_idx].rstrip(",")
+                        token_idx += 1
+                    else:
+                        im_str = "0.0"
+                    try:
+                        re_dec = Decimal(re_str)
+                        im_dec = Decimal(im_str)
+                        c_val = complex(float(re_str), float(im_str))
+                        ac_columns[var_name].append((re_dec, im_dec, c_val))
+                    except Exception:
+                        pass
+            else:
+                # DC scalar sensitivity row (row 0)
+                val_parts = parts[1:]
+                for h, val_str in zip(active_headers, val_parts):
+                    try:
+                        dec = Decimal(val_str)
+                        flt = float(val_str)
+                        sens_map[h] = dec
+                        data[h] = str(dec)
+                        # Also provide Signal accessor
+                        signals[h] = Signal(h, "sensitivity", "sensitivity", (dec,), (flt,))
+                    except Exception:
+                        pass
+
+    if is_ac_sens and freq_samples:
+        f_dec = tuple(p[0] for p in freq_samples)
+        f_flt = tuple(p[1] for p in freq_samples)
+        signals["frequency"] = Signal("frequency", "Hz", "frequency", f_dec, f_flt)
+        data["frequency"] = str(f_dec)
+
+        for var_name, samples_list in ac_columns.items():
+            if not samples_list:
+                continue
+            re_tuple = tuple(s[0] for s in samples_list)
+            im_tuple = tuple(s[1] for s in samples_list)
+            c_tuple = tuple(s[2] for s in samples_list)
+            csig = ComplexSignal(var_name, "sensitivity", "sensitivity", re_tuple, im_tuple, c_tuple)
+            complex_signals[var_name] = csig
+            sens_map[var_name] = csig
+
+    result_info["sensitivities"] = sens_map
+    return result_info
