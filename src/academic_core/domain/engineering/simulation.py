@@ -11,26 +11,31 @@ F7-B2 adds DC Sweep analysis:
 F7-B3 adds Transient analysis:
 - TransientAnalysis (tstep, tstop, tstart, tmax, uic, validation)
 - Time axis Signal support (time_axis, sample_at, multi-point time series)
+F7-B4 adds AC small-signal analysis:
+- ACAnalysis (sweep_type DEC/OCT/LIN, points, fstart, fstop, validation)
+- ComplexSignal (real, imag, magnitude, phase, dB, complex IEEE 754 float)
+- Frequency axis Signal support (frequency_axis, sample_complex_at)
 """
 
 from __future__ import annotations
 
 import hashlib
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
 _SPICE_SUFFIXES: dict[str, Decimal] = {
-    "t": Decimal("1e12"),
-    "g": Decimal("1e9"),
-    "meg": Decimal("1e6"),
-    "k": Decimal("1e3"),
-    "m": Decimal("1e-3"),
-    "u": Decimal("1e-6"),
-    "n": Decimal("1e-9"),
-    "p": Decimal("1e-12"),
-    "f": Decimal("1e-15"),
+    "t": Decimal("1000000000000"),
+    "g": Decimal("1000000000"),
+    "meg": Decimal("1000000"),
+    "k": Decimal("1000"),
+    "m": Decimal("0.001"),
+    "u": Decimal("0.000001"),
+    "n": Decimal("0.000000001"),
+    "p": Decimal("0.000000000001"),
+    "f": Decimal("0.000000000000001"),
 }
 
 
@@ -149,6 +154,79 @@ class TransientAnalysis:
 
 
 @dataclass(frozen=True)
+class ACAnalysis:
+    """Specification for an AC small-signal (.ac) analysis.
+
+    Sweeps frequency with sweep_type: 'DEC' (decade), 'OCT' (octave), or 'LIN' (linear).
+    Points: points per decade/octave, or total points for linear.
+    Frequencies: fstart (start frequency in Hz) and fstop (stop frequency in Hz).
+    """
+    sweep_type: str  # "DEC" | "OCT" | "LIN"
+    points: int
+    fstart: Decimal | str | float | int
+    fstop: Decimal | str | float | int
+
+    def __post_init__(self):
+        if not self.sweep_type or not str(self.sweep_type).strip():
+            raise ValueError("AC sweep type must not be empty")
+        st = str(self.sweep_type).strip().upper()
+        if st not in ("DEC", "OCT", "LIN"):
+            raise ValueError(f"invalid AC sweep type: {st!r} (expected 'DEC', 'OCT', or 'LIN')")
+
+        try:
+            pts = int(self.points)
+        except Exception as exc:
+            raise ValueError(f"invalid points parameter for AC analysis: {exc}")
+        if pts <= 0:
+            raise ValueError(f"AC points must be positive, got {pts}")
+
+        try:
+            fstart_d = parse_spice_number(self.fstart)
+            fstop_d = parse_spice_number(self.fstop)
+        except Exception as exc:
+            raise ValueError(f"invalid frequency parameter for AC analysis: {exc}")
+
+        if fstart_d <= 0:
+            raise ValueError(f"AC start frequency must be positive, got {fstart_d}")
+        if fstop_d <= fstart_d:
+            raise ValueError(f"AC stop frequency ({fstop_d}) must be greater than start frequency ({fstart_d})")
+
+        object.__setattr__(self, "sweep_type", st)
+        object.__setattr__(self, "points", pts)
+        object.__setattr__(self, "fstart", fstart_d)
+        object.__setattr__(self, "fstop", fstop_d)
+
+    def to_spice_card(self) -> str:
+        """Generate SPICE .ac directive line."""
+        def _fmt(d: Decimal) -> str:
+            if d == d.to_integral():
+                return str(int(d))
+            s = f"{d:f}"
+            if "." in s:
+                s = s.rstrip("0").rstrip(".")
+            return s
+
+        return f".ac {self.sweep_type.lower()} {self.points} {_fmt(self.fstart)} {_fmt(self.fstop)}"
+
+    @classmethod
+    def from_string(cls, text: str) -> ACAnalysis:
+        """Parse from a line like '.ac dec 10 1 100k' or 'ac lin 50 100 10k'."""
+        cleaned = text.strip()
+        if cleaned.lower().startswith(".ac"):
+            cleaned = cleaned[3:].strip()
+        elif cleaned.lower().startswith("ac"):
+            cleaned = cleaned[2:].strip()
+        parts = cleaned.split()
+        if len(parts) < 4:
+            raise ValueError(f"malformed AC directive: {text!r} (expected 4 tokens: sweep_type points fstart fstop)")
+        sweep_type = parts[0]
+        points = int(parts[1])
+        fstart = parse_spice_number(parts[2])
+        fstop = parse_spice_number(parts[3])
+        return cls(sweep_type=sweep_type, points=points, fstart=fstart, fstop=fstop)
+
+
+@dataclass(frozen=True)
 class DCSweepAnalysis:
     """Specification for a DC Sweep (.dc) analysis.
 
@@ -242,6 +320,102 @@ class Signal:
 
 
 @dataclass(frozen=True)
+class ComplexSignal:
+    """Scientific representation of an AC complex simulated electrical variable.
+
+    Maintains separation between solver IEEE 754 float precision (complex) and
+    high-precision domain Decimal representations for real/imag components,
+    magnitude, phase (radians and degrees), and magnitude in decibels.
+    """
+    name: str  # e.g. "v(out)", "i(v1)"
+    unit: str  # e.g. "V", "A"
+    axis: str  # "voltage", "current"
+    real_samples: tuple[Decimal, ...] = ()
+    imag_samples: tuple[Decimal, ...] = ()
+    raw_complex_samples: tuple[complex, ...] = ()
+
+    @property
+    def magnitude_samples(self) -> tuple[Decimal, ...]:
+        """Magnitude |H| = sqrt(Re^2 + Im^2) for all frequency points."""
+        res = []
+        for r, i in zip(self.real_samples, self.imag_samples):
+            mag = math.hypot(float(r), float(i))
+            res.append(Decimal(str(mag)))
+        return tuple(res)
+
+    @property
+    def phase_rad_samples(self) -> tuple[Decimal, ...]:
+        """Phase in radians: atan2(Im, Re) in (-pi, pi] for all frequency points."""
+        res = []
+        for r, i in zip(self.real_samples, self.imag_samples):
+            rad = math.atan2(float(i), float(r))
+            res.append(Decimal(str(rad)))
+        return tuple(res)
+
+    @property
+    def phase_deg_samples(self) -> tuple[Decimal, ...]:
+        """Phase in degrees: degrees(atan2(Im, Re)) in (-180, 180] for all frequency points."""
+        res = []
+        for r, i in zip(self.real_samples, self.imag_samples):
+            deg = math.degrees(math.atan2(float(i), float(r)))
+            res.append(Decimal(str(deg)))
+        return tuple(res)
+
+    @property
+    def db_samples(self) -> tuple[Decimal, ...]:
+        """Magnitude in decibels: 20 * log10(|H|) for all frequency points.
+
+        If |H| == 0, returns Decimal('-Infinity').
+        """
+        res = []
+        for r, i in zip(self.real_samples, self.imag_samples):
+            mag = math.hypot(float(r), float(i))
+            if mag <= 0:
+                res.append(Decimal("-Infinity"))
+            else:
+                db = 20.0 * math.log10(mag)
+                res.append(Decimal(str(db)))
+        return tuple(res)
+
+    @property
+    def value(self) -> complex | None:
+        """First complex sample directly from solver."""
+        return self.raw_complex_samples[0] if self.raw_complex_samples else None
+
+    @property
+    def real_value(self) -> Decimal | None:
+        """Real part of the first point."""
+        return self.real_samples[0] if self.real_samples else None
+
+    @property
+    def imag_value(self) -> Decimal | None:
+        """Imaginary part of the first point."""
+        return self.imag_samples[0] if self.imag_samples else None
+
+    @property
+    def magnitude_value(self) -> Decimal | None:
+        """Magnitude of the first point."""
+        return self.magnitude_samples[0] if self.magnitude_samples else None
+
+    @property
+    def phase_deg_value(self) -> Decimal | None:
+        """Phase in degrees of the first point."""
+        return self.phase_deg_samples[0] if self.phase_deg_samples else None
+
+    @property
+    def db_value(self) -> Decimal | None:
+        """Magnitude in dB of the first point."""
+        return self.db_samples[0] if self.db_samples else None
+
+    @property
+    def is_multi_point(self) -> bool:
+        return len(self.raw_complex_samples) > 1
+
+    def __len__(self) -> int:
+        return len(self.raw_complex_samples)
+
+
+@dataclass(frozen=True)
 class SimulationResult:
     """Scientific result of a circuit simulation.
 
@@ -254,6 +428,7 @@ class SimulationResult:
     data: dict  # legacy/compat backend-defined payload e.g. {"V(NET2)": "5.0"}
     mocked: bool = False
     signals: dict[str, Signal] = field(default_factory=dict)
+    complex_signals: dict[str, ComplexSignal] = field(default_factory=dict)
     status: str = "COMPLETED"  # COMPLETED | FAILED | TIMEOUT | CANCELLED
     exit_code: int | None = 0
     duration_seconds: float = 0.0
@@ -269,6 +444,14 @@ class SimulationResult:
         """Case-insensitive lookup for signals by name e.g. 'v(out)' or 'V(OUT)'."""
         target = name.strip().lower()
         for k, v in self.signals.items():
+            if k.lower() == target:
+                return v
+        return None
+
+    def get_complex_signal(self, name: str) -> ComplexSignal | None:
+        """Case-insensitive lookup for complex signals by name e.g. 'v(out)' or 'V(OUT)'."""
+        target = name.strip().lower()
+        for k, v in self.complex_signals.items():
             if k.lower() == target:
                 return v
         return None
@@ -295,20 +478,33 @@ class SimulationResult:
         return None
 
     @property
+    def frequency_axis(self) -> Signal | None:
+        """The primary frequency variable/axis Signal if present in the simulation."""
+        for sig in self.signals.values():
+            if sig.axis == "frequency":
+                return sig
+        if "frequency" in self.signals:
+            return self.signals["frequency"]
+        return None
+
+    @property
     def points_count(self) -> int:
         """Number of points in the simulation result."""
-        axis = self.time_axis or self.sweep_axis
+        axis = self.frequency_axis or self.time_axis or self.sweep_axis
         if axis and axis.samples:
             return len(axis.samples)
+        for csig in self.complex_signals.values():
+            if csig.raw_complex_samples:
+                return len(csig.raw_complex_samples)
         for sig in self.signals.values():
             if sig.samples:
                 return len(sig.samples)
         return 0
 
     def sample_at(self, signal_name: str, target: Decimal | float | str) -> Decimal | None:
-        """Sample a signal value at or nearest to a specified time or sweep value."""
+        """Sample a real signal value at or nearest to a specified time, sweep, or frequency value."""
         sig = self.get_signal(signal_name)
-        axis = self.time_axis or self.sweep_axis
+        axis = self.frequency_axis or self.time_axis or self.sweep_axis
         if not sig or not sig.samples or not axis or not axis.samples:
             return None
         target_d = parse_spice_number(target)
@@ -321,6 +517,24 @@ class SimulationResult:
                 best_idx = i
         if best_idx < len(sig.samples):
             return sig.samples[best_idx]
+        return None
+
+    def sample_complex_at(self, signal_name: str, target_freq: Decimal | float | str) -> complex | None:
+        """Sample a complex signal value at or nearest to a specified frequency."""
+        sig = self.get_complex_signal(signal_name)
+        f_axis = self.frequency_axis
+        if not sig or not sig.raw_complex_samples or not f_axis or not f_axis.samples:
+            return None
+        target_d = parse_spice_number(target_freq)
+        best_idx = 0
+        min_diff = abs(f_axis.samples[0] - target_d)
+        for i, val in enumerate(f_axis.samples[1:], start=1):
+            diff = abs(val - target_d)
+            if diff < min_diff:
+                min_diff = diff
+                best_idx = i
+        if best_idx < len(sig.raw_complex_samples):
+            return sig.raw_complex_samples[best_idx]
         return None
 
     def voltage(self, node: str) -> Decimal | None:
@@ -342,6 +556,20 @@ class SimulationResult:
             name = f"v({node_clean})"
         sig = self.get_signal(name)
         return sig.samples if sig else None
+
+    def voltage_complex(self, node: str) -> complex | None:
+        """Convenience accessor for node voltage complex scalar value (first point)."""
+        node_clean = node.strip().lower()
+        name = node_clean if (node_clean.startswith("v(") and node_clean.endswith(")")) else f"v({node_clean})"
+        sig = self.get_complex_signal(name)
+        return sig.value if sig else None
+
+    def voltage_complex_samples(self, node: str) -> tuple[complex, ...] | None:
+        """Full sequence of node voltage complex samples across all frequency points."""
+        node_clean = node.strip().lower()
+        name = node_clean if (node_clean.startswith("v(") and node_clean.endswith(")")) else f"v({node_clean})"
+        sig = self.get_complex_signal(name)
+        return sig.raw_complex_samples if sig else None
 
     def current(self, source: str) -> Decimal | None:
         """Convenience accessor for source branch current scalar value (first/operating point)."""
@@ -373,6 +601,56 @@ class SimulationResult:
         sig2 = self.get_signal(f"{src_clean}#branch")
         return sig2.samples if sig2 else None
 
+    def current_complex(self, source: str) -> complex | None:
+        """Convenience accessor for source branch current complex scalar value (first point)."""
+        src_clean = source.strip().lower()
+        if src_clean.startswith("i(") and src_clean.endswith(")"):
+            name = src_clean
+        elif src_clean.endswith("#branch"):
+            name = f"i({src_clean[:-7]})"
+        else:
+            name = f"i({src_clean})"
+        sig = self.get_complex_signal(name)
+        if sig:
+            return sig.value
+        sig2 = self.get_complex_signal(f"{src_clean}#branch")
+        return sig2.value if sig2 else None
+
+    def current_complex_samples(self, source: str) -> tuple[complex, ...] | None:
+        """Full sequence of source branch current complex samples across all frequency points."""
+        src_clean = source.strip().lower()
+        if src_clean.startswith("i(") and src_clean.endswith(")"):
+            name = src_clean
+        elif src_clean.endswith("#branch"):
+            name = f"i({src_clean[:-7]})"
+        else:
+            name = f"i({src_clean})"
+        sig = self.get_complex_signal(name)
+        if sig:
+            return sig.raw_complex_samples
+        sig2 = self.get_complex_signal(f"{src_clean}#branch")
+        return sig2.raw_complex_samples if sig2 else None
+
+    def magnitude(self, signal_name: str) -> tuple[Decimal, ...] | None:
+        """Return sequence of magnitude samples |H| for given complex signal name."""
+        sig = self.get_complex_signal(signal_name)
+        return sig.magnitude_samples if sig else None
+
+    def phase_deg(self, signal_name: str) -> tuple[Decimal, ...] | None:
+        """Return sequence of phase in degrees (-180, 180] for given complex signal name."""
+        sig = self.get_complex_signal(signal_name)
+        return sig.phase_deg_samples if sig else None
+
+    def phase_rad(self, signal_name: str) -> tuple[Decimal, ...] | None:
+        """Return sequence of phase in radians (-pi, pi] for given complex signal name."""
+        sig = self.get_complex_signal(signal_name)
+        return sig.phase_rad_samples if sig else None
+
+    def db(self, signal_name: str) -> tuple[Decimal, ...] | None:
+        """Return sequence of magnitude in decibels (20*log10(|H|)) for given complex signal name."""
+        sig = self.get_complex_signal(signal_name)
+        return sig.db_samples if sig else None
+
 
 @dataclass(frozen=True)
 class SimulationJob:
@@ -393,6 +671,7 @@ class SimulationJob:
         analysis_commands = []
         has_dc_sweep = False
         has_tran = False
+        has_ac = False
 
         for a in self.analyses:
             if isinstance(a, DCSweepAnalysis):
@@ -401,6 +680,9 @@ class SimulationJob:
             elif isinstance(a, TransientAnalysis):
                 analysis_commands.append(a.to_spice_card())
                 has_tran = True
+            elif isinstance(a, ACAnalysis):
+                analysis_commands.append(a.to_spice_card())
+                has_ac = True
             elif isinstance(a, str):
                 an = a.strip()
                 an_lower = an.lower()
@@ -416,6 +698,11 @@ class SimulationJob:
                     tran = TransientAnalysis.from_string(an)
                     analysis_commands.append(tran.to_spice_card())
                     has_tran = True
+                elif an_lower.startswith("ac ") or an_lower.startswith(".ac "):
+                    # Validate via ACAnalysis
+                    ac = ACAnalysis.from_string(an)
+                    analysis_commands.append(ac.to_spice_card())
+                    has_ac = True
                 elif not an.startswith("."):
                     analysis_commands.append(f".{an}")
                 else:
@@ -437,6 +724,33 @@ class SimulationJob:
             has_print_tran = any(l.strip().lower().startswith(".print tran") or l.strip().lower().startswith("print tran") for l in lines)
             if not has_print_tran:
                 print_card = self._build_print_tran_card(lines)
+                if print_card and print_card.lower() not in existing:
+                    to_add.append(print_card)
+
+        # For AC in batch mode, ngspice requires an AC source excitation and a .print ac card
+        if has_ac:
+            has_ac_source = False
+            first_v_idx = None
+            for idx, line in enumerate(lines):
+                l_strip = line.strip()
+                if not l_strip or l_strip.startswith("*") or l_strip.startswith("."):
+                    continue
+                parts = l_strip.split()
+                if not parts:
+                    continue
+                ref = parts[0].upper()
+                if ref.startswith("V") or ref.startswith("I"):
+                    if any(tok.lower() == "ac" for tok in parts):
+                        has_ac_source = True
+                        break
+                    if first_v_idx is None and ref.startswith("V"):
+                        first_v_idx = idx
+            if not has_ac_source and first_v_idx is not None:
+                lines[first_v_idx] = f"{lines[first_v_idx].rstrip()} ac 1"
+
+            has_print_ac = any(l.strip().lower().startswith(".print ac") or l.strip().lower().startswith("print ac") for l in lines)
+            if not has_print_ac:
+                print_card = self._build_print_ac_card(lines)
                 if print_card and print_card.lower() not in existing:
                     to_add.append(print_card)
 
@@ -505,6 +819,35 @@ class SimulationJob:
             return f".print tran {' '.join(tokens)}"
         return ".print tran"
 
+    @staticmethod
+    def _build_print_ac_card(lines: list[str]) -> str:
+        """Inspect netlist to automatically construct a .print ac card with all circuit nets and sources."""
+        nets: set[str] = set()
+        sources: set[str] = set()
+        for line in lines:
+            l = line.strip()
+            if not l or l.startswith("*") or l.startswith("."):
+                continue
+            parts = l.split()
+            if not parts:
+                continue
+            ref = parts[0].upper()
+            if ref.startswith("V") or ref.startswith("I"):
+                sources.add(ref.lower())
+                if len(parts) >= 3:
+                    for n in parts[1:3]:
+                        if n.lower() not in ("0", "gnd", "ground"):
+                            nets.add(n.lower())
+            elif len(parts) >= 3:
+                for n in parts[1:3]:
+                    if n.lower() not in ("0", "gnd", "ground"):
+                        nets.add(n.lower())
+
+        tokens = [f"v({n})" for n in sorted(nets)] + [f"i({s})" for s in sorted(sources)]
+        if tokens:
+            return f".print ac {' '.join(tokens)}"
+        return ".print ac"
+
 
 class SimulationBackend(ABC):
     name: str = ""
@@ -552,13 +895,25 @@ class MockSimulationBackend(SimulationBackend):
     def simulate(self, netlist: str, analyses: tuple = ("op",)) -> SimulationResult:
         digest = hashlib.sha256(netlist.encode()).hexdigest()
         signals = {}
+        complex_signals = {}
         for k, v in self.payload.items():
             k_lower = k.lower()
             unit = "V" if k_lower.startswith("v") else ("A" if k_lower.startswith("i") else "")
             axis = "voltage" if unit == "V" else ("current" if unit == "A" else "other")
-            if isinstance(v, (list, tuple)):
+            if isinstance(v, (list, tuple)) and v and isinstance(v[0], complex):
+                raw_c = tuple(complex(x) for x in v)
+                re_d = tuple(Decimal(str(x.real)) for x in raw_c)
+                im_d = tuple(Decimal(str(x.imag)) for x in raw_c)
+                complex_signals[k_lower] = ComplexSignal(k_lower, unit, axis, re_d, im_d, raw_c)
+            elif isinstance(v, complex):
+                raw_c = (complex(v),)
+                re_d = (Decimal(str(v.real)),)
+                im_d = (Decimal(str(v.imag)),)
+                complex_signals[k_lower] = ComplexSignal(k_lower, unit, axis, re_d, im_d, raw_c)
+            elif isinstance(v, (list, tuple)):
                 dec_tuple = tuple(Decimal(str(x)) for x in v)
                 flt_tuple = tuple(float(x) for x in v)
+                signals[k_lower] = Signal(k_lower, unit, axis, dec_tuple, flt_tuple)
             else:
                 try:
                     dec_tuple = (Decimal(str(v)),)
@@ -566,6 +921,7 @@ class MockSimulationBackend(SimulationBackend):
                 except Exception:
                     dec_tuple = (Decimal(0),)
                     flt_tuple = (0.0,)
-            signals[k_lower] = Signal(k_lower, unit, axis, dec_tuple, flt_tuple)
+                signals[k_lower] = Signal(k_lower, unit, axis, dec_tuple, flt_tuple)
         return SimulationResult(self.name, digest, tuple(analyses),
-                                dict(self.payload), mocked=True, signals=signals)
+                                dict(self.payload), mocked=True, signals=signals,
+                                complex_signals=complex_signals)
