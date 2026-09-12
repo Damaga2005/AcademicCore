@@ -21,8 +21,8 @@ from PySide6.QtWidgets import (
 
 from academic_core import __version__
 from academic_core.application import (
-    AcademicService, GradingService, IngestionService, ScheduleService,
-    SimpleSearchService,
+    AcademicService, DocumentService, GradingService, IngestionService,
+    ScheduleService, SimpleSearchService,
 )
 from academic_core.application.services import ApplicationError
 from academic_core.config import Settings
@@ -98,6 +98,9 @@ class MainWindow(QMainWindow):
         self.ingest = IngestionService(
             self.blobs, self.resources, self.fts, self.academic, self.planning,
             max_bytes=settings.ingest.max_bytes)
+        self.documents = DocumentService(self.blobs, self.resources, db)
+        from academic_core.pdf.stirling import StirlingRuntime
+        self.stirling = StirlingRuntime(settings.tools.stirling_url)
         ensure_demo(self.academic)
 
         # -- left: hierarchy selectors + subjects ---------------------------
@@ -141,10 +144,18 @@ class MainWindow(QMainWindow):
         self.res_search.setPlaceholderText("Search resources (FTS5)…")
         self.btn_res_import = QPushButton("Import file…")
         self.btn_res_reindex = QPushButton("Reindex")
+        self.btn_res_build = QPushButton("Build document")
+        self.btn_res_export_md = QPushButton("Export MD")
+        self.btn_res_export_html = QPushButton("Export HTML")
         res_row.addWidget(self.res_search)
         res_row.addWidget(self.btn_res_import)
         res_row.addWidget(self.btn_res_reindex)
+        res_row.addWidget(self.btn_res_build)
+        res_row.addWidget(self.btn_res_export_md)
+        res_row.addWidget(self.btn_res_export_html)
         res_layout.addLayout(res_row)
+        self.stirling_label = QLabel()
+        res_layout.addWidget(self.stirling_label)
         self.res_list = QListWidget()
         self.res_detail = QTextEdit(readOnly=True)
         res_layout.addWidget(self.res_list)
@@ -152,6 +163,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(res_tab, "Resources")
         self.btn_res_import.clicked.connect(self._import_resource)
         self.btn_res_reindex.clicked.connect(self._reindex_resources)
+        self.btn_res_build.clicked.connect(self._build_document)
+        self.btn_res_export_md.clicked.connect(lambda: self._export_document("md"))
+        self.btn_res_export_html.clicked.connect(lambda: self._export_document("html"))
         self.res_search.textChanged.connect(lambda _t: self._refresh_resources())
         self.res_list.currentRowChanged.connect(lambda _i: self._show_resource())
         # one action row above the tabs (no business logic in UI slots beyond
@@ -354,6 +368,12 @@ class MainWindow(QMainWindow):
         query = self.res_search.text().strip()
         self.res_list.clear()
         self._res_cache = []
+        try:
+            state = self.stirling.detect()
+            self.stirling_label.setText(
+                f"Stirling: {state['state']} ({state['url']}) · native PDF ready")
+        except Exception:
+            self.stirling_label.setText("Stirling: UNKNOWN · native PDF ready")
         if query:
             hits = self.fts.search(query, limit=50)
             for h in hits:
@@ -406,6 +426,47 @@ class MainWindow(QMainWindow):
         n = self.ingest.reindex()
         QMessageBox.information(self, "Reindex", f"{n} entries rebuilt from canonical store")
         self._refresh_resources()
+
+    def _selected_resource_id(self) -> str | None:
+        i = self.res_list.currentRow()
+        cache = getattr(self, "_res_cache", [])
+        return cache[i] if 0 <= i < len(cache) else None
+
+    def _build_document(self) -> None:
+        sid = self._selected_resource_id()
+        if not sid:
+            QMessageBox.warning(self, "Document", "Select a resource first")
+            return
+        try:
+            summary = self.documents.build(sid)
+        except Exception as e:
+            QMessageBox.warning(self, "Document", f"{type(e).__name__}: {e}")
+            return
+        QMessageBox.information(
+            self, "Document",
+            f"{summary['parser']}: {summary['blocks']} blocks, '{summary['title']}'")
+        self._show_resource()
+
+    def _export_document(self, fmt: str) -> None:
+        sid = self._selected_resource_id()
+        if not sid:
+            QMessageBox.warning(self, "Export", "Select a resource first")
+            return
+        rows = self.documents.list(sid)
+        if not rows:
+            QMessageBox.warning(self, "Export", "Build a document first")
+            return
+        row = rows[0]
+        doc = self.documents.get(sid, row["resource_version"], row["parser"])
+        if fmt == "md":
+            from academic_core.documents import render_markdown as RM
+            out, filtr = RM.render(doc), "Markdown (*.md)"
+        else:
+            from academic_core.documents import render_html as RH
+            out, filtr = RH.render(doc), "HTML (*.html)"
+        path, _ = QFileDialog.getSaveFileName(self, f"Export {fmt.upper()}", "", filtr)
+        if path:
+            Path(path).write_text(out, encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:

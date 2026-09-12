@@ -29,4 +29,5 @@ markers = [
   "arch: architecture boundary tests",
   "migration: migration / coverage gates",
   "repro: reproducibility tests",
+  "external: needs live external runtime (never blocks normal pytest)",
 ]

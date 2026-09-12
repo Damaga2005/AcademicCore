@@ -32,11 +32,14 @@ def test_domain_is_pure():
 
 
 def test_application_and_infrastructure_have_no_ui():
+    import re as _re
     violations = []
-    for sub in ("application", "infrastructure", "storage", "config", "engines"):
+    for sub in ("application", "infrastructure", "storage", "config", "engines",
+                "documents", "pdf", "resources"):
         for f in _texts(sub):
             text = f.read_text(encoding="utf-8")
-            if "PySide6" in text:
+            # import statements only: docstring prose may name backends.
+            if _re.search(r"^\s*(import|from)\s+PySide6", text, _re.MULTILINE):
                 violations.append(f"{f.relative_to(SRC)} imports PySide6")
             if _RX_APP.search(text):
                 violations.append(f"{f.relative_to(SRC)} imports academic_core.app")
@@ -77,3 +80,25 @@ def test_domain_knows_no_backends():
 def test_engines_do_not_import_each_other_circularly():
     import academic_core.engines as e
     assert hasattr(e, "PDFService") and hasattr(e, "AIRouter")
+
+
+def test_ast_is_stdlib_only():
+    """Document AST: no Qt, no backends — parse imports with ast."""
+    import ast as _ast
+    f = SRC / "documents" / "ast.py"
+    tree = _ast.parse(f.read_text(encoding="utf-8"))
+    mods = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            mods.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, _ast.ImportFrom):
+            mods.add((node.module or "").split(".")[0])
+    assert mods <= {"dataclasses", "__future__"}, mods
+
+
+def test_pdf_backend_never_in_domain():
+    import ast as _ast
+    for f in _texts("domain"):
+        tree = _ast.parse(f.read_text(encoding="utf-8"))
+        src = _ast.dump(tree)
+        assert "Stirling" not in src and "subprocess" not in src and "PyMuPDF" not in src, f

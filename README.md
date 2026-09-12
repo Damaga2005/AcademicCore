@@ -23,10 +23,17 @@ Headless smoke: `$env:QT_QPA_PLATFORM="offscreen"; python -m academic_core`.
 ```
 src/academic_core/  app.py(Qt validación)  config/  domain/  storage/
                     engines/  infrastructure/  application/
-tests/ (81: identity, domain, grading, schedule, persistence, app, ui, arch,
-        cas, extract, ingest, resource-identity, provenance, fts, security)
-docs/{architecture,adr×14,migration,domain,security,testing,roadmap,gates,phase-reports}/
+tests/ (123: + ast, equations, conversor-equiv, markdown, html-docs,
+        documents, pdf, stirling, perf)
+docs/{architecture(+STIRLING-INTEGRATION),adr×15,migration(+CONVERSOR-*),
+     domain,security,testing,roadmap,gates,phase-reports}/
 ```
+
+## Fase 3 (actual)
+Document Engine (AST canónico, parsers HTML/MD con reuse del Conversor,
+renderers, provenance) + PDF Engine (native pypdf + Stirling opcional
+v2.14.3). Gate: `docs/gates/GATE-F3.md`. Licencias: Conversor MIT misma
+autoría; pypdf BSD; Stirling open-core externo (no vendored).
 
 ## Fase 2 (actual)
 Resource Engine: CAS SHA-256 + adapters (file/md/html/pdf) + pipeline

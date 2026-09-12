@@ -6,6 +6,12 @@
 | config | `config/` | stdlib | PySide6, app |
 | storage | `storage/` | stdlib (sqlite3) | PySide6, app |
 | engines/resource | `engines/resource.py` | storage, domain | PySide6, app |
+| documents/ast | `documents/ast.py` | stdlib only | everything (Qt, SQLite, bs4, parsers) |
+| documents/parsers | `documents/*parser*, conversor_*` | ast, bs4/lxml | Qt, Tk, markdownify |
+| documents/renderers | `documents/render_*` | ast | Qt, raw HTML injection |
+| application/documents | `application/documents.py` | blobs, records, db | Qt |
+| pdf/engine | `pdf/engine.py` | documents.ast, pypdf | Qt, Stirling, AGPL libs |
+| pdf/stirling | `pdf/stirling.py` | engine (interface) | Domain, non-localhost |
 | engines/document | `engines/document_ast.py` | domain | PySide6, app |
 | engines/pdf | `engines/pdf.py` | — (interface) | Stirling impl details |
 | engines/ai | `engines/ai.py` | stdlib urllib | whole KB, app |

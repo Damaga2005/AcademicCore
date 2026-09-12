@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — Fase 3 Document + PDF Engine (2026-09-12)
+- Conversor audit (20 comps) + selective reuse (math 1:1, tables, images,
+  sanitize, metadata, encoding) with equivalence tests vs original module.
+- Canonical AST (19 kinds, v1, validated, deterministic JSON) + HTML/MD
+  parsers + MD/HTML renderers + doc derivations (007) + provenance chain.
+- PDF engine (pypdf native: inspect/merge/split/rotate/extract/PDF→AST) +
+  Stirling v2.14.3 research, runtime manager, API backend (mock-verified,
+  live SIMULATED). ADR-0015. Gate F3: 123 passed, 2 skipped.
+
 ## 0.3.0 — Fase 2 Resource Engine (2026-09-12)
 - Ports (`BlobStore/Extractor/Indexer/Records`) + `Resource/Version/Provenance`.
 - CAS: streaming SHA-256, atomic, integrity-checked, traversal-safe.

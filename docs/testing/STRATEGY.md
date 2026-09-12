@@ -9,3 +9,8 @@
 - Future: `pytest-qt` UI smoke (offscreen), engine benchmark suites with fixed
   seeds, gold files + sha256 manifests.
 - Run: `pytest -m "not migration"` for fast loop; full suite in CI + Windows job.
+- External: `@pytest.mark.external` needs live runtimes (Stirling/Java);
+  `pytest -m "not external"` is the default gate; external never blocks it.
+- Equivalence: `tests/conversor_ref.py` loads the read-only Conversor module
+  (CONVERSOR_PATH or default checkout) and compares 1:1; skips when absent.
+- Perf: `tests/test_perf.py` prints timings with generous bounds (no tuning).
