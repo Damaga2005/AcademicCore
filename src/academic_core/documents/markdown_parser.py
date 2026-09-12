@@ -57,7 +57,11 @@ def _inline_md(s: str) -> list:
         if m.group("code"):
             out.append(A.inline_code(m.group(2)))
         elif m.group("img"):
-            out.append(A.image("", m.group(4), title=m.group(6) or ""))
+            target = m.group(5)
+            if target.startswith("cas:"):
+                out.append(A.image(target, m.group(4), title=m.group(6) or ""))
+            else:
+                out.append(A.image("", m.group(4), title=target))
         elif m.group("link"):
             label, target = m.group(8), m.group(9)
             out.append(A.link(target, parse_inline(label), m.group(10) or ""))

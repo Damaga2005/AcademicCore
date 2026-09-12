@@ -22,7 +22,9 @@ from dataclasses import dataclass, field
 from academic_core.domain.entities import DomainError
 from academic_core.domain.identity import validate
 
-RESOURCE_KINDS = ("file", "text", "markdown", "html", "pdf")
+RESOURCE_KINDS = ("file", "text", "markdown", "html", "pdf", "document")
+# "document": canonical AST JSON bytes, created ONLY by the Authoring Engine
+# (no ingestion adapter produces it; see F5 design).
 RESOURCE_ORIGINS = ("file", "url", "generated", "manual", "migration")
 
 

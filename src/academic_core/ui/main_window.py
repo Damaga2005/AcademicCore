@@ -77,6 +77,9 @@ class AcademicMainWindow(QMainWindow):
         res_layout.addWidget(self.res_list)
         res_layout.addWidget(self.res_detail)
         self.tabs.addTab(res_tab, "Resources")
+        from academic_core.ui.authoring import AuthoringPanel
+        self.authoring_panel = AuthoringPanel(app)
+        self.tabs.addTab(self.authoring_panel, "Authoring")
 
         actions = QHBoxLayout()
         self.btn_topic = QPushButton("Add topic")

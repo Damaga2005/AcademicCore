@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 — Fase 5 Authoring Engine (2026-09-12)
+- Command model (7 deterministic commands + undo/redo) + lifecycle +
+  structured validation + 5 AST templates + in-document search.
+- `document` resource kind + migration 009 (authored lifecycle, doc_links) +
+  versioning/autosave/copy-paste/academic links service + Authoring UI tab.
+- Round-trip battery (MD+HTML, documented equivalence) + F3 compat golden.
+- Fidelity fixes shared with F3 (image targets, bare-inline items, math spans).
+- Gate F5: 174 passed, 2 skipped (145 F0–F4 + 29 F5).
+
 ## 0.5.0 — Fase 4 Academic Management (2026-09-12)
 - Gestion audit + reuse map (concept-only, no code copied).
 - Generic gradebook (scales/weights/optional/partial, Decimal) beside F1

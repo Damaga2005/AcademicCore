@@ -80,6 +80,41 @@ class DocumentService:
             raise KeyError(f"no document {resource_id} v{version} [{parser}]")
         return A.Document.from_dict(json.loads(row["ast_json"]))
 
+    def load_ast(self, resource_id: str, version: int | None = None):
+        """Parse resource bytes to an AST WITHOUT persisting a derivation.
+
+        Used by Authoring imports (md/html/pdf); the subsequent save() owns
+        provenance. Returns (Document, parser_name, parser_version)."""
+        from academic_core.documents import html_parser, markdown_parser
+        res = self.records.get(resource_id)
+        if res is None:
+            raise ValueError(f"unknown resource: {resource_id}")
+        ver = res.current() if version is None else next(
+            (v for v in res.versions if v.version == version), None)
+        if ver is None:
+            raise ValueError(f"unknown version: {version}")
+        raw = self.blobs.get_bytes(ver.content_hash)
+        if res.kind == "html":
+            doc = html_parser.parse_html(
+                raw, put=self.blobs.put_bytes,
+                filename=ver.provenance.original_filename)
+            return doc, html_parser.PARSER_NAME, html_parser.PARSER_VERSION
+        if res.kind in ("markdown", "text"):
+            doc = markdown_parser.parse_markdown(
+                raw.decode("utf-8", errors="replace"),
+                ver.provenance.original_filename)
+            return doc, markdown_parser.PARSER_NAME, markdown_parser.PARSER_VERSION
+        if res.kind == "document":
+            doc = A.Document.from_dict(json.loads(raw.decode("utf-8")))
+            A.validate(doc)
+            return doc, "authoring", "5.0"
+        if res.kind == "pdf":
+            from academic_core.pdf.engine import PDFEngine, NativePDFBackend
+            engine = PDFEngine(NativePDFBackend())
+            doc = engine.to_document(raw, resource_id, ver.version)
+            return doc, "pdf-native", "3.0"
+        raise ValueError(f"no AST parser for kind={res.kind}")
+
     def list(self, resource_id: str) -> list[dict]:
         cx = self.db.connect()
         rows = cx.execute("SELECT resource_version, parser, parser_version, created_at"

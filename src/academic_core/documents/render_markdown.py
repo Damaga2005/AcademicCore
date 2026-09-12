@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+_INLINE = {"text", "emphasis", "strong", "link", "inline_code", "image", "equation"}
+
+
+def _any_block(n) -> str:
+    """Render a child that may be a block or bare inline (list items)."""
+    if n.kind in _INLINE:
+        return _inline(n)
+    return _block(n)
+
 
 def render(doc) -> str:
     return "\n\n".join(_block(c) for c in doc.children) + ("\n" if doc.children else "")
@@ -41,11 +50,11 @@ def _block(n) -> str:
     if k == "list":
         out = []
         for i, item in enumerate(n.children):
-            body = "\n".join(_block(c) for c in item.children).replace("\n", "\n  ")
+            body = "\n".join(_any_block(c) for c in item.children).replace("\n", "\n  ")
             out.append(f"{i + 1}. {body}" if a.get("ordered") else f"- {body}")
         return "\n".join(out)
     if k == "list_item":
-        return "\n".join(_block(c) for c in n.children)
+        return "\n".join(_any_block(c) for c in n.children)
     if k == "code_block":
         return f"```{a.get('language', '')}\n{a.get('code', '')}\n```"
     if k == "thematic_break":

@@ -12,6 +12,13 @@
 | application/documents | `application/documents.py` | blobs, records, db | Qt |
 | pdf/engine | `pdf/engine.py` | documents.ast, pypdf | Qt, Stirling, AGPL libs |
 | pdf/stirling | `pdf/stirling.py` | engine (interface) | Domain, non-localhost |
+| domain/authoring | `domain/authoring.py` | documents.ast (value objects) | Qt, I/O, versions |
+| documents/validate+templates+search | `documents/*.py` | ast | Qt, network |
+| application/authoring | `application/authoring.py` | blobs, records, indexer, stores | Qt |
+| ui/authoring | `ui/authoring.py` | application facade, domain | infrastructure, sqlite3 |
+
+Note: domain→documents.ast is a value-object dependency (stdlib-only nodes),
+not a layer inversion; parsers/backends stay outside domain.
 | engines/document | `engines/document_ast.py` | domain | PySide6, app |
 | engines/pdf | `engines/pdf.py` | — (interface) | Stirling impl details |
 | engines/ai | `engines/ai.py` | stdlib urllib | whole KB, app |

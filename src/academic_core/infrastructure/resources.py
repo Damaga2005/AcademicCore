@@ -118,6 +118,12 @@ class SqliteResourceRecords:
         cx.close()
         return [r["stable_id"] for r in rows]
 
+    def update_title(self, stable_id: str, title: str) -> None:
+        cx = self.db.connect()
+        cx.execute("UPDATE resources SET title=? WHERE stable_id=?", (title, stable_id))
+        cx.commit()
+        cx.close()
+
 
 class FtsResourceIndexer:
     def __init__(self, db: Database):

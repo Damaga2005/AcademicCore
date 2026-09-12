@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from html import escape
 
+_INLINE = {"text", "emphasis", "strong", "link", "inline_code", "image", "equation"}
+
+
+def _any_block(n) -> str:
+    if n.kind in _INLINE:
+        return _inline(n)
+    return _block(n)
+
 
 def render(doc) -> str:
     return '<div class="document">\n' + "\n".join(_block(c) for c in doc.children) + "\n</div>"
@@ -46,7 +54,7 @@ def _block(n) -> str:
         tag = "ol" if a.get("ordered") else "ul"
         return f"<{tag}>\n" + "\n".join(_block(c) for c in n.children) + f"\n</{tag}>"
     if k == "list_item":
-        return "<li>" + "\n".join(_block(c) for c in n.children) + "</li>"
+        return "<li>" + "\n".join(_any_block(c) for c in n.children) + "</li>"
     if k == "code_block":
         lang = f' class="language-{escape(a["language"])}"' if a.get("language") else ""
         return f"<pre><code{lang}>{escape(a.get('code', ''))}</code></pre>"

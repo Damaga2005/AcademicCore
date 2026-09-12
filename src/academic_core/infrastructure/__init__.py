@@ -1,3 +1,4 @@
+from academic_core.infrastructure.authoring import AuthoringStore
 from academic_core.infrastructure.cas import (
     BlobNotFound, CorruptBlob, FileBlobStore, TooLarge,
 )
@@ -11,5 +12,6 @@ from academic_core.infrastructure.resources import FtsResourceIndexer, SqliteRes
 __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "GradingRepository", "IntegrityError",
            "PlanningRepository", "StudyRepository",
+           "AuthoringStore",
            "BlobNotFound", "CorruptBlob", "FileBlobStore", "TooLarge",
            "FtsResourceIndexer", "SqliteResourceRecords"]

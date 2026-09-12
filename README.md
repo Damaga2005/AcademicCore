@@ -23,11 +23,18 @@ Headless smoke: `$env:QT_QPA_PLATFORM="offscreen"; python -m academic_core`.
 ```
 src/academic_core/  app.py(Qt validación)  config/  domain/  storage/
                     engines/  infrastructure/  application/
-tests/ (145: + results, queries, integrity, academic-io, ui-academic,
-        academic-perf)
-docs/{architecture,adr×16,migration(+GESTION-F4-*),domain,security,testing,
-     roadmap,gates,phase-reports,F4_ACADEMIC_MANAGEMENT.md}
+tests/ (174: + authoring, validation, service, roundtrip-F5, security-F5,
+        compat-F3, perf-F5, ui-authoring)
+docs/{architecture,adr×16,migration,domain,security,testing,roadmap,gates,
+     phase-reports,F4_ACADEMIC_MANAGEMENT.md,F5_AUTHORING_AUDIT.md,
+     F5_AUTHORING-DESIGN.md}
 ```
+
+## Fase 5 (actual)
+Authoring Engine: comandos deterministas + undo/redo + lifecycle +
+versionado + validación + plantillas + búsqueda + links académicos +
+pestaña Authoring. AST F3 intacto (sin nodos nuevos). Gate:
+`docs/gates/GATE-F5.md`.
 
 ## Fase 4 (actual)
 Academic Management: árbol navegable, CRUD + borrado seguro, gradebook

@@ -95,6 +95,14 @@ def _inline_node(child, math) -> list:
         i = int(child.get("data-i", -1))
         latex, display = math[i] if 0 <= i < len(math) else ("", False)
         return [A.equation(latex, "latex", display)]
+    if name == "span":
+        classes = child.get("class", [])
+        if isinstance(classes, str):
+            classes = [classes]
+        if "math-display" in classes:
+            return [A.equation(child.get_text(), "latex", True)]
+        if "math-inline" in classes:
+            return [A.equation(child.get_text(), "latex", False)]
     if name in ("em", "i"):
         return [A.emphasis(_inline(child, math))]
     if name in ("strong", "b"):
