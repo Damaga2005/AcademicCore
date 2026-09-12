@@ -1,6 +1,6 @@
-"""Structured parser for ngspice simulation output (Phase 7-B1).
+"""Structured parser for ngspice simulation output (Phase 7-B1 & 7-B2).
 
-Extracts DC operating point (.op) node voltages and source currents into
+Extracts DC operating point (.op) and DC sweep (.dc) tabular data into
 domain Signal and SimulationResult models. Maintains separation between
 solver float precision and domain Decimal precision.
 """
@@ -28,15 +28,16 @@ _ERROR_RE = re.compile(
 )
 
 
-def parse_ngspice_op(
+def parse_ngspice_output(
     execution: SimulationExecution,
     netlist: str = "",
     cas_store: FileBlobStore | None = None,
     analyses: tuple = ("op",),
 ) -> SimulationResult:
-    """Parse ngspice execution output for DC operating point analysis into a SimulationResult.
+    """Parse ngspice execution output for DC operating point or DC sweep analysis into a SimulationResult.
 
     Extracts:
+    - Sweep axis Signal (Unit 'V' or 'A', Axis 'sweep')
     - Node voltages (Unit 'V', Axis 'voltage')
     - Source currents (Unit 'A', Axis 'current')
     - Errors and diagnostic messages
@@ -54,12 +55,12 @@ def parse_ngspice_op(
     elif execution.exit_code not in (0, None) and status == "COMPLETED":
         status = "FAILED"
 
-    # 2. Extract Signals from tabular sections
+    # 2. Extract Signals from tabular sections (.op and .dc)
     signals: dict[str, Signal] = {}
     data: dict[str, str] = {}
 
     _parse_op_tables(stdout, signals, data)
-    _parse_index_table(stdout, signals, data)
+    _parse_index_tables(stdout, signals, data)
 
     # 3. Digest and CAS raw artifact reference
     netlist_text = netlist or execution.input_hash
@@ -117,8 +118,12 @@ def parse_ngspice_op(
     )
 
 
+# Alias for backward compatibility with F7-B1
+parse_ngspice_op = parse_ngspice_output
+
+
 def _parse_op_tables(text: str, signals: dict[str, Signal], data: dict[str, str]) -> None:
-    """Parse standard ngspice 'Node Voltage' and 'Source Current' tables."""
+    """Parse standard ngspice 'Node Voltage' and 'Source Current' tables (.op format)."""
     section: str | None = None
     for line in text.splitlines():
         lc = line.strip()
@@ -165,7 +170,6 @@ def _parse_op_tables(text: str, signals: dict[str, Signal], data: dict[str, str]
                     data[f"V({raw_name.upper()})"] = val_str
                     data[sig_name] = str(dec)
                 elif section == "current":
-                    # Normalize source name (e.g. v1#branch -> i(v1))
                     source_name = raw_name[:-7] if raw_name.endswith("#branch") else raw_name
                     sig_name = f"i({source_name})"
                     sig = Signal(
@@ -183,36 +187,76 @@ def _parse_op_tables(text: str, signals: dict[str, Signal], data: dict[str, str]
                     data[raw_name] = str(dec)
 
 
-def _parse_index_table(text: str, signals: dict[str, Signal], data: dict[str, str]) -> None:
-    """Parse .print op tabular output (Index col1 col2...)."""
+def _parse_index_tables(text: str, signals: dict[str, Signal], data: dict[str, str]) -> None:
+    """Parse tabular .print output for .dc sweep and .op (Index col1 col2...).
+
+    Supports multi-point series and multi-table / paginated outputs.
+    """
     lines = text.splitlines()
-    for i, line in enumerate(lines):
-        line_strip = line.strip()
-        if line_strip.startswith("Index") and len(line_strip.split()) > 1:
-            headers = line_strip.split()[1:]
-            for j in range(i + 1, min(i + 6, len(lines))):
-                row = lines[j].strip()
-                if not row or row.startswith("-"):
-                    continue
-                parts = row.split()
-                if len(parts) >= len(headers) + 1 and parts[0].isdigit():
-                    values = parts[1 : len(headers) + 1]
-                    for h, val_str in zip(headers, values):
-                        h_clean = h.strip().lower()
-                        unit = "V" if h_clean.startswith("v") else ("A" if h_clean.startswith("i") or "#branch" in h_clean else "")
-                        axis = "voltage" if unit == "V" else ("current" if unit == "A" else "signal")
-                        try:
-                            dec = Decimal(val_str)
-                            flt = float(val_str)
-                            if h_clean not in signals:
-                                signals[h_clean] = Signal(
-                                    name=h_clean,
-                                    unit=unit,
-                                    axis=axis,
-                                    samples=(dec,),
-                                    raw_samples=(flt,),
-                                )
-                                data[h_clean] = str(dec)
-                        except Exception:
-                            pass
-                    break
+    columns: dict[str, list[tuple[Decimal, float]]] = {}
+    active_headers: list[str] | None = None
+
+    for line in lines:
+        line_clean = line.strip()
+        if not line_clean:
+            active_headers = None
+            continue
+        if line_clean.startswith("-") or line_clean.startswith("="):
+            continue
+        if line_clean.startswith("\x0c") or line_clean.startswith("Note:") or line_clean.startswith("Circuit:"):
+            active_headers = None
+            continue
+
+        parts = line_clean.split()
+        if parts[0].lower() == "index":
+            active_headers = [p.lower() for p in parts[1:]]
+            for h in active_headers:
+                if h not in columns:
+                    columns[h] = []
+            continue
+
+        if active_headers and parts[0].isdigit():
+            val_parts = parts[1:]
+            for h, val_str in zip(active_headers, val_parts):
+                try:
+                    dec = Decimal(val_str)
+                    flt = float(val_str)
+                    columns[h].append((dec, flt))
+                except Exception:
+                    pass
+
+    for col_name, sample_pairs in columns.items():
+        if not sample_pairs:
+            continue
+        samples_dec = tuple(p[0] for p in sample_pairs)
+        samples_flt = tuple(p[1] for p in sample_pairs)
+
+        # Identify axis and unit
+        if col_name in ("v-sweep", "i-sweep", "sweep"):
+            axis = "sweep"
+            unit = "V" if "v" in col_name else "A"
+        elif col_name.startswith("v(") or col_name.startswith("v_"):
+            axis = "voltage"
+            unit = "V"
+        elif col_name.startswith("i(") or col_name.endswith("#branch"):
+            axis = "current"
+            unit = "A"
+        else:
+            axis = "sweep" if ("sweep" in col_name or (len(columns) > 1 and list(columns.keys())[0] == col_name)) else "voltage"
+            unit = "V" if axis in ("voltage", "sweep") else "A"
+
+        if col_name.endswith("#branch"):
+            source_name = col_name[:-7]
+            sig_name = f"i({source_name})"
+            sig = Signal(name=sig_name, unit="A", axis="current", samples=samples_dec, raw_samples=samples_flt)
+            signals[sig_name] = sig
+            signals[col_name] = sig
+            val_repr = str(samples_dec[0]) if len(samples_dec) == 1 else str(samples_dec)
+            data[f"I({source_name.upper()})"] = val_repr
+            data[sig_name] = val_repr
+            data[col_name] = val_repr
+        else:
+            sig = Signal(name=col_name, unit=unit, axis=axis, samples=samples_dec, raw_samples=samples_flt)
+            signals[col_name] = sig
+            val_repr = str(samples_dec[0]) if len(samples_dec) == 1 else str(samples_dec)
+            data[col_name] = val_repr

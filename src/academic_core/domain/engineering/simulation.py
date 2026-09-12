@@ -5,6 +5,9 @@ F7-B1 introduces scientific simulation models:
 - Signal (node voltages, branch currents, units, axes, Decimal + float samples)
 - SimulationResult (scientific result with signals, provenance, raw references)
 - SimulationJob (builds analysis decks from netlists/circuits)
+F7-B2 adds DC Sweep analysis:
+- DCSweepAnalysis (source, start, stop, step, validation)
+- Multi-point Signal support (samples sequence, sweep_axis, points_count)
 """
 
 from __future__ import annotations
@@ -17,26 +20,96 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class DCSweepAnalysis:
+    """Specification for a DC Sweep (.dc) analysis.
+
+    Sweeps an independent voltage or current source over [start, stop] with step size step.
+    Enforces parameter validation: non-empty source, non-zero step, sign consistency.
+    """
+    source: str
+    start: Decimal
+    stop: Decimal
+    step: Decimal
+
+    def __post_init__(self):
+        if not self.source or not str(self.source).strip():
+            raise ValueError("DC sweep source must not be empty")
+        try:
+            start_d = Decimal(str(self.start))
+            stop_d = Decimal(str(self.stop))
+            step_d = Decimal(str(self.step))
+        except Exception as exc:
+            raise ValueError(f"invalid numerical parameter for DC sweep: {exc}")
+
+        object.__setattr__(self, "source", str(self.source).strip().upper())
+        object.__setattr__(self, "start", start_d)
+        object.__setattr__(self, "stop", stop_d)
+        object.__setattr__(self, "step", step_d)
+
+        if step_d == 0:
+            raise ValueError("DC sweep step cannot be 0")
+        if start_d < stop_d and step_d < 0:
+            raise ValueError(f"increasing range ({start_d} to {stop_d}) requires positive step, got {step_d}")
+        if start_d > stop_d and step_d > 0:
+            raise ValueError(f"decreasing range ({start_d} to {stop_d}) requires negative step, got {step_d}")
+
+    @property
+    def expected_points(self) -> int:
+        """Expected number of points in the sweep (inclusive)."""
+        diff = self.stop - self.start
+        return int(diff // self.step) + 1
+
+    def to_spice_card(self) -> str:
+        """Generate SPICE .dc directive line."""
+        return f".dc {self.source} {self.start} {self.stop} {self.step}"
+
+    @classmethod
+    def from_string(cls, text: str) -> DCSweepAnalysis:
+        """Parse from a line like '.dc V1 0 10 1' or 'dc V1 0 10 1'."""
+        cleaned = text.strip()
+        if cleaned.lower().startswith(".dc"):
+            cleaned = cleaned[3:].strip()
+        elif cleaned.lower().startswith("dc"):
+            cleaned = cleaned[2:].strip()
+        parts = cleaned.split()
+        if len(parts) < 4:
+            raise ValueError(f"malformed DC sweep directive: {text!r} (expected 4 tokens: source start stop step)")
+        source = parts[0]
+        start = Decimal(parts[1])
+        stop = Decimal(parts[2])
+        step = Decimal(parts[3])
+        return cls(source=source, start=start, stop=stop, step=step)
+
+
+@dataclass(frozen=True)
 class Signal:
     """Scientific representation of a simulated electrical variable.
 
     Maintains separation between domain Decimal precision and solver IEEE 754 float precision.
+    Supports single-point (.op) and multi-point (.dc sweep) sequences.
     """
-    name: str  # e.g. "v(out)", "i(v1)"
+    name: str  # e.g. "v(out)", "i(v1)", "v-sweep"
     unit: str  # e.g. "V", "A"
-    axis: str  # "voltage", "current"
+    axis: str  # "voltage", "current", "sweep"
     samples: tuple[Decimal, ...] = ()
     raw_samples: tuple[float, ...] = ()
 
     @property
     def value(self) -> Decimal | None:
-        """Single-point scalar value (for DC operating point analyses)."""
+        """Single-point scalar value (for DC operating point analyses or first point)."""
         return self.samples[0] if self.samples else None
 
     @property
     def raw_value(self) -> float | None:
-        """Raw IEEE 754 float representation directly from solver."""
+        """Raw IEEE 754 float representation directly from solver (first point)."""
         return self.raw_samples[0] if self.raw_samples else None
+
+    @property
+    def is_multi_point(self) -> bool:
+        return len(self.samples) > 1
+
+    def __len__(self) -> int:
+        return len(self.samples)
 
 
 @dataclass(frozen=True)
@@ -48,7 +121,7 @@ class SimulationResult:
     """
     backend: str
     netlist_digest: str
-    analyses: tuple  # e.g. ("op",)
+    analyses: tuple  # e.g. ("op",) or (DCSweepAnalysis(...),)
     data: dict  # legacy/compat backend-defined payload e.g. {"V(NET2)": "5.0"}
     mocked: bool = False
     signals: dict[str, Signal] = field(default_factory=dict)
@@ -71,8 +144,30 @@ class SimulationResult:
                 return v
         return None
 
+    @property
+    def sweep_axis(self) -> Signal | None:
+        """The primary sweep variable/axis Signal if present in the simulation."""
+        for sig in self.signals.values():
+            if sig.axis == "sweep":
+                return sig
+        for key in ("v-sweep", "i-sweep", "sweep"):
+            if key in self.signals:
+                return self.signals[key]
+        return None
+
+    @property
+    def points_count(self) -> int:
+        """Number of points in the simulation result."""
+        axis = self.sweep_axis
+        if axis and axis.samples:
+            return len(axis.samples)
+        for sig in self.signals.values():
+            if sig.samples:
+                return len(sig.samples)
+        return 0
+
     def voltage(self, node: str) -> Decimal | None:
-        """Convenience accessor for node voltages, e.g. voltage('out') or voltage('v(out)')."""
+        """Convenience accessor for node voltage scalar value (first/operating point)."""
         node_clean = node.strip().lower()
         if node_clean.startswith("v(") and node_clean.endswith(")"):
             name = node_clean
@@ -81,8 +176,18 @@ class SimulationResult:
         sig = self.get_signal(name)
         return sig.value if sig else None
 
+    def voltage_samples(self, node: str) -> tuple[Decimal, ...] | None:
+        """Full sequence of node voltage samples across all sweep points."""
+        node_clean = node.strip().lower()
+        if node_clean.startswith("v(") and node_clean.endswith(")"):
+            name = node_clean
+        else:
+            name = f"v({node_clean})"
+        sig = self.get_signal(name)
+        return sig.samples if sig else None
+
     def current(self, source: str) -> Decimal | None:
-        """Convenience accessor for source branch currents, e.g. current('v1') or current('i(v1)')."""
+        """Convenience accessor for source branch current scalar value (first/operating point)."""
         src_clean = source.strip().lower()
         if src_clean.startswith("i(") and src_clean.endswith(")"):
             name = src_clean
@@ -93,16 +198,30 @@ class SimulationResult:
         sig = self.get_signal(name)
         if sig:
             return sig.value
-        # Fallback to source#branch name directly
         sig2 = self.get_signal(f"{src_clean}#branch")
         return sig2.value if sig2 else None
+
+    def current_samples(self, source: str) -> tuple[Decimal, ...] | None:
+        """Full sequence of source branch current samples across all sweep points."""
+        src_clean = source.strip().lower()
+        if src_clean.startswith("i(") and src_clean.endswith(")"):
+            name = src_clean
+        elif src_clean.endswith("#branch"):
+            name = f"i({src_clean[:-7]})"
+        else:
+            name = f"i({src_clean})"
+        sig = self.get_signal(name)
+        if sig:
+            return sig.samples
+        sig2 = self.get_signal(f"{src_clean}#branch")
+        return sig2.samples if sig2 else None
 
 
 @dataclass(frozen=True)
 class SimulationJob:
     """Simulation job connecting a Circuit and/or netlist to an execution request."""
     netlist: str
-    analyses: tuple[str, ...] = ("op",)
+    analyses: tuple[Any, ...] = ("op",)
     circuit: Any = None
 
     def build_netlist(self) -> str:
@@ -115,17 +234,37 @@ class SimulationJob:
                 break
 
         analysis_commands = []
+        has_dc_sweep = False
+
         for a in self.analyses:
-            an = a.strip().lower()
-            if an == "op":
-                analysis_commands.append(".op")
-            elif not an.startswith("."):
-                analysis_commands.append(f".{an}")
-            else:
-                analysis_commands.append(an)
+            if isinstance(a, DCSweepAnalysis):
+                analysis_commands.append(a.to_spice_card())
+                has_dc_sweep = True
+            elif isinstance(a, str):
+                an = a.strip()
+                an_lower = an.lower()
+                if an_lower == "op":
+                    analysis_commands.append(".op")
+                elif an_lower.startswith("dc ") or an_lower.startswith(".dc "):
+                    # Validate via DCSweepAnalysis
+                    sweep = DCSweepAnalysis.from_string(an)
+                    analysis_commands.append(sweep.to_spice_card())
+                    has_dc_sweep = True
+                elif not an.startswith("."):
+                    analysis_commands.append(f".{an}")
+                else:
+                    analysis_commands.append(an)
 
         existing = {l.strip().lower() for l in lines}
         to_add = [cmd for cmd in analysis_commands if cmd.lower() not in existing]
+
+        # For DC sweep in batch mode, ngspice requires a .print dc card
+        if has_dc_sweep:
+            has_print_dc = any(l.strip().lower().startswith(".print dc") or l.strip().lower().startswith("print dc") for l in lines)
+            if not has_print_dc:
+                print_card = self._build_print_dc_card(lines)
+                if print_card and print_card.lower() not in existing:
+                    to_add.append(print_card)
 
         if end_idx is not None:
             new_lines = lines[:end_idx] + to_add + lines[end_idx:]
@@ -133,6 +272,35 @@ class SimulationJob:
             new_lines = lines + to_add + [".end"]
 
         return "\n".join(new_lines) + "\n"
+
+    @staticmethod
+    def _build_print_dc_card(lines: list[str]) -> str:
+        """Inspect netlist to automatically construct a .print dc card with all circuit nets and sources."""
+        nets: set[str] = set()
+        sources: set[str] = set()
+        for line in lines:
+            l = line.strip()
+            if not l or l.startswith("*") or l.startswith("."):
+                continue
+            parts = l.split()
+            if not parts:
+                continue
+            ref = parts[0].upper()
+            if ref.startswith("V") or ref.startswith("I"):
+                sources.add(ref.lower())
+                if len(parts) >= 3:
+                    for n in parts[1:3]:
+                        if n.lower() not in ("0", "gnd", "ground"):
+                            nets.add(n.lower())
+            elif len(parts) >= 3:
+                for n in parts[1:3]:
+                    if n.lower() not in ("0", "gnd", "ground"):
+                        nets.add(n.lower())
+
+        tokens = [f"v({n})" for n in sorted(nets)] + [f"i({s})" for s in sorted(sources)]
+        if tokens:
+            return f".print dc {' '.join(tokens)}"
+        return ".print dc"
 
 
 class SimulationBackend(ABC):
@@ -185,12 +353,16 @@ class MockSimulationBackend(SimulationBackend):
             k_lower = k.lower()
             unit = "V" if k_lower.startswith("v") else ("A" if k_lower.startswith("i") else "")
             axis = "voltage" if unit == "V" else ("current" if unit == "A" else "other")
-            try:
-                dec = Decimal(str(v))
-                flt = float(v)
-            except Exception:
-                dec = Decimal(0)
-                flt = 0.0
-            signals[k_lower] = Signal(k_lower, unit, axis, (dec,), (flt,))
+            if isinstance(v, (list, tuple)):
+                dec_tuple = tuple(Decimal(str(x)) for x in v)
+                flt_tuple = tuple(float(x) for x in v)
+            else:
+                try:
+                    dec_tuple = (Decimal(str(v)),)
+                    flt_tuple = (float(v),)
+                except Exception:
+                    dec_tuple = (Decimal(0),)
+                    flt_tuple = (0.0,)
+            signals[k_lower] = Signal(k_lower, unit, axis, dec_tuple, flt_tuple)
         return SimulationResult(self.name, digest, tuple(analyses),
                                 dict(self.payload), mocked=True, signals=signals)

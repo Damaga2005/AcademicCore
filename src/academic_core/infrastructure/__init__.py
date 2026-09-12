@@ -3,7 +3,9 @@ from academic_core.infrastructure.engineering import EngineeringRepository
 from academic_core.infrastructure.ngspice import (
     HEALTH_NETLIST, NgSpiceBackend, NgSpiceDiscovery, RuntimeInfo, SimulationExecution,
 )
-from academic_core.infrastructure.ngspice_parser import parse_ngspice_op
+from academic_core.infrastructure.ngspice_parser import (
+    parse_ngspice_op, parse_ngspice_output,
+)
 from academic_core.infrastructure.cas import (
     BlobNotFound, CorruptBlob, FileBlobStore, TooLarge,
 )
@@ -19,6 +21,6 @@ __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "PlanningRepository", "StudyRepository",
            "AuthoringStore", "EngineeringRepository",
            "NgSpiceBackend", "NgSpiceDiscovery", "RuntimeInfo", "SimulationExecution", "HEALTH_NETLIST",
-           "parse_ngspice_op",
+           "parse_ngspice_op", "parse_ngspice_output",
            "BlobNotFound", "CorruptBlob", "FileBlobStore", "TooLarge",
            "FtsResourceIndexer", "SqliteResourceRecords"]
