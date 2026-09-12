@@ -90,6 +90,10 @@ class Settings:
         if env.get("ACORE_ONEDRIVE_FOLDER"):
             s.providers.onedrive_folder = env["ACORE_ONEDRIVE_FOLDER"]
             s.providers.onedrive_enabled = True
+        if env.get("ACORE_NGSPICE_PATH"):
+            s.simulation.ngspice_path = env["ACORE_NGSPICE_PATH"]
+        elif env.get("NGSPICE_PATH"):
+            s.simulation.ngspice_path = env["NGSPICE_PATH"]
         for k, v in (overrides or {}).items():
             if "." in k:
                 sec, attr = k.split(".", 1)

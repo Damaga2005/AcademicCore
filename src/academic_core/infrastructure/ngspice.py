@@ -51,6 +51,9 @@ class RuntimeInfo:
     platform: str
     timestamp: str
 
+    def __bool__(self) -> bool:
+        return self.available and self.verified
+
 
 @dataclass(frozen=True)
 class SimulationExecution:
@@ -71,6 +74,190 @@ class SimulationExecution:
     input_hash: str = ""
 
 
+class NgSpiceDiscovery:
+    """Discovers and inspects ngspice runtime binaries independently of backend execution."""
+
+    @staticmethod
+    def parse_version(text: str) -> str:
+        match = re.search(r"ngspice(?:[- ](?:version )?)(\d+(?:\.\d+)*)", text, re.I)
+        return match.group(1) if match else "UNKNOWN"
+
+    @classmethod
+    def candidates(cls, configured: str = "") -> list[tuple[str, str]]:
+        candidates: list[tuple[str, str]] = []
+        seen: set[str] = set()
+
+        def add(path_str: str, method: str) -> None:
+            if not path_str:
+                return
+            p = Path(path_str)
+            if not p.is_file():
+                return
+            try:
+                norm = str(p.resolve()).lower()
+            except OSError:
+                norm = str(p).lower()
+            if norm in seen:
+                return
+            seen.add(norm)
+            candidates.append((str(p), method))
+
+        # 1. Explicitly configured executable (or directory)
+        if configured:
+            p = Path(configured)
+            if p.is_file():
+                # In Windows, if pointed to GUI ngspice.exe, prefer headless console binary if alongside
+                if p.name.lower() == "ngspice.exe":
+                    con_peer = p.with_name("ngspice_con.exe")
+                    if con_peer.is_file():
+                        add(str(con_peer), "configured-console")
+                add(str(p), "configured")
+            elif p.is_dir():
+                add(str(p / "ngspice_con.exe"), "configured-dir-console")
+                add(str(p / "ngspice.exe"), "configured-dir")
+                add(str(p / "bin" / "ngspice_con.exe"), "configured-bin-console")
+                add(str(p / "bin" / "ngspice.exe"), "configured-bin")
+            else:
+                candidates.append((configured, "configured"))
+            return candidates
+
+        # 2. Environment variables: ACORE_NGSPICE_PATH, NGSPICE_PATH
+        for env_var in ("ACORE_NGSPICE_PATH", "NGSPICE_PATH"):
+            val = os.environ.get(env_var, "").strip()
+            if val:
+                vp = Path(val)
+                if vp.is_file():
+                    if vp.name.lower() == "ngspice.exe":
+                        add(str(vp.with_name("ngspice_con.exe")), f"env:{env_var}-console")
+                    add(str(vp), f"env:{env_var}")
+                elif vp.is_dir():
+                    add(str(vp / "ngspice_con.exe"), f"env:{env_var}-console")
+                    add(str(vp / "ngspice.exe"), f"env:{env_var}")
+                    add(str(vp / "bin" / "ngspice_con.exe"), f"env:{env_var}-bin-console")
+                    add(str(vp / "bin" / "ngspice.exe"), f"env:{env_var}-bin")
+
+        # 3. Settings configuration (simulation.ngspice_path)
+        try:
+            from academic_core.config.settings import Settings
+            cfg_path = Settings.load().simulation.ngspice_path
+            if cfg_path and cfg_path != configured:
+                cp = Path(cfg_path)
+                if cp.is_file():
+                    if cp.name.lower() == "ngspice.exe":
+                        add(str(cp.with_name("ngspice_con.exe")), "settings-console")
+                    add(str(cp), "settings")
+                elif cp.is_dir():
+                    add(str(cp / "ngspice_con.exe"), "settings-dir-console")
+                    add(str(cp / "ngspice.exe"), "settings-dir")
+                    add(str(cp / "bin" / "ngspice_con.exe"), "settings-bin-console")
+                    add(str(cp / "bin" / "ngspice.exe"), "settings-bin")
+        except Exception:
+            pass
+
+        # 4. PATH lookup: on Windows prefer ngspice_con.exe (headless console)
+        con_path = shutil.which("ngspice_con") or shutil.which("ngspice_con.exe")
+        if con_path:
+            add(con_path, "PATH-console")
+        std_path = shutil.which("ngspice") or shutil.which("ngspice.exe")
+        if std_path:
+            sp = Path(std_path)
+            if sp.name.lower() == "ngspice.exe":
+                add(str(sp.with_name("ngspice_con.exe")), "PATH-peer-console")
+            add(std_path, "PATH")
+
+        # 5. Standard Windows drives and install roots (e.g. C:\Spice64\bin)
+        win_roots = ["C:\\", "D:\\"]
+        for env_name in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+            val = os.environ.get(env_name)
+            if val:
+                win_roots.append(val)
+
+        for root_str in win_roots:
+            root = Path(root_str)
+            for folder in ("Spice64", "Spice", "ngspice"):
+                add(str(root / folder / "bin" / "ngspice_con.exe"), "standard-install-console")
+                add(str(root / folder / "bin" / "ngspice.exe"), "standard-install")
+                add(str(root / folder / "ngspice_con.exe"), "standard-install-console")
+                add(str(root / folder / "ngspice.exe"), "standard-install")
+
+        # 6. User home directories (Documents, Downloads) where official archives are unpacked
+        try:
+            home = Path.home()
+            for sub in ("Documents", "Downloads", "Desktop", ""):
+                base = home / sub if sub else home
+                if not base.exists():
+                    continue
+                add(str(base / "Spice64" / "bin" / "ngspice_con.exe"), "user-install-console")
+                add(str(base / "Spice64" / "bin" / "ngspice.exe"), "user-install")
+                try:
+                    for match in base.glob("ngspice*/Spice64/bin/ngspice_con.exe"):
+                        add(str(match), "user-archive-console")
+                    for match in base.glob("ngspice*/Spice64/bin/ngspice.exe"):
+                        add(str(match), "user-archive")
+                    for match in base.glob("ngspice*/bin/ngspice_con.exe"):
+                        add(str(match), "user-archive-console")
+                    for match in base.glob("ngspice*/bin/ngspice.exe"):
+                        add(str(match), "user-archive")
+                except OSError:
+                    pass
+        except Exception:
+            pass
+
+        return candidates
+
+    @classmethod
+    def batch_probe(cls, path: Path, method: str, timeout_seconds: float = 15.0) -> RuntimeInfo:
+        with tempfile.TemporaryDirectory(prefix="academic-core-ngspice-probe-") as tmp:
+            work = Path(tmp)
+            (work / "input.cir").write_text(HEALTH_NETLIST, encoding="ascii")
+            try:
+                probe = subprocess.run(
+                    [str(path), "-b", "-o", "probe.log", "input.cir"],
+                    cwd=str(work), capture_output=True, text=True,
+                    timeout=min(timeout_seconds, 15.0), check=False)
+                log_file = work / "probe.log"
+                log_text = log_file.read_text(encoding="utf-8", errors="replace") if log_file.is_file() else ""
+                combined = (probe.stdout or "") + "\n" + (probe.stderr or "") + "\n" + log_text
+                version = cls.parse_version(combined)
+                verified = probe.returncode == 0 and version != "UNKNOWN"
+                return RuntimeInfo(
+                    "ngspice", str(path), version, method, True,
+                    verified, f"batch_probe_exit={probe.returncode}",
+                    platform.platform(), _now())
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return RuntimeInfo("ngspice", str(path), "UNKNOWN", method, True,
+                                   False, str(exc), platform.platform(), _now())
+
+    @classmethod
+    def detect(cls, configured: str = "", timeout_seconds: float = 30.0) -> RuntimeInfo:
+        for candidate, method in cls.candidates(configured):
+            path = Path(candidate)
+            if not path.is_file():
+                continue
+            try:
+                proc = subprocess.run(
+                    [str(path), "-v"], capture_output=True,
+                    text=True, timeout=min(timeout_seconds, 10.0), check=False)
+                combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+                version = cls.parse_version(combined)
+                verified = proc.returncode == 0 and version != "UNKNOWN"
+                if verified:
+                    return RuntimeInfo("ngspice", str(path), version, method, True,
+                                       True, f"exit={proc.returncode}",
+                                       platform.platform(), _now())
+                return cls.batch_probe(path, method, timeout_seconds)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                # If -v times out (e.g. GUI binary waiting for interactive loop),
+                # fallback to batch probe to verify batch execution capabilities.
+                probe_res = cls.batch_probe(path, method, timeout_seconds)
+                if probe_res.verified:
+                    return probe_res
+                return RuntimeInfo("ngspice", str(path), "UNKNOWN", method, True,
+                                   False, str(exc), platform.platform(), _now())
+        return RuntimeInfo("ngspice", "", "UNKNOWN", "not-found", False, False,
+                           "ngspice executable not found", platform.platform(), _now())
+
+
 class NgSpiceBackend(SimulationBackend):
     name = "ngspice"
 
@@ -81,46 +268,14 @@ class NgSpiceBackend(SimulationBackend):
         self.workspace_base = Path(workspace_base) if workspace_base else None
         self._process: subprocess.Popen | None = None
         self._cancel_requested = threading.Event()
+        self._runtime_info: RuntimeInfo | None = None
 
-    def _candidates(self) -> list[tuple[str, str]]:
-        candidates: list[tuple[str, str]] = []
-        if self.configured_executable:
-            candidates.append((self.configured_executable, "configured"))
-        path = shutil.which("ngspice") or shutil.which("ngspice.exe")
-        if path:
-            candidates.append((path, "PATH"))
-        for root in (os.environ.get("ProgramFiles", ""),
-                     os.environ.get("ProgramFiles(x86)", "")):
-            if root:
-                candidates.append((str(Path(root) / "ngspice" / "bin" / "ngspice.exe"),
-                                   "known-install"))
-        return candidates
-
-    @staticmethod
-    def _version_from_output(text: str) -> str:
-        match = re.search(r"ngspice(?:[- ](?:version )?)(\d+(?:\.\d+)*)", text, re.I)
-        return match.group(1) if match else "UNKNOWN"
+    # Static delegations for backwards compatibility
+    _candidates = staticmethod(NgSpiceDiscovery.candidates)
+    _version_from_output = staticmethod(NgSpiceDiscovery.parse_version)
 
     def detect(self) -> RuntimeInfo:
-        for candidate, method in self._candidates():
-            path = Path(candidate)
-            if not path.is_file():
-                continue
-            try:
-                proc = subprocess.run([str(path), "-v"], capture_output=True,
-                                      text=True, timeout=min(self.timeout_seconds, 10),
-                                      check=False)
-                combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-                version = self._version_from_output(combined)
-                verified = proc.returncode == 0 and version != "UNKNOWN"
-                return RuntimeInfo(self.name, str(path), version, method, True,
-                                   verified, f"exit={proc.returncode}",
-                                   platform.platform(), _now())
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                return RuntimeInfo(self.name, str(path), "UNKNOWN", method, True,
-                                   False, str(exc), platform.platform(), _now())
-        return RuntimeInfo(self.name, "", "UNKNOWN", "not-found", False, False,
-                           "ngspice executable not found", platform.platform(), _now())
+        return NgSpiceDiscovery.detect(self.configured_executable, self.timeout_seconds)
 
     def capabilities(self) -> tuple[str, ...]:
         return ("detect", "version", "validate_runtime", "prepare", "run",
@@ -130,11 +285,14 @@ class NgSpiceBackend(SimulationBackend):
         return self.detect().version
 
     def validate_runtime(self) -> RuntimeInfo:
+        if self._runtime_info and self._runtime_info.verified:
+            return self._runtime_info
         info = self.detect()
         if not info.available:
             raise RuntimeErrorF7A(info.verification_details)
         if not info.verified:
             raise RuntimeErrorF7A(f"runtime not verified: {info.verification_details}")
+        self._runtime_info = info
         return info
 
     def prepare(self, netlist: str, prefix: str = "run") -> Path:
@@ -182,15 +340,27 @@ class NgSpiceBackend(SimulationBackend):
             try:
                 stdout, stderr = self._process.communicate(timeout=self.timeout_seconds)
                 code = self._process.returncode
+                log_path = workspace / "output.log"
+                if log_path.is_file():
+                    # Batch mode writes log details to the -o file; include in stdout capture
+                    file_output = log_path.read_text(encoding="utf-8", errors="replace")
+                    stdout = (stdout or "") + ("\n" if stdout else "") + file_output
                 status = "CANCELLED" if self._cancel_requested.is_set() \
                     else ("COMPLETED" if code == 0 else "FAILED")
             except subprocess.TimeoutExpired as exc:
                 stdout = exc.stdout or ""
                 stderr = exc.stderr or ""
                 _terminate(self._process)
-                stdout2, stderr2 = self._process.communicate()
-                stdout += stdout2 or ""
-                stderr += stderr2 or ""
+                try:
+                    stdout2, stderr2 = self._process.communicate(timeout=2.0)
+                    stdout += stdout2 or ""
+                    stderr += stderr2 or ""
+                except Exception:
+                    pass
+                log_path = workspace / "output.log"
+                if log_path.is_file():
+                    file_output = log_path.read_text(encoding="utf-8", errors="replace")
+                    stdout = (stdout or "") + ("\n" if stdout else "") + file_output
                 code = self._process.returncode
                 status = "TIMEOUT"
         finally:
@@ -220,9 +390,12 @@ def _now() -> str:
 def _terminate(proc: subprocess.Popen) -> None:
     if proc.poll() is not None:
         return
-    proc.terminate()
     try:
+        proc.terminate()
         proc.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=2)
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            proc.kill()
+            proc.wait(timeout=2)
+        except OSError:
+            pass
