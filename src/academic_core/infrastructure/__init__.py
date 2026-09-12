@@ -3,11 +3,13 @@ from academic_core.infrastructure.cas import (
 )
 from academic_core.infrastructure.database import Database
 from academic_core.infrastructure.repositories import (
-    AcademicRepository, GradingRepository, PlanningRepository, StudyRepository,
+    AcademicRepository, GradebookRepository, GradingRepository, IntegrityError,
+    PlanningRepository, StudyRepository,
 )
 from academic_core.infrastructure.resources import FtsResourceIndexer, SqliteResourceRecords
 
-__all__ = ["Database", "AcademicRepository", "GradingRepository",
+__all__ = ["Database", "AcademicRepository", "GradebookRepository",
+           "GradingRepository", "IntegrityError",
            "PlanningRepository", "StudyRepository",
            "BlobNotFound", "CorruptBlob", "FileBlobStore", "TooLarge",
            "FtsResourceIndexer", "SqliteResourceRecords"]

@@ -17,7 +17,7 @@ from pathlib import Path
 _MIGRATIONS = ("001_academic.sql", "002_grading.sql",
                "003_planning.sql", "004_study.sql",
                "005_resources.sql", "006_fts.sql",
-               "007_documents.sql")
+               "007_documents.sql", "008_academic_f4.sql")
 
 
 class Database:

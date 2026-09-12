@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
+from decimal import Decimal
 
 from academic_core.domain import entities as E
+from academic_core.domain import results as R_
 from academic_core.domain.identity import IdAllocator
 from academic_core.infrastructure.database import Database
+
+
+class IntegrityError(ValueError):
+    """Controlled integrity failure: guards, orphans, duplicates, bad refs."""
 
 
 def _j(v) -> str:
@@ -49,31 +55,39 @@ class AcademicRepository:
 
     def add_year(self, y: E.AcademicYear) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO academic_years VALUES (?,?,?)",
-                   (y.stable_id, y.label, y.degree_id))
+        cx.execute("INSERT OR REPLACE INTO academic_years VALUES (?,?,?,?)",
+                   (y.stable_id, y.label, y.degree_id, y.state))
         cx.commit(); cx.close()
 
     def years_of(self, degree_id: str) -> list[E.AcademicYear]:
         cx = self.db.connect()
         rows = cx.execute("SELECT * FROM academic_years WHERE degree_id=? ORDER BY label",
                           (degree_id,)).fetchall(); cx.close()
-        return [E.AcademicYear(r["stable_id"], r["label"], r["degree_id"]) for r in rows]
+        return [E.AcademicYear(r["stable_id"], r["label"], r["degree_id"],
+                               r["state"] if "state" in r.keys() else "pendiente")
+                for r in rows]
 
     def add_term(self, t: E.Term) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO terms VALUES (?,?,?,?,?,?,?)",
+        cx.execute("INSERT OR REPLACE INTO terms VALUES (?,?,?,?,?,?,?,?)",
                    (t.stable_id, t.label, t.kind, t.index, t.academic_year_id,
                     t.start.isoformat() if t.start else None,
-                    t.end.isoformat() if t.end else None))
+                    t.end.isoformat() if t.end else None, t.state))
         cx.commit(); cx.close()
 
     def terms_of(self, year_id: str) -> list[E.Term]:
         cx = self.db.connect()
         rows = cx.execute("SELECT * FROM terms WHERE academic_year_id=? ORDER BY idx",
                           (year_id,)).fetchall(); cx.close()
-        return [E.Term(r["stable_id"], r["label"], r["kind"], r["idx"], r["academic_year_id"],
-                       date.fromisoformat(r["start"]) if r["start"] else None,
-                       date.fromisoformat(r["end"]) if r["end"] else None) for r in rows]
+        out = []
+        for r in rows:
+            keys = r.keys()
+            out.append(E.Term(
+                r["stable_id"], r["label"], r["kind"], r["idx"], r["academic_year_id"],
+                date.fromisoformat(r["start"]) if r["start"] else None,
+                date.fromisoformat(r["end"]) if r["end"] else None,
+                r["state"] if "state" in keys else "pendiente"))
+        return out
 
     def add_subject(self, s: E.Subject) -> None:
         cx = self.db.connect()
@@ -127,15 +141,105 @@ class AcademicRepository:
     # -- topics --------------------------------------------------------------
     def add_topic(self, t: E.Topic) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO topics VALUES (?,?,?,?)",
-                   (t.stable_id, t.subject_id, t.index, t.title))
+        cx.execute("INSERT OR REPLACE INTO topics VALUES (?,?,?,?,?)",
+                   (t.stable_id, t.subject_id, t.index, t.title, t.description))
         cx.commit(); cx.close()
 
     def topics_of(self, subject_id: str) -> list[E.Topic]:
         cx = self.db.connect()
         rows = cx.execute("SELECT * FROM topics WHERE subject_id=? ORDER BY idx",
                           (subject_id,)).fetchall(); cx.close()
-        return [E.Topic(r["stable_id"], r["subject_id"], r["idx"], r["title"]) for r in rows]
+        return [E.Topic(r["stable_id"], r["subject_id"], r["idx"], r["title"],
+                        r["description"] if "description" in r.keys() else "")
+                for r in rows]
+
+    def delete_topic(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        cx.execute("DELETE FROM topics WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
+
+    # -- prerequisites ---------------------------------------------------------
+    def add_prerequisite(self, subject_id: str, requires_id: str) -> None:
+        if subject_id == requires_id:
+            raise IntegrityError("a subject cannot require itself")
+        cx = self.db.connect()
+        if not cx.execute("SELECT 1 FROM subjects WHERE stable_id=?",
+                          (requires_id,)).fetchone():
+            raise IntegrityError(f"unknown prerequisite: {requires_id}")
+        try:
+            cx.execute("INSERT INTO prerequisites VALUES (?,?)", (subject_id, requires_id))
+        except Exception as e:
+            cx.close()
+            raise IntegrityError(f"duplicate prerequisite: {e}")
+        cx.commit(); cx.close()
+
+    def prerequisites_of(self, subject_id: str) -> list[str]:
+        cx = self.db.connect()
+        rows = cx.execute("SELECT requires_id FROM prerequisites WHERE subject_id=?",
+                          (subject_id,)).fetchall(); cx.close()
+        return [r["requires_id"] for r in rows]
+
+    # -- safe delete (children block parents; controlled IntegrityError) -------
+    def _child_count(self, cx, table: str, column: str, value: str) -> int:
+        return cx.execute(f"SELECT COUNT(*) FROM {table} WHERE {column}=?",
+                          (value,)).fetchone()[0]
+
+    def delete_subject(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        blockers = []
+        for table, col in (("topics", "subject_id"), ("assignments", "subject_id"),
+                           ("exams", "subject_id"), ("projects", "subject_id"),
+                           ("labs", "subject_id"), ("tasks", "subject_id"),
+                           ("schedule_series", "subject_id"),
+                           ("resource_refs", "subject_id"),
+                           ("grade_schemes", "subject_id"), ("gradebook", "subject_id")):
+            n = self._child_count(cx, table, col, stable_id)
+            if n:
+                blockers.append(f"{table}({n})")
+        if blockers:
+            cx.close()
+            raise IntegrityError(f"cannot delete {stable_id}: {', '.join(blockers)}")
+        cx.execute("DELETE FROM subject_staff WHERE subject_id=?", (stable_id,))
+        cx.execute("DELETE FROM prerequisites WHERE subject_id=? OR requires_id=?",
+                   (stable_id, stable_id))
+        cx.execute("DELETE FROM subjects WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
+
+    def delete_term(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        n = self._child_count(cx, "subjects", "term_id", stable_id)
+        if n:
+            cx.close()
+            raise IntegrityError(f"cannot delete {stable_id}: subjects({n})")
+        cx.execute("DELETE FROM terms WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
+
+    def delete_year(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        n = self._child_count(cx, "terms", "academic_year_id", stable_id)
+        if n:
+            cx.close()
+            raise IntegrityError(f"cannot delete {stable_id}: terms({n})")
+        cx.execute("DELETE FROM academic_years WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
+
+    def delete_degree(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        n = self._child_count(cx, "academic_years", "degree_id", stable_id)
+        if n:
+            cx.close()
+            raise IntegrityError(f"cannot delete {stable_id}: years({n})")
+        cx.execute("DELETE FROM degrees WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
+
+    def delete_university(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        n = self._child_count(cx, "degrees", "university_id", stable_id)
+        if n:
+            cx.close()
+            raise IntegrityError(f"cannot delete {stable_id}: degrees({n})")
+        cx.execute("DELETE FROM universities WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
 
     # -- id counters ----------------------------------------------------------
     def load_counters(self) -> dict[str, int]:
@@ -186,61 +290,140 @@ class PlanningRepository:
     # exams / projects / labs --------------------------------------------------
     def add_exam(self, e: E.Exam) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO exams VALUES (?,?,?,?,?,?,?,?)",
+        cx.execute("INSERT OR REPLACE INTO exams VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                    (e.stable_id, e.subject_id, e.title, e.day.isoformat() if e.day else None,
-                    e.duration_min, e.session, e.allowed_resources, e.result))
+                    e.duration_min, e.session, e.allowed_resources, e.result,
+                    e.status, e.weight, e.score, e.notes))
         cx.commit(); cx.close()
+
+    def _exam(self, r) -> E.Exam:
+        keys = r.keys()
+        return E.Exam(r["stable_id"], r["subject_id"], r["title"],
+                      date.fromisoformat(r["day"]) if r["day"] else None,
+                      r["duration_min"], r["session"], r["allowed_resources"], r["result"],
+                      r["status"] if "status" in keys else "planned",
+                      r["weight"] if "weight" in keys else None,
+                      r["score"] if "score" in keys else None,
+                      r["notes"] if "notes" in keys else "")
 
     def exams_of(self, subject_id: str) -> list[E.Exam]:
         cx = self.db.connect()
         rows = cx.execute("SELECT * FROM exams WHERE subject_id=? ORDER BY day",
                           (subject_id,)).fetchall(); cx.close()
-        return [E.Exam(r["stable_id"], r["subject_id"], r["title"],
-                       date.fromisoformat(r["day"]) if r["day"] else None,
-                       r["duration_min"], r["session"], r["allowed_resources"], r["result"]) for r in rows]
+        return [self._exam(r) for r in rows]
+
+    def all_exams(self) -> list[E.Exam]:
+        cx = self.db.connect()
+        rows = cx.execute("SELECT * FROM exams ORDER BY day").fetchall(); cx.close()
+        return [self._exam(r) for r in rows]
+
+    def delete_exam(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        cx.execute("DELETE FROM deadlines WHERE target_id=?", (stable_id,))
+        cx.execute("DELETE FROM exams WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
 
     def add_project(self, p: E.Project) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO projects VALUES (?,?,?,?,?,?)",
+        cx.execute("INSERT OR REPLACE INTO projects VALUES (?,?,?,?,?,?,?,?,?,?)",
                    (p.stable_id, p.subject_id, p.title, p.description,
-                    _j(p.milestones), _j(p.links)))
+                    _j(p.milestones), _j(p.links), p.status, p.weight, p.score, p.notes))
         cx.commit(); cx.close()
+
+    def _project(self, r) -> E.Project:
+        keys = r.keys()
+        return E.Project(r["stable_id"], r["subject_id"], r["title"], r["description"],
+                         _u(r["milestones"], []), _u(r["links"], []),
+                         r["status"] if "status" in keys else "planned",
+                         r["weight"] if "weight" in keys else None,
+                         r["score"] if "score" in keys else None,
+                         r["notes"] if "notes" in keys else "")
 
     def projects_of(self, subject_id: str) -> list[E.Project]:
         cx = self.db.connect()
         rows = cx.execute("SELECT * FROM projects WHERE subject_id=?", (subject_id,)).fetchall()
         cx.close()
-        return [E.Project(r["stable_id"], r["subject_id"], r["title"], r["description"],
-                          _u(r["milestones"], []), _u(r["links"], [])) for r in rows]
+        return [self._project(r) for r in rows]
+
+    def delete_project(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        cx.execute("DELETE FROM deadlines WHERE target_id=?", (stable_id,))
+        cx.execute("DELETE FROM projects WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
 
     def add_lab(self, lab: E.Lab) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO labs VALUES (?,?,?,?)",
-                   (lab.stable_id, lab.subject_id, lab.title, lab.description))
+        cx.execute("INSERT OR REPLACE INTO labs VALUES (?,?,?,?,?,?,?,?)",
+                   (lab.stable_id, lab.subject_id, lab.title, lab.description,
+                    lab.day.isoformat() if lab.day else None,
+                    lab.status, lab.score, lab.notes))
+        cx.commit(); cx.close()
+
+    def _lab(self, r) -> E.Lab:
+        keys = r.keys()
+        return E.Lab(r["stable_id"], r["subject_id"], r["title"], r["description"],
+                     date.fromisoformat(r["day"]) if r["day"] else None,
+                     r["status"] if "status" in keys else "planned",
+                     r["score"] if "score" in keys else None,
+                     r["notes"] if "notes" in keys else "")
+
+    def labs_of(self, subject_id: str) -> list[E.Lab]:
+        cx = self.db.connect()
+        rows = cx.execute("SELECT * FROM labs WHERE subject_id=? ORDER BY day",
+                          (subject_id,)).fetchall(); cx.close()
+        return [self._lab(r) for r in rows]
+
+    def delete_lab(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        cx.execute("DELETE FROM deadlines WHERE target_id=?", (stable_id,))
+        cx.execute("DELETE FROM labs WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
+
+    def delete_assignment(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        cx.execute("DELETE FROM deadlines WHERE target_id=?", (stable_id,))
+        cx.execute("DELETE FROM assignments WHERE stable_id=?", (stable_id,))
         cx.commit(); cx.close()
 
     # tasks / deadlines ---------------------------------------------------------
     def add_task(self, t: E.Task) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?)",
+        cx.execute("INSERT OR REPLACE INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (t.stable_id, t.subject_id, t.title, t.kind, t.day.isoformat() if t.day else None,
-                    t.start, t.end, t.priority, t.state, t.notes))
+                    t.start, t.end, t.priority, t.state, t.notes,
+                    t.description, t.location, t.link, t.reminder_days))
         cx.commit(); cx.close()
+
+    def _task(self, r) -> E.Task:
+        keys = r.keys()
+        return E.Task(r["stable_id"], r["subject_id"], r["title"], r["kind"],
+                      date.fromisoformat(r["day"]) if r["day"] else None,
+                      r["start"], r["end"], r["priority"], r["state"], r["notes"],
+                      r["description"] if "description" in keys else "",
+                      r["location"] if "location" in keys else "",
+                      r["link"] if "link" in keys else "",
+                      r["reminder_days"] if "reminder_days" in keys else None)
 
     def tasks_of(self, subject_id: str) -> list[E.Task]:
         cx = self.db.connect()
         rows = cx.execute("SELECT * FROM tasks WHERE subject_id=? ORDER BY day", (subject_id,)).fetchall()
         cx.close()
-        return [E.Task(r["stable_id"], r["subject_id"], r["title"], r["kind"],
-                       date.fromisoformat(r["day"]) if r["day"] else None,
-                       r["start"], r["end"], r["priority"], r["state"], r["notes"]) for r in rows]
+        return [self._task(r) for r in rows]
 
     def all_tasks(self) -> list[E.Task]:
         cx = self.db.connect()
         rows = cx.execute("SELECT * FROM tasks ORDER BY day").fetchall(); cx.close()
-        return [E.Task(r["stable_id"], r["subject_id"], r["title"], r["kind"],
-                       date.fromisoformat(r["day"]) if r["day"] else None,
-                       r["start"], r["end"], r["priority"], r["state"], r["notes"]) for r in rows]
+        return [self._task(r) for r in rows]
+
+    def delete_task(self, stable_id: str) -> None:
+        cx = self.db.connect()
+        if cx.execute("SELECT 1 FROM study_spaces WHERE exam_task_id=?",
+                      (stable_id,)).fetchone():
+            cx.close()
+            raise IntegrityError(f"cannot delete {stable_id}: study space depends on it")
+        cx.execute("DELETE FROM deadlines WHERE target_id=?", (stable_id,))
+        cx.execute("DELETE FROM tasks WHERE stable_id=?", (stable_id,))
+        cx.commit(); cx.close()
 
     def add_deadline(self, target_id: str, due: datetime, label: str = "") -> int:
         cx = self.db.connect()
@@ -297,7 +480,6 @@ class PlanningRepository:
 class GradingRepository:
     def __init__(self, db: Database):
         self.db = db
-
     def save_scheme(self, subject_id: str, scheme: str,
                     components: list[E.GradeComponent], final: str | None = None,
                     blocks: dict[str, str] | None = None) -> None:
@@ -408,3 +590,39 @@ class StudyRepository:
         return [E.Notification(r["title"], r["body"],
                                datetime.fromisoformat(r["due"]) if r["due"] else None,
                                bool(r["read"])) for r in rows]
+
+
+class GradebookRepository:
+    """Generic gradebook (Phase 4): Decimal values as TEXT + scale payload."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def record(self, subject_id: str, grade: R_.Grade) -> None:
+        scale = grade.scale
+        letters = json.dumps(list(scale.letters), ensure_ascii=False)
+        cx = self.db.connect()
+        cx.execute("INSERT OR REPLACE INTO gradebook(subject_id, key, value, scale_kind,"
+                   " scale_low, scale_high, letters, weight, optional, date, notes)"
+                   " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                   (subject_id, grade.key, grade.value, scale.kind, str(scale.low),
+                    str(scale.high), letters, str(grade.weight), int(grade.optional),
+                    grade.date, grade.notes))
+        cx.commit(); cx.close()
+
+    def grades_of(self, subject_id: str) -> list[R_.Grade]:
+        cx = self.db.connect()
+        rows = cx.execute("SELECT * FROM gradebook WHERE subject_id=? ORDER BY key",
+                          (subject_id,)).fetchall(); cx.close()
+        out = []
+        for r in rows:
+            scale = R_.Scale(r["scale_kind"], Decimal(r["scale_low"]),
+                             Decimal(r["scale_high"]), tuple(json.loads(r["letters"])))
+            out.append(R_.Grade(r["key"], r["value"], scale, Decimal(r["weight"]),
+                                bool(r["optional"]), r["date"], r["notes"]))
+        return out
+
+    def clear_subject(self, subject_id: str) -> None:
+        cx = self.db.connect()
+        cx.execute("DELETE FROM gradebook WHERE subject_id=?", (subject_id,))
+        cx.commit(); cx.close()

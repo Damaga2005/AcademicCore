@@ -35,7 +35,7 @@ def test_application_and_infrastructure_have_no_ui():
     import re as _re
     violations = []
     for sub in ("application", "infrastructure", "storage", "config", "engines",
-                "documents", "pdf", "resources"):
+                "documents", "pdf", "resources", "domain"):
         for f in _texts(sub):
             text = f.read_text(encoding="utf-8")
             # import statements only: docstring prose may name backends.
@@ -43,6 +43,33 @@ def test_application_and_infrastructure_have_no_ui():
                 violations.append(f"{f.relative_to(SRC)} imports PySide6")
             if _RX_APP.search(text):
                 violations.append(f"{f.relative_to(SRC)} imports academic_core.app")
+    assert not violations, violations
+
+
+def test_ui_consumes_only_application_and_domain():
+    """UI never touches infrastructure/SQLite/CAS; never Flask/SQLAlchemy."""
+    import re as _re
+    violations = []
+    for f in _texts("ui"):
+        text = f.read_text(encoding="utf-8")
+        for bad in ("from academic_core.infrastructure", "import sqlite3",
+                    "flask", "Flask", "sqlalchemy", "SQLAlchemy"):
+            if bad in text:
+                violations.append(f"{f.relative_to(SRC)} uses {bad}")
+        if _re.search(r"^\s*(import|from)\s+academic_core\.app\b", text, _re.MULTILINE):
+            violations.append(f"{f.relative_to(SRC)} imports app module")
+    assert not violations, violations
+
+
+def test_no_flask_or_web_stack_anywhere():
+    """No Flask/SQLAlchemy imports in src (docs may discuss them)."""
+    import re as _re
+    violations = []
+    for f in SRC.rglob("*.py"):
+        text = f.read_text(encoding="utf-8")
+        if _re.search(r"^\s*(import|from)\s+(flask|sqlalchemy)\b", text,
+                      _re.MULTILINE | _re.IGNORECASE):
+            violations.append(str(f.relative_to(SRC)))
     assert not violations, violations
 
 

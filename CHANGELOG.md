@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 — Fase 4 Academic Management (2026-09-12)
+- Gestion audit + reuse map (concept-only, no code copied).
+- Generic gradebook (scales/weights/optional/partial, Decimal) beside F1
+  engine (ADR-0016); results service; planning queries; JSON import/export;
+  safe deletes + prerequisites; migration 008 (additive).
+- Facade (`AcademicApp`) + `ui/` workspace (tree, 5 tabs, dialogs).
+- Gate F4: 145 passed, 2 skipped (123 F0–F3 + 22 F4).
+
 ## 0.4.0 — Fase 3 Document + PDF Engine (2026-09-12)
 - Conversor audit (20 comps) + selective reuse (math 1:1, tables, images,
   sanitize, metadata, encoding) with equivalence tests vs original module.

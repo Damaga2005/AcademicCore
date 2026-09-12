@@ -35,12 +35,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
+import re
 
 from academic_core.domain.identity import slugify, validate
 
 
 class DomainError(ValueError):
     """Broken domain invariant."""
+
+
+_URL_RE = re.compile(r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE)
+
+
+def _check_url(value: str, field_name: str) -> str:
+    if value and not _URL_RE.match(value.strip()):
+        raise DomainError(f"{field_name} must be an http(s) URL")
+    return value
+
+
+# Shared lifecycle for dated academic activities (exam/project/lab).
+# F1 Assignment states (draft/active/submitted/graded/archived) are kept as
+# the reference vocabulary; activities share the same explicit machine.
+ACTIVITY_STATES = ("planned", "active", "submitted", "graded", "cancelled", "archived")
+PERIOD_STATES = ("pendiente", "actual", "superado")
+
 
 
 # ---------------------------------------------------------------- hierarchies
@@ -77,12 +95,15 @@ class AcademicYear:
     stable_id: str  # year:<label-slug>, e.g. year:2025-26
     label: str  # e.g. "2025-26"
     degree_id: str
+    state: str = "pendiente"
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "year":
             raise DomainError(f"bad id: {self.stable_id}")
         if validate(self.degree_id) != "degree":
             raise DomainError(f"bad degree_id: {self.degree_id}")
+        if self.state not in PERIOD_STATES:
+            raise DomainError(f"Year.state must be one of {PERIOD_STATES}")
 
 
 TERM_KINDS = ("semestre", "cuatrimestre", "trimestre", "anual", "otro")
@@ -98,6 +119,7 @@ class Term:
     academic_year_id: str
     start: date | None = None
     end: date | None = None
+    state: str = "pendiente"
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "term":
@@ -110,6 +132,8 @@ class Term:
             raise DomainError(f"bad academic_year_id: {self.academic_year_id}")
         if self.start and self.end and self.end < self.start:
             raise DomainError("Term.end before Term.start")
+        if self.state not in PERIOD_STATES:
+            raise DomainError(f"Term.state must be one of {PERIOD_STATES}")
 
 
 SUBJECT_TYPES = ("obligatoria", "optativa", "tfg", "tfm", "otra")
@@ -152,12 +176,15 @@ class Topic:
     subject_id: str
     index: str  # "03"
     title: str
+    description: str = ""
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "topic":
             raise DomainError(f"bad id: {self.stable_id}")
         if validate(self.subject_id) != "subject":
             raise DomainError(f"bad subject_id: {self.subject_id}")
+        if not self.title.strip():
+            raise DomainError("Topic.title is required")
 
 
 @dataclass
@@ -255,6 +282,10 @@ class Exam:
     session: str = ""  # convocatoria: ordinaria|extraordinaria|parcial|...
     allowed_resources: str = ""
     result: str = ""  # free text in F1; structured grading arrives later
+    status: str = "planned"
+    weight: str | None = None  # Decimal text 0..100, share of subject result
+    score: str | None = None  # recorded mark, interpreted by results.Scale
+    notes: str = ""
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "exam":
@@ -263,6 +294,8 @@ class Exam:
             raise DomainError(f"bad subject_id: {self.subject_id}")
         if self.duration_min < 0:
             raise DomainError("Exam.duration_min must be >= 0")
+        if self.status not in ACTIVITY_STATES:
+            raise DomainError(f"Exam.status must be one of {ACTIVITY_STATES}")
 
 
 @dataclass
@@ -273,12 +306,18 @@ class Project:
     description: str = ""
     milestones: list[str] = field(default_factory=list)
     links: list[str] = field(default_factory=list)  # resource/doc/circuit refs
+    status: str = "planned"
+    weight: str | None = None
+    score: str | None = None
+    notes: str = ""
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "project":
             raise DomainError(f"bad id: {self.stable_id}")
         if validate(self.subject_id) != "subject":
             raise DomainError(f"bad subject_id: {self.subject_id}")
+        if self.status not in ACTIVITY_STATES:
+            raise DomainError(f"Project.status must be one of {ACTIVITY_STATES}")
 
 
 @dataclass
@@ -287,12 +326,18 @@ class Lab:
     subject_id: str
     title: str
     description: str = ""
+    day: date | None = None
+    status: str = "planned"
+    score: str | None = None
+    notes: str = ""
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "lab":
             raise DomainError(f"bad id: {self.stable_id}")
         if validate(self.subject_id) != "subject":
             raise DomainError(f"bad subject_id: {self.subject_id}")
+        if self.status not in ACTIVITY_STATES:
+            raise DomainError(f"Lab.status must be one of {ACTIVITY_STATES}")
 
 
 # ------------------------------------------------------------- tasks / plan
@@ -318,6 +363,10 @@ class Task:
     priority: str = "media"
     state: str = "pendiente"
     notes: str = ""
+    description: str = ""
+    location: str = ""
+    link: str = ""
+    reminder_days: int | None = None
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "task":
@@ -334,6 +383,9 @@ class Task:
             raise DomainError("Task start/end must both be set or both empty")
         if self.start and self.end and self.end <= self.start:
             raise DomainError("Task end must be after start")
+        _check_url(self.link, "Task.link")
+        if self.reminder_days is not None and self.reminder_days < 0:
+            raise DomainError("Task.reminder_days must be >= 0")
 
     @property
     def is_exam(self) -> bool:
