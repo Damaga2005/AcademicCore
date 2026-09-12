@@ -58,7 +58,7 @@ class EngineeringService:
         return circuit.to_netlist()
 
     def simulate_circuit(self, project: str, circuit_name: str,
-                         analyses: tuple[str, ...] = ("op",),
+                         analyses: tuple[Any, ...] = ("op",),
                          backend: S.SimulationBackend | None = None) -> S.SimulationResult:
         circuit = self.repo.load_circuit(project, circuit_name)
         if circuit is None:

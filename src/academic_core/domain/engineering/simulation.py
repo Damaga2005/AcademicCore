@@ -8,6 +8,9 @@ F7-B1 introduces scientific simulation models:
 F7-B2 adds DC Sweep analysis:
 - DCSweepAnalysis (source, start, stop, step, validation)
 - Multi-point Signal support (samples sequence, sweep_axis, points_count)
+F7-B3 adds Transient analysis:
+- TransientAnalysis (tstep, tstop, tstart, tmax, uic, validation)
+- Time axis Signal support (time_axis, sample_at, multi-point time series)
 """
 
 from __future__ import annotations
@@ -17,6 +20,132 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
+
+_SPICE_SUFFIXES: dict[str, Decimal] = {
+    "t": Decimal("1e12"),
+    "g": Decimal("1e9"),
+    "meg": Decimal("1e6"),
+    "k": Decimal("1e3"),
+    "m": Decimal("1e-3"),
+    "u": Decimal("1e-6"),
+    "n": Decimal("1e-9"),
+    "p": Decimal("1e-12"),
+    "f": Decimal("1e-15"),
+}
+
+
+def parse_spice_number(text: str | int | float | Decimal) -> Decimal:
+    """Parse a numerical value or SPICE-syntax string with optional engineering suffixes to Decimal.
+
+    Supports:
+    - Standard Decimal/float/int representations
+    - SPICE engineering suffixes: 't', 'g', 'meg', 'k', 'm', 'u', 'n', 'p', 'f'
+    """
+    if isinstance(text, Decimal):
+        return text
+    if isinstance(text, (int, float)):
+        return Decimal(str(text))
+    s = str(text).strip().lower()
+    if not s:
+        raise ValueError("empty number string")
+
+    if s.endswith("meg"):
+        val_str = s[:-3]
+        try:
+            return Decimal(val_str) * _SPICE_SUFFIXES["meg"]
+        except Exception as exc:
+            raise ValueError(f"invalid numerical string: {text!r}") from exc
+
+    for suffix, multiplier in _SPICE_SUFFIXES.items():
+        if suffix != "meg" and s.endswith(suffix):
+            val_str = s[:-len(suffix)]
+            try:
+                return Decimal(val_str) * multiplier
+            except Exception:
+                pass
+
+    try:
+        return Decimal(s)
+    except Exception as exc:
+        raise ValueError(f"invalid numerical string: {text!r}") from exc
+
+
+@dataclass(frozen=True)
+class TransientAnalysis:
+    """Specification for a Transient (.tran) analysis.
+
+    Simulates circuit behavior over time from tstart (default 0) to tstop with step tstep.
+    Optional tmax (maximum internal timestep) and uic (use initial conditions).
+    """
+    tstep: Decimal | str | float | int
+    tstop: Decimal | str | float | int
+    tstart: Decimal | str | float | int = Decimal(0)
+    tmax: Decimal | str | float | int | None = None
+    uic: bool = False
+
+    def __post_init__(self):
+        try:
+            tstep_d = parse_spice_number(self.tstep)
+            tstop_d = parse_spice_number(self.tstop)
+            tstart_d = parse_spice_number(self.tstart)
+            tmax_d = parse_spice_number(self.tmax) if self.tmax is not None else None
+        except Exception as exc:
+            raise ValueError(f"invalid numerical parameter for transient analysis: {exc}")
+
+        object.__setattr__(self, "tstep", tstep_d)
+        object.__setattr__(self, "tstop", tstop_d)
+        object.__setattr__(self, "tstart", tstart_d)
+        object.__setattr__(self, "tmax", tmax_d)
+        object.__setattr__(self, "uic", bool(self.uic))
+
+        if tstep_d <= 0:
+            raise ValueError(f"transient step must be positive, got {tstep_d}")
+        if tstop_d <= 0:
+            raise ValueError(f"transient stop must be positive, got {tstop_d}")
+        if tstart_d < 0:
+            raise ValueError(f"transient start must be non-negative, got {tstart_d}")
+        if tstop_d <= tstart_d:
+            raise ValueError(f"transient stop ({tstop_d}) must be greater than start ({tstart_d})")
+        if tmax_d is not None and tmax_d <= 0:
+            raise ValueError(f"transient tmax must be positive, got {tmax_d}")
+
+    def to_spice_card(self) -> str:
+        """Generate SPICE .tran directive line."""
+        uic_suffix = " uic" if self.uic else ""
+        if self.tmax is not None:
+            return f".tran {self.tstep} {self.tstop} {self.tstart} {self.tmax}{uic_suffix}"
+        if self.tstart != 0:
+            return f".tran {self.tstep} {self.tstop} {self.tstart}{uic_suffix}"
+        return f".tran {self.tstep} {self.tstop}{uic_suffix}"
+
+    @classmethod
+    def from_string(cls, text: str) -> TransientAnalysis:
+        """Parse from a line like '.tran 10u 5m' or 'tran 1e-5 0.005 0 1e-5 uic'."""
+        cleaned = text.strip()
+        if cleaned.lower().startswith(".tran"):
+            cleaned = cleaned[5:].strip()
+        elif cleaned.lower().startswith("tran"):
+            cleaned = cleaned[4:].strip()
+        parts = cleaned.split()
+        if len(parts) < 2:
+            raise ValueError(f"malformed transient directive: {text!r} (expected at least tstep and tstop)")
+
+        uic = False
+        if parts[-1].lower() == "uic":
+            uic = True
+            parts = parts[:-1]
+
+        tstep = parse_spice_number(parts[0])
+        tstop = parse_spice_number(parts[1])
+        tstart = Decimal(0)
+        tmax = None
+
+        if len(parts) >= 3:
+            tstart = parse_spice_number(parts[2])
+        if len(parts) >= 4:
+            tmax = parse_spice_number(parts[3])
+
+        return cls(tstep=tstep, tstop=tstop, tstart=tstart, tmax=tmax, uic=uic)
 
 
 @dataclass(frozen=True)
@@ -156,15 +285,43 @@ class SimulationResult:
         return None
 
     @property
+    def time_axis(self) -> Signal | None:
+        """The primary time variable/axis Signal if present in the simulation."""
+        for sig in self.signals.values():
+            if sig.axis == "time":
+                return sig
+        if "time" in self.signals:
+            return self.signals["time"]
+        return None
+
+    @property
     def points_count(self) -> int:
         """Number of points in the simulation result."""
-        axis = self.sweep_axis
+        axis = self.time_axis or self.sweep_axis
         if axis and axis.samples:
             return len(axis.samples)
         for sig in self.signals.values():
             if sig.samples:
                 return len(sig.samples)
         return 0
+
+    def sample_at(self, signal_name: str, target: Decimal | float | str) -> Decimal | None:
+        """Sample a signal value at or nearest to a specified time or sweep value."""
+        sig = self.get_signal(signal_name)
+        axis = self.time_axis or self.sweep_axis
+        if not sig or not sig.samples or not axis or not axis.samples:
+            return None
+        target_d = parse_spice_number(target)
+        best_idx = 0
+        min_diff = abs(axis.samples[0] - target_d)
+        for i, val in enumerate(axis.samples[1:], start=1):
+            diff = abs(val - target_d)
+            if diff < min_diff:
+                min_diff = diff
+                best_idx = i
+        if best_idx < len(sig.samples):
+            return sig.samples[best_idx]
+        return None
 
     def voltage(self, node: str) -> Decimal | None:
         """Convenience accessor for node voltage scalar value (first/operating point)."""
@@ -235,11 +392,15 @@ class SimulationJob:
 
         analysis_commands = []
         has_dc_sweep = False
+        has_tran = False
 
         for a in self.analyses:
             if isinstance(a, DCSweepAnalysis):
                 analysis_commands.append(a.to_spice_card())
                 has_dc_sweep = True
+            elif isinstance(a, TransientAnalysis):
+                analysis_commands.append(a.to_spice_card())
+                has_tran = True
             elif isinstance(a, str):
                 an = a.strip()
                 an_lower = an.lower()
@@ -250,6 +411,11 @@ class SimulationJob:
                     sweep = DCSweepAnalysis.from_string(an)
                     analysis_commands.append(sweep.to_spice_card())
                     has_dc_sweep = True
+                elif an_lower.startswith("tran ") or an_lower.startswith(".tran "):
+                    # Validate via TransientAnalysis
+                    tran = TransientAnalysis.from_string(an)
+                    analysis_commands.append(tran.to_spice_card())
+                    has_tran = True
                 elif not an.startswith("."):
                     analysis_commands.append(f".{an}")
                 else:
@@ -263,6 +429,14 @@ class SimulationJob:
             has_print_dc = any(l.strip().lower().startswith(".print dc") or l.strip().lower().startswith("print dc") for l in lines)
             if not has_print_dc:
                 print_card = self._build_print_dc_card(lines)
+                if print_card and print_card.lower() not in existing:
+                    to_add.append(print_card)
+
+        # For Transient in batch mode, ngspice requires a .print tran card
+        if has_tran:
+            has_print_tran = any(l.strip().lower().startswith(".print tran") or l.strip().lower().startswith("print tran") for l in lines)
+            if not has_print_tran:
+                print_card = self._build_print_tran_card(lines)
                 if print_card and print_card.lower() not in existing:
                     to_add.append(print_card)
 
@@ -301,6 +475,35 @@ class SimulationJob:
         if tokens:
             return f".print dc {' '.join(tokens)}"
         return ".print dc"
+
+    @staticmethod
+    def _build_print_tran_card(lines: list[str]) -> str:
+        """Inspect netlist to automatically construct a .print tran card with all circuit nets and sources."""
+        nets: set[str] = set()
+        sources: set[str] = set()
+        for line in lines:
+            l = line.strip()
+            if not l or l.startswith("*") or l.startswith("."):
+                continue
+            parts = l.split()
+            if not parts:
+                continue
+            ref = parts[0].upper()
+            if ref.startswith("V") or ref.startswith("I"):
+                sources.add(ref.lower())
+                if len(parts) >= 3:
+                    for n in parts[1:3]:
+                        if n.lower() not in ("0", "gnd", "ground"):
+                            nets.add(n.lower())
+            elif len(parts) >= 3:
+                for n in parts[1:3]:
+                    if n.lower() not in ("0", "gnd", "ground"):
+                        nets.add(n.lower())
+
+        tokens = [f"v({n})" for n in sorted(nets)] + [f"i({s})" for s in sorted(sources)]
+        if tokens:
+            return f".print tran {' '.join(tokens)}"
+        return ".print tran"
 
 
 class SimulationBackend(ABC):

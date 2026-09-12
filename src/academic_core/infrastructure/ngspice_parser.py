@@ -1,7 +1,7 @@
-"""Structured parser for ngspice simulation output (Phase 7-B1 & 7-B2).
+"""Structured parser for ngspice simulation output (Phase 7-B1, 7-B2 & 7-B3).
 
-Extracts DC operating point (.op) and DC sweep (.dc) tabular data into
-domain Signal and SimulationResult models. Maintains separation between
+Extracts DC operating point (.op), DC sweep (.dc), and Transient (.tran) tabular
+data into domain Signal and SimulationResult models. Maintains separation between
 solver float precision and domain Decimal precision.
 """
 
@@ -232,7 +232,10 @@ def _parse_index_tables(text: str, signals: dict[str, Signal], data: dict[str, s
         samples_flt = tuple(p[1] for p in sample_pairs)
 
         # Identify axis and unit
-        if col_name in ("v-sweep", "i-sweep", "sweep"):
+        if col_name == "time":
+            axis = "time"
+            unit = "s"
+        elif col_name in ("v-sweep", "i-sweep", "sweep"):
             axis = "sweep"
             unit = "V" if "v" in col_name else "A"
         elif col_name.startswith("v(") or col_name.startswith("v_"):
