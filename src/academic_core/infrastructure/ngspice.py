@@ -277,7 +277,10 @@ class NgSpiceBackend(SimulationBackend):
     _version_from_output = staticmethod(NgSpiceDiscovery.parse_version)
 
     def detect(self) -> RuntimeInfo:
-        return NgSpiceDiscovery.detect(self.configured_executable, self.timeout_seconds)
+        info = NgSpiceDiscovery.detect(self.configured_executable, self.timeout_seconds)
+        if info.verified:
+            self._runtime_info = info
+        return info
 
     def capabilities(self) -> tuple[str, ...]:
         return ("detect", "version", "validate_runtime", "prepare", "run",
@@ -330,7 +333,6 @@ class NgSpiceBackend(SimulationBackend):
         input_hash = hashlib.sha256(netlist.encode("ascii")).hexdigest()
         started = _now()
         began = time.monotonic()
-        self._cancel_requested.clear()
         command = (info.executable_path, "-b", "-o", "output.log", "input.cir")
         status = "FAILED"
         code: int | None = None
@@ -339,6 +341,8 @@ class NgSpiceBackend(SimulationBackend):
             self._process = subprocess.Popen(
                 list(command), cwd=str(workspace), stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, shell=False)
+            if self._cancel_requested.is_set():
+                _terminate(self._process)
             try:
                 stdout, stderr = self._process.communicate(timeout=self.timeout_seconds)
                 code = self._process.returncode
@@ -364,9 +368,10 @@ class NgSpiceBackend(SimulationBackend):
                     file_output = log_path.read_text(encoding="utf-8", errors="replace")
                     stdout = (stdout or "") + ("\n" if stdout else "") + file_output
                 code = self._process.returncode
-                status = "TIMEOUT"
+                status = "CANCELLED" if self._cancel_requested.is_set() else "TIMEOUT"
         finally:
             self._process = None
+            self._cancel_requested.clear()
             finished = _now()
             duration = time.monotonic() - began
             if not keep_workspace:

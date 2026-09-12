@@ -6,7 +6,11 @@ are exposed read-only (detect/validate/mock) — never executed here. No Qt.
 
 from __future__ import annotations
 
+from decimal import Decimal
+from typing import Any
+
 from academic_core.domain.engineering import calc as C
+from academic_core.domain.engineering import gum as G
 from academic_core.domain.engineering import simulation as S
 from academic_core.domain.engineering.circuit import (
     Circuit, CircuitError, Component, EngineeringProject,
@@ -94,3 +98,22 @@ class EngineeringService:
         if not ref:
             raise ValueError("empty link reference")
         self.authoring_store.add_link(resource_id, kind, ref)
+
+    # -- measurement uncertainty (GUM) --------------------------------------------
+    def evaluate_measurement_uncertainty(
+        self,
+        model: G.MeasurementModel,
+        inputs: dict[str, G.InputQuantity],
+        correlation: G.CorrelationMatrix | None = None,
+        coverage_probability: float = 0.95,
+        explicit_k: float | Decimal | None = None,
+        cas_store: Any | None = None,
+    ) -> G.GUMResult:
+        return G.evaluate_gum(
+            model=model,
+            inputs=inputs,
+            correlation=correlation,
+            coverage_probability=coverage_probability,
+            explicit_k=explicit_k,
+            cas_store=cas_store,
+        )
