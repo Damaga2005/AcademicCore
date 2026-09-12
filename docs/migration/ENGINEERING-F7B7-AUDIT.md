@@ -182,3 +182,72 @@ Following independent audit review, the GUM engine underwent targeted hardening 
 - **Full F7 Engineering Regression (`tests/test_f7*.py`)**: 174 passed (increased from 148 to 174 tests).
 - **Full Repository Suite (`pytest -q`)**: 379 passed, 2 skipped, 0 failed (increased from 353 to 379 tests).
 
+---
+
+## 8. Final Post-Audit Remediation (commit `fix(engineering): finalize F7-B7 unit-system hardening`)
+
+A second independent audit found an architectural defect in the Finding-2 hardening above: `gum.py::_resolve_unit()` fell back to fabricating a **synthetic dimension** (a `SHA-256` hash of the unit string folded into the luminous-intensity exponent) whenever `parse_unit()` did not recognize a symbol. This let arbitrary unknown strings (e.g. `"mm"`, or any typo) silently resolve to a self-consistent but physically meaningless dimension, defeating the entire purpose of dimensional validation. This remediation removes that fallback and closes the underlying gap that motivated it.
+
+### 8.1 Synthetic fallback: found and eliminated
+- **File**: `src/academic_core/domain/engineering/gum.py`.
+- **Before**: `_resolve_unit(symbol)` called `parse_unit(symbol)`, and on `UnitError` computed `h = int(hashlib.sha256(symbol...).hexdigest()[:8], 16)` and returned `Unit(symbol, symbol, "", (0,0,0,0,0,0,h), Decimal(1))` — an invented dimension in the (unused) luminous-intensity slot.
+- **After**: `_resolve_unit(symbol)` maps only the empty string / `"1"` to the dimensionless unit; every other symbol is resolved exclusively via `parse_unit()` (`units.py`), and `UnitError` propagates unmodified. No hash, no fabricated dimension, no fallback path of any kind.
+- **Impact**: `MeasurementModel.evaluate_to_quantity()` and `get_sensitivity()` (the only callers of `_resolve_unit`) now reject any input/output unit unknown to F6's `units.py` with a `UnitError`, instead of silently accepting it.
+
+### 8.2 Root cause: F6 had no LENGTH dimension
+The synthetic fallback existed because the GUM test suite (and real measurement workflows) use `"mm"` for length quantities, and F6's `units.py` had no length dimension or `m`/`mm`/`cm`/`km` units — so `parse_unit("mm")` genuinely failed. Rather than route around this in GUM, F6 was extended, which is the correct layer per the single-source-of-truth architecture (`MeasurementModel` → `units.py` → `Quantity` → `equations.py` → dimensional validation).
+
+### 8.3 F6 `units.py` extension: LENGTH dimension
+- Added `LENGTH = (0, 1, 0, 0, 0, 0, 0)` (SI base exponent tuple: mass, **length**, time, current, temperature, amount, luminous intensity) and registered it in `DIM_NAMES` as `"length"`.
+- Added base unit `"m": (LENGTH, "1")` to `_BASE_UNITS`, appended after the existing electrical units so the base-symbol matching loop (which prefers longer/earlier-registered symbols) continues to resolve `"s"`, `"V"`, etc. before falling through to `"m"` — no ambiguity, no regression.
+- Added SI prefix `"c": "-2"` (centi) to `PREFIXES`, needed for `cm`; the existing prefix-matching logic in `parse_unit()` already generalizes to any base unit, so `mm`, `cm`, and `km` all resolve automatically once `m` is a registered base and `c` is a registered prefix — no unit-specific special-casing was added.
+- All factors are exact `Decimal` powers of ten (`Decimal(10) ** int(PREFIXES[prefix])`), consistent with the rest of `units.py`; no floats cross the unit-resolution boundary.
+
+Verified factors:
+| Unit | Dimension | Factor to base (m) |
+|---|---|---|
+| `m`  | LENGTH | `1` |
+| `mm` | LENGTH | `10^-3` |
+| `cm` | LENGTH | `10^-2` |
+| `km` | LENGTH | `10^3` |
+
+### 8.4 Unknown units are rejected, not fabricated
+`parse_unit("unknown_unit")`, `MeasurementModel` with `unit="unknown_unit"`, and `MeasurementModel` with `output_unit="unknown_unit"` all raise `UnitError`. There is no remaining code path in `gum.py` that creates a `Unit` with an invented dimension — confirmed by grepping the module for `synthetic`, `hashlib` (unit context), and every `Unit(`/`_resolve_unit(` call site (see §8.7).
+
+### 8.5 New dimensional tests (Finding 7, Tests A–L)
+Added `TestLengthDimensionAndNoSyntheticUnits` to `tests/test_f7b7_gum.py` (12 new tests, one per required case):
+- **A**: `parse_unit("m").dimension == parse_unit("mm").dimension == parse_unit("cm").dimension == parse_unit("km").dimension == LENGTH`.
+- **B**: `Quantity(1, m).convert_to("mm") == 1000 mm`.
+- **C**: `Quantity(1, mm).convert_to("m") == 0.001 m`.
+- **D**: `Quantity(100, mm).convert_to("m") == 0.1 m`.
+- **E**: `parse_unit("unknown_unit")` → `UnitError`.
+- **F**: `MeasurementModel` with input `unit="unknown_unit"` → `UnitError` via `evaluate_gum`.
+- **G**: `MeasurementModel` with `output_unit="unknown_unit"` → `UnitError` via `evaluate_gum`.
+- **H**: `X = 100 mm`, `Y = X / 2` preserves the LENGTH dimension and the `mm` unit in the budget row.
+- **I**: Same as H with `output_unit="m"` → correctly converts to `0.05 m`.
+- **J**: `1 mm + 1 s` → `UnitError` (cross-dimension, LENGTH vs TIME).
+- **K**: `1 mm + 1 V` → `UnitError` (cross-dimension, LENGTH vs VOLTAGE).
+- **L**: `1 m + 100 mm == 1.1 m` (same-dimension addition, unit conversion respected).
+
+The pre-existing tests that already used `unit="mm"` (`test_type_b_triangular`, `test_case_e_type_a_evaluation_from_observations`) were **not modified** — they now exercise the real LENGTH dimension end-to-end instead of the old synthetic fallback, and continue to pass unchanged.
+
+### 8.6 PSD / sensitivity precision / explicit_k — reconfirmed, untouched
+Per scope, Findings 1, 3, and 4 from the first hardening pass were reviewed and left as-is:
+- `CorrelationMatrix.validate_psd()` still uses the pure-Python Jacobi eigenvalue solver, `tol = 1e-7`, and does not reference `_resolve_unit`, `parse_unit`, or any unit type — confirmed independent of the unit system.
+- Numerical sensitivity (`get_sensitivity`) still returns the full undivided `Decimal` value with no `round()` call.
+- `explicit_k` still rejects `k <= 0`, `NaN`, and `±Inf`, and `coverage_factor_source` still distinguishes `explicit_user` / `student_t` / `normal_limit`.
+
+### 8.7 Architecture review (required greps)
+```
+grep -rn "synthetic" src/academic_core/domain/engineering/gum.py   -> only a docstring stating none exists
+grep -n "_resolve_unit" gum.py                                     -> def + 3 call sites, all delegate to parse_unit
+grep -n "hash" gum.py (unit context)                                -> none; hashlib remains for provenance CAS hashing only
+grep -n "Unit(" gum.py                                              -> only the dimensionless "1" literal construction
+```
+No synthetic units. No hash-derived dimensions. No fallback dimensional system. `units.py::parse_unit()` is the sole unit-resolution authority.
+
+### 8.8 Final regression results
+- `tests/test_f7b7_gum.py`: **68 passed** (56 → 68, +12 for Finding 7).
+- `tests/test_f7*.py`: **186 passed** (174 → 186).
+- Full suite (`pytest -q`): **391 passed, 2 skipped** (pre-existing `reportlab`-absent skips, unrelated), **0 failed**.
+

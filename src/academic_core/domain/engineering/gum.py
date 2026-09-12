@@ -126,20 +126,15 @@ def jacobi_eigenvalues(
 def _resolve_unit(symbol: str) -> Unit:
     """Resolve a unit string to a Unit instance using the certified F6 units system.
 
-    If the unit is a known SI/electrical unit in units.py, it is parsed via parse_unit.
-    If the unit is empty or '1', a dimensionless unit is returned.
-    If the unit is an external label (e.g. 'mm'), a deterministic synthetic Unit
-    with a distinct dimension is assigned so identical symbols match and incompatible symbols fail.
+    parse_unit() (units.py) is the sole authority for unit resolution. An empty
+    string or '1' resolves to dimensionless; any other unrecognized symbol
+    propagates UnitError from parse_unit — no synthetic/fabricated dimension
+    is ever created for an unknown unit.
     """
     s = (symbol or "").strip()
     if not s or s == "1":
         return Unit("1", "1", "", DIMENSIONLESS, Decimal(1))
-    try:
-        return parse_unit(s)
-    except UnitError:
-        h = int(hashlib.sha256(s.encode("utf-8")).hexdigest()[:8], 16)
-        synthetic_dim = (0, 0, 0, 0, 0, 0, h)
-        return Unit(s, s, "", synthetic_dim, Decimal(1))
+    return parse_unit(s)
 
 
 # ==============================================================================

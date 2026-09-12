@@ -25,15 +25,16 @@ FREQUENCY = (0, 0, -1, 0, 0, 0, 0)
 TIME = (0, 0, 1, 0, 0, 0, 0)
 CHARGE = (0, 0, 1, 1, 0, 0, 0)
 ENERGY = (1, 2, -2, 0, 0, 0, 0)
+LENGTH = (0, 1, 0, 0, 0, 0, 0)
 
 DIM_NAMES = {
     DIMENSIONLESS: "dimensionless", VOLTAGE: "voltage", CURRENT: "current",
     RESISTANCE: "resistance", POWER: "power", CAPACITANCE: "capacitance",
     INDUCTANCE: "inductance", FREQUENCY: "frequency", TIME: "time",
-    CHARGE: "charge", ENERGY: "energy",
+    CHARGE: "charge", ENERGY: "energy", LENGTH: "length",
 }
 
-PREFIXES = {"p": "-12", "n": "-9", "u": "-6", "µ": "-6", "m": "-3",
+PREFIXES = {"p": "-12", "n": "-9", "u": "-6", "µ": "-6", "m": "-3", "c": "-2",
             "": "0", "k": "3", "M": "6", "G": "9"}
 
 # symbol -> (dimension, factor to base unit)
@@ -41,7 +42,7 @@ _BASE_UNITS = {
     "V": (VOLTAGE, "1"), "A": (CURRENT, "1"), "ohm": (RESISTANCE, "1"),
     "W": (POWER, "1"), "F": (CAPACITANCE, "1"), "H": (INDUCTANCE, "1"),
     "Hz": (FREQUENCY, "1"), "s": (TIME, "1"), "C": (CHARGE, "1"),
-    "J": (ENERGY, "1"),
+    "J": (ENERGY, "1"), "m": (LENGTH, "1"),
 }
 _ALIASES = {"Ω": "ohm", "Ω": "ohm", "Ωs": "ohm", "v": "V", "a": "A", "w": "W",
             "f": "F", "h": "H", "hz": "Hz", "HZ": "Hz", "sec": "s", "volt": "V",
@@ -214,7 +215,8 @@ def _unit_for_dim(dim: tuple) -> Unit:
     for sym, (d, _) in _BASE_UNITS.items():
         if d == dim:
             return Unit(sym, sym, "", dim, Decimal(1))
-    # derived dimension without a named unit: keep factor 1, synthetic symbol
+    # derived dimension without a named SI unit: real computed dimension,
+    # display symbol only (e.g. V*s) — not a fabricated/unknown dimension
     name = DIM_NAMES.get(dim, "derived")
     return Unit(name, name, "", dim, Decimal(1))
 

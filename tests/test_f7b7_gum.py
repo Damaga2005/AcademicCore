@@ -54,6 +54,7 @@ from academic_core.domain.engineering.gum import (
     type_b_rectangular,
     type_b_triangular,
 )
+from academic_core.domain.engineering.units import LENGTH, Quantity, UnitError, parse_unit
 from academic_core.infrastructure.cas import FileBlobStore
 from academic_core.infrastructure.database import Database
 from academic_core.infrastructure.engineering import EngineeringRepository
@@ -1080,3 +1081,89 @@ class TestExplicitKValidationFinding4:
         # 3. Explicit user override -> explicit_user
         res_exp = evaluate_gum(model, inputs_inf, explicit_k=3.0)
         assert res_exp.provenance["coverage_factor_source"] == "explicit_user"
+
+
+# ==============================================================================
+# 13. Final Post-Audit Hardening: LENGTH dimension, no synthetic units (Finding 1-3, 7)
+# ==============================================================================
+
+class TestLengthDimensionAndNoSyntheticUnits:
+    """Mandatory tests A through L from the final post-audit remediation spec.
+
+    Proves mm/cm/km/m share a real LENGTH dimension sourced solely from
+    units.py::parse_unit(), and that unknown units are rejected rather than
+    silently converted into a fabricated dimension.
+    """
+
+    def test_a_length_dimension_shared_across_prefixes(self):
+        assert parse_unit("m").dimension == LENGTH
+        assert parse_unit("mm").dimension == LENGTH
+        assert parse_unit("cm").dimension == LENGTH
+        assert parse_unit("km").dimension == LENGTH
+
+    def test_b_scale_m_to_mm(self):
+        q = Quantity(Decimal("1"), parse_unit("m"))
+        converted = q.convert_to("mm")
+        assert converted.value == Decimal("1000")
+
+    def test_c_scale_mm_to_m(self):
+        q = Quantity(Decimal("1"), parse_unit("mm"))
+        converted = q.convert_to("m")
+        assert converted.value == Decimal("0.001")
+
+    def test_d_scale_100mm_to_m(self):
+        q = Quantity(Decimal("100"), parse_unit("mm"))
+        converted = q.convert_to("m")
+        assert converted.value == Decimal("0.1")
+
+    def test_e_unknown_unit_rejected(self):
+        with pytest.raises(UnitError):
+            parse_unit("unknown_unit")
+
+    def test_f_measurement_model_unknown_input_unit_rejected(self):
+        model = MeasurementModel(measurand="Y", equation="X", output_unit="")
+        with pytest.raises(UnitError):
+            evaluate_gum(model, {"X": InputQuantity.explicit("X", 10.0, 0.1, unit="unknown_unit")})
+
+    def test_g_measurement_model_unknown_output_unit_rejected(self):
+        model = MeasurementModel(measurand="Y", equation="X", output_unit="unknown_unit")
+        with pytest.raises(UnitError):
+            evaluate_gum(model, {"X": InputQuantity.explicit("X", 10.0, 0.1, unit="mm")})
+
+    def test_h_division_preserves_length_dimension(self):
+        model = MeasurementModel(measurand="Y", equation="X / 2", input_names=("X",))
+        res = evaluate_gum(model, {"X": InputQuantity.explicit("X", 100.0, 1.0, unit="mm")})
+        assert res.budget.rows[0].unit == "mm"
+        q = model.evaluate_to_quantity({"X": Decimal("100")}, input_units={"X": "mm"})
+        assert q.dimension == LENGTH
+
+    def test_i_division_with_output_unit_conversion(self):
+        model = MeasurementModel(measurand="Y", equation="X / 2", input_names=("X",), output_unit="m")
+        res = evaluate_gum(model, {"X": InputQuantity.explicit("X", 100.0, 1.0, unit="mm")})
+        assert res.measurand_unit == "m"
+        assert abs(float(res.measurand_value) - 0.05) < 1e-12
+
+    def test_j_cross_dimension_length_plus_time_rejected(self):
+        model = MeasurementModel(measurand="Y", equation="X1 + X2", input_names=("X1", "X2"))
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 1.0, 0.01, unit="mm"),
+            "X2": InputQuantity.explicit("X2", 1.0, 0.01, unit="s"),
+        }
+        with pytest.raises(UnitError, match="incompatible dimensions"):
+            evaluate_gum(model, inputs)
+
+    def test_k_cross_dimension_length_plus_voltage_rejected(self):
+        model = MeasurementModel(measurand="Y", equation="X1 + X2", input_names=("X1", "X2"))
+        inputs = {
+            "X1": InputQuantity.explicit("X1", 1.0, 0.01, unit="mm"),
+            "X2": InputQuantity.explicit("X2", 1.0, 0.01, unit="V"),
+        }
+        with pytest.raises(UnitError, match="incompatible dimensions"):
+            evaluate_gum(model, inputs)
+
+    def test_l_same_dimension_addition_m_plus_mm(self):
+        q1 = Quantity(Decimal("1"), parse_unit("m"))
+        q2 = Quantity(Decimal("100"), parse_unit("mm"))
+        total = q1 + q2
+        assert total.value == Decimal("1.1")
+        assert total.unit.display == "m"
