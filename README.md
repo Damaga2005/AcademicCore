@@ -36,6 +36,12 @@ versionado + validación + plantillas + búsqueda + links académicos +
 pestaña Authoring. AST F3 intacto (sin nodos nuevos). Gate:
 `docs/gates/GATE-F5.md`.
 
+## Fase 6 (actual)
+Engineering Foundation: Decimal quantities/units/dimensions, safe equations,
+deterministic calculations, circuit topology/netlists, persistence and a
+structured Engineering tab. Simulation is explicitly deferred to F7.
+Gate: `docs/gates/GATE-F6.md`.
+
 ## Fase 4 (actual)
 Academic Management: árbol navegable, CRUD + borrado seguro, gradebook
 genérico (escalas/pesos/parciales) junto al motor F1, queries planning,

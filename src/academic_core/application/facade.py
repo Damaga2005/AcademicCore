@@ -11,6 +11,7 @@ from academic_core.application.academic_io import AcademicIO
 from academic_core.application.authoring import AuthoringService
 from academic_core.application.backup import BackupService
 from academic_core.application.documents import DocumentService
+from academic_core.application.engineering import EngineeringService
 from academic_core.application.ingest import IngestionService
 from academic_core.application.queries import AcademicQueries
 from academic_core.application.search import SimpleSearchService
@@ -20,8 +21,8 @@ from academic_core.application.services import (
 )
 from academic_core.config import Settings
 from academic_core.infrastructure import (
-    AcademicRepository, AuthoringStore, Database, FileBlobStore,
-    FtsResourceIndexer, GradebookRepository, GradingRepository,
+    AcademicRepository, AuthoringStore, Database, EngineeringRepository,
+    FileBlobStore, FtsResourceIndexer, GradebookRepository, GradingRepository,
     PlanningRepository, SqliteResourceRecords, StudyRepository,
 )
 
@@ -33,6 +34,7 @@ class AcademicApp:
         self.settings = settings
         data = Path(settings.storage.location)
         self.db = Database(data / "academic.db")
+        self.db.connect().close()
         cas_root = Path(settings.ingest.cas_dir or data / "cas")
         self.blobs = FileBlobStore(cas_root)
         self.academic = AcademicRepository(self.db)
@@ -61,6 +63,8 @@ class AcademicApp:
             self.blobs, self.records, self.fts, self.documents,
             self.authoring_store, self.academic, self.planning,
             autosave_dir=Path(settings.storage.location) / "autosave")
+        self.engineering = EngineeringService(EngineeringRepository(self.db),
+                                              self.authoring_store)
         from academic_core.pdf.stirling import StirlingRuntime
         self.stirling = StirlingRuntime(settings.tools.stirling_url)
 

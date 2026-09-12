@@ -7,6 +7,7 @@ from academic_core.application.academic_io import AcademicIO, ImportError_
 from academic_core.application.authoring import (
     AuthoringService, SaveReport, canonical_json, extract_text,
 )
+from academic_core.application.engineering import EngineeringService
 from academic_core.application.facade import AcademicApp
 from academic_core.application.queries import AcademicQueries, DeadlineView
 from academic_core.application.services import (
@@ -20,4 +21,5 @@ __all__ = ["AcademicService", "ApplicationError", "GradingService", "ScheduleSer
            "IngestReport", "IngestionService", "SecurityError",
            "AcademicIO", "ImportError_", "AcademicApp", "AcademicQueries",
            "DeadlineView", "ResultsService",
-           "AuthoringService", "SaveReport", "canonical_json", "extract_text"]
+           "AuthoringService", "SaveReport", "canonical_json", "extract_text",
+           "EngineeringService"]

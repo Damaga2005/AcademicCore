@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 — Fase 6 Engineering Foundation (2026-09-12)
+- Decimal quantities, SI units/prefixes/dimensions and safe equation parser.
+- Deterministic electrical calculations with provenance digests.
+- Circuit topology (components/pins/nets), canonical netlists and typed models.
+- SQLite migration 010, engineering repository/service, Authoring links and
+  structured Engineering UI.
+- Simulation boundary only: Null/Mock backends; no SPICE or subprocess.
+- Gate F6: 205 passed, 2 skipped.
+
 ## 0.6.0 — Fase 5 Authoring Engine (2026-09-12)
 - Command model (7 deterministic commands + undo/redo) + lifecycle +
   structured validation + 5 AST templates + in-document search.

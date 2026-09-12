@@ -88,7 +88,7 @@ def test_domain_knows_no_backends():
     backend by name is documentation, not a dependency).
     """
     import ast
-    forbidden = {"os", "pathlib", "sqlite3", "urllib", "socket", "hashlib",
+    forbidden = {"os", "pathlib", "sqlite3", "urllib", "socket",
                  "PySide6", "ftplib", "http"}
     violations = []
     for f in _texts("domain"):

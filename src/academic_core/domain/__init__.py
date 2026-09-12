@@ -1,5 +1,6 @@
 from academic_core.domain import (
-    authoring, conflicts, entities, grading, resources, results, schedule,
+    authoring, conflicts, engineering, entities, grading, resources,
+    results, schedule,
 )
 from academic_core.domain.academic import (
     AcademicYear, Assignment, Concept, Degree, Formula, Lab, Resource,
@@ -15,5 +16,5 @@ __all__ = [
     "KINDS", "IdAllocator", "make", "slugify", "validate",
     "CERTIFICATION_STATES", "DomainError",
     "conflicts", "entities", "grading", "resources", "results", "schedule",
-    "authoring",
+    "authoring", "engineering",
 ]

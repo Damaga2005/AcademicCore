@@ -1,0 +1,302 @@
+"""Safe equation parsing + evaluation (Phase 6): own recursive parser, no eval.
+
+Grammar:
+    equation := NAME '=' expr
+    expr     := term (('+'|'-') term)*
+    term     := factor (('*'|'/') factor)*
+    factor   := ('+'|'-') factor | power
+    power    := primary ('**' primary)?        (exponent must be dimensionless)
+    primary  := NUMBER [unit] | NAME | func '(' expr ')' | '(' expr ')'
+    func     := sqrt|exp|log|log10|sin|cos|tan|abs   (explicit whitelist)
+
+Evaluation environment: {name: Quantity}. Result dimension checked against
+the equation's declared output dimension when the equation is bound. No
+imports, no attribute access, no calls beyond the whitelist, no filesystem.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+
+from academic_core.domain.engineering.units import (
+    DIMENSIONLESS, Quantity, UnitError, parse_quantity, parse_unit,
+)
+
+ENGINE_VERSION = "engcalc/6.0"
+
+ALLOWED_FUNCS = ("sqrt", "exp", "log", "log10", "sin", "cos", "tan", "abs")
+
+_TOKEN = re.compile(r"""
+    (?P<num>[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)
+  | (?P<name>[A-Za-z_µΩΩ][A-Za-z0-9_µΩΩ]*)
+  | (?P<op>\*\*|[+\-*/()=,])
+  | (?P<ws>\s+)
+  | (?P<bad>.)
+""", re.VERBOSE)
+
+
+class EquationError(ValueError):
+    pass
+
+
+def _tokenize(expr: str) -> list[tuple[str, str]]:
+    tokens = []
+    for m in _TOKEN.finditer(expr):
+        kind = m.lastgroup
+        if kind == "ws":
+            continue
+        if kind == "bad":
+            raise EquationError(f"bad character: {m.group()!r}")
+        tokens.append((kind, m.group()))
+    return tokens
+
+
+@dataclass(frozen=True)
+class Equation:
+    source: str  # original expression, preserved verbatim
+    output: str  # NAME on the left-hand side
+    variables: tuple  # sorted free NAMEs (excluding whitelist funcs)
+    units: tuple  # unit symbols appearing literally
+    provenance: dict | None = None
+
+    def names(self) -> set:
+        return set(self.variables) | {self.output}
+
+
+def parse_equation(source: str) -> Equation:
+    if "=" not in source:
+        raise EquationError("equation needs NAME = expr")
+    lhs, _, rhs = source.partition("=")
+    lhs, rhs = lhs.strip(), rhs.strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", lhs):
+        raise EquationError(f"bad output name: {lhs!r}")
+    if not rhs:
+        raise EquationError("empty right-hand side")
+    tokens = _tokenize(rhs)
+    # validate parse + collect names/units with the real parser
+    parser = _Parser(tokens)
+    parser.parse_expr()
+    if parser.pos != len(tokens):
+        raise EquationError(f"trailing tokens: {tokens[parser.pos:]}")
+    names = sorted({t for k, t in tokens if k == "name"
+                    and t not in ALLOWED_FUNCS and not _is_unit_literal(t)})
+    units: list[str] = []
+    # unit literals: NAME tokens directly following a number
+    for i, (k, t) in enumerate(tokens):
+        if k == "name" and i > 0 and tokens[i - 1][0] == "num":
+            # could be a unit or start of implicit... explicit multiply only,
+            # so NAME after NUMBER is a unit literal candidate
+            units.append(t)
+    # verify each candidate parses as a unit (raises on garbage)
+    for u in units:
+        try:
+            parse_unit(u)
+        except UnitError:
+            raise EquationError(f"unknown unit literal: {u!r}")
+    return Equation(source, lhs, tuple(names), tuple(units), None)
+
+
+def _is_unit_literal(t: str) -> bool:
+    try:
+        parse_unit(t)
+        return True
+    except UnitError:
+        return False
+
+
+class _Parser:
+    """Validating parse (structure only). Evaluation re-parses with env."""
+
+    def __init__(self, tokens):
+        self.tokens = tokens
+        self.pos = 0
+
+    def peek(self):
+        return self.tokens[self.pos] if self.pos < len(self.tokens) else (None, None)
+
+    def next(self):
+        tok = self.peek()
+        self.pos += 1
+        return tok
+
+    def parse_expr(self):
+        self.parse_term()
+        while self.peek() in (("op", "+"), ("op", "-")):
+            self.next()
+            self.parse_term()
+
+    def parse_term(self):
+        self.parse_factor()
+        while self.peek() in (("op", "*"), ("op", "/")):
+            self.next()
+            self.parse_factor()
+
+    def parse_factor(self):
+        if self.peek() in (("op", "+"), ("op", "-")):
+            self.next()
+            self.parse_factor()
+            return
+        self.parse_power()
+
+    def parse_power(self):
+        self.parse_primary()
+        if self.peek() == ("op", "**"):
+            self.next()
+            self.parse_primary()
+
+    def parse_primary(self):
+        kind, val = self.next()
+        if kind == "num":
+            # optional unit literal glued after the number
+            if self.peek()[0] == "name":
+                self.next()
+            return
+        if kind == "name":
+            if val in ALLOWED_FUNCS:
+                if self.next() != ("op", "("):
+                    raise EquationError(f"{val} needs (...)")
+                self.parse_expr()
+                if self.next() != ("op", ")"):
+                    raise EquationError("missing )")
+                return
+            return
+        if (kind, val) == ("op", "("):
+            self.parse_expr()
+            if self.next() != ("op", ")"):
+                raise EquationError("missing )")
+            return
+        raise EquationError(f"unexpected {val!r}")
+
+
+class _Eval:
+    def __init__(self, tokens, env: dict[str, Quantity]):
+        self.tokens = tokens
+        self.pos = 0
+        self.env = env
+
+    def peek(self):
+        return self.tokens[self.pos] if self.pos < len(self.tokens) else (None, None)
+
+    def next(self):
+        tok = self.peek()
+        self.pos += 1
+        return tok
+
+    def run(self) -> Quantity:
+        out = self.expr()
+        if self.pos != len(self.tokens):
+            raise EquationError("trailing tokens")
+        return out
+
+    def expr(self) -> Quantity:
+        out = self.term()
+        while self.peek() in (("op", "+"), ("op", "-")):
+            op = self.next()[1]
+            rhs = self.term()
+            out = out + rhs if op == "+" else out - rhs
+        return out
+
+    def term(self) -> Quantity:
+        out = self.factor()
+        while self.peek() in (("op", "*"), ("op", "/")):
+            op = self.next()[1]
+            rhs = self.factor()
+            out = out * rhs if op == "*" else out / rhs
+        return out
+
+    def factor(self) -> Quantity:
+        if self.peek() in (("op", "+"), ("op", "-")):
+            neg = self.next()[1] == "-"
+            val = self.factor()
+            return -val if neg else val
+        return self.power()
+
+    def power(self) -> Quantity:
+        base = self.primary()
+        if self.peek() == ("op", "**"):
+            self.next()
+            exp = self.primary()
+            if exp.dimension != DIMENSIONLESS:
+                raise EquationError("exponent must be dimensionless")
+            return base ** exp.to_base()
+        return base
+
+    def primary(self) -> Quantity:
+        kind, val = self.next()
+        if kind == "num":
+            try:
+                number = Decimal(val)
+            except InvalidOperation:
+                raise EquationError(f"bad number: {val}")
+            if self.peek()[0] == "name":
+                unit = parse_unit(self.next()[1])
+                return Quantity(number, unit)
+            from academic_core.domain.engineering.units import Unit
+            return Quantity(number, Unit("1", "1", "", DIMENSIONLESS, Decimal(1)))
+        if kind == "name":
+            if val in ALLOWED_FUNCS:
+                if self.next() != ("op", "("):
+                    raise EquationError(f"{val} needs (...)")
+                arg = self.expr()
+                if self.next() != ("op", ")"):
+                    raise EquationError("missing )")
+                return _apply_func(val, arg)
+            if val not in self.env:
+                # Standalone unit literal (e.g. `kohm` in `49.4 * kohm`):
+                # env always wins, so real variables shadow unit names.
+                try:
+                    return Quantity(Decimal(1), parse_unit(val))
+                except UnitError:
+                    raise EquationError(f"unknown variable: {val}") from None
+            got = self.env[val]
+            if not isinstance(got, Quantity):
+                raise EquationError(f"{val} is not a Quantity")
+            return got
+        if (kind, val) == ("op", "("):
+            out = self.expr()
+            if self.next() != ("op", ")"):
+                raise EquationError("missing )")
+            return out
+        raise EquationError(f"unexpected {val!r}")
+
+
+def _apply_func(name: str, arg: Quantity) -> Quantity:
+    import math
+    from academic_core.domain.engineering.units import Unit
+    one = Unit("1", "1", "", DIMENSIONLESS, Decimal(1))
+    if name in ("sin", "cos", "tan", "exp", "log", "log10"):
+        if arg.dimension != DIMENSIONLESS:
+            raise EquationError(f"{name} needs a dimensionless argument")
+        x = float(arg.to_base())
+        try:
+            out = {"sin": math.sin, "cos": math.cos, "tan": math.tan,
+                   "exp": math.exp, "log": math.log, "log10": math.log10}[name](x)
+        except ValueError as e:
+            raise EquationError(f"{name} domain: {e}")
+        return Quantity(Decimal(str(out)), one)
+    if name == "abs":
+        return Quantity(abs(arg.value), arg.unit)
+    if name == "sqrt":
+        if arg.to_base() < 0:
+            raise EquationError("sqrt of negative")
+        root = arg.to_base().sqrt()
+        # dimension must be an exact square
+        dim = tuple(e // 2 if e % 2 == 0 else None for e in arg.dimension)
+        if any(e is None for e in dim):
+            raise EquationError("sqrt needs square dimensions")
+        return Quantity(root, _unit_for(tuple(dim)))
+    raise EquationError(f"unknown function: {name}")  # unreachable
+
+
+def _unit_for(dim: tuple):
+    from academic_core.domain.engineering.units import _unit_for_dim
+    return _unit_for_dim(dim)
+
+
+def evaluate(eq: Equation, env: dict[str, Quantity]) -> Quantity:
+    """Evaluate a parsed equation. Unknown names, bad dims, div-by-zero →
+    controlled EquationError/UnitError. Never eval/exec."""
+    rhs = eq.source.partition("=")[2]
+    return _Eval(_tokenize(rhs), env).run()

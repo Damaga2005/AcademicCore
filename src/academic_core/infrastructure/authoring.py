@@ -41,7 +41,7 @@ class AuthoringStore:
 
     def add_link(self, resource_id: str, target_kind: str, target_id: str) -> None:
         if target_kind not in ("subject", "topic", "assignment", "project",
-                               "lab", "exam"):
+                               "lab", "exam", "calculation", "circuit"):
             raise ValueError(f"bad link kind: {target_kind}")
         cx = self.db.connect()
         cx.execute("INSERT OR REPLACE INTO doc_links VALUES (?,?,?)",

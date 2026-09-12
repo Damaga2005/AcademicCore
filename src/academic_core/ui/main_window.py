@@ -80,6 +80,9 @@ class AcademicMainWindow(QMainWindow):
         from academic_core.ui.authoring import AuthoringPanel
         self.authoring_panel = AuthoringPanel(app)
         self.tabs.addTab(self.authoring_panel, "Authoring")
+        from academic_core.ui.engineering import EngineeringPanel
+        self.engineering_panel = EngineeringPanel(app)
+        self.tabs.addTab(self.engineering_panel, "Engineering")
 
         actions = QHBoxLayout()
         self.btn_topic = QPushButton("Add topic")
