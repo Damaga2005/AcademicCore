@@ -41,4 +41,34 @@ sole, exclusive authority for unit resolution throughout GUM. See
 - [x] Arquitectura de una única fuente de verdad para unidades: `MeasurementModel` → `units.py` → `Quantity` → `equations.py` → validación dimensional.
 
 ---
-F7-B7 is certified **PASS** (final post-audit remediation). F7-B8 has not started.
+
+## Surgical Closure: `MeasurementModel.evaluator` Dimensional Bypass
+
+A third independent audit found that the `evaluator=` callable path bypassed all of the
+above: `evaluate_to_quantity()` reduced every input to bare `Decimal` before calling the
+evaluator, then labeled whatever it returned with `output_unit` unchecked — allowing e.g.
+`10 mm + 2 s` to silently return `12 mm`. See `docs/migration/ENGINEERING-F7B7-AUDIT.md`
+§9 for full detail.
+
+### Evaluator Bypass Closure Checklist
+- [x] `evaluator` dimensional recibe `dict[str, Quantity]` (cuando el modelo declara alguna unidad de entrada o `output_unit`).
+- [x] `evaluator` dimensional debe devolver `Quantity`; un `Decimal` es rechazado con `UnitError: ... must return Quantity` — nunca etiquetado silenciosamente con `output_unit`.
+- [x] Las operaciones dimensionales dentro del evaluator las ejecuta `Quantity` (p. ej. `x["V"] / x["R"]`), no aritmética manual.
+- [x] `mm + s` dentro de un evaluator falla con `UnitError`.
+- [x] `mm + V` dentro de un evaluator falla con `UnitError`.
+- [x] `V / Ω = A` vía evaluator funciona (`0.01 A` exacto).
+- [x] `output_unit` incompatible con el resultado del evaluator falla (`UnitError`).
+- [x] `output_unit` compatible con distinta escala convierte correctamente (`100 mm → 0.1 m`, `Decimal` exacto).
+- [x] Unidades de entrada u `output_unit` desconocidas siguen fallando (`UnitError`, sin unidad fabricada).
+- [x] Un `Quantity` pasado directamente como input llega intacto al evaluator (verificado por identidad `is`).
+- [x] Modelo legacy totalmente adimensional (sin ninguna unidad declarada) conserva el contrato `Decimal → Decimal` preexistente (`test_custom_evaluator`).
+- [x] No existe fallback sintético ni segundo sistema de unidades: `_build_quantity_env` y `_validate_output` (nuevos, compartidos por `evaluator=` y `equation=`) delegan exclusivamente en `_resolve_unit` → `units.py::parse_unit()`.
+- [x] Test de regresión del caso auditado exacto (`evaluator=lambda x: x["X"]+x["T"]`, `input_units={"X":"mm","T":"s"}`, `output_unit="mm"`) falla con `UnitError`, nunca devuelve `12`.
+- [x] Todos los tests B7 pasan: **79/79** (`tests/test_f7b7_gum.py`, +11 tests nuevos de cierre del bypass).
+- [x] Todos los tests F7 pasan: **197/197** (`tests/test_f7*.py`).
+- [x] Full regression pasa: **402 passed, 2 skipped** (mismos skips preexistentes de `reportlab`), **0 failed**.
+- [x] PSD, Student-t, sensibilidad, `explicit_k`, provenance, Monte Carlo, y la arquitectura F6 `units.py` NO fueron modificados (solo se añadieron `_build_quantity_env`/`_validate_output`/`_is_dimensional` internos a `gum.py`, refactorizando lógica ya existente).
+- [x] Working tree limpio (post-commit).
+
+---
+F7-B7 is certified **PASS** (final post-audit remediation + evaluator dimensional bypass closed). F7-B8 has not started.

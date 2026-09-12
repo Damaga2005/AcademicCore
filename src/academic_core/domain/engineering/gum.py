@@ -697,7 +697,11 @@ class MeasurementModel:
     measurand: str
     equation: str | None = None
     input_names: tuple[str, ...] = ()
-    evaluator: Callable[[dict[str, Decimal]], Decimal] | None = None
+    evaluator: (
+        Callable[[dict[str, Decimal]], Decimal]
+        | Callable[[dict[str, Quantity]], Quantity]
+        | None
+    ) = None
     sensitivities: dict[str, Decimal | Callable[[dict[str, Decimal]], Decimal]] | None = None
     explicit_sensitivities: dict[str, Decimal | Callable[[dict[str, Decimal]], Decimal]] | None = None
     output_unit: str = ""
@@ -715,6 +719,48 @@ class MeasurementModel:
         if self.equation is None and self.evaluator is None:
             raise ValueError("MeasurementModel requires either an equation string or an evaluator function")
 
+    def _is_dimensional(self, effective_units: dict[str, str]) -> bool:
+        """True if the model has any declared physical unit (input or output).
+
+        A model with no declared units anywhere is treated as a legacy
+        dimensionless numeric model: its evaluator may exchange plain
+        Decimal values. A model that declares any unit must route every
+        input/output through Quantity so dimensional errors cannot be
+        bypassed by an evaluator callable (see docs/migration/
+        ENGINEERING-F7B7-AUDIT.md, Final Post-Audit Remediation §9).
+        """
+        if self.output_unit and self.output_unit.strip() not in ("", "1"):
+            return True
+        return any(v and v.strip() not in ("", "1") for v in effective_units.values())
+
+    def _build_quantity_env(
+        self,
+        inputs: dict[str, Decimal | Quantity | Any],
+        effective_units: dict[str, str],
+    ) -> dict[str, Quantity]:
+        q_env: dict[str, Quantity] = {}
+        for k, v in inputs.items():
+            if isinstance(v, Quantity):
+                q_env[k] = v
+            else:
+                u_obj = _resolve_unit(effective_units.get(k, ""))
+                q_env[k] = Quantity(Decimal(str(v)), u_obj)
+        return q_env
+
+    def _validate_output(self, q_res: Quantity) -> Quantity:
+        """Validate/convert a computed Quantity against the declared output_unit."""
+        if self.output_unit and self.output_unit.strip():
+            expected_u = _resolve_unit(self.output_unit.strip())
+            if q_res.dimension != expected_u.dimension:
+                raise UnitError(
+                    f"MeasurementModel '{self.measurand}': calculated unit dimension '{q_res.dim_name}' "
+                    f"({q_res.unit.display}) is incompatible with declared output_unit {self.output_unit!r} "
+                    f"({DIM_NAMES.get(expected_u.dimension, 'derived')})"
+                )
+            if expected_u.factor != q_res.unit.factor:
+                q_res = q_res.convert_to(self.output_unit.strip())
+        return q_res
+
     def evaluate_to_quantity(
         self,
         inputs: dict[str, Decimal | Quantity | Any],
@@ -726,6 +772,23 @@ class MeasurementModel:
             effective_units.update(input_units)
 
         if self.evaluator is not None:
+            if self._is_dimensional(effective_units):
+                # Dimensional contract: evaluator receives Quantity and MUST
+                # return Quantity. A raw Decimal carries no dimensional
+                # information, so silently wrapping it in output_unit would
+                # recreate the Quantity -> .value -> evaluator -> Decimal ->
+                # output_unit bypass this hardening closes.
+                q_env = self._build_quantity_env(inputs, effective_units)
+                res = self.evaluator(q_env)
+                if not isinstance(res, Quantity):
+                    raise UnitError(
+                        f"MeasurementModel '{self.measurand}': dimensional evaluator must "
+                        f"return Quantity, got {type(res).__name__}"
+                    )
+                return self._validate_output(res)
+
+            # Legacy dimensionless contract: no unit declared anywhere,
+            # evaluator exchanges plain Decimal values.
             numeric_dict: dict[str, Decimal] = {}
             for k, v in inputs.items():
                 if isinstance(v, Quantity):
@@ -733,36 +796,14 @@ class MeasurementModel:
                 else:
                     numeric_dict[k] = Decimal(str(v))
             res = self.evaluator(numeric_dict)
-            u = _resolve_unit(self.output_unit) if (self.output_unit and self.output_unit.strip()) else Unit("1", "1", "", DIMENSIONLESS, Decimal(1))
-            return Quantity(Decimal(str(res)), u)
+            return Quantity(Decimal(str(res)), Unit("1", "1", "", DIMENSIONLESS, Decimal(1)))
 
         if self.equation is not None:
             eq_text = self.equation.strip().replace("^", "**")
             parsed = parse_equation(eq_text if "=" in eq_text else f"{self.measurand} = {eq_text}")
-            q_env: dict[str, Quantity] = {}
-            for k, v in inputs.items():
-                if isinstance(v, Quantity):
-                    q_env[k] = v
-                else:
-                    unit_str = effective_units.get(k, "")
-                    u_obj = _resolve_unit(unit_str)
-                    q_env[k] = Quantity(Decimal(str(v)), u_obj)
-
+            q_env = self._build_quantity_env(inputs, effective_units)
             q_res = evaluate(parsed, q_env)
-
-            # Dimensional validation against output_unit if declared:
-            if self.output_unit and self.output_unit.strip():
-                expected_u = _resolve_unit(self.output_unit.strip())
-                if q_res.dimension != expected_u.dimension:
-                    raise UnitError(
-                        f"MeasurementModel '{self.measurand}': calculated unit dimension '{q_res.dim_name}' "
-                        f"({q_res.unit.display}) is incompatible with declared output_unit {self.output_unit!r} "
-                        f"({DIM_NAMES.get(expected_u.dimension, 'derived')})"
-                    )
-                if expected_u.factor != q_res.unit.factor:
-                    q_res = q_res.convert_to(self.output_unit.strip())
-
-            return q_res
+            return self._validate_output(q_res)
 
         raise RuntimeError("MeasurementModel evaluation failed")
 

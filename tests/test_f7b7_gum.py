@@ -54,7 +54,7 @@ from academic_core.domain.engineering.gum import (
     type_b_rectangular,
     type_b_triangular,
 )
-from academic_core.domain.engineering.units import LENGTH, Quantity, UnitError, parse_unit
+from academic_core.domain.engineering.units import CURRENT, LENGTH, Quantity, UnitError, parse_unit
 from academic_core.infrastructure.cas import FileBlobStore
 from academic_core.infrastructure.database import Database
 from academic_core.infrastructure.engineering import EngineeringRepository
@@ -1167,3 +1167,163 @@ class TestLengthDimensionAndNoSyntheticUnits:
         total = q1 + q2
         assert total.value == Decimal("1.1")
         assert total.unit.display == "m"
+
+
+# ==============================================================================
+# 14. Surgical Closure: evaluator dimensional bypass
+# ==============================================================================
+
+class TestEvaluatorDimensionalBypassClosed:
+    """MeasurementModel.evaluator must not be able to escape the F6 dimensional
+    system. When any unit is declared (input or output), the evaluator receives
+    and must return Quantity; a Decimal result carries no dimension and cannot
+    be silently labeled with output_unit.
+    """
+
+    def test_a_evaluator_dimensional_v_div_ohm_equals_a(self):
+        model = MeasurementModel(
+            measurand="I",
+            evaluator=lambda x: x["V"] / x["R"],
+            input_names=("V", "R"),
+            output_unit="A",
+        )
+        inputs = {
+            "V": InputQuantity.explicit("V", 10.0, 0.1, unit="V"),
+            "R": InputQuantity.explicit("R", 1000.0, 10.0, unit="ohm"),
+        }
+        res = evaluate_gum(model, inputs)
+        assert abs(float(res.measurand_value) - 0.01) < 1e-12
+        assert res.measurand_unit == "A"
+
+        q = model.evaluate_to_quantity(
+            {"V": Decimal("10"), "R": Decimal("1000")},
+            input_units={"V": "V", "R": "ohm"},
+        )
+        assert q.dimension == CURRENT
+
+    def test_b_evaluator_cannot_sum_mm_plus_s(self):
+        model = MeasurementModel(
+            measurand="Y",
+            evaluator=lambda x: x["X"] + x["T"],
+            input_names=("X", "T"),
+        )
+        inputs = {
+            "X": InputQuantity.explicit("X", 10.0, 0.1, unit="mm"),
+            "T": InputQuantity.explicit("T", 2.0, 0.1, unit="s"),
+        }
+        with pytest.raises(UnitError):
+            evaluate_gum(model, inputs)
+
+    def test_c_evaluator_cannot_sum_mm_plus_v(self):
+        model = MeasurementModel(
+            measurand="Y",
+            evaluator=lambda x: x["X"] + x["T"],
+            input_names=("X", "T"),
+        )
+        inputs = {
+            "X": InputQuantity.explicit("X", 10.0, 0.1, unit="mm"),
+            "T": InputQuantity.explicit("T", 2.0, 0.1, unit="V"),
+        }
+        with pytest.raises(UnitError):
+            evaluate_gum(model, inputs)
+
+    def test_d_evaluator_output_incompatible_rejected(self):
+        model = MeasurementModel(
+            measurand="Y",
+            evaluator=lambda x: Quantity(Decimal("10"), parse_unit("V")),
+            input_names=("X",),
+            input_units={"X": "V"},
+            output_unit="A",
+        )
+        with pytest.raises(UnitError, match="incompatible with declared output_unit"):
+            evaluate_gum(model, {"X": InputQuantity.explicit("X", 1.0, 0.01, unit="V")})
+
+    def test_e_evaluator_output_compatible_converted(self):
+        model = MeasurementModel(
+            measurand="Y",
+            evaluator=lambda x: Quantity(Decimal("100"), parse_unit("mm")),
+            input_names=("X",),
+            output_unit="m",
+        )
+        res = evaluate_gum(model, {"X": InputQuantity.explicit("X", 1.0, 0.01, unit="mm")})
+        assert res.measurand_value == Decimal("0.1")
+        assert res.measurand_unit == "m"
+
+    def test_f_decimal_output_forbidden_in_dimensional_model(self):
+        model = MeasurementModel(
+            measurand="Y",
+            evaluator=lambda x: Decimal("12"),
+            input_names=("X",),
+            input_units={"X": "mm"},
+            output_unit="m",
+        )
+        with pytest.raises(UnitError, match="must return Quantity"):
+            evaluate_gum(model, {"X": InputQuantity.explicit("X", 1.0, 0.01, unit="mm")})
+
+    def test_g_evaluator_unknown_input_unit_rejected(self):
+        model = MeasurementModel(
+            measurand="Y",
+            evaluator=lambda x: x["X"],
+            input_names=("X",),
+            input_units={"X": "totally_unknown_unit"},
+        )
+        with pytest.raises(UnitError):
+            evaluate_gum(model, {"X": InputQuantity.explicit("X", 1.0, 0.01, unit="totally_unknown_unit")})
+
+    def test_h_evaluator_unknown_output_unit_rejected(self):
+        model = MeasurementModel(
+            measurand="Y",
+            evaluator=lambda x: Quantity(Decimal("1"), parse_unit("V")),
+            input_names=("X",),
+            output_unit="totally_unknown_unit",
+        )
+        with pytest.raises(UnitError):
+            evaluate_gum(model, {"X": InputQuantity.explicit("X", 1.0, 0.01, unit="V")})
+
+    def test_i_quantity_input_preserved_for_evaluator(self):
+        received: dict[str, Quantity] = {}
+
+        def ev(x):
+            received["X"] = x["X"]
+            return x["X"]
+
+        model = MeasurementModel(
+            measurand="Y", evaluator=ev, input_names=("X",), input_units={"X": "mm"},
+        )
+        q_in = Quantity(Decimal("100"), parse_unit("mm"))
+        result = model.evaluate_to_quantity({"X": q_in})
+        assert isinstance(received["X"], Quantity)
+        assert received["X"] is q_in
+        assert result.value == Decimal("100")
+
+    def test_j_legacy_dimensionless_evaluator_still_uses_decimal(self):
+        """No unit declared anywhere -> evaluator keeps the pre-existing Decimal contract."""
+        def custom_f(vals):
+            return vals["A"] * vals["B"] + vals["C"]
+
+        model = MeasurementModel(
+            measurand="Out", input_names=("A", "B", "C"), evaluator=custom_f,
+        )
+        inputs = {
+            "A": InputQuantity.explicit("A", 2.0, 0.1),
+            "B": InputQuantity.explicit("B", 3.0, 0.1),
+            "C": InputQuantity.explicit("C", 4.0, 0.1),
+        }
+        res = evaluate_gum(model, inputs)
+        assert abs(float(res.measurand_value) - 10.0) < 1e-12
+
+    def test_regression_audited_bypass_mm_plus_s_must_fail(self):
+        """Exact scenario from the audit: evaluator ignoring declared mm/s units
+        and output_unit='mm' must NOT silently produce 12 mm."""
+        model = MeasurementModel(
+            measurand="Y",
+            evaluator=lambda x: x["X"] + x["T"],
+            input_units={"X": "mm", "T": "s"},
+            output_unit="mm",
+        )
+        inputs = {
+            "X": InputQuantity.explicit("X", 10.0, 0.1, unit="mm"),
+            "T": InputQuantity.explicit("T", 2.0, 0.1, unit="s"),
+        }
+        with pytest.raises(UnitError):
+            evaluate_gum(model, inputs)

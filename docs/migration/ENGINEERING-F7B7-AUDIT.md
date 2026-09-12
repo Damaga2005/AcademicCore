@@ -251,3 +251,62 @@ No synthetic units. No hash-derived dimensions. No fallback dimensional system. 
 - `tests/test_f7*.py`: **186 passed** (174 → 186).
 - Full suite (`pytest -q`): **391 passed, 2 skipped** (pre-existing `reportlab`-absent skips, unrelated), **0 failed**.
 
+---
+
+## 9. Surgical Closure: `MeasurementModel.evaluator` Dimensional Bypass (commit `fix(engineering): close F7-B7 evaluator dimensional bypass`)
+
+A third independent audit found that §8's remediation covered the `equation=` evaluation path but left the `evaluator=` (arbitrary Python callable) path unguarded: `evaluate_to_quantity()` unconditionally reduced every input to its bare `Decimal` `.value` before invoking the callable, then wrapped whatever the callable returned in `output_unit` with no dimensional check. A callable could therefore silently add incompatible quantities (e.g. `10 mm + 2 s = 12`) and have the result labeled with any declared `output_unit`. This closes that gap without reopening PSD, Student-t, sensitivity, `explicit_k`, provenance, Monte Carlo, or the unit system extended in §8.
+
+### 9.1 Contract: dimensional vs. legacy dimensionless evaluator
+`MeasurementModel._is_dimensional(effective_units)` decides the contract per call:
+- **Dimensional model** (any input unit or `output_unit` declared and not `""`/`"1"`): the evaluator receives `dict[str, Quantity]` and **must** return `Quantity`. Every input is resolved through `_resolve_unit()` → `units.py::parse_unit()` before the callable runs; the returned `Quantity` is passed through the same `output_unit` validation/conversion (`_validate_output()`) already used by the `equation=` path — dimension mismatch raises `UnitError`, and a compatible-but-different-scale unit is converted exactly via `Quantity.convert_to()`.
+- **Legacy dimensionless model** (no unit declared anywhere): the evaluator keeps the pre-existing contract — `dict[str, Decimal]` in, `Decimal`-coercible value out, wrapped in the fixed dimensionless unit. This preserves the one existing internal caller (`tests/test_f7b7_gum.py::TestSensitivityCalculations::test_custom_evaluator`) unchanged.
+
+There is no third, ambiguous semantics: a dimensional model whose evaluator returns a plain `Decimal` is rejected outright —
+```text
+MeasurementModel '<name>': dimensional evaluator must return Quantity, got Decimal
+```
+— rather than silently coerced into `output_unit`. This is what closes the audited bypass: a `Decimal` carries no dimension, so it can never be auto-labeled.
+
+### 9.2 Input construction
+`MeasurementModel._build_quantity_env()` is now the single place (shared by both the `evaluator=` and `equation=` paths) that turns raw inputs into `Quantity`: a value already given as `Quantity` is passed through untouched (identity-preserved, not reconstructed); anything else is wrapped as `Quantity(Decimal(str(v)), _resolve_unit(effective_units.get(k, "")))`. An unresolvable unit propagates `UnitError` from `parse_unit()` before the callable ever runs — no unit-system duplication was introduced.
+
+### 9.3 Output validation
+`MeasurementModel._validate_output()` factors out the dimension-check-and-convert logic that previously lived only in the `equation=` branch, and is now shared by both paths: unknown `output_unit` raises `UnitError` (via `_resolve_unit`), dimension mismatch raises `UnitError`, and a same-dimension/different-scale result is converted with `Quantity.convert_to()` (exact `Decimal` arithmetic, `units.py` as sole authority).
+
+### 9.4 New tests (`tests/test_f7b7_gum.py::TestEvaluatorDimensionalBypassClosed`)
+11 new tests, matching the surgical prompt's cases A–J plus the audit-regression case:
+- **A**: `evaluator=lambda x: x["V"] / x["R"]` with `V=10 V`, `R=1000 Ω`, `output_unit="A"` → `0.01 A`, dimension `CURRENT`.
+- **B, C**: `evaluator=lambda x: x["X"] + x["T"]` with `mm+s` / `mm+V` → `UnitError`, never `12`.
+- **D**: evaluator returns `Quantity(10, V)` but `output_unit="A"` → `UnitError`.
+- **E**: evaluator returns `Quantity(100, mm)`, `output_unit="m"` → `0.1 m` (exact `Decimal` conversion).
+- **F**: dimensional model (`input_units={"X": "mm"}`, `output_unit="m"`), evaluator returns bare `Decimal("12")` → `UnitError: ... must return Quantity` (no silent `12 → 12 m`).
+- **G**: `input_units={"X": "totally_unknown_unit"}` → `UnitError`.
+- **H**: `output_unit="totally_unknown_unit"` → `UnitError`, no fabricated unit.
+- **I**: a `Quantity` passed directly as input reaches the evaluator unmodified (`is` identity check).
+- **J**: legacy fully-dimensionless model (no units declared anywhere) still exchanges plain `Decimal` — the original `test_custom_evaluator` contract, reconfirmed unchanged.
+- **Regression**: the exact audited scenario — `evaluator=lambda x: x["X"] + x["T"]`, `input_units={"X": "mm", "T": "s"}`, `output_unit="mm"` — raises `UnitError` instead of returning `12`.
+
+### 9.5 Code review confirmation
+```
+grep -n "_resolve_unit|evaluator|evaluate_to_quantity|MeasurementModel" gum.py
+  -> every evaluator call site now routes inputs through _build_quantity_env
+     (which calls _resolve_unit) and outputs through _validate_output
+     (which calls _resolve_unit) for any model with a declared unit.
+
+grep -n "\.value|Decimal(str(res))|Quantity(...output_unit)" gum.py
+  -> the only ".value" read inside the evaluator path (line ~795) is
+     reachable exclusively when _is_dimensional() is False, and its result
+     is wrapped in a fixed dimensionless Unit, never output_unit.
+  -> the Quantity -> .value -> evaluator -> Decimal -> output_unit bypass
+     no longer exists for any model with a declared unit.
+```
+
+### 9.6 Untouched (out of scope, reconfirmed)
+`jacobi_eigenvalues`, `CorrelationMatrix`/PSD, Student-t (`student_t_cdf`, `student_t_quantile`, `calculate_coverage_factor`), sensitivity coefficients (`get_sensitivity`), `explicit_k` validation, provenance construction, Monte Carlo, the Simulation Engine, and the F6 `units.py` architecture (beyond the `_resolve_unit`/`_build_quantity_env`/`_validate_output` refactor inside `gum.py` itself) were not modified. No new dependencies were introduced.
+
+### 9.7 Final regression results
+- `tests/test_f7b7_gum.py`: **79 passed** (68 → 79, +11 for the evaluator bypass closure).
+- `tests/test_f7*.py`: **197 passed** (186 → 197).
+- Full suite (`pytest -q`): **402 passed, 2 skipped** (same pre-existing `reportlab`-absent skips), **0 failed**.
+
