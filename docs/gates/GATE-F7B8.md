@@ -46,3 +46,9 @@ I hereby certify that phase **F7-B8 (Structural Circuit Analysis & Hardening)** 
 
 - **Gate Status**: **PASS (HARDENED)**
 - **Date**: 2026-09-13
+
+```text
+F7-B8 STATUS: CERTIFIED
+```
+
+This certifies deterministic structural circuit recognition and analysis-applicability classification only. It does NOT certify a complete Electronics Knowledge Engine, visual/schematic recognition, OCR, reverse circuit synthesis, or numeric solving (nodal/mesh/Thévenin/transient/AC) — those remain out of scope for later phases. B9 is not implemented and is not started by this gate.
