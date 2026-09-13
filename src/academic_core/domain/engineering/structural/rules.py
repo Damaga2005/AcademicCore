@@ -246,21 +246,32 @@ class ResistiveBridgeRule(RecognitionRule):
             if not arms.issubset(edges):
                 continue
 
-            # Check excitation source: must connect across (A, B) or (C, D)
-            has_source_across_pair = False
-            for s in sources:
+            # Check excitation source: must connect across (A, B) or (C, D).
+            # Store the matched source explicitly (never rely on a residual
+            # loop variable) so the 5th-resistor diagonal decision below uses
+            # a well-defined, deterministic value. Sources are scanned in
+            # sorted ref order so that, if multiple sources qualify, the
+            # outcome does not depend on component insertion order.
+            matched_source_pair: tuple[str, str] | None = None
+            matched_source_ref: str | None = None
+            for s in sorted(sources, key=lambda c: c.ref.upper()):
                 sp, sm = str(s.pins.get("+", "")), str(s.pins.get("-", ""))
-                s_pair = tuple(sorted([sp, sm]))
-                if s_pair in (tuple(sorted([A, B])), tuple(sorted([C, D]))):
-                    has_source_across_pair = True
+                candidate_pair = tuple(sorted([sp, sm]))
+                if candidate_pair in (tuple(sorted([A, B])), tuple(sorted([C, D]))):
+                    matched_source_pair = candidate_pair
+                    matched_source_ref = s.ref.upper()
                     break
 
-            if not has_source_across_pair:
+            if matched_source_pair is None:
                 continue
 
             # If 5th resistor, it must connect across the other diagonal
             if len(r_comps) == 5:
-                diag = tuple(sorted([C, D])) if s_pair == tuple(sorted([A, B])) else tuple(sorted([A, B]))
+                diag = (
+                    tuple(sorted([C, D]))
+                    if matched_source_pair == tuple(sorted([A, B]))
+                    else tuple(sorted([A, B]))
+                )
                 if diag not in edges:
                     continue
 
@@ -277,6 +288,8 @@ class ResistiveBridgeRule(RecognitionRule):
                         "bridge_nodes": nlist,
                         "excitation_nodes": (A, B),
                         "detector_nodes": (C, D),
+                        "matched_source_pair": matched_source_pair,
+                        "matched_source_ref": matched_source_ref,
                     },
                 )
             ]
@@ -448,6 +461,24 @@ class DynamicNetworkRule(RecognitionRule):
 
         # 2. RL check
         elif l_comps and not c_comps and r_comps:
+            # An inductor directly clamped in parallel by an ideal current
+            # source has its branch current fixed by the source, eliminating
+            # the dynamic degree of freedom -- same reasoning as a capacitor
+            # clamped by an ideal voltage source.
+            i_sources = [c for c in graph.components.values() if c.type == "I"]
+            l_clamped = False
+            for l in l_comps:
+                l_pair = {str(l.pins["1"]), str(l.pins["2"])}
+                for i_src in i_sources:
+                    i_pair = {str(i_src.pins["+"]), str(i_src.pins["-"])}
+                    if l_pair == i_pair:
+                        l_clamped = True
+                        break
+                if l_clamped:
+                    break
+            if l_clamped:
+                return matches
+
             all_l_in_loop = True
             active_refs = set()
             for l in l_comps:

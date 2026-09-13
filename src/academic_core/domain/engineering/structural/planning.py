@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +24,166 @@ from academic_core.domain.engineering.structural.types import (
 )
 
 PLAN_ENGINE_VERSION = "f7b8-planner/1.0"
+
+# Values that must never be treated as positive evidence, regardless of which
+# key they appear under (case-insensitive). Absence-of-evidence must never be
+# promoted to a positive recognition (F7-B8 hardening rule 0).
+_FALSE_LIKE = {"", "false", "none", "0", "no", "off", "null"}
+
+# Word-boundary match only: a textual excitation marker like "AC 5V 60Hz" or
+# "ac" is accepted, but a substring occurrence inside an unrelated word (e.g.
+# "trace", "aircraft") is not.
+_AC_WORD_RE = re.compile(r"\bac\b", re.IGNORECASE)
+
+
+def _has_positive_evidence(value: Any) -> bool:
+    """Return True only if `value` is a real, non-negated piece of evidence.
+
+    Used to validate metadata/parameter *values* before treating the mere
+    presence of a key (e.g. "ac", "tolerance", "uncertainty", "sensitivity")
+    as proof of something. A key being present with a falsy/negating value
+    (False, None, "", 0, "false", "none", ...) must never count as evidence.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSE_LIKE
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, dict):
+        return bool(value)
+    if isinstance(value, (list, tuple, set)):
+        return bool(value)
+    return bool(value)
+
+
+def _has_valid_ac_excitation(comp: Any) -> bool:
+    """Determine whether a V/I source carries unambiguous AC excitation evidence.
+
+    Accepts (in order of precedence):
+    1. An explicit "ac"/"AC" key in parameters or metadata whose *value* is
+       validated (not False/None/""/0/"false"/"none").
+    2. An explicit amplitude+frequency pair, both carrying real values.
+    3. A textual representation containing the standalone word "ac" in any
+       string-valued parameter/metadata entry (word-boundary matched, so
+       "trace" or "aircraft" never match).
+
+    Never triggered by the mere presence of RLC elements, and never by an
+    unrelated metadata key that happens to contain the substring "ac".
+    """
+    if comp.type not in ("V", "I"):
+        return False
+    for source in (comp.parameters or {}, comp.metadata or {}):
+        for key in ("ac", "AC"):
+            if key in source and _has_positive_evidence(source[key]):
+                return True
+        amplitude = source.get("amplitude")
+        frequency = source.get("frequency", source.get("freq"))
+        if _has_positive_evidence(amplitude) and _has_positive_evidence(frequency):
+            return True
+        for value in source.values():
+            if isinstance(value, str) and _AC_WORD_RE.search(value):
+                return True
+    return False
+
+
+# Explicit, unambiguous metadata/parameter keys accepted as evidence for each
+# statistical/uncertainty analysis. Deliberately excludes short/ambiguous
+# tokens such as "u", "dev", "vary", "sens", "tol", "mc", "unc", "gum" which
+# can collide with unrelated metadata and would turn absence-of-evidence into
+# a false positive recognition.
+_MONTE_CARLO_KEYS = ("tolerance", "distribution")
+_GUM_KEYS = ("uncertainty",)
+_SENSITIVITY_KEYS = ("sensitivity",)
+
+
+def _has_explicit_evidence(comp: Any, keys: tuple[str, ...]) -> bool:
+    for source in (comp.parameters or {}, comp.metadata or {}):
+        for k, v in source.items():
+            if k.lower() in keys and _has_positive_evidence(v):
+                return True
+    return False
+
+
+def _canonical_value(value: Any) -> Any:
+    """Recursively normalize a value into a JSON-stable, order-independent form."""
+    if value is None:
+        return None
+    if hasattr(value, "compact"):
+        return value.compact()
+    if isinstance(value, dict):
+        return {str(k): _canonical_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_value(v) for v in value]
+    if isinstance(value, set):
+        return sorted((_canonical_value(v) for v in value), key=str)
+    return value
+
+
+def _canonical_component(comp: Any) -> dict[str, Any]:
+    return {
+        "ref": comp.ref.upper(),
+        "type": comp.type.upper(),
+        "value": _canonical_value(comp.value),
+        "pins": {str(k): str(v) for k, v in sorted(comp.pins.items())},
+        "parameters": _canonical_value(dict(comp.parameters or {})),
+        "metadata": _canonical_value(dict(comp.metadata or {})),
+    }
+
+
+def _canonical_structure(
+    graph: CircuitGraph,
+    matches: list[RecognitionMatch],
+    classification: str,
+    target_terminals: tuple[str, str] | None,
+) -> dict[str, Any]:
+    """Build a deterministic, insertion-order-independent structural fingerprint.
+
+    Incorporates circuit identity, full component data (refs/types/values/
+    units/parameters/metadata), pin/node connectivity, topology matches,
+    classification, and target terminals -- everything the spec (section 24)
+    requires so that two materially different circuits never collide and the
+    same semantic circuit always produces the same digest regardless of
+    component/node/metadata insertion order. Excludes timestamps, object
+    identities, and any non-deterministic value.
+    """
+    components = [
+        _canonical_component(c)
+        for c in sorted(graph.components.values(), key=lambda c: c.ref.upper())
+    ]
+    branches = [
+        {"id": b.id, "ref": b.ref, "type": b.type, "node1": b.node1, "node2": b.node2}
+        for b in sorted(graph.branches, key=lambda b: b.id)
+    ]
+    topo_matches = [
+        {
+            "topology": m.topology.value,
+            "elements": list(m.elements),
+            "metadata": _canonical_value(dict(m.metadata or {})),
+        }
+        for m in sorted(matches, key=lambda m: (m.topology.value, m.elements))
+    ]
+    tt: list[str] | None = None
+    if target_terminals is not None:
+        tt = [str(target_terminals[0]).strip(), str(target_terminals[1]).strip()]
+    return {
+        "circuit_name": graph.circuit_name,
+        "nodes": sorted(graph.nodes.keys()),
+        "components": components,
+        "branches": branches,
+        "recognized_topologies": topo_matches,
+        "classification": classification,
+        "target_terminals": tt,
+        "engine": PLAN_ENGINE_VERSION,
+    }
+
+
+def _digest_for(structure: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(structure, sort_keys=True, default=str).encode()
+    ).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -212,16 +373,9 @@ class AnalysisClassifier:
         # 7. Simulation / Operating Point / Dynamic Analysis
         primary_analysis: AnalysisType | None = None
 
-        # Check excitation: does it have AC parameters in voltage or current sources?
-        has_ac_source = False
-        for c in graph.components.values():
-            if c.type in ("V", "I"):
-                params = c.parameters or {}
-                meta = c.metadata or {}
-                if "ac" in params or "AC" in params or "ac" in meta or "AC" in meta:
-                    has_ac_source = True
-                elif isinstance(c.value, str) and re.search(r"\bac\b", c.value, re.IGNORECASE):
-                    has_ac_source = True
+        # Check excitation: require validated, unambiguous AC evidence on a
+        # voltage/current source (never inferred from RLC element presence).
+        has_ac_source = any(_has_valid_ac_excitation(c) for c in graph.components.values())
 
         if classification == TopologyType.RESISTIVE.value:
             primary_analysis = AnalysisType.DC_OPERATING_POINT
@@ -245,21 +399,12 @@ class AnalysisClassifier:
             applicable[AnalysisType.AC.value] = ApplicabilityStatus.NOT_APPLICABLE.value
 
         # 8. Statistical & Uncertainty Analysis (Monte Carlo, GUM, Sensitivity)
-        # Never mark applicable simply because resistors exist: require explicit metadata/parameters
-        has_mc_meta = False
-        has_gum_meta = False
-        has_sens_meta = False
-
-        for c in graph.components.values():
-            p = c.parameters or {}
-            m = c.metadata or {}
-            keys = set(p.keys()) | set(m.keys())
-            if any(k.lower() in ("tolerance", "tol", "distribution", "dist", "dev", "mc") for k in keys):
-                has_mc_meta = True
-            if any(k.lower() in ("uncertainty", "u", "std_u", "type_b", "unc", "gum") for k in keys):
-                has_gum_meta = True
-            if any(k.lower() in ("sensitivity", "sens", "vary") for k in keys):
-                has_sens_meta = True
+        # Never mark applicable simply because resistors exist, and never on
+        # ambiguous short keys ("u", "dev", "vary", "sens", ...) that could
+        # mean something unrelated: require an explicit, validated key.
+        has_mc_meta = any(_has_explicit_evidence(c, _MONTE_CARLO_KEYS) for c in graph.components.values())
+        has_gum_meta = any(_has_explicit_evidence(c, _GUM_KEYS) for c in graph.components.values())
+        has_sens_meta = any(_has_explicit_evidence(c, _SENSITIVITY_KEYS) for c in graph.components.values())
 
         if has_mc_meta:
             applicable[AnalysisType.MONTE_CARLO.value] = ApplicabilityStatus.APPLICABLE.value
@@ -283,19 +428,13 @@ class AnalysisClassifier:
         # 10. Step Generation
         steps = self._generate_steps(classification, matched_topos, ref_node)
 
-        # 11. Provenance
+        # 11. Provenance -- digest covers the full canonical structural content
+        # (components, values, units, parameters, metadata, connectivity,
+        # recognized topologies, classification, target terminals), is
+        # insertion-order independent, and excludes the timestamp.
         stamp = at or datetime.now(timezone.utc).isoformat()
-        content_hash = hashlib.sha256(
-            json.dumps(
-                {
-                    "circuit": graph.circuit_name,
-                    "components": sorted(graph.components.keys()),
-                    "classification": classification,
-                    "engine": PLAN_ENGINE_VERSION,
-                },
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
+        structure = _canonical_structure(graph, matches, classification, target_terminals)
+        content_hash = _digest_for(structure)
 
         provenance = {
             "engine": PLAN_ENGINE_VERSION,
@@ -328,7 +467,13 @@ class AnalysisClassifier:
         at: str | None,
     ) -> AnalysisPlan:
         stamp = at or datetime.now(timezone.utc).isoformat()
-        digest = hashlib.sha256(f"abstained:{graph.circuit_name}:{reason}".encode()).hexdigest()
+        # Provenance for an abstained plan must still reflect the real
+        # structural content that was examined (section 25), not merely the
+        # circuit name and abstention reason -- otherwise two materially
+        # different abstained circuits could collide on the same digest.
+        structure = _canonical_structure(graph, matches, TopologyType.UNKNOWN_TOPOLOGY.value, None)
+        structure["abstention_reason"] = reason
+        digest = _digest_for(structure)
         applicable = {a.value: ApplicabilityStatus.NOT_APPLICABLE.value for a in AnalysisType}
 
         return AnalysisPlan(

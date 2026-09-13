@@ -94,9 +94,18 @@ The structural analysis system is housed in `academic_core.domain.engineering.st
 7. **Transient**:
    - `PRIMARY` for RC, RL, and RLC networks.
 8. **AC**:
-   - `APPLICABLE` strictly when reactive elements are excited by an AC source (`parameters["ac"]` or `metadata["ac"]` in V/I source). An RLC circuit excited purely by a DC source has `AC = NOT_APPLICABLE` and `TRANSIENT = PRIMARY`.
+   - `APPLICABLE` strictly when a `V`/`I` source carries **validated** AC excitation evidence:
+     - an `"ac"`/`"AC"` key in `parameters` or `metadata` whose *value* is positively validated (rejects `False`, `None`, `""`, `0`, `"false"`, `"none"`, `"off"`, `"no"`); or
+     - an explicit `"amplitude"` + `"frequency"` (or `"freq"`) pair, both carrying real values; or
+     - a standalone, word-boundary-matched `"ac"` token inside any string parameter/metadata value (e.g. `"AC 5V 60Hz"`), never a substring match (`"trace"`, `"aircraft"` never match).
+   - The mere presence of R+L+C (or the `"ac"` substring inside an unrelated key/value) is never sufficient. An RLC circuit excited purely by DC has `AC = NOT_APPLICABLE` and `TRANSIENT = PRIMARY`.
 9. **Statistical & Uncertainty (Monte Carlo, GUM, Sensitivity)**:
-   - `APPLICABLE` strictly when components specify explicit tolerance, uncertainty, or sensitivity metadata/parameters. Plain nominal circuits without uncertainty parameters have these analyses marked `NOT_APPLICABLE`.
+   - `APPLICABLE` strictly when a component carries one of the following **exact, validated** keys (in `parameters` or `metadata`):
+     - Monte Carlo: `tolerance` or `distribution`.
+     - GUM: `uncertainty`.
+     - Sensitivity: `sensitivity`.
+   - The value itself must be positive evidence (non-null, non-empty, not `"false"`/`"none"`/`0`/etc.) -- the mere presence of the key with a negated/empty value does not count.
+   - Deliberately excludes short/ambiguous keys (`u`, `dev`, `mc`, `tol`, `unc`, `gum`, `sens`, `vary`, `std_u`, `type_b`, ...) that could collide with unrelated metadata and turn absence-of-evidence into a false positive. Plain nominal circuits without these exact keys have all three analyses marked `NOT_APPLICABLE`.
 
 ---
 
@@ -109,20 +118,63 @@ The analyzer enforces strict refusal to guess and eliminates false-positive reco
 - **Short Circuits**: Detects zero-resistance shorted voltage loops and abstains.
 - **Unsupported Components**: Detects placeholder active devices (e.g. `D`, `Q`) and abstains from linear analysis.
 - **Voltage Divider Tap Nodes**: Exposes intermediate nodes as `tap_nodes: [...]` with `output_node: None`, completely eliminating presumptive `Vout` assignments.
-- **Resistive Bridge Diagonal Excitation**: Requires independent voltage or current excitation across opposite diagonal pairs `(A, B)` or `(C, D)`. A ring of 4 resistors without diagonal excitation is rejected.
+- **Resistive Bridge Diagonal Excitation**: Requires real 4-arm topology matching -- the four arms `(A,C), (A,D), (B,C), (B,D)` must exist as actual resistor branches (never inferred from a component count of 4 or 5). The matched excitation source is stored **explicitly** in match metadata as `matched_source_pair` and `matched_source_ref` from the moment it is found (never derived from a residual/leftover loop variable), so the 5th-resistor diagonal decision and the result are deterministic and independent of component/source insertion order. A ring of 4 resistors without diagonal excitation, or with the source on an arm, is rejected. For 5 resistors, the fifth must land exactly on the opposite diagonal of the matched excitation pair.
 - **Dynamic Coherent Loops (RC / RL / RLC)**:
-  - Capacitors clamped directly across ideal voltage sources do not qualify as RC networks.
-  - Every reactive element must participate in a closed loop with at least one resistor.
-  - RLC requires coupled meshes where R, L, and C interact; independent uncoupled loops (e.g. separate RC and RL loops) are not classified as RLC.
+  - Capacitors clamped directly across ideal voltage sources, or inductors clamped directly across ideal current sources, do not qualify as RC/RL networks (the ideal source removes the dynamic degree of freedom).
+  - Every reactive element must participate in a closed loop with at least one resistor; disconnected/floating reactive elements are structurally rejected (the whole-circuit connectivity precondition means a genuinely disconnected RC+RL pair triggers ABSTENTION before dynamic classification even runs).
+  - RLC requires coupled meshes where R, L, and C interact; independent uncoupled loops (e.g. separate RC and RL loops sharing only GND) are not classified as RLC, RC, or RL.
+  - `ENERGY_STORAGE` (mere presence of C/L) is always kept semantically distinct from `RC`/`RL`/`RLC`/`TRANSIENT`: it never implies a concrete dynamic network was demonstrated.
 - **Thévenin / Norton Port Validation**:
   - Missing `target_terminals`: marks `NEEDS_TARGET_TERMINALS`.
-  - Degenerate `target_terminals` ($T_1 == T_2$), non-existent nodes, or nodes in disconnected subgraphs: returns `UNKNOWN` with actionable diagnostic warning.
+  - Degenerate `target_terminals` ($T_1 == T_2$), non-existent nodes, or nodes in disconnected subgraphs: returns `UNKNOWN` with actionable diagnostic warning. (In practice, a circuit that is disconnected at the target-terminal level is also disconnected overall and is caught earlier by the global disconnected-circuit abstention -- see Limitations.)
+  - `THEVENIN`/`NORTON` are never marked `APPLICABLE` without demonstrating both terminals exist, are distinct, and belong to the same connected component.
 - **Confidence Semantics**:
-  - Topological rules are exact graph algorithms: `confidence` is `DETERMINISTIC` by default (warnings do not degrade this to `HIGH`). On abstention, confidence is `ABSTAINED`.
+  - `DETERMINISTIC` means the decision was produced by an exact, deterministic graph algorithm -- it is **not** a synonym for "perfect" or "warning-free". A recognized topology with an accompanying structural warning (e.g. a benign extra terminal note) remains `DETERMINISTIC`; warnings never silently upgrade or downgrade confidence.
+  - `HIGH` is reserved for future non-exact/heuristic-assisted recognition paths (not currently emitted by any B8 rule).
+  - `ABSTAINED` means the analyzer refused to classify/recognize because required evidence was missing or the topology was ambiguous/invalid; `recognized_topologies` is always empty and `applicable_analyses` is all `NOT_APPLICABLE` in this state.
+  - Confidence is never used as a proxy for numeric uncertainty -- that remains the domain of GUM/Monte Carlo (F7-B6/B7), not B8.
+- **Floating Nodes / Missing GND -- Structural vs. Analytical Boundary**:
+  - A floating pin (`degree <= 1`) or an absent reference/GND node produces a **warning**, not automatic abstention -- B8 is a structural recognizer, not a solver, so it does not need a datum to describe topology.
+  - However, the absence of a reference node is never silently ignored: `DC_OPERATING_POINT`/`DC_STEADY_STATE`/`THEVENIN`/`NORTON` applicability is still computed structurally, but any consumer of the plan MUST treat magnitudes as undefined until an analytical engine (F7-B1..B7) supplies a reference. B8 stops at recognizing that a reference is missing; it does not resolve or assume one.
 
 ---
 
-## 6. How to Add a New Recognition Rule in the Future
+## 6. Provenance Digest & Determinism
+
+`AnalysisPlan.provenance["digest"]` is a SHA-256 hash of a **canonical structural fingerprint** (`planning._canonical_structure`), which incorporates:
+
+- circuit identity (name) and full node set,
+- every component's ref, type, canonicalized value (via `Quantity.compact()`), pins, parameters, and metadata,
+- every branch (id, ref, type, endpoints),
+- every recognized topology match (topology, elements, metadata),
+- the final classification,
+- the requested target terminals (if any),
+- the engine version.
+
+It deliberately **excludes** the timestamp, Python object identities, and any non-deterministic value. Because components/branches/matches are sorted canonically before hashing (and `json.dumps(..., sort_keys=True)` is used), the digest is:
+
+- **insertion-order independent**: component insertion order, node dict order, and metadata dict key order never change the digest;
+- **content-sensitive**: two circuits differing in any component value, pin, parameter, metadata, topology match, classification, or target terminals produce different digests;
+- **timestamp-independent**: two analyses of the same circuit at different `at=` timestamps produce identical digests (only `provenance["timestamp"]` differs).
+
+An **abstained** plan's digest also incorporates the same canonical structural fingerprint (plus the abstention reason), so two different abstained circuits sharing the same name and reason never collide on digest -- provenance is never reduced to `circuit_name + reason`.
+
+`AnalysisPlan.to_json()` uses `json.dumps(..., sort_keys=True)`, so full-plan serialization is stable and byte-identical across equivalent circuits built in different component/node insertion orders (verified by `test_full_plan_serialization_deterministic_across_permutations`).
+
+`RuleRegistry` registers rules in a fixed, explicit order in `_register_defaults()` (not import order, not hash order, not component-name-derived); `evaluate_all()` additionally sorts the resulting matches by `(topology, elements)`, so recognition order never depends on dict/set iteration order.
+
+---
+
+## 7. Limitations (Honest Disclosure)
+
+- The Thévenin/Norton "target terminals belong to disconnected subgraphs" code path exists and is exercised by `AnalysisClassifier`, but in practice a genuinely disconnected pair of terminals almost always means the whole circuit is disconnected, which the classifier already catches earlier via the global disconnected-circuit abstention. The path is defensive/future-proofing rather than reachable with the current whole-circuit-first abstention ordering.
+- B8 does not solve or verify Thévenin/Norton equivalents, transient responses, AC phasors, nodal/mesh systems, or GUM/Monte Carlo numeric propagation -- it only determines structural *applicability* and produces a plan of steps referencing the analytical methods that F6/F7-B1..B7 (or future engines) must execute.
+- `ConfidenceLevel.HIGH` is defined in the enum but is not currently emitted by any B8 rule; all successful recognitions are `DETERMINISTIC` and all refusals are `ABSTAINED`. This is intentional (see Confidence Semantics above) but worth stating plainly.
+- Reactive-element "clamping" checks (capacitor across an ideal V source, inductor across an ideal I source) cover the two canonical degenerate cases; more exotic degeneracies (e.g. a capacitor and inductor both clamped by different ideal sources in the same coupled loop) are covered indirectly by the coupled-loop requirement but have not been exhaustively enumerated beyond the test matrix in this pass.
+
+---
+
+## 8. How to Add a New Recognition Rule in the Future
 
 The architecture allows adding new rules (e.g. `DiodeRecognitionRule`, `OpAmpRecognitionRule`) without modifying `StructuralCircuitAnalyzer`:
 ```python

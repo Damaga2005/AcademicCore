@@ -2,9 +2,10 @@
 
 ## 1. Executive Summary
 
-- **Phase**: F7-B8 — Structural Circuit Analysis
-- **Base Commit**: `e8439c2`
-- **Scope**: Structural circuit interpretation, deterministic graph extraction, topology recognition, analytical applicability classification, deterministic analysis plan generation, and explainability without LLMs.
+- **Phase**: F7-B8 — Structural Circuit Analysis (Hardening Definitivo pass)
+- **Prior Baseline**: `cbda6ef` -- "harden F7-B8 structural circuit analysis and eliminate false positives" (NOT certified as final PASS by independent audit)
+- **This Pass**: Second hardening pass closing the semantic/robustness gaps identified by that audit (see `F7-B8-HARDENING-REPORT.md` for full detail).
+- **Scope**: Structural circuit interpretation, deterministic graph extraction, topology recognition, analytical applicability classification, deterministic analysis plan generation, and explainability without LLMs. Still no B9 (schematic editor, OCR, LLM, new component types, numeric solvers).
 - **Status**: **PASS**
 
 ---
@@ -29,10 +30,12 @@
 | **Domain Purity** | Zero dependencies on OS, I/O, SQLite, Qt, or external network in domain | **PASS** | `test_architecture.py` 9/9 passed |
 | **Application Integration** | `EngineeringService.analyze_circuit_structure` wired cleanly | **PASS** | Verified in `test_engineering_service_integration` |
 | **UI Reflectivity** | Structural summary rendered in `EngineeringPanel` detail pane | **PASS** | `test_ui_engineering.py` passed |
-| **Hardening Pass** | False positives eliminated across RC/RL/RLC loops, bridge excitation, divider taps, AC/uncertainty | **PASS** | 11 dedicated adversarial tests |
-| **F7-B8 Specific Tests** | All specific B8 tests passing (including 11 adversarial tests) | **PASS** | 44 passed, 0 failed |
-| **F7 Regression** | All F7 suites (F7-A, F7-B1..F7-B8) passing | **PASS** | 241 passed, 0 failed |
-| **Full Repository Regression** | Entire suite passing with no regressions | **PASS** | 446 passed, 2 skipped, 0 failed |
+| **Hardening Pass (round 1)** | False positives eliminated across RC/RL/RLC loops, bridge excitation, divider taps, AC/uncertainty | **PASS** | 11 dedicated adversarial tests (baseline `cbda6ef`) |
+| **Hardening Pass (round 2, this gate)** | `re` import bug fixed; AC/MC/GUM/Sensitivity require validated evidence (not key substring match); bridge stores explicit `matched_source_pair`/`matched_source_ref`; provenance digest covers full canonical structure; `get_fundamental_loops` handles disconnected graphs via spanning forest (mu = E-V+C); RL clamp-by-current-source check added | **PASS** | 73 new tests added, see `F7-B8-HARDENING-REPORT.md` |
+| **F7-B8 Specific Tests** | All specific B8 tests passing | **PASS** | 117 passed, 0 failed |
+| **F7 Regression** | All F7 suites (F7-A, F7-B1..F7-B8) passing | **PASS** | see `F7-B8-HARDENING-REPORT.md` test results section |
+| **Full Repository Regression** | Entire suite passing with no regressions | **PASS** | see `F7-B8-HARDENING-REPORT.md` test results section (2 pre-existing skips, unrelated to structural domain: `reportlab` absent) |
+| **Security** | No eval/exec/subprocess/shell/network/arbitrary filesystem I/O in structural domain | **PASS** | static grep scan, zero matches |
 | **Clean Working Tree** | No stray files or uncommitted artifacts | **PASS** | Verified via `git status` |
 
 ---

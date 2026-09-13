@@ -277,10 +277,14 @@ class CircuitGraph:
     def get_fundamental_loops(self) -> list[list[str]]:
         """Extract a deterministic fundamental cycle basis (loops) for KVL.
 
-        Uses a deterministic spanning tree over the branch graph to find fundamental
-        cycles corresponding to chords (co-tree edges).
+        Uses a deterministic spanning FOREST over the branch graph (one tree per
+        connected component) to find fundamental cycles corresponding to chords
+        (co-tree edges). This generalizes correctly to disconnected circuits:
+        for a graph with E branches, V nodes and C connected components, the
+        cycle rank (number of fundamental loops) is mu = E - V + C, since a
+        spanning forest has exactly (V - C) tree edges.
         """
-        if not self.branches or not self.is_connected:
+        if not self.branches:
             return []
 
         # Graph of node -> list of (neighbor, comp_ref)
@@ -290,22 +294,34 @@ class CircuitGraph:
                 adj[b.node1].append((b.node2, b.ref))
                 adj[b.node2].append((b.node1, b.ref))
 
-        # Build spanning tree via deterministic BFS starting at reference or first node
-        start_node = self.reference_node or sorted(self.nodes.keys())[0]
+        # Build a spanning forest via deterministic BFS: start from the
+        # reference node's component first (if any), then any remaining
+        # unvisited nodes in canonical sorted order -- one BFS tree per
+        # connected component.
         tree_edges: set[tuple[str, str, str]] = set()  # (min(u,v), max(u,v), ref)
         parent: dict[str, tuple[str, str]] = {}  # node -> (parent_node, ref)
-        visited = {start_node}
-        queue = deque([start_node])
+        visited: set[str] = set()
 
-        while queue:
-            u = queue.popleft()
-            for v, ref in sorted(adj[u], key=lambda x: (x[0], x[1])):
-                if v not in visited:
-                    visited.add(v)
-                    edge_key = (min(u, v), max(u, v), ref)
-                    tree_edges.add(edge_key)
-                    parent[v] = (u, ref)
-                    queue.append(v)
+        ordered_starts: list[str] = []
+        ref_node = self.reference_node
+        if ref_node is not None:
+            ordered_starts.append(ref_node)
+        ordered_starts.extend(n for n in sorted(self.nodes.keys()) if n != ref_node)
+
+        for start_node in ordered_starts:
+            if start_node in visited:
+                continue
+            visited.add(start_node)
+            queue = deque([start_node])
+            while queue:
+                u = queue.popleft()
+                for v, ref in sorted(adj[u], key=lambda x: (x[0], x[1])):
+                    if v not in visited:
+                        visited.add(v)
+                        edge_key = (min(u, v), max(u, v), ref)
+                        tree_edges.add(edge_key)
+                        parent[v] = (u, ref)
+                        queue.append(v)
 
         # Chords are branches not in the spanning tree
         loops: list[list[str]] = []
