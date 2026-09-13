@@ -219,7 +219,7 @@ def test_single_resistor():
     assert current_map(res)["R1"] == Decimal("0.01")
 
 
-@pytest.mark.parametrize("n", [1, 2, 3, 4, 8, 16, 32])
+@pytest.mark.parametrize("n", [1, 2, 3, 4, 8, 16, 32, 64])
 def test_series(n):
     res = assert_solved(solve_linear_dc(series_circuit(n, "1000 ohm", "10 V")))
     # equal series resistors -> equal current everywhere = V / (n*R)
@@ -229,7 +229,7 @@ def test_series(n):
             assert i_val == expected_i
 
 
-@pytest.mark.parametrize("n", [1, 2, 3, 4, 8, 16, 32])
+@pytest.mark.parametrize("n", [1, 2, 3, 4, 8, 16, 32, 64])
 def test_parallel(n):
     res = assert_solved(solve_linear_dc(parallel_circuit(n, "1000 ohm", "10 V")))
     volts = voltage_map(res)
@@ -363,6 +363,36 @@ def test_kcl_residual_zero_for_arbitrary_n(n):
 def test_kvl_residual_zero_on_bridge():
     res = assert_solved(solve_linear_dc(bridge_circuit()))
     assert res.conservation_checks.kvl_max_residual == "0"
+
+
+def test_kvl_covers_parallel_multi_edge_loops():
+    # Regression for a bug found during the F8-B independent audit: the
+    # fundamental-cycle basis originally deduplicated candidate chord edges
+    # by the {net_a, net_b} pair, so a second component between an
+    # already-connected pair of nodes (e.g. two resistors in parallel) was
+    # silently skipped instead of contributing its own independent loop.
+    # This circuit has 2 nodes (n1, 0) and 3 edges (V1, R1, R2 all between
+    # them) -> cyclomatic number E - V + 1 = 3 - 2 + 1 = 2 independent
+    # loops; both must be found.
+    from academic_core.domain.engineering.mna import build_mna_problem, fundamental_cycle_chords
+
+    c = build("multi_edge", [v("V1", "10 V", "n1", "0"), r("R1", "1 kohm", "n1", "0"), r("R2", "2 kohm", "n1", "0")])
+    problem = build_mna_problem(c)
+    chords = fundamental_cycle_chords(c, problem.ground)
+    assert len(chords) == 2  # both R1 and R2 must be found as independent chords, not just one
+
+
+def test_kvl_covers_parallel_multi_edge_loops_bridge_plus_parallel():
+    # A denser multigraph: bridge topology (V1 + R1..R5 = 6 edges, 4 nodes)
+    # with an extra resistor in parallel with R5 (7 edges) -> cyclomatic
+    # number E - V + 1 = 7 - 4 + 1 = 4.
+    from academic_core.domain.engineering.mna import build_mna_problem, fundamental_cycle_chords
+
+    c = bridge_circuit()
+    c.add(r("R6", "1 kohm", "n2", "n3"))  # parallel with R5
+    problem = build_mna_problem(c)
+    chords = fundamental_cycle_chords(c, problem.ground)
+    assert len(chords) == 4
 
 
 # ==============================================================================
@@ -710,6 +740,184 @@ def test_ngspice_cross_validation_mixed_sources():
 
 
 # ==============================================================================
+# 11b. Independent reference validation (F8-B audit, section 7/38)
+#
+# These do NOT call `build_mna_problem`/`solve_exact` (the production
+# assembler+solver under test). Each expected value below is derived from a
+# hand-written system solved via Cramer's rule, written fresh for this test
+# — the goal is to catch a stamping bug that a test relying on the same
+# assembler code could never catch (assembler bug + solver bug cancelling
+# out to produce a self-consistent-but-wrong answer).
+# ==============================================================================
+def _cramer_2x2(a11, a12, a21, a22, z1, z2):
+    det = a11 * a22 - a12 * a21
+    x1 = (z1 * a22 - a12 * z2) / det
+    x2 = (a11 * z2 - a21 * z1) / det
+    return x1, x2
+
+
+def _frac_to_decimal(fr):
+    # Same rounding as the production presentation boundary
+    # (mna.solver._fraction_to_decimal / PRESENTATION_PRECISION), applied
+    # here independently so the comparison is fair (two 34-digit roundings
+    # of the same exact value, not a Fraction vs. an already-rounded Decimal).
+    from academic_core.domain.engineering.mna.solver import _fraction_to_decimal
+
+    return _fraction_to_decimal(Fraction(fr))
+
+
+def test_independent_reference_bridge():
+    # Independent nodal formulation, hand-derived from Ohm's law + KCL at
+    # n2 and n3 (n1 is fixed at 10V by the source, so it is substituted
+    # directly rather than carried as an unknown).
+    res = assert_solved(solve_linear_dc(bridge_circuit()))
+    volts = voltage_map(res)
+    g12, g13, g20, g30, g23 = (Fraction(1, 100), Fraction(1, 200), Fraction(1, 300), Fraction(1, 400), Fraction(1, 500))
+    n2, n3 = _cramer_2x2(
+        g12 + g20 + g23, -g23,
+        -g23, g13 + g30 + g23,
+        g12 * 10, g13 * 10,
+    )
+    assert _frac_to_decimal(n2) == volts["n2"]
+    assert _frac_to_decimal(n3) == volts["n3"]
+
+
+def test_independent_reference_mixed_rvi():
+    # V1(12V) -- R1(100) -- n2 -- R2(200) -- 0, with I1=10mA injected at n2.
+    # Independent KCL at n2: (n2-12)/100 + (n2-0)/200 - 0.01 = 0
+    # -> n2*(1/100+1/200) = 12/100 + 0.01 -> n2 = (0.12+0.01)/(0.015)
+    res = assert_solved(
+        solve_linear_dc(
+            build(
+                "mixed_ref",
+                [
+                    v("V1", "12 V", "n1", "0"),
+                    r("R1", "100 ohm", "n1", "n2"),
+                    isrc("I1", "0.01 A", "n2", "0"),
+                    r("R2", "200 ohm", "n2", "0"),
+                ],
+            )
+        )
+    )
+    g1, g2 = Fraction(1, 100), Fraction(1, 200)
+    n2 = (g1 * 12 + Fraction("0.01")) / (g1 + g2)
+    assert _frac_to_decimal(n2) == voltage_map(res)["n2"]
+
+
+def test_independent_reference_series_analytic_formula():
+    # I = V / sum(R); V(node_k) = V - I * sum(R_1..R_k). Classic voltage-
+    # divider formula, not the MNA equations.
+    resistors = [Fraction(100), Fraction(250), Fraction(400), Fraction(1000)]
+    vs = Fraction(20)
+    circuit = build(
+        "series_ref",
+        [v("V1", f"{vs} V", "n0", "0")]
+        + [
+            r(f"R{i + 1}", f"{resistors[i]} ohm", f"n{i}" if i else "n0", f"n{i + 1}" if i + 1 < len(resistors) else "0")
+            for i in range(len(resistors))
+        ],
+    )
+    res = assert_solved(solve_linear_dc(circuit))
+    i_expected = vs / sum(resistors, Fraction(0))
+    running = Fraction(0)
+    volts = voltage_map(res)
+    node_names = ["n0"] + [f"n{i}" for i in range(1, len(resistors))]
+    for name, rv in zip(node_names, resistors):
+        expected_v = vs - running
+        assert _frac_to_decimal(expected_v) == volts[name]
+        running += rv * i_expected
+    for bc in res.branch_currents:
+        if bc.ref.startswith("R"):
+            assert _frac_to_decimal(i_expected) == bc.current.to_base()
+        else:  # V1: opposite sign under the "+->-" through-the-source convention
+            assert _frac_to_decimal(-i_expected) == bc.current.to_base()
+
+
+def test_independent_reference_parallel_analytic_formula():
+    # I_k = V / R_k for each parallel branch (Ohm's law per-branch, not MNA).
+    resistors = ["100 ohm", "300 ohm", "600 ohm"]
+    vs = Fraction(9)
+    circuit = build(
+        "parallel_ref", [v("V1", f"{vs} V", "n1", "0")] + [r(f"R{i + 1}", rv, "n1", "0") for i, rv in enumerate(resistors)]
+    )
+    res = assert_solved(solve_linear_dc(circuit))
+    currents = current_map(res)
+    for i, rv in enumerate(resistors):
+        r_ohm = Fraction(parse_quantity(rv).to_base())
+        assert _frac_to_decimal(vs / r_ohm) == currents[f"R{i + 1}"]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _NGSPICE_AVAILABLE, reason="ngspice not available in this environment")
+def test_ngspice_cross_validation_random_networks_fixed_seed():
+    """Deterministic (fixed-seed) battery of randomly generated connected
+    resistor networks (spanning tree + random chords -> non-series/parallel
+    loops, random V source, sometimes an added I source, randomized
+    component insertion order), each cross-validated against real ngspice.
+    This is the strongest available evidence against "too specific to the
+    fixture circuits": ngspice is a fully independent implementation, not
+    hand-derived formulas that could share the audit's own mistakes."""
+    import random as _random
+
+    rng = _random.Random(20260913)
+    resistor_values = [100, 220, 330, 470, 560, 680, 820, 1000, 1500, 2200, 3300, 4700]
+    source_voltages = [3, 5, 6, 9, 12, 15, 24]
+
+    def gen(n_nodes):
+        nodes = ["0"] + [f"n{i}" for i in range(1, n_nodes + 1)]
+        comps, ref = [], 1
+        for i in range(2, len(nodes)):
+            parent = rng.choice(nodes[:i])
+            comps.append(r(f"R{ref}", f"{rng.choice(resistor_values)} ohm", nodes[i], parent))
+            ref += 1
+        existing = {frozenset(c.pins.values()) for c in comps}
+        for _ in range(rng.randint(1, max(1, n_nodes // 2))):
+            for _attempt in range(20):
+                a, b = rng.sample(nodes, 2)
+                if frozenset((a, b)) not in existing:
+                    comps.append(r(f"R{ref}", f"{rng.choice(resistor_values)} ohm", a, b))
+                    existing.add(frozenset((a, b)))
+                    ref += 1
+                    break
+        comps.insert(0, v("V1", f"{rng.choice(source_voltages)} V", "n1", "0"))
+        if rng.random() < 0.5 and n_nodes >= 2:
+            target = rng.choice(nodes[2:]) if len(nodes) > 2 else nodes[1]
+            comps.append(isrc("I1", f"{rng.choice([1, 2, 5, 10, 20])} mA", target, "0"))
+        order = list(comps)
+        rng.shuffle(order)
+        return build(f"rand_{n_nodes}", order)
+
+    def to_netlist(circuit):
+        lines = [circuit.name]
+        for c in sorted(circuit.components, key=lambda c: c.ref):
+            if c.type.upper() == "V":
+                lines.append(f"{c.ref} {c.pins['+']} {c.pins['-']} DC {c.value.to_base()}")
+            elif c.type.upper() == "I":
+                lines.append(f"{c.ref} {c.pins['-']} {c.pins['+']} DC {c.value.to_base()}")
+            else:
+                lines.append(f"{c.ref} {c.pins['1']} {c.pins['2']} {c.value.to_base()}")
+        lines += [".op", ".end"]
+        return "\n".join(lines) + "\n"
+
+    checked = 0
+    for _trial in range(15):
+        n_nodes = rng.randint(2, 6)
+        circuit = gen(n_nodes)
+        result = assert_solved(solve_linear_dc(circuit))
+        signals = _ngspice_op(to_netlist(circuit))
+        volts = voltage_map(result)
+        for name, val in signals.items():
+            if not name.startswith("v("):
+                continue
+            node = name[2:-1]
+            if node in volts:
+                tol = max(Decimal("1e-4"), abs(val) * Decimal("1e-4"))
+                assert abs(Decimal(volts[node]) - val) <= tol, (circuit.name, node, volts[node], val)
+                checked += 1
+    assert checked >= 15  # sanity: the loop actually compared something
+
+
+# ==============================================================================
 # 12. Security — no eval/exec/subprocess/os.system/shell=True/pickle/dynamic import
 # ==============================================================================
 _MNA_SRC_DIR = Path(__file__).resolve().parents[1] / "src" / "academic_core" / "domain" / "engineering" / "mna"
@@ -737,3 +945,210 @@ def test_no_shell_true_or_dynamic_import_in_mna_solver():
         text = path.read_text(encoding="utf-8")
         assert "shell=True" not in text
         assert "importlib" not in text
+
+
+# ==============================================================================
+# 13. Audit Additions: Invariants, Extreme Values, Dimension, Sign Inversion,
+#     Short-circuits, and Manual Bug Verification
+# ==============================================================================
+def test_sign_convention_pin_inversion():
+    """Reversing component pins produces the exact sign changes predicted by
+    the sign convention definitions, preserving physical invariant quantities."""
+    # 1. Resistor pin inversion: current inverts sign, absorbed power unchanged
+    c_orig = build("r_norm", [v("V1", "10 V", "n1", "0"), r("R1", "100 ohm", "n1", "0")])
+    c_flip = build("r_flip", [v("V1", "10 V", "n1", "0"), r("R1", "100 ohm", "0", "n1")])
+    res_orig = assert_solved(solve_linear_dc(c_orig))
+    res_flip = assert_solved(solve_linear_dc(c_flip))
+    assert current_map(res_orig)["R1"] == -current_map(res_flip)["R1"]
+    assert power_map(res_orig)["R1"] == power_map(res_flip)["R1"]
+    assert power_map(res_orig)["R1"] > 0
+
+    # 2. Voltage source pin inversion: voltage drop inverts, current through inverts
+    c_vorig = build("v_norm", [v("V1", "10 V", "n1", "0"), r("R1", "100 ohm", "n1", "0")])
+    c_vflip = build("v_flip", [v("V1", "10 V", "0", "n1"), r("R1", "100 ohm", "n1", "0")])
+    res_vo = assert_solved(solve_linear_dc(c_vorig))
+    res_vf = assert_solved(solve_linear_dc(c_vflip))
+    assert voltage_map(res_vo)["n1"] == -voltage_map(res_vf)["n1"]
+
+    # 3. Current source pin inversion: injected current inverts sign
+    c_iorig = build("i_norm", [isrc("I1", "2 A", "n1", "0"), r("R1", "10 ohm", "n1", "0")])
+    c_iflip = build("i_flip", [isrc("I1", "2 A", "0", "n1"), r("R1", "10 ohm", "n1", "0")])
+    res_io = assert_solved(solve_linear_dc(c_iorig))
+    res_if = assert_solved(solve_linear_dc(c_iflip))
+    assert voltage_map(res_io)["n1"] == -voltage_map(res_if)["n1"]
+
+
+@pytest.mark.parametrize("degree", [2, 3, 4, 8, 16])
+def test_kcl_on_high_degree_nodes(degree):
+    """KCL strictly verified on nodes with 2, 3, 4, 8, 16 branches meeting at
+    the same node, with non-trivial mixed resistor/source values."""
+    comps = [v("V1", "10 V", "n_center", "0")]
+    for i in range(degree - 1):
+        comps.append(r(f"R{i + 1}", f"{(i + 1) * 100} ohm", "n_center", "0"))
+    c = build(f"kcl_deg_{degree}", comps)
+    res = assert_solved(solve_linear_dc(c))
+    assert res.conservation_checks.kcl_max_residual == "0"
+
+
+def test_dimensional_algebra_units_audit():
+    """Verifies dimensional operations V/ohm=A, A*ohm=V, V*A=W and rejects
+    incompatible additions V+ohm, A+V."""
+    from academic_core.domain.engineering.units import parse_unit, UnitError, Quantity
+    q_v = Quantity(Decimal(10), parse_unit("V"))
+    q_r = Quantity(Decimal(2), parse_unit("ohm"))
+    q_i = Quantity(Decimal(5), parse_unit("A"))
+    q_p = Quantity(Decimal(50), parse_unit("W"))
+
+    # Valid operations
+    assert (q_v / q_r).convert_to("A") == q_i
+    assert (q_i * q_r).convert_to("V") == q_v
+    assert (q_v * q_i).convert_to("W") == q_p
+
+    # Incompatible operations must raise UnitError
+    with pytest.raises(UnitError):
+        _ = q_v + q_r
+    with pytest.raises(UnitError):
+        _ = q_i + q_v
+
+
+def test_extreme_values_lossless_rational():
+    """Tests extreme rational values (1e-12 to 1e12) and extreme component
+    ratios (1e24) without loss of exactness, overflow, NaN, or float errors."""
+    c = build("extreme", [
+        v("V1", "1e-12 V", "n1", "0"),
+        r("R1", "1e-12 ohm", "n1", "n2"),
+        r("R2", "1e12 ohm", "n2", "0"),
+    ])
+    res = assert_solved(solve_linear_dc(c))
+    assert res.conservation_checks.kcl_max_residual == "0"
+    assert res.conservation_checks.kvl_max_residual == "0"
+    assert res.conservation_checks.power_balance_residual == "0"
+
+
+def test_short_circuit_classification():
+    """Ideal 0V source acts as an ideal short circuit:
+    - Parallel compatible 0V sources -> SINGULAR
+    - Parallel incompatible 10V and 0V sources -> INCONSISTENT
+    - 0V source in series with resistor -> SOLVED
+    """
+    # 1. Compatible 0V sources in parallel
+    c_sing = build("sing_short", [v("V1", "0 V", "n1", "0"), v("V2", "0 V", "n1", "0")])
+    assert solve_linear_dc(c_sing).status == SolveStatus.SINGULAR
+
+    # 2. Incompatible 10V and 0V source (shorted voltage source)
+    c_incon = build("incon_short", [v("V1", "10 V", "n1", "0"), v("V2", "0 V", "n1", "0")])
+    assert solve_linear_dc(c_incon).status == SolveStatus.INCONSISTENT
+
+    # 3. 0V source in series with resistor (ideal ammeter / short branch)
+    c_valid = build("valid_short", [v("V1", "10 V", "n1", "0"), r("R1", "100 ohm", "n1", "n2"), v("V2", "0 V", "n2", "0")])
+    res = assert_solved(solve_linear_dc(c_valid))
+    assert voltage_map(res)["n1"] == Decimal("10")
+    assert voltage_map(res)["n2"] == Decimal("0")
+    assert current_map(res)["R1"] == Decimal("0.1")
+
+
+def test_historical_bug_v_r_i_manual_derivation():
+    """Manual mathematical derivation of V + R + I circuit:
+    V1: 12V (n1 -> 0)
+    R1: 100 ohm (n1 -> n2)
+    I1: 0.01 A (n2 -> 0, delivering into n2)
+    R2: 200 ohm (n2 -> 0)
+
+    Theoretical derivation:
+    V(n1) = 12 V
+    V(n2) = 26/3 V = 8.666666... V
+    I_R1 = 1/30 A
+    I_R2 = 13/300 A
+    I_I1 = -1/100 A (-Is in + -> - through-source direction)
+    I_V1 = -1/30 A
+    P_R1 = 1/9 W
+    P_R2 = 169/450 W
+    P_I1 = -13/150 W
+    P_V1 = -2/5 W
+    Total power = 1/9 + 169/450 - 13/150 - 2/5 = 0 W exactly.
+    """
+    c = build("v_r_i_hist", [
+        v("V1", "12 V", "n1", "0"),
+        r("R1", "100 ohm", "n1", "n2"),
+        isrc("I1", "0.01 A", "n2", "0"),
+        r("R2", "200 ohm", "n2", "0"),
+    ])
+    res = assert_solved(solve_linear_dc(c))
+    _, _, volts = exact_node_voltages(c)
+    currents = exact_branch_currents(c)
+
+    assert volts["n1"] == Fraction(12)
+    assert volts["n2"] == Fraction(26, 3)
+
+    assert currents["R1"] == Fraction(1, 30)
+    assert currents["R2"] == Fraction(13, 300)
+    assert currents["I1"] == Fraction(-1, 100)
+    assert currents["V1"] == Fraction(-1, 30)
+
+    # Check element powers pre-presentation rounding
+    p_r1 = (volts["n1"] - volts["n2"]) * currents["R1"]
+    p_r2 = (volts["n2"] - volts["0"]) * currents["R2"]
+    p_i1 = (volts["n2"] - volts["0"]) * currents["I1"]
+    p_v1 = (volts["n1"] - volts["0"]) * currents["V1"]
+
+    assert p_r1 == Fraction(1, 9)
+    assert p_r2 == Fraction(169, 450)
+    assert p_i1 == Fraction(-13, 150)
+    assert p_v1 == Fraction(-2, 5)
+    assert p_r1 + p_r2 + p_i1 + p_v1 == Fraction(0)
+
+
+def test_independent_reference_arbitrary_graph():
+    """Independent 3-mesh arbitrary non-series-parallel graph with 5 nodes:
+    n0(GND), n1, n2, n3, n4.
+    Sources: V1=10V between n1 and 0, I1=0.05A between n4 and 0.
+    Resistors: R1(n1,n2)=100, R2(n1,n3)=200, R3(n2,n3)=150,
+               R4(n2,n4)=250, R5(n3,n4)=300, R6(n4,0)=500, R7(n3,0)=400.
+    Solved independently via nodal equations set up and inverted independently.
+    """
+    comps = [
+        v("V1", "10 V", "n1", "0"),
+        r("R1", "100 ohm", "n1", "n2"),
+        r("R2", "200 ohm", "n1", "n3"),
+        r("R3", "150 ohm", "n2", "n3"),
+        r("R4", "250 ohm", "n2", "n4"),
+        r("R5", "300 ohm", "n3", "n4"),
+        r("R6", "500 ohm", "n4", "0"),
+        r("R7", "400 ohm", "n3", "0"),
+        isrc("I1", "0.05 A", "n4", "0"),
+    ]
+    c = build("mesh5", comps)
+    res = assert_solved(solve_linear_dc(c))
+    _, _, volts = exact_node_voltages(c)
+
+    # Independent nodal equation system for [n2, n3, n4]:
+    # G1=1/100, G2=1/200, G3=1/150, G4=1/250, G5=1/300, G6=1/500, G7=1/400
+    # KCL at n2: (n2 - 10)*G1 + (n2 - n3)*G3 + (n2 - n4)*G4 = 0
+    #            n2*(G1 + G3 + G4) - n3*G3 - n4*G4 = 10*G1
+    # KCL at n3: (n3 - 10)*G2 + (n3 - n2)*G3 + (n3 - n4)*G5 + n3*G7 = 0
+    #            -n2*G3 + n3*(G2 + G3 + G5 + G7) - n4*G5 = 10*G2
+    # KCL at n4: (n4 - n2)*G4 + (n4 - n3)*G5 + n4*G6 - 0.05 = 0
+    #            -n2*G4 - n3*G5 + n4*(G4 + G5 + G6) = 0.05
+    G1, G2, G3 = Fraction(1, 100), Fraction(1, 200), Fraction(1, 150)
+    G4, G5, G6, G7 = Fraction(1, 250), Fraction(1, 300), Fraction(1, 500), Fraction(1, 400)
+    A = [
+        [G1 + G3 + G4, -G3, -G4],
+        [-G3, G2 + G3 + G5 + G7, -G5],
+        [-G4, -G5, G4 + G5 + G6],
+    ]
+    b = [10 * G1, 10 * G2, Fraction("0.05")]
+    # Solve 3x3 system via standard Gaussian elimination over Fraction:
+    mat = [row[:] + [val] for row, val in zip(A, b)]
+    for i in range(3):
+        pivot = mat[i][i]
+        mat[i] = [x / pivot for x in mat[i]]
+        for j in range(3):
+            if i != j:
+                factor = mat[j][i]
+                mat[j] = [mat[j][k] - factor * mat[i][k] for k in range(4)]
+    sol2, sol3, sol4 = mat[0][3], mat[1][3], mat[2][3]
+
+    assert volts["n2"] == sol2
+    assert volts["n3"] == sol3
+    assert volts["n4"] == sol4
+

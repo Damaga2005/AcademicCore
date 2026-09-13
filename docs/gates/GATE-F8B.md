@@ -39,11 +39,13 @@
 | **Metamorphic: Scaling** | Source scaling → V,I ×k, P ×k²; resistance scaling → V unchanged, I/k, P/k | **PASS** | `test_scaling_sources_invariant`, `test_scaling_resistances_invariant` (exact `Fraction`, 3 values of k each) |
 | **Metamorphic: Series/Parallel Laws** | Req = ΣRi (series), 1/Req = Σ1/Ri (parallel) | **PASS** | `test_series_equivalent_resistance_law`, `test_parallel_equivalent_resistance_law` |
 | **Adversarial Coverage** | Empty, no-GND, floating, R≤0, duplicate ref, unsupported element, incompatible/redundant sources | **PASS** | Section 6 of the test file, 11 dedicated tests |
-| **ngspice Cross-Validation** | Independent external oracle, solver never calls ngspice internally | **PASS** | 4 `@pytest.mark.integration` tests (series, parallel, bridge, mixed) — all executed and passing against real ngspice 47 on this machine, not mocked |
+| **ngspice Cross-Validation** | Independent external oracle, solver never calls ngspice internally | **PASS** | 4 fixed-topology + 1 fifteen-trial fixed-seed random-network `@pytest.mark.integration` tests — all executed and passing against real ngspice 47 on this machine, not mocked |
+| **Independent Reference Validation** | Hand-derived formulas independent of the production assembler/solver code path | **PASS** | `test_independent_reference_*` (Cramer's rule, classic divider formulas) — found the precision bug below |
 | **Security** | No eval/exec/subprocess/os.system/shell=True/pickle/dynamic import/network in the solver | **PASS** | `test_no_eval_exec_subprocess_in_mna_solver`, `test_no_shell_true_or_dynamic_import_in_mna_solver` — static AST + text scan |
 | **B8/F8-A Untouched** | Zero modifications to `structural/`, `electronics/`, `circuit.py`, `units.py` | **PASS** | `git status`/`git diff` — F8-B is 100% additive (new `mna/` package + new test file) |
-| **F8-B Specific Tests** | All new tests passing | **PASS** | 74 passed, `tests/test_f8b_mna_solver.py` |
-| **Full Repository Regression** | Entire suite passing, no regressions | **PASS** | `pytest -q` → 662 passed, 2 skipped (pre-existing, unrelated) |
+| **F8-B Specific Tests** | All new tests passing | **PASS** | 94 passed, `tests/test_f8b_mna_solver.py` |
+| **Full Repository Regression** | Entire suite passing, no regressions | **PASS** | `pytest` → 682 passed, 2 skipped (pre-existing, unrelated) |
+| **Test-Count Reconciliation** | Exact accounting of tests before/after | **PASS** | 590 (before F8-B) + 94 (F8-B, incl. 20 added during independent audit) = 684 = 682 passed + 2 skipped |
 | **Clean Working Tree** | No stray files after commit | **PASS** | Verified via `git status` |
 
 ---
@@ -55,15 +57,48 @@
 | DC resistive network solve (R, ideal V, ideal I) | **IMPLEMENTED** | Any connected topology, any N, single reference node | `solve_linear_dc`, full test suite | Domain is exactly R + independent V/I; no dependent sources, reactive elements, or semiconductors |
 | Singular/inconsistent detection | **IMPLEMENTED** | General rank-based classification, no tolerance | `linear.solve_exact`, `test_solve_exact_*` | None within stated domain |
 | Floating-circuit / missing-reference detection | **IMPLEMENTED** | Graph reachability, arbitrary N | `test_floating_disconnected_island`, `test_missing_reference_node` | None within stated domain |
-| KCL/KVL/power-balance validation | **IMPLEMENTED** | General (fundamental-cycle basis), exact | `ConservationChecks`, `test_kcl_residual_zero_for_arbitrary_n`, `test_kvl_residual_zero_on_bridge` | Residuals are algebraic identities of a potential-based nodal solve; genuine as a self-consistency guard, not a substitute for the analytic cross-checks in the test suite |
-| ngspice cross-validation | **VERIFIED** | 4 representative topologies (series, parallel, bridge, mixed) | `test_ngspice_cross_validation_*` | Not exhaustive over all topologies; a spot-check oracle, as intended |
+| KCL/KVL/power-balance validation | **IMPLEMENTED** | General (fundamental-cycle basis over multigraph, physical KCL across all nets including GND) | `ConservationChecks`, `test_kcl_residual_zero_for_arbitrary_n`, `test_kcl_on_high_degree_nodes`, `test_kvl_covers_parallel_multi_edge_loops*` | Exact rational arithmetic yields 0 residual identically; internal-defect trap via `NumericalSolveError` |
+| ngspice cross-validation | **VERIFIED** | 4 fixed representative topologies (series, parallel, bridge, mixed) + 15 fixed-seed random connected networks (2-6 nodes, random chords, random V/I) | `test_ngspice_cross_validation_*` | A spot-check oracle by design, not exhaustive over the infinite topology space |
 | Thevenin/Norton for general (non-series-parallel) one-ports | **NOT_IMPLEMENTED** | — | Not attempted in F8-B | Explicitly deferred; F8-A's `analysis:thevenin`/`analysis:norton` remain `PARTIAL`/`NOT_IMPLEMENTED` until a later phase builds on this solver |
 | Dependent sources (VCVS/VCCS/CCVS/CCCS) | **NOT_IMPLEMENTED** | — | `Circuit.COMPONENT_PINS` has no such types | Out of F8-B's declared scope (section 2.1); would require extending F6's `circuit.py` |
 | AC / transient / semiconductor analysis | **NOT_IMPLEMENTED** | — | — | Explicitly out of scope (section 41) |
 
 ---
 
-## 4. Certification
+## 4. Independent Audit Addendum
+
+A separate, adversarial audit (not the implementer accepting their own report) re-derived the
+MNA math by hand, cross-checked against real ngspice on 40 fixed-seed random networks (outside
+the permanent suite) plus 15 folded into it, and searched actively for hardcoding, hidden
+rounding, and coverage gaps rather than trusting "74 tests passed." It found and fixed three real
+defects before certifying:
+
+1. **KVL fundamental-cycle under-coverage** for multigraphs (parallel components between the same
+   node pair had their independent loop silently skipped). Fixed in `fundamental_cycle_chords`;
+   `kvl_max_residual` now genuinely covers `E - V + 1` independent cycles, verified by exact count.
+2. **False precision claim**: `PRESENTATION_PRECISION = 34` was silently re-rounded to 28 by the
+   ambient `decimal` context the moment any caller used `Quantity.to_base()` — the 34th digit was
+   never actually observable. Fixed to `28`, matching the ambient context exactly.
+3. **KCL circular algebraic evaluation**: `solver.py` originally checked `|A x - z|`, which was an
+   algebraic identity of the linear solve and omitted the reference/ground node. Fixed to compute
+   physical KCL directly from reconstructed branch currents across all nets (`Σ I_out = 0`),
+   including GND, verified on high-degree nodes (up to 16 branches).
+
+Also hardened: a `NumericalSolveError` invariant guard prevents `status=SOLVED` from ever
+coexisting with a failing `conservation_checks` (previously merely improbable, not impossible).
+Parametric series and parallel families extended to N=64. Dedicated tests added for dimensional
+operations, extreme values (1e-12 to 1e12), short-circuit classifications, and manual derivation
+of the V+R+I bug case. None of the defects affected physical consistency; all were precision,
+coverage, and verification rigor gaps. See `docs/migration/ENGINEERING-F8B-GENERAL-LINEAR-SOLVER.md`
+§8 for the full writeup.
+
+No dependent sources, no numpy/scipy, no floats, and no architectural duplication were found.
+Git history confirms F8-B (both the original implementation and this audit's fixes) is 100%
+additive relative to F0–F8-A.
+
+---
+
+## 5. Certification
 
 I hereby certify that phase **F8-B (General Linear Circuit Solver)** satisfies the functional,
 mathematical, and safety requirements specified for this phase: a Modified-Nodal-Analysis solver

@@ -42,7 +42,8 @@ elimination (`mna/linear.py`):
   explicitly warns against simply does not arise.
 - Decimal rounding is deferred entirely to the presentation boundary: the exact `Fraction`
   solution is used for every internal check (KCL/KVL/power residuals), and is only converted to
-  `Decimal` (34 significant digits, a digit count, not an absolute epsilon) when wrapping the
+  `Decimal` (28 significant digits — matching Python's ambient `decimal` context precision, not
+  exceeding it; see the independent-audit note below) when wrapping the
   final node voltages/currents/powers in `Quantity` for the caller.
 
 ## 3. MNA Formulation
@@ -110,7 +111,7 @@ Three explicitly separated precisions, per the spec:
 | :--- | :--- | :--- |
 | Engineering quantity (`Quantity`) | `Decimal`, arbitrary precision | None (F6 invariant, untouched) |
 | Linear algebra (`mna.linear`) | `fractions.Fraction` | None — exact rational arithmetic |
-| Presentation (`AnalysisResult`) | `Decimal`, 34 significant digits | Rounding happens here only |
+| Presentation (`AnalysisResult`) | `Decimal`, 28 significant digits | Rounding happens here only |
 
 ## 6. What This Phase Deliberately Does Not Do
 
@@ -124,18 +125,58 @@ Three explicitly separated precisions, per the spec:
 
 ## 7. Test Strategy
 
-`tests/test_f8b_mna_solver.py` (74 tests) is organized into the sections named in the spec:
-assembly/stamping, parametric generality (N ∈ {1,2,3,4,8,16,32} for series/parallel/ladder, plus
+`tests/test_f8b_mna_solver.py` (94 tests, after the independent audit added 20 more) is organized into the sections named in the spec:
+assembly/stamping, parametric generality (N ∈ {1,2,3,4,8,16,32,64} for series/parallel, N ∈ {1,2,3,4,8,16} for ladder, plus
 a non-reducible bridge), multiple/mixed sources, branch current/power sign conventions, KCL/KVL,
 adversarial/degenerate circuits (12 dedicated cases), determinism, permutation invariance
 (exhaustive over all 4! orderings for one circuit, randomized for the bridge), node-renaming
 invariance, metamorphic scaling invariants (computed via exact `Fraction`, not the
 presentation-rounded `Decimal` output — necessary because several of these circuits have
 non-terminating-decimal exact values, e.g. the bridge's factor of 3, and comparing two
-independently-34-digit-rounded decimals is not a fair equality test), series/parallel equivalent-
-resistance laws, unit-prefix handling, the isolated linear-solve primitive, four real ngspice
-cross-validation tests (`@pytest.mark.integration`, executed against a real local ngspice 47
+independently-rounded decimals is not a fair equality test), series/parallel equivalent-
+resistance laws, unit-prefix handling, the isolated linear-solve primitive, five real ngspice
+cross-validation tests (four fixed topologies plus a 15-trial fixed-seed random-network battery) (`@pytest.mark.integration`, executed against a real local ngspice 47
 install, not mocked), and a static AST/text security scan.
 
-Full repository regression: `pytest -q` → 662 passed, 2 skipped (pre-existing, unrelated to this
-phase).
+Full repository regression: `pytest` → 682 passed, 2 skipped (pre-existing, unrelated to this
+phase). 590 tests existed before F8-B; 94 were added by F8-B; 590+94=684=682+2, reconciled exactly.
+
+
+## 8. Independent Audit (post-implementation)
+
+A separate, adversarial pass audited this implementation against the F8-B spec's own supreme
+rule ("74 tests passing is not evidence of correctness"). It found and fixed three real defects,
+none caught by the original 74-test suite:
+
+1. **KVL fundamental-cycle under-coverage.** `fundamental_cycle_chords` originally deduplicated
+   candidate chord edges by the `{net_a, net_b}` node pair. A circuit with two components between
+   the same pair of nets (e.g. resistors in parallel) is a *multigraph*, and the second such
+   component was silently treated as "already covered" by the first, so its independent loop was
+   never checked — `kvl_max_residual` could read `"0"` (looking like full coverage) while actually
+   having skipped a real chord. Fixed by identifying edges by component position, not by node
+   pair; regression: `test_kvl_covers_parallel_multi_edge_loops*`.
+2. **Presentation precision exceeded the ambient Decimal context.** `PRESENTATION_PRECISION` was
+   34 (chosen to look like decimal128), but every other Decimal operation in this codebase runs
+   under Python's *ambient* `decimal` context (default precision 28) — including F6's own
+   `Quantity.to_base()`. The moment a 34-digit-rounded value passed through `to_base()`, Python
+   silently re-rounded it to 28 digits, so the promised 34-digit precision was never actually
+   observable by any caller — it was a false precision claim, not a stronger one. Fixed by setting
+   `PRESENTATION_PRECISION = 28` to match the ambient context exactly. Found via
+   `test_independent_reference_*`, which compare the solver's output against values computed by
+   hand-derived formulas (Cramer's rule, classic divider formulas) independent of the production
+   assembler/solver code path.
+3. **KCL circular algebraic evaluation vs physical conservation.** `solver.py` originally checked
+   `|A x - z|`, which was circular (re-checking the algebraic solve equations rather than physical
+   current conservation) and omitted the reference/ground node entirely. Fixed to compute physical
+   KCL directly from reconstructed branch currents across all nets (`Σ I_out = 0`), including GND,
+   verified on high-degree nodes (up to 16 branches).
+
+Also added: an internal invariant guard (`solver.py`) that raises `NumericalSolveError` rather
+than returning `SOLVED` with a failing `conservation_checks` — given exact rational arithmetic, a
+`UNIQUE` solve mathematically guarantees zero KCL/KVL/power residuals, so a nonzero residual can
+only indicate an internal defect, never a legitimately "solved but inconsistent" circuit; a
+40-trial fixed-seed random-network battery cross-validated against real ngspice (folded into the
+permanent suite as `test_ngspice_cross_validation_random_networks_fixed_seed`, 15 trials);
+parametric series/parallel extension to N=64; dimensional, extreme-value (1e-12..1e12), and
+short-circuit test coverage; and a full git/test-count reconciliation (590 tests before F8-B + 94
+new F8-B tests = 684 total = 682 passed + 2 skipped, exactly).

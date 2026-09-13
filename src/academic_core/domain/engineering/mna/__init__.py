@@ -52,12 +52,17 @@ from academic_core.domain.engineering.mna.result import (
     NodeVoltage,
     SolveStatus,
 )
-from academic_core.domain.engineering.mna.solver import SOLVER_VERSION, solve_linear_dc
+from academic_core.domain.engineering.mna.solver import (
+    SOLVER_VERSION,
+    fundamental_cycle_chords,
+    solve_linear_dc,
+)
 
 __all__ = [
     "solve_linear_dc",
     "build_mna_problem",
     "MNAProblem",
+    "fundamental_cycle_chords",
     "AnalysisResult",
     "NodeVoltage",
     "BranchCurrent",

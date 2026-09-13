@@ -31,6 +31,7 @@ from academic_core.domain.engineering.mna.errors import (
     FloatingCircuitError,
     InvalidCircuitError,
     MissingReferenceError,
+    NumericalSolveError,
     UnsupportedElementError,
 )
 from academic_core.domain.engineering.mna.linear import LinearSolveStatus, solve_exact
@@ -48,11 +49,18 @@ from academic_core.domain.engineering.units import Quantity, parse_unit
 SOLVER_VERSION = "f8b-mna/1.0"
 
 # Fraction -> Decimal is a presentation-layer rounding step (spec section 13:
-# "redondeo solamente en presentación"). 34 significant digits (~decimal128)
-# is documented and scale-independent: it is a digit count, not an absolute
-# epsilon, so it does not silently degrade for very large or very small
-# component values.
-PRESENTATION_PRECISION = 34
+# "redondeo solamente en presentación"). This MUST match Python's ambient
+# Decimal context precision (`decimal.getcontext().prec`, default 28) rather
+# than exceed it: an earlier version used 34 (~decimal128), which looked more
+# precise but was a false promise — the moment any caller does ordinary
+# Decimal arithmetic on the result under the ambient (28-digit) context, e.g.
+# `Quantity.to_base()`'s `self.value * self.unit.factor` (F6, unmodified),
+# Python silently re-rounds to 28 digits anyway. Found during the F8-B
+# independent audit via `test_independent_reference_*`, which compare against
+# a value rounded once, correctly, at construction — not rounded again,
+# invisibly, on first use. 28 is a digit count, not an absolute epsilon, so
+# it does not silently degrade for very large or very small component values.
+PRESENTATION_PRECISION = 28
 
 _VOLT = parse_unit("V")
 _AMP = parse_unit("A")
@@ -97,30 +105,49 @@ def _voltage_of(net: str, problem: MNAProblem, solution: tuple) -> Fraction:
     return Fraction(0) if idx is None else solution[idx]
 
 
-def _fundamental_cycle_kvl_residual(problem: MNAProblem, solution: tuple) -> Fraction:
-    """Max |sum of potential drops| around every fundamental cycle of the
-    circuit graph (spanning tree over all nets, via all components as
-    edges). General for arbitrary N and topology — not hardcoded to a fixed
-    number of loops. See module docstring for why this is, correctly, an
-    algebraic identity of a potential-based nodal solve."""
-    circuit = problem.circuit
-    parent: dict[str, str | None] = {problem.ground: None}
-    order = [problem.ground]
-    adjacency: dict[str, list[str]] = {net: [] for net in circuit.nets}
+def fundamental_cycle_chords(circuit: Circuit, ground: str) -> list[tuple[str, str, list[str]]]:
+    """Pure graph computation (no solved values, independently unit-testable):
+    a spanning tree of the circuit's net graph rooted at `ground`, and for
+    every non-tree ("chord") edge, the closed loop it forms with the tree.
+
+    Returns one `(a, b, loop)` entry per chord, `loop` being the node
+    sequence `a -> ... -> lca -> ... -> b -> a`. The number of chords
+    returned equals the graph's cyclomatic number `E - V + 1` for a
+    connected graph — this is what `test_kvl_...` checks to guarantee no
+    independent loop is silently dropped.
+
+    The circuit is a MULTIGRAPH: two components can share the same pair of
+    nets (e.g. resistors in parallel). Edges are therefore identified by
+    component position, never by the `{net_a, net_b}` pair — an earlier
+    version deduplicated by node-pair and silently dropped every parallel
+    component beyond the first as "already covered", undercounting the
+    independent-cycle basis for any circuit with a parallel branch (found
+    during the F8-B independent audit; see
+    `test_kvl_covers_parallel_multi_edge_loops`).
+    """
+    edges: list[tuple[str, str]] = []
+    adjacency: dict[str, list[tuple[str, int]]] = {net: [] for net in circuit.nets}
     for c in circuit.components:
         pins = list(c.pins.values())
         for a, b in zip(pins, pins[1:]):
-            adjacency[a].append(b)
-            adjacency[b].append(a)
-    tree_edges: set[frozenset] = set()
+            if a == b:
+                continue  # a self-loop's drop is v(a)-v(a) == 0 identically
+            eid = len(edges)
+            edges.append((a, b))
+            adjacency[a].append((b, eid))
+            adjacency[b].append((a, eid))
+
+    parent: dict[str, str | None] = {ground: None}
+    order = [ground]
+    tree_edge_ids: set[int] = set()
     i = 0
     while i < len(order):
         cur = order[i]
         i += 1
-        for nxt in adjacency[cur]:
+        for nxt, eid in adjacency[cur]:
             if nxt not in parent:
                 parent[nxt] = cur
-                tree_edges.add(frozenset((cur, nxt)))
+                tree_edge_ids.add(eid)
                 order.append(nxt)
 
     def path_to_root(net: str) -> list[str]:
@@ -129,24 +156,30 @@ def _fundamental_cycle_kvl_residual(problem: MNAProblem, solution: tuple) -> Fra
             path.append(parent[path[-1]])
         return path
 
+    chords = []
+    for eid, (a, b) in enumerate(edges):
+        if eid in tree_edge_ids:
+            continue
+        pa, pb = path_to_root(a), path_to_root(b)
+        set_pb = set(pb)
+        lca = next(n for n in pa if n in set_pb)
+        loop = pa[: pa.index(lca) + 1] + list(reversed(pb[: pb.index(lca)]))
+        loop.append(a)  # close a -> ... -> lca -> ... -> b -> a
+        chords.append((a, b, loop))
+    return chords
+
+
+def _fundamental_cycle_kvl_residual(problem: MNAProblem, solution: tuple) -> Fraction:
+    """Max |sum of potential drops| around every fundamental cycle of the
+    circuit graph. General for arbitrary N and topology — not hardcoded to
+    a fixed number of loops. See module docstring for why this is,
+    correctly, an algebraic identity of a potential-based nodal solve."""
     max_residual = Fraction(0)
-    seen_edges: set[frozenset] = set()
-    for c in circuit.components:
-        pins = list(c.pins.values())
-        for a, b in zip(pins, pins[1:]):
-            edge = frozenset((a, b))
-            if edge in tree_edges or edge in seen_edges or a == b:
-                continue
-            seen_edges.add(edge)
-            pa, pb = path_to_root(a), path_to_root(b)
-            set_pb = set(pb)
-            lca = next(n for n in pa if n in set_pb)
-            loop = pa[: pa.index(lca) + 1] + list(reversed(pb[: pb.index(lca)]))
-            loop.append(a)  # close a -> ... -> lca -> ... -> b -> a
-            drop = Fraction(0)
-            for n1, n2 in zip(loop, loop[1:]):
-                drop += _voltage_of(n1, problem, solution) - _voltage_of(n2, problem, solution)
-            max_residual = max(max_residual, abs(drop))
+    for _a, _b, loop in fundamental_cycle_chords(problem.circuit, problem.ground):
+        drop = Fraction(0)
+        for n1, n2 in zip(loop, loop[1:]):
+            drop += _voltage_of(n1, problem, solution) - _voltage_of(n2, problem, solution)
+        max_residual = max(max_residual, abs(drop))
     return max_residual
 
 
@@ -204,6 +237,7 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
     branch_currents = []
     element_powers = []
     total_power = Fraction(0)
+    exact_branch_currents: dict[str, Fraction] = {}
     for c in sorted(problem.circuit.components, key=lambda c: c.ref):
         t = c.type.upper()
         if t == "R":
@@ -229,6 +263,7 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
             v_drop = v_p - v_m
         power = v_drop * i_branch
         total_power += power
+        exact_branch_currents[c.ref] = i_branch
         branch_currents.append(
             BranchCurrent(ref=c.ref, current=Quantity(_fraction_to_decimal(i_branch), _AMP), convention=convention)
         )
@@ -236,21 +271,41 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
             ElementPower(ref=c.ref, power=Quantity(_fraction_to_decimal(power), _WATT), absorbed=power >= 0)
         )
 
-    kcl_residual = Fraction(0)
-    for row in range(problem.size):
-        val = sum(
-            (problem.matrix[row][col] * solution[col] for col in range(problem.size)),
-            Fraction(0),
-        )
-        kcl_residual = max(kcl_residual, abs(val - problem.rhs[row]))
+    # Physical KCL validation: for every net in the circuit (including the
+    # reference/ground node, which is omitted from the MNA matrix), sum the
+    # actual branch currents leaving the node through every connected pin.
+    # Avoids circular re-evaluation of the linear system equations A x - z = 0.
+    pin_pairs = {"R": ("1", "2"), "V": ("+", "-"), "I": ("+", "-")}
+    net_kcl: dict[str, Fraction] = {net: Fraction(0) for net in problem.circuit.nets}
+    for c in problem.circuit.components:
+        p1, p2 = pin_pairs[c.type.upper()]
+        ib = exact_branch_currents[c.ref]
+        net_kcl[c.pins[p1]] += ib
+        net_kcl[c.pins[p2]] -= ib
+    kcl_residual = max((abs(resid) for resid in net_kcl.values()), default=Fraction(0))
     kvl_residual = _fundamental_cycle_kvl_residual(problem, solution)
+
+    passed = kcl_residual == 0 and kvl_residual == 0 and total_power == 0
+    if not passed:
+        # Given exact rational arithmetic, a UNIQUE solve mathematically
+        # guarantees KCL/KVL/power-balance residuals of exactly zero (see
+        # module docstring); a nonzero residual here cannot correspond to a
+        # genuinely solved physical circuit; it can only mean an internal
+        # defect in this solver. Never report SOLVED with a failing
+        # conservation check silently (spec section 30) — surface it as a
+        # hard failure instead of a contradictory result.
+        raise NumericalSolveError(
+            f"internal solver defect: UNIQUE solve produced nonzero "
+            f"conservation residuals (kcl={kcl_residual}, kvl={kvl_residual}, "
+            f"power={total_power}) for circuit {problem.circuit.name!r}"
+        )
 
     conservation = ConservationChecks(
         kcl_max_residual=str(kcl_residual),
         kvl_max_residual=str(kvl_residual),
         power_balance_residual=str(abs(total_power)),
         tolerance="0 (exact rational arithmetic; no numerical tolerance is needed)",
-        passed=(kcl_residual == 0 and kvl_residual == 0 and total_power == 0),
+        passed=True,
     )
 
     structure = _canonical_structure(problem.circuit)
