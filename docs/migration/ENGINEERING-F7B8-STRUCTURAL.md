@@ -94,19 +94,31 @@ The structural analysis system is housed in `academic_core.domain.engineering.st
 7. **Transient**:
    - `PRIMARY` for RC, RL, and RLC networks.
 8. **AC**:
-   - `APPLICABLE` when reactive elements are excited by an AC source or for frequency-domain RLC analysis.
+   - `APPLICABLE` strictly when reactive elements are excited by an AC source (`parameters["ac"]` or `metadata["ac"]` in V/I source). An RLC circuit excited purely by a DC source has `AC = NOT_APPLICABLE` and `TRANSIENT = PRIMARY`.
+9. **Statistical & Uncertainty (Monte Carlo, GUM, Sensitivity)**:
+   - `APPLICABLE` strictly when components specify explicit tolerance, uncertainty, or sensitivity metadata/parameters. Plain nominal circuits without uncertainty parameters have these analyses marked `NOT_APPLICABLE`.
 
 ---
 
-## 5. Ambiguity & Abstention Protocol
+## 5. Ambiguity & Abstention Protocol & Hardening
 
-The analyzer enforces strict refusal to guess:
-- **Empty Circuit**: Abstains with `confidence: ABSTAINED`, warning `"empty circuit"`.
-- **Disconnected Circuit**: Detects disconnected subgraphs via BFS and abstains with `confidence: ABSTAINED`, warning `"circuit is disconnected into N isolated subgraphs"`.
-- **Floating Nodes**: Detects dangling pins (`degree <= 1`) and emits explicit warnings.
+The analyzer enforces strict refusal to guess and eliminates false-positive recognitions:
+- **Empty Circuit**: Abstains with `confidence: ABSTAINED`, `classification: UNKNOWN_TOPOLOGY`, `recognized_topologies: []`, warning `"empty circuit"`.
+- **Disconnected Circuit**: Detects disconnected subgraphs via BFS and abstains with `confidence: ABSTAINED`, `classification: UNKNOWN_TOPOLOGY`, `recognized_topologies: []`, warning `"circuit is disconnected into N isolated subgraphs"`.
+- **Floating Nodes**: Detects dangling pins (`degree <= 1`) and rejects spurious RC/RL/RLC loop classifications.
 - **Short Circuits**: Detects zero-resistance shorted voltage loops and abstains.
 - **Unsupported Components**: Detects placeholder active devices (e.g. `D`, `Q`) and abstains from linear analysis.
-- **Missing Terminals**: Marks Thévenin/Norton as `NEEDS_TARGET_TERMINALS` rather than guessing arbitrary ports.
+- **Voltage Divider Tap Nodes**: Exposes intermediate nodes as `tap_nodes: [...]` with `output_node: None`, completely eliminating presumptive `Vout` assignments.
+- **Resistive Bridge Diagonal Excitation**: Requires independent voltage or current excitation across opposite diagonal pairs `(A, B)` or `(C, D)`. A ring of 4 resistors without diagonal excitation is rejected.
+- **Dynamic Coherent Loops (RC / RL / RLC)**:
+  - Capacitors clamped directly across ideal voltage sources do not qualify as RC networks.
+  - Every reactive element must participate in a closed loop with at least one resistor.
+  - RLC requires coupled meshes where R, L, and C interact; independent uncoupled loops (e.g. separate RC and RL loops) are not classified as RLC.
+- **Thévenin / Norton Port Validation**:
+  - Missing `target_terminals`: marks `NEEDS_TARGET_TERMINALS`.
+  - Degenerate `target_terminals` ($T_1 == T_2$), non-existent nodes, or nodes in disconnected subgraphs: returns `UNKNOWN` with actionable diagnostic warning.
+- **Confidence Semantics**:
+  - Topological rules are exact graph algorithms: `confidence` is `DETERMINISTIC` by default (warnings do not degrade this to `HIGH`). On abstention, confidence is `ABSTAINED`.
 
 ---
 

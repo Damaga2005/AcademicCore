@@ -184,13 +184,24 @@ class AnalysisClassifier:
         if has_r and not (has_c or has_l):
             if target_terminals is not None:
                 t1, t2 = str(target_terminals[0]).strip(), str(target_terminals[1]).strip()
-                if t1 in graph.nodes and t2 in graph.nodes and t1 != t2:
-                    applicable[AnalysisType.THEVENIN.value] = ApplicabilityStatus.APPLICABLE.value
-                    applicable[AnalysisType.NORTON.value] = ApplicabilityStatus.APPLICABLE.value
-                else:
+                if t1 not in graph.nodes or t2 not in graph.nodes:
                     applicable[AnalysisType.THEVENIN.value] = ApplicabilityStatus.UNKNOWN.value
                     applicable[AnalysisType.NORTON.value] = ApplicabilityStatus.UNKNOWN.value
-                    warnings.append(f"specified target terminals {target_terminals} are not distinct valid nodes")
+                    warnings.append(f"specified target terminals {target_terminals} not found in circuit")
+                elif t1 == t2:
+                    applicable[AnalysisType.THEVENIN.value] = ApplicabilityStatus.UNKNOWN.value
+                    applicable[AnalysisType.NORTON.value] = ApplicabilityStatus.UNKNOWN.value
+                    warnings.append(f"degenerate target terminals: {t1} == {t2}")
+                else:
+                    comps = graph.get_connected_components()
+                    same_comp = any(t1 in c and t2 in c for c in comps)
+                    if not same_comp:
+                        applicable[AnalysisType.THEVENIN.value] = ApplicabilityStatus.UNKNOWN.value
+                        applicable[AnalysisType.NORTON.value] = ApplicabilityStatus.UNKNOWN.value
+                        warnings.append(f"target terminals {t1} and {t2} belong to disconnected subgraphs")
+                    else:
+                        applicable[AnalysisType.THEVENIN.value] = ApplicabilityStatus.APPLICABLE.value
+                        applicable[AnalysisType.NORTON.value] = ApplicabilityStatus.APPLICABLE.value
             else:
                 applicable[AnalysisType.THEVENIN.value] = ApplicabilityStatus.NEEDS_TARGET_TERMINALS.value
                 applicable[AnalysisType.NORTON.value] = ApplicabilityStatus.NEEDS_TARGET_TERMINALS.value
@@ -206,38 +217,73 @@ class AnalysisClassifier:
         for c in graph.components.values():
             if c.type in ("V", "I"):
                 params = c.parameters or {}
-                if "ac" in params or "AC" in params or (c.value and "ac" in str(c.value).lower()):
+                meta = c.metadata or {}
+                if "ac" in params or "AC" in params or "ac" in meta or "AC" in meta:
+                    has_ac_source = True
+                elif isinstance(c.value, str) and re.search(r"\bac\b", c.value, re.IGNORECASE):
                     has_ac_source = True
 
         if classification == TopologyType.RESISTIVE.value:
             primary_analysis = AnalysisType.DC_OPERATING_POINT
             applicable[AnalysisType.DC_OPERATING_POINT.value] = ApplicabilityStatus.PRIMARY.value
             applicable[AnalysisType.DC_SWEEP.value] = ApplicabilityStatus.APPLICABLE.value
-            applicable[AnalysisType.SENSITIVITY.value] = ApplicabilityStatus.APPLICABLE.value
-            applicable[AnalysisType.MONTE_CARLO.value] = ApplicabilityStatus.APPLICABLE.value
-            applicable[AnalysisType.GUM_UNCERTAINTY.value] = ApplicabilityStatus.APPLICABLE.value
         elif classification in (TopologyType.RC.value, TopologyType.RL.value, TopologyType.RLC.value):
             primary_analysis = AnalysisType.TRANSIENT
             applicable[AnalysisType.TRANSIENT.value] = ApplicabilityStatus.PRIMARY.value
             applicable[AnalysisType.DC_STEADY_STATE.value] = ApplicabilityStatus.APPLICABLE.value
             applicable[AnalysisType.DC_OPERATING_POINT.value] = ApplicabilityStatus.APPLICABLE.value
             prerequisites.append("initial conditions required if non-zero transient initial state requested")
-            if has_ac_source or classification == TopologyType.RLC.value:
-                applicable[AnalysisType.AC.value] = ApplicabilityStatus.APPLICABLE.value
         else:
             if has_sources:
                 primary_analysis = AnalysisType.DC_OPERATING_POINT
                 applicable[AnalysisType.DC_OPERATING_POINT.value] = ApplicabilityStatus.PRIMARY.value
 
-        # 8. Confidence determination
-        confidence = ConfidenceLevel.DETERMINISTIC
-        if warnings:
-            confidence = ConfidenceLevel.HIGH
+        # AC applicability requires explicit AC excitation
+        if has_ac_source:
+            applicable[AnalysisType.AC.value] = ApplicabilityStatus.APPLICABLE.value
+        else:
+            applicable[AnalysisType.AC.value] = ApplicabilityStatus.NOT_APPLICABLE.value
 
-        # 9. Step Generation
+        # 8. Statistical & Uncertainty Analysis (Monte Carlo, GUM, Sensitivity)
+        # Never mark applicable simply because resistors exist: require explicit metadata/parameters
+        has_mc_meta = False
+        has_gum_meta = False
+        has_sens_meta = False
+
+        for c in graph.components.values():
+            p = c.parameters or {}
+            m = c.metadata or {}
+            keys = set(p.keys()) | set(m.keys())
+            if any(k.lower() in ("tolerance", "tol", "distribution", "dist", "dev", "mc") for k in keys):
+                has_mc_meta = True
+            if any(k.lower() in ("uncertainty", "u", "std_u", "type_b", "unc", "gum") for k in keys):
+                has_gum_meta = True
+            if any(k.lower() in ("sensitivity", "sens", "vary") for k in keys):
+                has_sens_meta = True
+
+        if has_mc_meta:
+            applicable[AnalysisType.MONTE_CARLO.value] = ApplicabilityStatus.APPLICABLE.value
+        else:
+            applicable[AnalysisType.MONTE_CARLO.value] = ApplicabilityStatus.NOT_APPLICABLE.value
+
+        if has_gum_meta:
+            applicable[AnalysisType.GUM_UNCERTAINTY.value] = ApplicabilityStatus.APPLICABLE.value
+        else:
+            applicable[AnalysisType.GUM_UNCERTAINTY.value] = ApplicabilityStatus.NOT_APPLICABLE.value
+
+        if has_sens_meta:
+            applicable[AnalysisType.SENSITIVITY.value] = ApplicabilityStatus.APPLICABLE.value
+        else:
+            applicable[AnalysisType.SENSITIVITY.value] = ApplicabilityStatus.NOT_APPLICABLE.value
+
+        # 9. Confidence determination
+        # DETERMINISTIC means derived from deterministic topological rules; warnings do not degrade this to "HIGH"
+        confidence = ConfidenceLevel.DETERMINISTIC
+
+        # 10. Step Generation
         steps = self._generate_steps(classification, matched_topos, ref_node)
 
-        # 10. Provenance
+        # 11. Provenance
         stamp = at or datetime.now(timezone.utc).isoformat()
         content_hash = hashlib.sha256(
             json.dumps(
@@ -288,7 +334,7 @@ class AnalysisClassifier:
         return AnalysisPlan(
             circuit_id=graph.circuit_name,
             classification=TopologyType.UNKNOWN_TOPOLOGY.value,
-            recognized_topologies=matches,
+            recognized_topologies=[],
             primary_analysis=None,
             applicable_analyses=applicable,
             kcl_nodes=[],
@@ -310,6 +356,7 @@ class AnalysisClassifier:
                 "abstention_reason": reason,
             },
         )
+
 
     def _generate_steps(
         self,

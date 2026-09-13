@@ -149,9 +149,12 @@ class VoltageDividerRule(RecognitionRule):
                             reason=(
                                 f"Resistors {', '.join(sorted(r_chain))} share a series path "
                                 f"across voltage source {v.ref.upper()} terminals ({vp}, {vm}), "
-                                f"with intermediate tap node(s) {sorted(inter_nodes)} exposed as Vout."
+                                f"with intermediate tap node(s) {sorted(inter_nodes)}."
                             ),
-                            metadata={"tap_nodes": list(inter_nodes)},
+                            metadata={
+                                "tap_nodes": sorted(inter_nodes),
+                                "output_node": None,
+                            },
                         )
                     )
         return matches
@@ -225,6 +228,11 @@ class ResistiveBridgeRule(RecognitionRule):
         if len(r_nodes) != 4:
             return []
 
+        # An energized bridge requires an independent source across excitation terminals
+        sources = [c for c in graph.components.values() if c.type in ("V", "I")]
+        if not sources:
+            return []
+
         nlist = sorted(r_nodes)
         edges = {tuple(sorted([b.node1, b.node2])) for b in graph.branches if b.type == "R"}
 
@@ -235,25 +243,44 @@ class ResistiveBridgeRule(RecognitionRule):
             rem = [n for n in nlist if n not in pair]
             C, D = rem[0], rem[1]
             arms = {tuple(sorted([A, C])), tuple(sorted([A, D])), tuple(sorted([B, C])), tuple(sorted([B, D]))}
-            if arms.issubset(edges):
-                elements = tuple(sorted([c.ref for c in r_comps]))
-                return [
-                    RecognitionMatch(
-                        topology=TopologyType.RESISTIVE_BRIDGE,
-                        elements=elements,
-                        reason=(
-                            f"Resistors {', '.join(elements)} form a 4-node Wheatstone bridge structure "
-                            f"with excitation across ({A}, {B}) and sensing across ({C}, {D})."
-                        ),
-                        metadata={
-                            "bridge_nodes": nlist,
-                            "excitation_nodes": (A, B),
-                            "detector_nodes": (C, D),
-                        },
-                    )
-                ]
-        return []
+            if not arms.issubset(edges):
+                continue
 
+            # Check excitation source: must connect across (A, B) or (C, D)
+            has_source_across_pair = False
+            for s in sources:
+                sp, sm = str(s.pins.get("+", "")), str(s.pins.get("-", ""))
+                s_pair = tuple(sorted([sp, sm]))
+                if s_pair in (tuple(sorted([A, B])), tuple(sorted([C, D]))):
+                    has_source_across_pair = True
+                    break
+
+            if not has_source_across_pair:
+                continue
+
+            # If 5th resistor, it must connect across the other diagonal
+            if len(r_comps) == 5:
+                diag = tuple(sorted([C, D])) if s_pair == tuple(sorted([A, B])) else tuple(sorted([A, B]))
+                if diag not in edges:
+                    continue
+
+            elements = tuple(sorted([c.ref for c in r_comps]))
+            return [
+                RecognitionMatch(
+                    topology=TopologyType.RESISTIVE_BRIDGE,
+                    elements=elements,
+                    reason=(
+                        f"Resistors {', '.join(elements)} form a 4-node Wheatstone bridge structure "
+                        f"with excitation across ({A}, {B}) and sensing across ({C}, {D})."
+                    ),
+                    metadata={
+                        "bridge_nodes": nlist,
+                        "excitation_nodes": (A, B),
+                        "detector_nodes": (C, D),
+                    },
+                )
+            ]
+        return []
 
 
 class SeriesParallelReducibleRule(RecognitionRule):
@@ -337,7 +364,7 @@ class IndependentSourcesRule(RecognitionRule):
 
 
 class DynamicNetworkRule(RecognitionRule):
-    """Recognizes RC, RL, RLC, and energy storage networks."""
+    """Recognizes RC, RL, RLC, and energy storage networks based on electrical loops."""
 
     @property
     def rule_name(self) -> str:
@@ -361,50 +388,128 @@ class DynamicNetworkRule(RecognitionRule):
             )
         )
 
-        # Disconnected or floating reactive elements should not be falsely classified as clean RC/RL/RLC
-        if not graph.is_connected or graph.floating_nodes:
+        # Disconnected or floating reactive elements should not be classified as clean RC/RL/RLC
+        if not graph.is_connected or graph.floating_nodes or graph.has_invalid_voltage_short():
             return matches
 
-        # Check if active in closed loop with resistors
+        # Check if reactive elements have any floating pins
+        for c in c_comps + l_comps:
+            for net in c.pins.values():
+                node_obj = graph.nodes.get(str(net))
+                if node_obj is None or node_obj.degree <= 1:
+                    return matches
+
+        loops = graph.get_fundamental_loops()
+        if not loops:
+            return matches
+
+        # 1. RC check
         if c_comps and not l_comps and r_comps:
-            all_refs = tuple(sorted([c.ref for c in c_comps + r_comps]))
-            matches.append(
-                RecognitionMatch(
-                    topology=TopologyType.RC,
-                    elements=all_refs,
-                    reason=(
-                        f"RC network comprising capacitive storage ({', '.join(sorted(c.ref for c in c_comps))}) "
-                        f"and resistive path ({', '.join(sorted(r.ref for r in r_comps))})."
-                    ),
-                )
-            )
+            # Check for ideal voltage source direct clamp across any capacitor
+            v_sources = [c for c in graph.components.values() if c.type == "V"]
+            clamped = False
+            for c in c_comps:
+                c_pair = {str(c.pins["1"]), str(c.pins["2"])}
+                for v in v_sources:
+                    v_pair = {str(v.pins["+"]), str(v.pins["-"])}
+                    if c_pair == v_pair:
+                        clamped = True
+                        break
+                if clamped:
+                    break
+
+            if not clamped:
+                # Every capacitor must participate in at least one closed loop containing a resistor
+                all_c_in_loop = True
+                active_refs: set[str] = set()
+                for c in c_comps:
+                    c_in_rc_loop = False
+                    for loop in loops:
+                        if c.ref in loop and any(graph.components[ref].type == "R" for ref in loop):
+                            c_in_rc_loop = True
+                            active_refs.update(loop)
+                    if not c_in_rc_loop:
+                        all_c_in_loop = False
+                        break
+
+                if all_c_in_loop and active_refs:
+                    rc_elements = tuple(sorted([ref for ref in active_refs if graph.components[ref].type in ("R", "C")]))
+                    matches.append(
+                        RecognitionMatch(
+                            topology=TopologyType.RC,
+                            elements=rc_elements,
+                            reason=(
+                                f"First-order RC network formed by coherent closed loops containing "
+                                f"capacitive storage ({', '.join(sorted(c.ref for c in c_comps))}) "
+                                f"and resistive path ({', '.join(sorted(r.ref for r in r_comps))})."
+                            ),
+                        )
+                    )
+
+        # 2. RL check
         elif l_comps and not c_comps and r_comps:
-            all_refs = tuple(sorted([c.ref for c in l_comps + r_comps]))
-            matches.append(
-                RecognitionMatch(
-                    topology=TopologyType.RL,
-                    elements=all_refs,
-                    reason=(
-                        f"RL network comprising inductive storage ({', '.join(sorted(l.ref for l in l_comps))}) "
-                        f"and resistive path ({', '.join(sorted(r.ref for r in r_comps))})."
-                    ),
+            all_l_in_loop = True
+            active_refs = set()
+            for l in l_comps:
+                l_in_rl_loop = False
+                for loop in loops:
+                    if l.ref in loop and any(graph.components[ref].type == "R" for ref in loop):
+                        l_in_rl_loop = True
+                        active_refs.update(loop)
+                if not l_in_rl_loop:
+                    all_l_in_loop = False
+                    break
+
+            if all_l_in_loop and active_refs:
+                rl_elements = tuple(sorted([ref for ref in active_refs if graph.components[ref].type in ("R", "L")]))
+                matches.append(
+                    RecognitionMatch(
+                        topology=TopologyType.RL,
+                        elements=rl_elements,
+                        reason=(
+                            f"First-order RL network formed by coherent closed loops containing "
+                            f"inductive storage ({', '.join(sorted(l.ref for l in l_comps))}) "
+                            f"and resistive path ({', '.join(sorted(r.ref for r in r_comps))})."
+                        ),
+                    )
                 )
-            )
+
+        # 3. RLC check
         elif c_comps and l_comps and r_comps:
-            all_refs = tuple(sorted([c.ref for c in c_comps + l_comps + r_comps]))
-            matches.append(
-                RecognitionMatch(
-                    topology=TopologyType.RLC,
-                    elements=all_refs,
-                    reason=(
-                        f"RLC network comprising resistive ({', '.join(sorted(r.ref for r in r_comps))}), "
-                        f"inductive ({', '.join(sorted(l.ref for l in l_comps))}), and "
-                        f"capacitive ({', '.join(sorted(c.ref for c in c_comps))}) elements."
-                    ),
+            # Check that L and C participate in shared or coupled dynamic loops with R
+            rlc_shared = False
+            for loop in loops:
+                has_c = any(graph.components[ref].type == "C" for ref in loop)
+                has_l = any(graph.components[ref].type == "L" for ref in loop)
+                if has_c and has_l:
+                    rlc_shared = True
+                    break
+
+            if not rlc_shared:
+                for c in c_comps:
+                    c_pair = (min(str(c.pins["1"]), str(c.pins["2"])), max(str(c.pins["1"]), str(c.pins["2"])))
+                    for l in l_comps:
+                        l_pair = (min(str(l.pins["1"]), str(l.pins["2"])), max(str(l.pins["1"]), str(l.pins["2"])))
+                        if c_pair == l_pair:
+                            rlc_shared = True
+                            break
+
+            if rlc_shared:
+                all_refs = tuple(sorted([c.ref for c in c_comps + l_comps + r_comps]))
+                matches.append(
+                    RecognitionMatch(
+                        topology=TopologyType.RLC,
+                        elements=all_refs,
+                        reason=(
+                            f"Second-order RLC network comprising resistance ({', '.join(sorted(r.ref for r in r_comps))}), "
+                            f"inductance ({', '.join(sorted(l.ref for l in l_comps))}), and "
+                            f"capacitance ({', '.join(sorted(c.ref for c in c_comps))}) in coherent coupled loops."
+                        ),
+                    )
                 )
-            )
 
         return sorted(matches, key=lambda m: (m.topology.value, m.elements))
+
 
 
 class RuleRegistry:

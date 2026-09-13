@@ -29,16 +29,17 @@
 | **Domain Purity** | Zero dependencies on OS, I/O, SQLite, Qt, or external network in domain | **PASS** | `test_architecture.py` 9/9 passed |
 | **Application Integration** | `EngineeringService.analyze_circuit_structure` wired cleanly | **PASS** | Verified in `test_engineering_service_integration` |
 | **UI Reflectivity** | Structural summary rendered in `EngineeringPanel` detail pane | **PASS** | `test_ui_engineering.py` passed |
-| **F7-B8 Specific Tests** | All specific B8 tests passing | **PASS** | 33 passed, 0 failed |
-| **F7 Regression** | All F7 suites (F7-A, F7-B1..F7-B8) passing | **PASS** | 230 passed, 0 failed |
-| **Full Repository Regression** | Entire suite passing with no regressions | **PASS** | 435 passed, 2 skipped, 0 failed |
+| **Hardening Pass** | False positives eliminated across RC/RL/RLC loops, bridge excitation, divider taps, AC/uncertainty | **PASS** | 11 dedicated adversarial tests |
+| **F7-B8 Specific Tests** | All specific B8 tests passing (including 11 adversarial tests) | **PASS** | 44 passed, 0 failed |
+| **F7 Regression** | All F7 suites (F7-A, F7-B1..F7-B8) passing | **PASS** | 241 passed, 0 failed |
+| **Full Repository Regression** | Entire suite passing with no regressions | **PASS** | 446 passed, 2 skipped, 0 failed |
 | **Clean Working Tree** | No stray files or uncommitted artifacts | **PASS** | Verified via `git status` |
 
 ---
 
 ## 3. Certification
 
-I hereby certify that phase **F7-B8 (Structural Circuit Analysis)** satisfies all specified functional, architectural, safety, and quality requirements.
+I hereby certify that phase **F7-B8 (Structural Circuit Analysis & Hardening)** satisfies all specified functional, architectural, safety, and quality requirements. All semantic false positives have been eliminated, abstention is enforced on ambiguous topologies, and 100% of adversarial tests pass.
 
-- **Gate Status**: **PASS**
+- **Gate Status**: **PASS (HARDENED)**
 - **Date**: 2026-09-13
