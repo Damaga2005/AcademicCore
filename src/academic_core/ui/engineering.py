@@ -181,17 +181,27 @@ class EngineeringPanel(QWidget):
             return
         circuit = self.eng.repo.load_circuit(self.project, self.circuit_name)
         warnings = circuit.validate()
+        structural_line = ""
+        try:
+            plan = self.eng.analyze_circuit(circuit)
+            topos = [t.topology.value for t in plan.recognized_topologies]
+            structural_line = f"structural: {plan.classification} [{', '.join(topos) or 'none'}] (primary: {plan.primary_analysis.value if plan.primary_analysis else 'none'})"
+        except Exception:
+            pass
         calcs = self.eng.repo.calculations_of(self.project)
         lines = [f"circuit: {self.circuit_name}",
                  f"components: {len(circuit.components)}",
                  f"nets: {sorted(circuit.nets)}",
-                 f"topology: {'; '.join(warnings) or 'clean'}",
-                 "", "-- netlist --", circuit.to_netlist().rstrip(),
-                 "", f"-- calculations ({len(calcs)}) --"]
+                 f"topology: {'; '.join(warnings) or 'clean'}"]
+        if structural_line:
+            lines.append(structural_line)
+        lines.extend(["", "-- netlist --", circuit.to_netlist().rstrip(),
+                      "", f"-- calculations ({len(calcs)}) --"])
         for c in calcs[-10:]:
             lines.append(f"• {c['name']}: {c['value']} {c['unit']} [{c['digest'][:8]}]")
         self.detail.setPlainText("\n".join(lines))
         self.status.setText(f"{self.project} / {self.circuit_name}")
+
 
     # -- calculations ------------------------------------------------------------------
     def _calculate(self) -> None:

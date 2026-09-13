@@ -117,3 +117,29 @@ class EngineeringService:
             explicit_k=explicit_k,
             cas_store=cas_store,
         )
+
+    # -- structural circuit analysis (F7-B8) --------------------------------------
+    def analyze_circuit_structure(
+        self,
+        project: str,
+        circuit_name: str,
+        target_terminals: tuple[str, str] | None = None,
+        at: str | None = None,
+    ):
+        circuit = self.repo.load_circuit(project, circuit_name)
+        if circuit is None:
+            raise ValueError(f"unknown circuit: {circuit_name}")
+        from academic_core.domain.engineering.structural import StructuralCircuitAnalyzer
+        analyzer = StructuralCircuitAnalyzer()
+        return analyzer.analyze(circuit, target_terminals=target_terminals, at=at)
+
+    def analyze_circuit(
+        self,
+        circuit: Circuit,
+        target_terminals: tuple[str, str] | None = None,
+        at: str | None = None,
+    ):
+        from academic_core.domain.engineering.structural import StructuralCircuitAnalyzer
+        analyzer = StructuralCircuitAnalyzer()
+        return analyzer.analyze(circuit, target_terminals=target_terminals, at=at)
+
