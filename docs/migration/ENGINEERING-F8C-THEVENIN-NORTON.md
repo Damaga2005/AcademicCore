@@ -1,4 +1,4 @@
-﻿# Engineering Architecture & Audit: F8-C General Thevenin & Norton Analysis
+# Engineering Architecture & Audit: F8-C General Thevenin & Norton Analysis
 
 ## 1. Overview & Architectural Role
 
@@ -44,7 +44,7 @@ In accordance with Academic Core numerical principles:
 ## 4. Degenerate Case Handling
 
 F8-C rigorously classifies port behavior without numerical fudge factors or arbitrarily large decimal approximations:
-- **$R_{\text{th}} = 0\ \Omega$ (`ResistanceKind.ZERO`):** Occurs when an ideal voltage source or short-circuit path bridges the port. Norton current is classified as `EquivalentStatus.SHORT_CIRCUIT` (undefined/infinite).
+- **$R_{\text{th}} = 0\ \Omega$ (`ResistanceKind.ZERO`):** Occurs when an ideal voltage source or short-circuit path bridges the port. The Thevenin equivalent is valid ($V_{\text{th}}, R_{\text{th}} = 0$), while Norton equivalent returns `EquivalentStatus.UNDEFINED` with diagnostic explaining that an ideal voltage source cannot be represented as an ordinary finite current source.
 - **$R_{\text{th}} = \infty$ (`ResistanceKind.INFINITE`):** Occurs when there is no conducting path between terminals in the deactivated network. Norton current is $I_n = I_{\text{sc}}$.
 - **Singular Circuits (`EquivalentStatus.SINGULAR`):** Rank-deficient circuits (e.g. floating nodes, parallel identical voltage sources) correctly yield a singular status.
 - **Inconsistent Circuits (`EquivalentStatus.INCONSISTENT`):** Contradictory circuits (e.g. ideal current sources forced into open-circuits without return paths, incompatible parallel voltage sources) yield an inconsistent status.

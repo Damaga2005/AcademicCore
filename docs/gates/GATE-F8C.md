@@ -1,4 +1,4 @@
-﻿# Quality Gate: F8-C General Thevenin & Norton Analysis
+# Quality Gate: F8-C General Thevenin & Norton Analysis
 
 ## 1. Executive Summary
 
@@ -21,17 +21,17 @@
 | **Non-Series-Parallel Networks** | Bridge and arbitrary meshes reduced correctly | **PASS** | `test_unbalanced_bridge_thevenin_and_norton`, `test_arbitrary_5_node_mesh_thevenin` |
 | **Multiple & Mixed Sources** | Multiple V, multiple I, mixed V+I | **PASS** | `test_multiple_current_sources_thevenin`, `test_mixed_v_and_i_sources_thevenin_and_norton` |
 | **Non-GND Ports** | Port terminals where neither terminal is GND ($B \neq \text{GND}$) | **PASS** | `test_port_between_two_non_gnd_nodes` |
-| **Degenerate Rth = 0** | Ideal voltage source across port yields $R_{\text{th}} = 0\ \Omega$, Norton short-circuit | **PASS** | `test_degenerate_ideal_voltage_source_rth_zero` |
+| **Degenerate Rth = 0** | Ideal voltage source across port yields $R_{\text{th}} = 0\ \Omega$, Norton UNDEFINED with explanatory diagnostic | **PASS** | `test_degenerate_ideal_voltage_source_rth_zero` |
 | **Degenerate Rth = inf** | Open circuit / inconsistent circuits handled cleanly without huge decimals | **PASS** | `test_degenerate_ideal_current_source_inconsistent_in_open_circuit` |
 | **Singular & Inconsistent Handling** | Rank-deficient and contradictory networks classified correctly | **PASS** | `test_singular_circuit_returns_singular_status`, `test_inconsistent_circuit_returns_inconsistent_status` |
 | **Invalid Port Handling** | Same terminal $A=B$ or missing net rejected | **PASS** | `test_invalid_port_same_terminal_rejected`, `test_invalid_port_nonexistent_terminal_rejected` |
 | **Parametric Scaling** | Parametric series and parallel scaling up to $N = 64$ | **PASS** | `test_series_scaling_thevenin`, `test_parallel_scaling_thevenin` for $N \in \{1, 2, 3, 4, 8, 16, 32, 64\}$ |
-| **Metamorphic Invariants** | Source scaling ($\times k$), resistance scaling ($\times k$), permutations, node renaming | **PASS** | `test_metamorphic_source_scaling`, `test_metamorphic_resistance_scaling`, `test_metamorphic_component_permutation`, `test_metamorphic_node_renaming` |
+| **Metamorphic Invariants** | Source scaling ($\times k$), resistance scaling ($\times k$), permutations, node renaming, A/B terminal swap | **PASS** | `test_metamorphic_source_scaling`, `test_metamorphic_resistance_scaling`, `test_metamorphic_component_permutation`, `test_metamorphic_node_renaming`, `test_metamorphic_port_ab_swapped` |
 | **Dimensional Integrity** | Values carry physical units and dimensions (`Quantity` only) | **PASS** | `test_dimensional_integrity_units` |
-| **Determinism & Provenance** | Deterministic SHA-256 digest, independent of run order | **PASS** | `test_determinism_repeated_execution` |
-| **ngspice Cross-Validation** | Cross-validated against real ngspice 47 | **PASS** | `test_ngspice_cross_validation_unbalanced_bridge` |
+| **Determinism & Provenance** | Deterministic SHA-256 digest, independent of run order; circuit immutability verified | **PASS** | `test_determinism_repeated_execution`, `test_analysis_immutability_idempotence` |
+| **ngspice Cross-Validation** | Cross-validated against real ngspice 47 ($V_{\text{th}}, I_{\text{sc}}, V_{\text{port}}, I_{\text{port}}$) | **PASS** | `test_ngspice_cross_validation_unbalanced_bridge` |
 | **Security AST Scan** | Zero eval, exec, subprocess, dynamic imports, or pickle | **PASS** | `test_security_ast_scan_no_forbidden_constructs` |
-| **Full Regression** | 100% of test suite passes without regressions | **PASS** | 738 collected (736 passed, 2 pre-existing skipped) |
+| **Full Regression** | 100% of test suite passes without regressions | **PASS** | 741 collected (739 passed, 2 pre-existing skipped) |
 | **Clean Working Tree** | No temporary or uncommitted files | **PASS** | Verified via `git status` |
 
 ---
@@ -41,7 +41,7 @@
 | Capability | Status | Generality | Evidence | Limitation |
 | :--- | :---: | :--- | :--- | :--- |
 | DC Thevenin equivalent ($V_{\text{th}}, R_{\text{th}}$) | **IMPLEMENTED** | Any connected linear DC topology, arbitrary $N$, single reference | `analyze_thevenin`, test suite | Linear DC domain ($R$, independent $V, I$) |
-| DC Norton equivalent ($I_n, R_n$) | **IMPLEMENTED** | Derived via independent short-circuit MNA + verified with $V_{\text{th}}/R_{\text{th}}$ | `analyze_norton`, test suite | Undefined/short-circuit when $R_{\text{th}} = 0$ |
+| DC Norton equivalent ($I_n, R_n$) | **IMPLEMENTED** | Derived via independent short-circuit MNA + verified with $V_{\text{th}}/R_{\text{th}}$ | `analyze_norton`, test suite | Status UNDEFINED when $R_{\text{th}} = 0$ (not representable as finite current source) |
 | Multi-load equivalent verification | **VERIFIED** | 6 test load decades evaluated non-destructively against original circuit | `verify_equivalent_with_loads` | Linear resistive loads |
 | Bridge & arbitrary mesh reduction | **VERIFIED** | Wheatstone bridge and 5-node cross-connected planar meshes | `test_unbalanced_bridge_*`, `test_arbitrary_5_node_mesh_*` | None within linear DC domain |
 | Degenerate cases ($R_{\text{th}}=0, \infty$, singular, inconsistent) | **VERIFIED** | Explicit classification without heuristics | `result.ResistanceKind`, `result.EquivalentStatus` | None within linear DC domain |
@@ -53,6 +53,7 @@
 ## 4. Test Reconciliation & Audit Summary
 
 - **Prior Baseline (commit `80b8bfd`):** 684 collected (682 passed, 2 skipped).
-- **F8-C Test Suite (`tests/test_f8c_thevenin_norton.py`):** 54 passed (0 failed, 0 skipped).
-- **Total Post-F8-C Suite:** 738 collected (736 passed, 2 skipped).
-- **Net Delta:** Exactly +54 tests, zero regressions.
+- **F8-C Test Suite (`tests/test_f8c_thevenin_norton.py`):** 57 passed (0 failed, 0 skipped).
+- **Total Post-F8-C Suite:** 741 collected (739 passed, 2 skipped).
+- **Net Delta:** Exactly +57 tests, zero regressions.
+

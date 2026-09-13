@@ -324,8 +324,9 @@ def test_arbitrary_5_node_mesh_thevenin():
     port = TheveninPort("n4", "0")
     one = analyze_one_port(c, port)
     assert one.status == EquivalentStatus.VERIFIED
-    assert one.is_equivalent
-    assert one.thevenin.r_th.to_base() > 0
+    assert one.thevenin._v_th_exact == Fraction(7572, 833)
+    assert one.thevenin._r_th_exact == Fraction(107280, 833)
+    assert one.norton._i_n_exact == Fraction(631, 8940)
 
 
 # ==============================================================================
@@ -342,9 +343,10 @@ def test_degenerate_ideal_voltage_source_rth_zero():
     assert thev.r_th.to_base() == Decimal("0")
 
     nort = analyze_norton(c, port)
-    assert nort.status == EquivalentStatus.SHORT_CIRCUIT
+    assert nort.status == EquivalentStatus.UNDEFINED
     assert nort.resistance_kind == ResistanceKind.ZERO
     assert nort.i_n is None
+    assert "not representable as a finite ordinary current source" in nort.diagnostics[0]
 
 
 def test_degenerate_ideal_current_source_inconsistent_in_open_circuit():
@@ -550,6 +552,64 @@ def test_metamorphic_node_renaming():
     assert one_orig.norton.i_n == one_renamed.norton.i_n
 
 
+def test_metamorphic_port_ab_swapped():
+    # Invariant: Vth(A, B) == -Vth(B, A), In(A, B) == -In(B, A), Rth(A, B) == Rth(B, A)
+    c = bridge_circuit()
+    port_ab = TheveninPort("n2", "n3")
+    port_ba = TheveninPort("n3", "n2")
+
+    res_ab = analyze_one_port(c, port_ab)
+    res_ba = analyze_one_port(c, port_ba)
+
+    assert res_ab.thevenin._v_th_exact == -res_ba.thevenin._v_th_exact
+    assert res_ab.norton._i_n_exact == -res_ba.norton._i_n_exact
+    assert res_ab.thevenin._r_th_exact == res_ba.thevenin._r_th_exact
+    assert res_ab.thevenin.v_th.to_base() == -res_ba.thevenin.v_th.to_base()
+    assert res_ab.norton.i_n.to_base() == -res_ba.norton.i_n.to_base()
+    assert res_ab.thevenin.r_th.to_base() == res_ba.thevenin.r_th.to_base()
+
+
+def test_parallel_branches_multigraph():
+    # Circuit multigraph with parallel resistors between the same pair of nodes
+    c = Circuit(name="multigraph")
+    c.add(Component("V1", "V", parse_quantity("12 V"), {"+": "n1", "-": "0"}))
+    c.add(Component("R1", "R", parse_quantity("200 ohm"), {"1": "n1", "2": "A"}))
+    c.add(Component("R2", "R", parse_quantity("200 ohm"), {"1": "n1", "2": "A"}))  # R1 || R2 = 100 ohm
+    c.add(Component("R3", "R", parse_quantity("600 ohm"), {"1": "A", "2": "0"}))
+    c.add(Component("R4", "R", parse_quantity("300 ohm"), {"1": "A", "2": "0"}))  # R3 || R4 = 200 ohm
+    # Vth = 12 * 200 / 300 = 8 V
+    # Rth = 100 || 200 = 200/3 ohm
+    # In = 8 / (200/3) = 24/200 = 0.12 A = 3/25 A
+    port = TheveninPort("A", "0")
+    one = analyze_one_port(c, port)
+
+    assert one.status == EquivalentStatus.VERIFIED
+    assert one.thevenin._v_th_exact == Fraction(8, 1)
+    assert one.thevenin._r_th_exact == Fraction(200, 3)
+    assert one.norton._i_n_exact == Fraction(3, 25)
+
+
+def test_analysis_immutability_idempotence():
+    # Calling analysis repeatedly on the same Circuit object mutates nothing
+    c = bridge_circuit()
+    comps_before = [(comp.ref, comp.type, str(comp.value), dict(comp.pins)) for comp in c.components]
+    nets_before = set(c.nets)
+
+    port = TheveninPort("n2", "n3")
+    res1 = analyze_one_port(c, port)
+    res2 = analyze_one_port(c, port)
+
+    comps_after = [(comp.ref, comp.type, str(comp.value), dict(comp.pins)) for comp in c.components]
+    nets_after = set(c.nets)
+
+    assert comps_before == comps_after
+    assert nets_before == nets_after
+    assert res1.thevenin._v_th_exact == res2.thevenin._v_th_exact
+    assert res1.thevenin._r_th_exact == res2.thevenin._r_th_exact
+    assert res1.norton._i_n_exact == res2.norton._i_n_exact
+    assert res1.thevenin.provenance["digest"] == res2.thevenin.provenance["digest"]
+
+
 # ==============================================================================
 # 9. Dimensionality Tests
 # ==============================================================================
@@ -664,6 +724,15 @@ def test_ngspice_cross_validation_unbalanced_bridge():
     vth_spice = sig_oc["v(n2)"] - sig_oc["v(n3)"]
     assert round(vth_spice, 4) == round(one.thevenin.v_th.to_base(), 4)
 
+    # Short-circuit bridge in ngspice (0V dummy source between n2 and n3)
+    netlist_sc = (
+        "bridge_sc\nV1 n1 0 DC 10\nR1 n1 n2 100\nR2 n1 n3 200\n"
+        "R3 n2 0 300\nR4 n3 0 400\nVsc n2 n3 DC 0\n.op\n.end\n"
+    )
+    sig_sc = _ngspice_op(netlist_sc)
+    isc_spice = abs(sig_sc["i(vsc)"])
+    assert round(isc_spice, 6) == round(one.norton.i_n.to_base(), 6)
+
     # Loaded bridge in ngspice with Rload = 500 ohm across n2 and n3
     netlist_load = (
         "bridge_load\nV1 n1 0 DC 10\nR1 n1 n2 100\nR2 n1 n3 200\n"
@@ -671,12 +740,16 @@ def test_ngspice_cross_validation_unbalanced_bridge():
     )
     sig_ld = _ngspice_op(netlist_load)
     vport_spice = sig_ld["v(n2)"] - sig_ld["v(n3)"]
+    iport_spice = abs(vport_spice / Decimal(500))
 
     # Equivalent model loaded with 500 ohm:
     rth = float(one.thevenin.r_th.to_base())
     vth = float(one.thevenin.v_th.to_base())
     vport_thev = vth * 500.0 / (rth + 500.0)
-    assert round(Decimal(vport_spice), 4) == round(Decimal(vport_thev), 4)
+    iport_thev = vport_thev / 500.0
+
+    assert round(Decimal(vport_spice), 4) == round(Decimal(str(vport_thev)), 4)
+    assert round(Decimal(iport_spice), 6) == round(Decimal(str(iport_thev)), 6)
 
 
 # ==============================================================================

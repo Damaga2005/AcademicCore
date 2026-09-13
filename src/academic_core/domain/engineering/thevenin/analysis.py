@@ -269,7 +269,7 @@ def analyze_thevenin(circuit: Circuit, port: TheveninPort) -> TheveninResult:
             v_drop_f = v_map_itest.get(port.positive_terminal, Fraction(0)) - v_map_itest.get(port.negative_terminal, Fraction(0))
             if v_drop_f == 0:
                 res_kind = ResistanceKind.ZERO
-                status = EquivalentStatus.SHORT_CIRCUIT
+                status = EquivalentStatus.SOLVED
                 r_th_exact = Fraction(0)
             else:
                 res_kind = ResistanceKind.FINITE
@@ -367,14 +367,18 @@ def analyze_norton(circuit: Circuit, port: TheveninPort) -> NortonResult:
     status = EquivalentStatus.SOLVED
 
     if thev.resistance_kind == ResistanceKind.ZERO:
-        # Ideal voltage source across port: short-circuit current is infinite
+        # Norton equivalent cannot represent an ideal voltage source as a finite current source
+        msg = (
+            "Norton equivalent is not representable as a finite ordinary current source "
+            "for zero Thevenin resistance (ideal voltage source)"
+        )
         return NortonResult(
-            status=EquivalentStatus.SHORT_CIRCUIT,
+            status=EquivalentStatus.UNDEFINED,
             port=port,
             r_n=thev.r_th,
             resistance_kind=ResistanceKind.ZERO,
             polarity=f"{port.positive_terminal} -> {port.negative_terminal}",
-            diagnostics=("Norton current is undefined/infinite for zero Thevenin resistance (ideal voltage source)",),
+            diagnostics=(msg,),
             _r_n_exact=thev._r_th_exact,
         )
 
@@ -434,7 +438,10 @@ def analyze_one_port(circuit: Circuit, port: TheveninPort) -> OnePortEquivalent:
     nort = analyze_norton(circuit, port)
 
     is_equiv = False
-    if thev.status in (EquivalentStatus.SOLVED, EquivalentStatus.VERIFIED):
+    if (
+        thev.status in (EquivalentStatus.SOLVED, EquivalentStatus.VERIFIED)
+        and nort.status in (EquivalentStatus.SOLVED, EquivalentStatus.VERIFIED)
+    ):
         if (
             thev.resistance_kind == ResistanceKind.FINITE
             and thev._v_th_exact is not None
@@ -442,8 +449,6 @@ def analyze_one_port(circuit: Circuit, port: TheveninPort) -> OnePortEquivalent:
             and nort._i_n_exact is not None
         ):
             is_equiv = (thev._v_th_exact == nort._i_n_exact * thev._r_th_exact)
-        elif thev.resistance_kind in (ResistanceKind.ZERO, ResistanceKind.INFINITE):
-            is_equiv = True
 
     overall_status = thev.status
     summary = {
