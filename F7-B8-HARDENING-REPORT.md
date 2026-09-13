@@ -11,8 +11,7 @@ This baseline was explicitly NOT certified as a final PASS by an independent aud
 ## 2. New commit
 
 ```text
-new commit: (created by this task — see `git log -n 3 --oneline` in section 11)
-message: fix(engineering): harden F7-B8 structural recognition
+new commit: 0029a24 — "fix(engineering): harden F7-B8 structural recognition"
 ```
 
 ## 3. Correcciones
@@ -139,36 +138,29 @@ None of the above represents an unmet **semantically important** requirement fro
 
 ```text
 push: NO (git push was never run, per instructions)
-working tree: clean after commit (verified via `git status`)
+working tree: clean (verified via `git status --short` -> no output)
+local commit is ahead of origin/main by 1 commit; origin/main untouched
 ```
 
 ```text
 $ git status --short
- M docs/gates/GATE-F7B8.md
- M docs/migration/ENGINEERING-F7B8-STRUCTURAL.md
- M src/academic_core/domain/engineering/structural/elements.py
- M src/academic_core/domain/engineering/structural/planning.py
- M src/academic_core/domain/engineering/structural/rules.py
- M tests/test_f7b8_structural.py
-?? F7-B8-HARDENING-REPORT.md
-(clean after `git add` + commit — see below)
+(no output — clean)
 
-$ git diff --stat cbda6ef
- docs/gates/GATE-F7B8.md                                    |  15 +-
- docs/migration/ENGINEERING-F7B8-STRUCTURAL.md              |  70 +-
- src/academic_core/domain/engineering/structural/elements.py|  50 +-
- src/academic_core/domain/engineering/structural/planning.py| 221 +++++-
- src/academic_core/domain/engineering/structural/rules.py   |  47 +-
- tests/test_f7b8_structural.py                              | 833 +++++++++++
- 6 files changed, ~1160 insertions(+), ~72 deletions(-)
+$ git diff --stat cbda6ef..0029a24
+ F7-B8-HARDENING-REPORT.md                                    | 143 ++++++
+ docs/gates/GATE-F7B8.md                                      |  15 +-
+ docs/migration/ENGINEERING-F7B8-STRUCTURAL.md                |  70 ++-
+ src/academic_core/domain/engineering/structural/elements.py  |  50 +-
+ src/academic_core/domain/engineering/structural/planning.py  | 221 +++++++--
+ src/academic_core/domain/engineering/structural/rules.py     |  47 +-
+ tests/test_f7b8_structural.py                                | 833 +++++++++++++++++++++
+ 7 files changed, 1336 insertions(+), 79 deletions(-)
 
 $ git log -n 3 --oneline
-<new-hash> fix(engineering): harden F7-B8 structural recognition
+0029a24 fix(engineering): harden F7-B8 structural recognition
 cbda6ef fix(engineering): harden F7-B8 structural circuit analysis and eliminate false positives
 5710051 feat(engineering): implement F7-B8 structural circuit analysis
 ```
-
-(Exact new commit hash recorded at commit time; no push was performed.)
 
 ## 12. FINAL VERDICT
 
