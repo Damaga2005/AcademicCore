@@ -8,17 +8,21 @@ without modifying it. See docs/migration/ENGINEERING-F8A-ELECTRONICS-KNOWLEDGE.m
 
 from __future__ import annotations
 
-from academic_core.domain.electronics import analyses, concepts, equations, models, procedures, registry
+from academic_core.domain.electronics import (
+    analyses, calc, concepts, equations, models, procedures, registry,
+)
 from academic_core.domain.electronics.applicability import (
     AnalysisApplicabilityResult,
     check_analysis_applicability,
 )
 from academic_core.domain.electronics.recognition import ConceptCandidate, ElectronicsConceptRecognizer
-from academic_core.domain.electronics.types import ApplicabilityStatus, RelationType
+from academic_core.domain.electronics.types import (
+    ApplicabilityStatus, Generality, ImplementationStatus, RelationType,
+)
 
 __all__ = [
-    "concepts", "models", "analyses", "equations", "procedures", "registry",
-    "ApplicabilityStatus", "RelationType",
+    "concepts", "models", "analyses", "equations", "procedures", "registry", "calc",
+    "ApplicabilityStatus", "RelationType", "Generality", "ImplementationStatus",
     "ConceptCandidate", "ElectronicsConceptRecognizer",
     "AnalysisApplicabilityResult", "check_analysis_applicability",
 ]

@@ -128,6 +128,13 @@ class Quantity:
         return self.value * self.unit.factor
 
     def convert_to(self, symbol: str) -> "Quantity":
+        if symbol == self.unit.display:
+            # Converting to one's own display symbol is always a no-op --
+            # short-circuit before re-parsing. Needed for derived dimensions
+            # with no registered SI unit (e.g. conductance = 1/ohm), whose
+            # display symbol (`_unit_for_dim`'s DIM_NAMES fallback) is not
+            # itself a `parse_unit`-recognized string.
+            return self
         target = parse_unit(symbol)
         if target.dimension != self.dimension:
             raise UnitError(f"cannot convert {self.unit.display} to {symbol}")

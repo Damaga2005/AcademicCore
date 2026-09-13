@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from academic_core.domain.engineering.structural.types import AnalysisType
-from academic_core.domain.electronics.types import provenance
+from academic_core.domain.electronics.types import ImplementationStatus, provenance
 
 
 @dataclass(frozen=True)
@@ -26,14 +26,18 @@ class ElectronicsAnalysis:
     equations: tuple[str, ...]  # equation stable_ids
     simulation: str | None  # SPICE directive family, e.g. ".op"
     limitations: str
+    laws: tuple[str, ...] = ()  # GeneralLaw stable_ids (general N-ary computation)
+    implementation_status: ImplementationStatus = ImplementationStatus.IMPLEMENTED
     provenance: dict = field(default_factory=dict)
 
 
 def _analysis(stable_id, name, analysis_type, prerequisites, required_inputs,
-              outputs, equations, simulation, limitations) -> ElectronicsAnalysis:
+              outputs, equations, simulation, limitations, laws=(),
+              implementation_status=ImplementationStatus.IMPLEMENTED) -> ElectronicsAnalysis:
     return ElectronicsAnalysis(
         stable_id, name, analysis_type, prerequisites, required_inputs,
-        outputs, equations, simulation, limitations, provenance(stable_id))
+        outputs, equations, simulation, limitations, laws, implementation_status,
+        provenance(stable_id))
 
 
 ANALYSES: dict[str, ElectronicsAnalysis] = {
@@ -62,15 +66,17 @@ ANALYSES: dict[str, ElectronicsAnalysis] = {
         ),
         _analysis(
             "analysis:voltage-divider", "Voltage divider analysis", AnalysisType.VOLTAGE_DIVIDER,
-            ("concept:series-resistors",), ("Vin", "R1", "R2"), ("Vout",),
-            ("equation:voltage-divider",), ".op",
-            "Unloaded tap only (no current drawn from the output node).",
+            ("concept:series-resistors",), ("Vin", "R1..Rn"), ("Vout",),
+            (), ".op",
+            "Unloaded tap only (no current drawn from the output node); chain of any length N >= 1.",
+            laws=("law:voltage-divider",),
         ),
         _analysis(
             "analysis:current-divider", "Current divider analysis", AnalysisType.CURRENT_DIVIDER,
-            ("concept:parallel-resistors",), ("Itot", "R1", "R2"), ("I1", "I2"),
-            ("equation:current-divider",), ".op",
-            "Two-branch resistive divider only.",
+            ("concept:parallel-resistors",), ("Itot", "R1..Rn"), ("I1..In",),
+            (), ".op",
+            "Resistive branches only (no sources/reactive elements in a branch); any N >= 2 branches.",
+            laws=("law:current-divider",),
         ),
         _analysis(
             "analysis:power", "Power dissipation/delivery analysis", AnalysisType.POWER,
@@ -81,15 +87,22 @@ ANALYSES: dict[str, ElectronicsAnalysis] = {
         _analysis(
             "analysis:thevenin", "Thevenin equivalent", AnalysisType.THEVENIN,
             (), ("target terminal pair",), ("Vth", "Rth"),
-            ("equation:voltage-divider", "equation:parallel-resistors"), None,
+            (), None,
             "Linear resistive one-port only; explicit target terminals required "
-            "(section 6 of B8's port rule).",
+            "(section 6 of B8's port rule). Vth/Rth computation is GENERAL (any N of "
+            "resistors, any depth) for port sub-networks that reduce via series/parallel "
+            "combination; a port needing a full linear-network solve (e.g. an unbalanced "
+            "bridge in the port) is NOT_IMPLEMENTED, not silently approximated.",
+            laws=("law:series-resistors", "law:parallel-resistors", "law:voltage-divider"),
+            implementation_status=ImplementationStatus.PARTIAL,
         ),
         _analysis(
             "analysis:norton", "Norton equivalent", AnalysisType.NORTON,
             (), ("target terminal pair",), ("In", "Rn"),
-            ("equation:ohm-i", "equation:parallel-resistors"), None,
-            "Linear resistive one-port only; explicit target terminals required.",
+            ("equation:ohm-i",), None,
+            "Same domain and same PARTIAL status as analysis:thevenin (In = Vth/Rth, Rn = Rth).",
+            laws=("law:series-resistors", "law:parallel-resistors", "law:voltage-divider"),
+            implementation_status=ImplementationStatus.PARTIAL,
         ),
     )
 }

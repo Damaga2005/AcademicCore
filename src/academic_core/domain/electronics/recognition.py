@@ -107,7 +107,19 @@ class ElectronicsConceptRecognizer:
         # concept:voltage-divider needs an explicit output tap node -- never
         # inferred (section 16 example): B8 records tap_nodes in metadata
         # only when they exist; empty/missing means abstain to NEEDS_INFORMATION.
-        if concept_id == "concept:voltage-divider":
+        if concept_id in ("concept:voltage-divider", "concept:two-resistor-divider"):
+            if concept_id == "concept:two-resistor-divider":
+                # elements = sorted([v_ref, *r_chain]); exactly one V ref per
+                # match, so resistor count = len(elements) - 1. Never assume
+                # N==2 for the general concept above -- only this SPECIAL_CASE
+                # checks it, and only from real match evidence.
+                resistor_count = len(match.elements) - 1
+                if resistor_count != 2:
+                    return ConceptCandidate(
+                        concept=concept_id, status=ApplicabilityStatus.NOT_APPLICABLE,
+                        reason=f"Series chain has {resistor_count} resistors, not exactly 2.",
+                        evidence=base_evidence,
+                    )
             tap_nodes = (match.metadata or {}).get("tap_nodes") or []
             if not tap_nodes:
                 return ConceptCandidate(
@@ -118,6 +130,20 @@ class ElectronicsConceptRecognizer:
             return ConceptCandidate(
                 concept=concept_id, status=ApplicabilityStatus.APPLICABLE,
                 reason="Explicit output tap node present on a resistor series chain across a source.",
+                evidence=base_evidence,
+            )
+
+        # concept:wheatstone-bridge-balanced requires R1*R4 == R2*R3 -- B8's
+        # RESISTIVE_BRIDGE match carries structural evidence (which resistors
+        # form the bridge, which nodes) but not per-arm resistance values, so
+        # balance can never be inferred from topology/naming alone (section
+        # 13). Without value evidence this concept must abstain, not guess.
+        if concept_id == "concept:wheatstone-bridge-balanced":
+            return ConceptCandidate(
+                concept=concept_id, status=ApplicabilityStatus.NEEDS_INFORMATION,
+                reason="Bridge structure matched, but balance (R1*R4 == R2*R3) requires arm "
+                       "resistance values that structural recognition does not expose here; "
+                       "never inferred from topology alone.",
                 evidence=base_evidence,
             )
 

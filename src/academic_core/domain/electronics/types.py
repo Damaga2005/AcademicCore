@@ -24,6 +24,7 @@ class RelationType(str, Enum):
     CONTAINS = "contains"
     USES_MODEL = "uses_model"
     USES_EQUATION = "uses_equation"
+    USES_LAW = "uses_law"
     USES_ANALYSIS = "uses_analysis"
     PRECEDES = "precedes"
 
@@ -34,6 +35,30 @@ class ConceptCategory(str, Enum):
     CIRCUIT_LAW = "CIRCUIT_LAW"
     CIRCUIT_ANALYSIS = "CIRCUIT_ANALYSIS"
     NETWORK_THEOREM = "NETWORK_THEOREM"
+
+
+class Generality(str, Enum):
+    """Section 5 contract: does an entry represent a general rule over its
+    whole mathematical domain, or a named special case of one?
+
+    A SPECIAL_CASE must declare `parent` (the GENERAL entry it specializes)
+    wherever this enum is used (concepts, equations, general laws) — the
+    docstring/description alone is not a substitute for a checkable field.
+    """
+
+    GENERAL = "GENERAL"
+    SPECIAL_CASE = "SPECIAL_CASE"
+
+
+class ImplementationStatus(str, Enum):
+    """Section 36: honest capability declaration for a computation. Never
+    claim IMPLEMENTED for a domain the calculation engine cannot actually
+    cover — declare PARTIAL/NOT_IMPLEMENTED/OUT_OF_SCOPE instead."""
+
+    IMPLEMENTED = "IMPLEMENTED"
+    PARTIAL = "PARTIAL"
+    NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
+    OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 
 class ApplicabilityStatus(str, Enum):

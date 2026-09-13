@@ -1,5 +1,14 @@
 # Engineering Architecture & Audit: F8-A Electronics Knowledge & Analysis Foundation
 
+> **Hardening pass (F8-A HARDENING DEFINITIVO):** the original F8-A coverage encoded several
+> concepts (series/parallel resistors, current divider, Thevenin/Norton) as fixed two-component
+> formulas presented as if they were the general law. This pass separates GENERAL laws (real,
+> arbitrary-N mathematics, executed by `electronics.calc` via associative reduction over F6's own
+> `Quantity` arithmetic) from SPECIAL_CASE two-term equations (kept only as the named N=2
+> instance), and makes Thevenin/Norton's real capability (`PARTIAL` — general for
+> series-parallel-reducible ports, `NOT_IMPLEMENTED` for arbitrary linear networks) explicit
+> instead of implicit. See sections 8a-8c below.
+
 ## 1. Overview & Architectural Role
 
 Phase **F8-A** builds the deterministic knowledge layer that connects B8's certified structural
@@ -97,11 +106,53 @@ Ohm's law, KCL, KVL, series resistors, parallel resistors, voltage divider, curr
 Thevenin, Norton, resistive (Wheatstone) bridge, DC resistive network. Diodes, BJT, MOSFET,
 opamps, filters, advanced RLC, digital, RF, and power electronics are explicitly out of scope.
 
+## 8a. GENERAL vs SPECIAL_CASE (section 5)
+
+`types.Generality` (`GENERAL`/`SPECIAL_CASE`) is a checkable field on `ElectronicsConcept` and
+`ElectronicsEquation`, not a documentation convention. A `SPECIAL_CASE` must declare `parent`
+(enforced in `__post_init__`) and `validate_registries()` checks the parent actually resolves and
+is itself `GENERAL`.
+
+- `concept:two-resistor-divider` (SPECIAL_CASE) → parent `concept:voltage-divider` (GENERAL).
+- `concept:wheatstone-bridge-balanced` (SPECIAL_CASE) → parent `concept:resistive-bridge` (GENERAL).
+- `equation:series-resistors-pair` / `parallel-resistors-pair` / `current-divider-pair` /
+  `voltage-divider-pair` (all SPECIAL_CASE, N=2) → parent `law:series-resistors` /
+  `law:parallel-resistors` / `law:current-divider` / `law:voltage-divider` (all GENERAL).
+
+## 8b. GeneralLaw + `electronics.calc` (sections 10/20/41)
+
+F6's equation grammar (`engineering.equations.parse_equation`) parses fixed named-variable
+expressions only — it has no "sum over N terms" construct, so a law like `Req = sum(Ri)` cannot
+be one parsed `Equation`. `equations.GeneralLaw` represents such a law as structured text
+(statement, domain, not_covered, conditions) plus a pointer to the actual arbitrary-N
+implementation in `electronics.calc` (`series_equivalent`, `parallel_equivalent`,
+`current_divider`, `voltage_divider_chain`). Each function is a pure composition of F6's own
+`Quantity` arithmetic / `calculate()` via associative pairwise reduction — never a second math
+engine, never capped at N=2 (parametrized N ∈ {1,2,3,4,8,16} in `tests/test_f8_generality.py`).
+
+Building `current_divider` surfaced a real latent bug in F6's `Quantity.convert_to` (it always
+re-parsed its own display symbol, which fails for derived dimensions with no registered SI unit,
+e.g. conductance = 1/Ω): fixed minimally in `engineering/units.py` by short-circuiting when
+converting a quantity to its own unit symbol (always a no-op) — no redesign of the units module.
+
+## 8c. Thevenin/Norton honesty (section 6/36)
+
+`analysis:thevenin`/`analysis:norton` now declare `implementation_status = PARTIAL`: Vth/Rth
+computation is GENERAL (any N, any depth) for port sub-networks that reduce via repeated
+series/parallel combination (`procedure:thevenin` steps 2/4 use `law:voltage-divider` /
+`law:series-resistors`, not the old `equation:voltage-divider`/`equation:parallel-resistors`
+pair-equations). A port needing a full linear-network solve (e.g. an unbalanced bridge sitting
+inside the port) is `NOT_IMPLEMENTED` — never silently approximated by the two-resistor formulas.
+
 ## 7. Limitations
 
-- Thevenin/Norton equations are declared as the two-resistor exemplar case (reusing
-  `voltage-divider`/`parallel-resistors`), not a general n-element linear-network solver — no
-  new solver was introduced per the scope gate (section 31).
+- Thevenin/Norton's Vth/Rth computation is `PARTIAL`: general for series-parallel-reducible port
+  sub-networks (any N), `NOT_IMPLEMENTED` for arbitrary linear networks (needs a general
+  nodal/mesh solver, out of scope for F8-A per section 43).
+- `concept:wheatstone-bridge-balanced` recognition always returns `NEEDS_INFORMATION`: B8's
+  `ResistiveBridgeRule` match metadata carries structural evidence (which resistors/nodes form the
+  bridge) but not per-arm resistance values, so balance (`R1*R4 == R2*R3`) cannot be verified from
+  recognition evidence alone — never inferred from topology/naming (section 13).
 - `AnalysisProcedure` is a structured, dependency-checked model, not yet an executable workflow
   engine (explicitly deferred to a later phase per section 12).
 - This phase does **not** claim complete electronics coverage (section 28) — only the first

@@ -11,10 +11,10 @@ from __future__ import annotations
 from academic_core.domain.engineering.structural.types import TopologyType
 from academic_core.domain.electronics.analyses import ANALYSES
 from academic_core.domain.electronics.concepts import CONCEPTS
-from academic_core.domain.electronics.equations import EQUATIONS
+from academic_core.domain.electronics.equations import EQUATIONS, GENERAL_LAWS
 from academic_core.domain.electronics.models import MODELS
 from academic_core.domain.electronics.procedures import PROCEDURES
-from academic_core.domain.electronics.types import RelationType
+from academic_core.domain.electronics.types import Generality, RelationType
 
 # Deterministic mapping: a matched B8 topology -> ordered concept candidates.
 # Built from each concept's declared `topologies` (single source of truth),
@@ -39,13 +39,14 @@ def validate_registries() -> list[str]:
 
     concept_ids = set(CONCEPTS)
     equation_ids = set(EQUATIONS)
+    law_ids = set(GENERAL_LAWS)
     model_ids = set(MODELS)
     analysis_ids = set(ANALYSES)
     procedure_ids = set(PROCEDURES)
 
     # no duplicate stable IDs across registries (each dict key is already
     # unique within its own registry; check no cross-registry collision)
-    all_ids = [*concept_ids, *equation_ids, *model_ids, *analysis_ids, *procedure_ids]
+    all_ids = [*concept_ids, *equation_ids, *law_ids, *model_ids, *analysis_ids, *procedure_ids]
     if len(all_ids) != len(set(all_ids)):
         seen: set[str] = set()
         for i in all_ids:
@@ -59,6 +60,7 @@ def validate_registries() -> list[str]:
         targets = {r.target for r in concept.relations}
         _dangling("concept:", concept_ids, targets, concept.stable_id)
         _dangling("equation:", equation_ids, targets, concept.stable_id)
+        _dangling("law:", law_ids, targets, concept.stable_id)
         _dangling("model:", model_ids, targets, concept.stable_id)
         _dangling("analysis:", analysis_ids, targets, concept.stable_id)
         for topo_name in concept.topologies:
@@ -66,12 +68,28 @@ def validate_registries() -> list[str]:
                 TopologyType(topo_name)
             except ValueError:
                 problems.append(f"{concept.stable_id}: unknown topology {topo_name!r}")
+        if concept.generality == Generality.SPECIAL_CASE:
+            if concept.parent not in concept_ids:
+                problems.append(f"{concept.stable_id}: SPECIAL_CASE parent {concept.parent!r} not a known concept")
+
+    for law in GENERAL_LAWS.values():
+        if not law.stable_id.startswith("law:"):
+            problems.append(f"law {law.stable_id!r}: bad id prefix")
+        if law.special_case_equation is not None and law.special_case_equation not in equation_ids:
+            problems.append(f"{law.stable_id}: dangling special_case_equation {law.special_case_equation!r}")
+
+    for equation in EQUATIONS.values():
+        if equation.generality == Generality.SPECIAL_CASE and equation.parent not in law_ids:
+            problems.append(f"{equation.stable_id}: SPECIAL_CASE parent {equation.parent!r} not a known law")
 
     for analysis in ANALYSES.values():
         if not analysis.stable_id.startswith("analysis:"):
             problems.append(f"analysis {analysis.stable_id!r}: bad id prefix")
         _dangling("concept:", concept_ids, set(analysis.prerequisites), analysis.stable_id)
         _dangling("equation:", equation_ids, set(analysis.equations), analysis.stable_id)
+        for law_ref in analysis.laws:
+            if law_ref not in law_ids:
+                problems.append(f"{analysis.stable_id}: dangling law ref {law_ref!r}")
 
     for equation in EQUATIONS.values():
         if not equation.stable_id.startswith("equation:"):
@@ -96,6 +114,9 @@ def validate_registries() -> list[str]:
             if step.equation is not None and step.equation not in equation_ids:
                 problems.append(
                     f"{procedure.stable_id} step {step.order}: dangling equation ref {step.equation!r}")
+            if step.law is not None and step.law not in law_ids:
+                problems.append(
+                    f"{procedure.stable_id} step {step.order}: dangling law ref {step.law!r}")
 
     return problems
 
