@@ -221,6 +221,26 @@ def test_no_hardcoded_two_component_limit_in_electronics_domain():
     assert not unexpected, f"unexpected hardcoded 2-component checks: {unexpected}"
 
 
+def test_procedure_rejects_missing_dependency():
+    from academic_core.domain.electronics.procedures import AnalysisStep, AnalysisProcedure
+
+    with pytest.raises(ValueError, match="missing step"):
+        AnalysisProcedure("procedure:bad", "concept:x", "analysis:x", (
+            AnalysisStep(1, "a"),
+            AnalysisStep(3, "b", dependencies=(2,)),  # step 2 does not exist
+        ))
+
+
+def test_all_declared_procedures_have_resolvable_dependencies():
+    for proc in PROCEDURES.values():
+        orders = {s.order for s in proc.steps}
+        for step in proc.steps:
+            assert set(step.dependencies) <= orders, (
+                f"{proc.stable_id} step {step.order}: dependencies {step.dependencies} "
+                f"not all resolvable in {sorted(orders)}"
+            )
+
+
 def test_no_eval_exec_subprocess_in_new_calc_module():
     path = Path(__file__).resolve().parents[1] / "src" / "academic_core" / "domain" / "electronics" / "calc.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

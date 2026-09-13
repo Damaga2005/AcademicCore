@@ -37,9 +37,13 @@ class AnalysisProcedure:
         orders = [s.order for s in self.steps]
         if orders != sorted(orders) or len(set(orders)) != len(orders):
             raise ValueError(f"{self.stable_id}: step order must be strictly increasing")
+        order_set = set(orders)
         for s in self.steps:
             if any(d >= s.order for d in s.dependencies):
                 raise ValueError(f"{self.stable_id}: step {s.order} depends on a later/self step")
+            missing = [d for d in s.dependencies if d not in order_set]
+            if missing:
+                raise ValueError(f"{self.stable_id}: step {s.order} depends on missing step(s) {missing}")
 
 
 def _step(order, description, required_inputs=(), equation=None, law=None, expected_output=None,
