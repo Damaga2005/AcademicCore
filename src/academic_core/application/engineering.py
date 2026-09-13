@@ -143,3 +143,20 @@ class EngineeringService:
         analyzer = StructuralCircuitAnalyzer()
         return analyzer.analyze(circuit, target_terminals=target_terminals, at=at)
 
+    # -- electronics knowledge recognition (F8-A) ---------------------------------
+    def recognize_electronics_concepts(
+        self,
+        circuit: Circuit,
+        target_terminals: tuple[str, str] | None = None,
+        at: str | None = None,
+    ):
+        """B8 structural plan -> deterministic electronics concept candidates.
+
+        Adapter only: builds on `analyze_circuit`'s certified B8 plan, never
+        re-derives or modifies structural recognition.
+        """
+        from academic_core.domain.electronics import ElectronicsConceptRecognizer
+        plan = self.analyze_circuit(circuit, target_terminals=target_terminals, at=at)
+        candidates = ElectronicsConceptRecognizer().recognize(plan)
+        return plan, candidates
+
