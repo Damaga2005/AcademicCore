@@ -26,7 +26,12 @@ from decimal import Decimal, localcontext
 from fractions import Fraction
 
 from academic_core.domain.engineering.circuit import Circuit
+from academic_core.domain.engineering.mna.dependent import (
+    DEPENDENT_TYPES,
+    describe_dependents,
+)
 from academic_core.domain.engineering.mna.errors import (
+    CircularControlError,
     DimensionalityError,
     FloatingCircuitError,
     InvalidCircuitError,
@@ -66,7 +71,8 @@ _VOLT = parse_unit("V")
 _AMP = parse_unit("A")
 _WATT = parse_unit("W")
 
-_INVALID_ERRORS = (InvalidCircuitError, MissingReferenceError, FloatingCircuitError, DimensionalityError)
+_INVALID_ERRORS = (InvalidCircuitError, MissingReferenceError, FloatingCircuitError, DimensionalityError,
+                   CircularControlError)
 
 
 def _fraction_to_decimal(fr: Fraction) -> Decimal:
@@ -76,23 +82,29 @@ def _fraction_to_decimal(fr: Fraction) -> Decimal:
 
 
 def _canonical_structure(circuit: Circuit) -> dict:
+    entries = []
+    for c in circuit.components:
+        entry = {
+            "ref": c.ref,
+            "type": c.type.upper(),
+            "value_base_units": str(c.value.to_base()) if c.value is not None else None,
+            "pins": dict(sorted(c.pins.items())),
+        }
+        if c.type.upper() in DEPENDENT_TYPES:
+            # Control identity is physics identity: covered by the digest.
+            # RVI components carry no such entry, so certified digests
+            # are byte-identical.
+            entry["control"] = {
+                k: str(v) for k, v in sorted(
+                    dict(c.parameters or {}).items(), key=lambda kv: kv[0])
+            }
+        entries.append(entry)
     return {
         "solver": SOLVER_VERSION,
         "formulation": "MNA: KCL + resistor stamps + ideal voltage-source constraints",
         "tolerance": "0 (exact rational arithmetic)",
         "circuit_name": circuit.name,
-        "components": sorted(
-            (
-                {
-                    "ref": c.ref,
-                    "type": c.type.upper(),
-                    "value_base_units": str(c.value.to_base()) if c.value is not None else None,
-                    "pins": dict(sorted(c.pins.items())),
-                }
-                for c in circuit.components
-            ),
-            key=lambda d: d["ref"],
-        ),
+        "components": sorted(entries, key=lambda d: d["ref"]),
     }
 
 
@@ -205,6 +217,11 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
         "n_unknowns": problem.size,
         "reference_node": problem.ground,
     }
+    dep_graph = describe_dependents(problem.circuit)
+    if dep_graph.entries:
+        # F8-E provenance (conditional: RVI summaries byte-identical).
+        system_summary["dependent_sources"] = dep_graph.to_dict()
+        system_summary["dependent_digest"] = dep_graph.digest
 
     if outcome.status == LinearSolveStatus.SINGULAR:
         return AnalysisResult(
@@ -238,6 +255,46 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
     element_powers = []
     total_power = Fraction(0)
     exact_branch_currents: dict[str, Fraction] = {}
+    by_ref = {c.ref.upper(): c for c in problem.circuit.components}
+
+    def _node_v(net: str) -> Fraction:
+        return _voltage_of(net, problem, solution)
+
+    control_memo: dict[str, Fraction] = {}
+
+    def _eval_control(ref_upper: str, active: tuple[str, ...] = ()) -> Fraction:
+        """Reconstructed branch current (F8-B orientation conventions).
+
+        Cycles are excluded at problem build; the active set below is
+        defense in depth.
+        """
+        if ref_upper in control_memo:
+            return control_memo[ref_upper]
+        if ref_upper in active:
+            raise CircularControlError(
+                f"circular current control involving {ref_upper}")
+        c = by_ref[ref_upper]
+        t = c.type.upper()
+        if t in ("V", "E", "H"):
+            value = solution[problem.vsource_index[c.ref]]
+        elif t == "R":
+            value = (_node_v(c.pins["1"]) - _node_v(c.pins["2"]))
+            value = value * Fraction(1) / Fraction(c.value.to_base())
+        elif t == "I":
+            value = -Fraction(c.value.to_base())
+        elif t == "G":
+            gm = Fraction(c.value.to_base())
+            value = -(gm * (_node_v(c.parameters["cp"]) - _node_v(c.parameters["cn"])))
+        elif t == "F":
+            beta = Fraction(c.value.to_base())
+            value = -(beta * _eval_control(
+                str(c.parameters["control_ref"]).upper(), active + (ref_upper,)))
+        else:
+            raise UnsupportedElementError(
+                f"{c.ref}: type {t!r} cannot carry control current")
+        control_memo[ref_upper] = value
+        return value
+
     for c in sorted(problem.circuit.components, key=lambda c: c.ref):
         t = c.type.upper()
         if t == "R":
@@ -245,10 +302,20 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
             g = Fraction(1) / Fraction(c.value.to_base())
             i_branch = (v1 - v2) * g
             convention = "pin1->pin2: I = (V1 - V2) / R"
-        elif t == "V":
+        elif t in ("V", "E", "H"):
             v_p, v_m = _voltage_of(c.pins["+"], problem, solution), _voltage_of(c.pins["-"], problem, solution)
             i_branch = solution[problem.vsource_index[c.ref]]
             convention = "+->-: MNA unknown current through the source"
+        elif t == "G":
+            v_p, v_m = _voltage_of(c.pins["+"], problem, solution), _voltage_of(c.pins["-"], problem, solution)
+            # Same convention as independent I (delivered into "+"):
+            # reported +->- current is the negative of the delivered J.
+            i_branch = _eval_control(c.ref.upper())
+            convention = "+->-: dependent output current (delivered into '+', so I = -J)"
+        elif t == "F":
+            v_p, v_m = _voltage_of(c.pins["+"], problem, solution), _voltage_of(c.pins["-"], problem, solution)
+            i_branch = _eval_control(c.ref.upper())
+            convention = "+->-: dependent output current (delivered into '+', so I = -J)"
         else:  # I
             v_p, v_m = _voltage_of(c.pins["+"], problem, solution), _voltage_of(c.pins["-"], problem, solution)
             # Is is delivered into the external circuit at "+" (flows "-"
@@ -275,7 +342,8 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
     # reference/ground node, which is omitted from the MNA matrix), sum the
     # actual branch currents leaving the node through every connected pin.
     # Avoids circular re-evaluation of the linear system equations A x - z = 0.
-    pin_pairs = {"R": ("1", "2"), "V": ("+", "-"), "I": ("+", "-")}
+    pin_pairs = {"R": ("1", "2"), "V": ("+", "-"), "I": ("+", "-"),
+                 "E": ("+", "-"), "G": ("+", "-"), "H": ("+", "-"), "F": ("+", "-")}
     net_kcl: dict[str, Fraction] = {net: Fraction(0) for net in problem.circuit.nets}
     for c in problem.circuit.components:
         p1, p2 = pin_pairs[c.type.upper()]

@@ -22,18 +22,25 @@ Public API:
     solve_linear_dc(circuit) -> AnalysisResult
     build_mna_problem(circuit) -> MNAProblem   (diagnostic/audit layer)
 
-Domain covered: DC resistive networks built from R (resistor), V (ideal
-independent voltage source) and I (ideal independent current source)
-components of `academic_core.domain.engineering.circuit.Circuit`, with a
+Domain covered: DC linear networks built from R (resistor), V (ideal
+independent voltage source), I (ideal independent current source) and
+linear dependent sources E (VCVS), G (VCCS), H (CCVS), F (CCCS) of
+`academic_core.domain.engineering.circuit.Circuit`, with a
 single GND/reference net named "0" or "GND" (case-insensitive), of
-arbitrary topology and arbitrary node/branch count. Dependent sources,
-reactive elements (C, L) and semiconductors (D, Q) are NOT_SUPPORTED and
+arbitrary topology and arbitrary node/branch count. Reactive elements
+(C, L) and semiconductors (D, Q) are NOT_SUPPORTED and
 raise `UnsupportedElementError` rather than being silently ignored.
 """
 
 from __future__ import annotations
 
+from academic_core.domain.engineering.mna.dependent import (
+    DEPENDENT_TYPES,
+    DependentGraph,
+    describe_dependents,
+)
 from academic_core.domain.engineering.mna.errors import (
+    CircularControlError,
     DimensionalityError,
     FloatingCircuitError,
     InconsistentSystemError,
@@ -63,6 +70,9 @@ __all__ = [
     "build_mna_problem",
     "MNAProblem",
     "fundamental_cycle_chords",
+    "DEPENDENT_TYPES",
+    "DependentGraph",
+    "describe_dependents",
     "AnalysisResult",
     "NodeVoltage",
     "BranchCurrent",
@@ -70,6 +80,7 @@ __all__ = [
     "ConservationChecks",
     "SolveStatus",
     "SOLVER_VERSION",
+    "CircularControlError",
     "DimensionalityError",
     "FloatingCircuitError",
     "InconsistentSystemError",

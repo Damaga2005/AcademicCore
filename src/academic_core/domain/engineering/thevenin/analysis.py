@@ -38,7 +38,10 @@ from academic_core.domain.engineering.thevenin.result import (
     ResistanceKind,
     TheveninResult,
 )
-from academic_core.domain.engineering.thevenin.verification import verify_equivalent_with_loads
+from academic_core.domain.engineering.thevenin.verification import (
+    _copy_component,
+    verify_equivalent_with_loads,
+)
 from academic_core.domain.engineering.units import Quantity, parse_quantity, parse_unit
 
 SOLVER_ENGINE = "f8c-thevenin-norton"
@@ -87,17 +90,25 @@ def _deactivate_sources(circuit: Circuit) -> Circuit:
     - Independent voltage sources (V) replaced by 0 V ideal voltage sources (short circuit).
     - Independent current sources (I) removed (open circuit).
     - Resistors (R) preserved untouched.
+    - Dependent sources (E/G/H/F) KEPT active with full control data:
+      Thevenin/Norton on active networks requires the test-source
+      method with dependents present; deactivating them would answer
+      a different (passive) network.
+    - Any other type passes through untouched; the downstream exact
+      solve classifies it honestly (UNSUPPORTED/INVALID).
     """
     dead = Circuit(name=f"{circuit.name}_deactivated")
     for c in circuit.components:
         t = c.type.upper()
         if t == "R":
-            dead.add(Component(c.ref, "R", c.value, dict(c.pins)))
+            dead.add(_copy_component(c))
         elif t == "V":
             dead.add(Component(c.ref, "V", parse_quantity("0 V"), dict(c.pins)))
         elif t == "I":
             # Current source open-circuited
             pass
+        else:
+            dead.add(_copy_component(c))
     return dead
 
 
@@ -127,7 +138,7 @@ def _prune_disconnected_from_port_and_gnd(circuit: Circuit, port: TheveninPort, 
     for c in circuit.components:
         pins = list(c.pins.values())
         if any(find(p) in relevant_roots for p in pins):
-            pruned.add(Component(c.ref, c.type, c.value, dict(c.pins)))
+            pruned.add(_copy_component(c))
     return pruned
 
 
@@ -231,7 +242,7 @@ def analyze_thevenin(circuit: Circuit, port: TheveninPort) -> TheveninResult:
     v_test_ref = _next_ref(dead, "V")
     c_vtest = Circuit(name=f"{dead.name}_vtest")
     for comp in dead.components:
-        c_vtest.add(Component(comp.ref, comp.type, comp.value, dict(comp.pins)))
+        c_vtest.add(_copy_component(comp))
     c_vtest.add(
         Component(v_test_ref, "V", parse_quantity("1 V"), {"+": port.positive_terminal, "-": port.negative_terminal})
     )
@@ -259,7 +270,7 @@ def analyze_thevenin(circuit: Circuit, port: TheveninPort) -> TheveninResult:
         i_test_ref = _next_ref(dead, "I")
         c_itest = Circuit(name=f"{dead.name}_itest")
         for comp in dead.components:
-            c_itest.add(Component(comp.ref, comp.type, comp.value, dict(comp.pins)))
+            c_itest.add(_copy_component(comp))
         c_itest.add(
             Component(i_test_ref, "I", parse_quantity("1 A"), {"+": port.positive_terminal, "-": port.negative_terminal})
         )
@@ -355,7 +366,7 @@ def analyze_norton(circuit: Circuit, port: TheveninPort) -> NortonResult:
     # 1. Independent short-circuit analysis on active circuit
     c_sc = Circuit(name=f"{circuit.name}_sc")
     for c in circuit.components:
-        c_sc.add(Component(c.ref, c.type, c.value, dict(c.pins)))
+        c_sc.add(_copy_component(c))
     v_sc_ref = _next_ref(c_sc, "V")
     c_sc.add(
         Component(v_sc_ref, "V", parse_quantity("0 V"), {"+": port.positive_terminal, "-": port.negative_terminal})

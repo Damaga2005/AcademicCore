@@ -52,6 +52,16 @@ class DimensionalityError(ValueError):
     resistance)."""
 
 
+class CircularControlError(ValueError):
+    """Raised when dependent-source current control forms a dependency
+    cycle (e.g. F1 controls F2 while F2 controls F1, or a CCCS
+    controlling its own output): control-current resolution by
+    substitution cannot represent the loop. An INVALID-class model
+    error raised at problem build; the convenience solvers report it
+    in-band as INVALID. Acyclic control of any depth resolves fine;
+    voltage control never recurses (node pairs stamp directly)."""
+
+
 class NumericalSolveError(ValueError):
     """Raised for a solve that fails for reasons other than SINGULAR or
     INCONSISTENT classification (e.g. a malformed internal matrix shape).

@@ -21,9 +21,12 @@ COMPONENT_PINS = {
     "R": ("1", "2"), "C": ("1", "2"), "L": ("1", "2"),
     "V": ("+", "-"), "I": ("+", "-"),
     "D": ("A", "K"), "Q": ("C", "B", "E"),
+    # F8-E linear dependent sources (SPICE letters): output pins "+"/"-";
+    # control data lives in `parameters` (E/G: cp/cn nets, H/F: control_ref).
+    "E": ("+", "-"), "G": ("+", "-"), "H": ("+", "-"), "F": ("+", "-"),
 }
 
-_REF_RE = re.compile(r"^([RCLVIDQ])(\d+)$", re.IGNORECASE)
+_REF_RE = re.compile(r"^([RCLVIDQEGHF])(\d+)$", re.IGNORECASE)
 
 
 class CircuitError(ValueError):
@@ -32,8 +35,8 @@ class CircuitError(ValueError):
 
 @dataclass(frozen=True)
 class Component:
-    ref: str  # R1, C3, Q2… (type letter + number)
-    type: str  # R|C|L|V|I|D|Q
+    ref: str  # R1, C3, Q2, E1, G2… (type letter + number)
+    type: str  # R|C|L|V|I|D|Q|E|G|H|F (E/G/H/F: linear dependent sources)
     value: Quantity | None  # None for ideal/semiconductor placeholders
     pins: dict  # pin name -> net name
     parameters: dict = field(default_factory=dict)

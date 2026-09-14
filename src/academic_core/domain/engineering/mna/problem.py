@@ -8,7 +8,8 @@ independently testable/auditable (spec section 33).
 
 Unknowns: one node-voltage variable per non-reference net (sorted by net
 name for determinism), followed by one branch-current variable per ideal
-voltage source (sorted by component ref).
+voltage branch (independent V plus dependent E/H outputs, sorted by
+component ref).
 
 Sign conventions (documented once, used consistently everywhere in F8-B):
   * Resistor: current flows from pin "1" to pin "2"; I = (V1 - V2) / R.
@@ -36,18 +37,38 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from academic_core.domain.engineering.circuit import Circuit, Component
+from academic_core.domain.engineering.mna.dependent import (
+    DEPENDENT_TYPES,
+    VOLTAGE_BRANCH_TYPES,
+    check_control_cycles,
+    describe_dependents,
+    gain_fraction,
+    resolution_order,
+    validate_dependent_structure,
+)
 from academic_core.domain.engineering.mna.errors import (
+    CircularControlError,
     DimensionalityError,
     FloatingCircuitError,
     InvalidCircuitError,
     MissingReferenceError,
     UnsupportedElementError,
 )
-from academic_core.domain.engineering.units import CURRENT, RESISTANCE, VOLTAGE, Quantity
+from academic_core.domain.engineering.units import (
+    ADMITTANCE,
+    CURRENT,
+    DIMENSIONLESS,
+    RESISTANCE,
+    VOLTAGE,
+    Quantity,
+)
 
-SUPPORTED_TYPES = frozenset({"R", "V", "I"})
+SUPPORTED_TYPES = frozenset({"R", "V", "I", "E", "G", "H", "F"})
 
-_EXPECTED_DIMENSION = {"R": RESISTANCE, "V": VOLTAGE, "I": CURRENT}
+_EXPECTED_DIMENSION = {
+    "R": RESISTANCE, "V": VOLTAGE, "I": CURRENT,
+    "E": DIMENSIONLESS, "G": ADMITTANCE, "H": RESISTANCE, "F": DIMENSIONLESS,
+}
 
 
 def _to_fraction(q: Quantity) -> Fraction:
@@ -80,7 +101,8 @@ def _validate_components(circuit: Circuit) -> None:
         if c.type.upper() not in SUPPORTED_TYPES:
             raise UnsupportedElementError(
                 f"{c.ref}: component type {c.type!r} is NOT_SUPPORTED by the "
-                f"F8-B linear DC solver (domain: R, V, I only)"
+                f"F8-B linear DC solver (domain: R, V, I plus dependent "
+                f"E, G, H, F)"
             )
         if c.value is None:
             raise InvalidCircuitError(f"{c.ref}: missing required value")
@@ -92,6 +114,10 @@ def _validate_components(circuit: Circuit) -> None:
             )
         if c.type.upper() == "R" and c.value.to_base() <= 0:
             raise InvalidCircuitError(f"{c.ref}: resistance must be > 0, got {c.value.format()}")
+        if c.type.upper() in DEPENDENT_TYPES and not c.value.to_base().is_finite():
+            raise InvalidCircuitError(f"{c.ref}: non-finite gain {c.value.format()}")
+    validate_dependent_structure(circuit)
+    check_control_cycles(circuit)
 
 
 def _connected_nets(circuit: Circuit) -> dict[str, set[str]]:
@@ -137,7 +163,7 @@ class MNAProblem:
     ground: str
     nodes: tuple[str, ...]  # non-reference nets, sorted
     node_index: dict
-    vsource_refs: tuple[str, ...]  # sorted refs of V components
+    vsource_refs: tuple[str, ...]  # sorted refs of voltage branches (V, E, H)
     vsource_index: dict
     matrix: tuple
     rhs: tuple
@@ -161,7 +187,8 @@ def build_mna_problem(circuit: Circuit) -> MNAProblem:
     nodes = tuple(sorted(n for n in circuit.nets if n != ground))
     node_index = {n: i for i, n in enumerate(nodes)}
 
-    vsource_refs = tuple(sorted(c.ref for c in circuit.components if c.type.upper() == "V"))
+    vsource_refs = tuple(sorted(
+        c.ref for c in circuit.components if c.type.upper() in VOLTAGE_BRANCH_TYPES))
     n_nodes = len(nodes)
     vsource_index = {ref: n_nodes + j for j, ref in enumerate(vsource_refs)}
 
@@ -171,6 +198,76 @@ def build_mna_problem(circuit: Circuit) -> MNAProblem:
 
     def idx(net: str) -> int | None:
         return node_index.get(net)
+
+    by_ref = {c.ref.upper(): c for c in circuit.components}
+
+    def gain_of(c) -> Fraction:
+        return gain_fraction(c.value)
+
+    # Control-current linear forms over unknowns: ({net: coef}, {aux: coef},
+    # const), following D3/F8-B reconstructed branch-current conventions
+    # (pin1->pin2 for R, +->- aux unknown for V/E/H, -Is for I,
+    # -gm·ΔV for G, -β·Ictrl for F). Reported orientation throughout:
+    # H constraints (Vout = r·Irep) and F stamps (delivered +β·Irep
+    # into "+") both consume these reported forms. Cycles are excluded
+    # at validation; the active set below is defense in depth.
+    resolved: dict[str, tuple[dict, dict, Fraction]] = {}
+
+    def resolve_control(ref_upper: str, active: tuple[str, ...] = ()) -> tuple[dict, dict, Fraction]:
+        if ref_upper in resolved:
+            return resolved[ref_upper]
+        if ref_upper in active:
+            raise CircularControlError(
+                f"circular current control involving {ref_upper}")
+        target = by_ref[ref_upper]
+        t = target.type.upper()
+        if t in VOLTAGE_BRANCH_TYPES:
+            form = ({}, {target.ref: 1}, Fraction(0))
+        elif t == "R":
+            r = Fraction(target.value.to_base())
+            a, b = target.pins["1"], target.pins["2"]
+            form = ({a: Fraction(1) / r, b: -Fraction(1) / r}, {}, Fraction(0))
+        elif t == "I":
+            form = ({}, {}, -Fraction(target.value.to_base()))
+        elif t == "G":
+            gm = gain_of(target)
+            p = target.parameters
+            form = ({p["cp"]: -gm, p["cn"]: gm}, {}, Fraction(0))
+        elif t == "F":
+            beta = gain_of(target)
+            ctrl = str(target.parameters["control_ref"]).upper()
+            sub = resolve_control(ctrl, active + (ref_upper,))
+            form = (
+                {n: -beta * v for n, v in sub[0].items()},
+                {r: -beta * v for r, v in sub[1].items()},
+                -beta * sub[2],
+            )
+        else:
+            raise UnsupportedElementError(
+                f"{target.ref}: type {t!r} cannot carry control current")
+        resolved[ref_upper] = form
+        return form
+
+    for _ref in resolution_order(circuit):
+        resolve_control(_ref)
+
+    def apply_form(row: int, form, scale: Fraction, *, negate: bool) -> None:
+        """Add scale·form (or its negation) to a KCL/constraint row.
+
+        Variable coefficients take the row sign; the constant term keeps
+        the equation's right-hand side: KCL at "+" reads
+        ``other_leaving = +J`` (source delivers into "+"), at "-"
+        ``other_leaving = -J``. Same pattern for constraint rows
+        (``Vout - r·Ictrl = 0`` reads ``Vout = +r·Ictrl``).
+        """
+        sign = Fraction(-1) if negate else Fraction(1)
+        for net, coef in form[0].items():
+            j = idx(net)
+            if j is not None:
+                matrix[row][j] += sign * scale * coef
+        for ref, coef in form[1].items():
+            matrix[row][vsource_index[ref]] += sign * scale * coef
+        rhs[row] -= sign * scale * form[2]
 
     for c in circuit.components:
         t = c.type.upper()
@@ -202,6 +299,59 @@ def build_mna_problem(circuit: Circuit) -> MNAProblem:
                 matrix[im][k] -= 1
                 matrix[k][im] -= 1
             rhs[k] += vs_val
+        elif t == "E":
+            # VCVS: V(+) - V(-) - μ·(Vcp - Vcn) = 0, aux current like V.
+            mu = gain_of(c)
+            ip, im = idx(c.pins["+"]), idx(c.pins["-"])
+            k = vsource_index[c.ref]
+            if ip is not None:
+                matrix[ip][k] += 1
+                matrix[k][ip] += 1
+            if im is not None:
+                matrix[im][k] -= 1
+                matrix[k][im] -= 1
+            icp, icn = idx(c.parameters["cp"]), idx(c.parameters["cn"])
+            if icp is not None:
+                matrix[k][icp] -= mu
+            if icn is not None:
+                matrix[k][icn] += mu
+        elif t == "H":
+            # CCVS: V(+) - V(-) - r·Icontrol = 0, aux current like V.
+            r = gain_of(c)
+            ip, im = idx(c.pins["+"]), idx(c.pins["-"])
+            k = vsource_index[c.ref]
+            if ip is not None:
+                matrix[ip][k] += 1
+                matrix[k][ip] += 1
+            if im is not None:
+                matrix[im][k] -= 1
+                matrix[k][im] -= 1
+            form = resolve_control(str(c.parameters["control_ref"]).upper())
+            apply_form(k, form, r, negate=True)
+        elif t == "G":
+            # VCCS: J = gm·(Vcp - Vcn) delivered into "+" (I-convention).
+            gm = gain_of(c)
+            ip, im = idx(c.pins["+"]), idx(c.pins["-"])
+            icp, icn = idx(c.parameters["cp"]), idx(c.parameters["cn"])
+            if ip is not None:
+                if icp is not None:
+                    matrix[ip][icp] -= gm
+                if icn is not None:
+                    matrix[ip][icn] += gm
+            if im is not None:
+                if icp is not None:
+                    matrix[im][icp] += gm
+                if icn is not None:
+                    matrix[im][icn] -= gm
+        elif t == "F":
+            # CCCS: J = β·Icontrol delivered into "+" (I-convention).
+            beta = gain_of(c)
+            ip, im = idx(c.pins["+"]), idx(c.pins["-"])
+            form = resolve_control(str(c.parameters["control_ref"]).upper())
+            if ip is not None:
+                apply_form(ip, form, beta, negate=True)
+            if im is not None:
+                apply_form(im, form, beta, negate=False)
 
     return MNAProblem(
         circuit=circuit,

@@ -18,6 +18,8 @@ DIMENSIONLESS = (0, 0, 0, 0, 0, 0, 0)
 VOLTAGE = (1, 2, -3, -1, 0, 0, 0)
 CURRENT = (0, 0, 0, 1, 0, 0, 0)
 RESISTANCE = (1, 2, -3, -2, 0, 0, 0)
+# F8-D5 additive only: siemens = A/V = 1/ohm (conductance/admittance).
+ADMITTANCE = (-1, -2, 3, 2, 0, 0, 0)
 POWER = (1, 2, -3, 0, 0, 0, 0)
 CAPACITANCE = (-1, -2, 4, 2, 0, 0, 0)
 INDUCTANCE = (1, 2, -2, -2, 0, 0, 0)
@@ -29,7 +31,7 @@ LENGTH = (0, 1, 0, 0, 0, 0, 0)
 
 DIM_NAMES = {
     DIMENSIONLESS: "dimensionless", VOLTAGE: "voltage", CURRENT: "current",
-    RESISTANCE: "resistance", POWER: "power", CAPACITANCE: "capacitance",
+    RESISTANCE: "resistance", ADMITTANCE: "admittance", POWER: "power", CAPACITANCE: "capacitance",
     INDUCTANCE: "inductance", FREQUENCY: "frequency", TIME: "time",
     CHARGE: "charge", ENERGY: "energy", LENGTH: "length",
 }
@@ -43,12 +45,24 @@ _BASE_UNITS = {
     "W": (POWER, "1"), "F": (CAPACITANCE, "1"), "H": (INDUCTANCE, "1"),
     "Hz": (FREQUENCY, "1"), "s": (TIME, "1"), "C": (CHARGE, "1"),
     "J": (ENERGY, "1"), "m": (LENGTH, "1"),
+    # F8-D4 additive only: reactive (var) and apparent (VA) volt-ampere
+    # labels share the POWER dimension (same physics, distinct role labels;
+    # no new dimension, W behavior and ordering untouched).
+    "var": (POWER, "1"), "VA": (POWER, "1"),
+    # F8-D5 additive only: siemens, the SI unit of conductance/admittance
+    # (A/V = 1/ohm). Appended last so existing base-unit match order — and
+    # hence every previously valid parse — is untouched. NOTE: "mS"/"uS"/
+    # "nS" previously fell through to *seconds* ("ms" is milliseconds and
+    # stays so); they now correctly parse as millisiemens & co., which is
+    # the SI-correct reading. Pinned by D5 regression tests.
+    "S": (ADMITTANCE, "1"),
 }
 _ALIASES = {"Ω": "ohm", "Ω": "ohm", "Ωs": "ohm", "v": "V", "a": "A", "w": "W",
             "f": "F", "h": "H", "hz": "Hz", "HZ": "Hz", "sec": "s", "volt": "V",
             "volts": "V", "amp": "A", "amps": "A", "watt": "W", "watts": "W",
             "farad": "F", "henry": "H", "hertz": "Hz", "second": "s",
-            "seconds": "s", "coulomb": "C", "joule": "J", "ohms": "ohm"}
+            "seconds": "s", "coulomb": "C", "joule": "J", "ohms": "ohm",
+            "siemens": "S", "Siemens": "S"}
 
 
 class UnitError(ValueError):

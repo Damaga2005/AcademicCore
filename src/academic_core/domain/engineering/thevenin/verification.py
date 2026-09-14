@@ -18,6 +18,19 @@ from academic_core.domain.engineering.thevenin.result import LoadVerificationRes
 from academic_core.domain.engineering.units import Quantity, parse_quantity, parse_unit
 
 _VOLT = parse_unit("V")
+
+
+def _copy_component(c: Component) -> Component:
+    """Central derived-circuit copy (F8-E): preserves ref, type, value,
+    pins, parameters and metadata.
+
+    Control parameters of dependent sources (E/G/H/F) are physics
+    identity — every derived circuit (deactivation, prune, test,
+    short-circuit, load) must carry them, or Thevenin/Norton on active
+    networks silently computes the wrong circuit.
+    """
+    return Component(c.ref, c.type, c.value, dict(c.pins),
+                     dict(c.parameters), dict(c.metadata))
 _AMP = parse_unit("A")
 _OHM = parse_unit("ohm")
 
@@ -63,7 +76,7 @@ def verify_equivalent_with_loads(
         # 1. Attach load to original circuit non-destructively
         c_loaded = Circuit(name=f"{circuit.name}_load_{r_str}")
         for c in circuit.components:
-            c_loaded.add(Component(c.ref, c.type, c.value, dict(c.pins)))
+            c_loaded.add(_copy_component(c))
 
         load_ref = _next_ref(c_loaded, "R")
         c_loaded.add(

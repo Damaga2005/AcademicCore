@@ -587,16 +587,29 @@ def test_extensibility_custom_rule():
 
 
 def test_dependent_sources_canonical_scope():
-    """Verify that canonical F6 model only supports R, C, L, V, I, D, Q (no dependent sources)."""
+    """F6/F7-B8 scope for R/C/L/V/I/D/Q, extended by F8-E for E/G/H/F.
+
+    F8-E (VCVS/VCCS/CCVS/CCCS) deliberately reuses the F6 `Component`
+    model and registers the four dependent-source letters in
+    `COMPONENT_PINS` (spec F8-E section 5: "reuse F6 Component, do not
+    create a new component representation") instead of introducing a
+    parallel model. This test originally asserted their absence; F8-E's
+    declared scope makes that assertion obsolete, so it now asserts the
+    opposite (present, with output pins "+"/"-") while still confirming
+    that a malformed pin set (mixing in the R/L/C "1"/"2" pin scheme)
+    is rejected exactly like every other component type.
+    """
     from academic_core.domain.engineering.circuit import COMPONENT_PINS, CircuitError
 
     # Independent sources V and I are supported
     assert "V" in COMPONENT_PINS
     assert "I" in COMPONENT_PINS
 
-    # Dependent source letters (E, G, F, H) are not in canonical F6
+    # Dependent source letters (E, G, F, H) are canonical as of F8-E,
+    # with the same "+"/"-" output pin scheme as V/I.
     for dep_type in ("E", "G", "F", "H"):
-        assert dep_type not in COMPONENT_PINS
+        assert dep_type in COMPONENT_PINS
+        assert COMPONENT_PINS[dep_type] == ("+", "-")
         with pytest.raises(CircuitError):
             Component(f"{dep_type}1", dep_type, None, {"1": "in", "2": "out"})
 
