@@ -1330,3 +1330,110 @@ def test_perf_ac_scales():
         assert r.status == ACStatus.SOLVED, (n, r.diagnostics)
         assert dt < cap, (n, dt)
     print(f"\nF8-E AC perf seconds by N: {marks}")
+
+
+# -- audit closure: control-target matrix (§8 — pre-F8-F audit) -----------------
+# Every control-target kind exercised at least once (hand values below).
+
+def test_audit_h_controlled_by_e():
+    # Vx=5 (divider); E1 e-0 = 3*5 = 15. E1 sources 7.5mA INTO e (R3
+    # drains), so aux +->- current is -7.5mA; H1 = 100*(-0.0075) = -0.75V.
+    c = ckt("ahe", V_("V1", "10 V", "in", "0"), R_("R1", "1 kOhm", "in", "x"),
+            R_("R2", "1 kOhm", "x", "0"), E_("E1", "3", "e", "0", "x", "0"),
+            R_("R3", "2 kOhm", "e", "0"), H_("H1", "100 ohm", "out", "0", "E1"),
+            R_("R4", "1 kOhm", "out", "0"))
+    r = assert_dc_solved(solve_linear_dc(c))
+    v = dc_voltages(r)
+    assert v["x"] == Decimal("5")
+    assert v["e"] == Decimal("15")
+    assert v["out"] == Decimal("-0.75")
+
+
+def test_audit_f_controlled_by_e():
+    # Same front end; E1 sources 7.5mA INTO e (R3 drains to ground), so the
+    # aux +->- current is -7.5mA. F1 β=2: delivered 2*(-7.5mA) = -15mA
+    # into f -> Vf = -15V. Tests RECONSTRUCTED (not delivered) control.
+    c = ckt("afe", V_("V1", "10 V", "in", "0"), R_("R1", "1 kOhm", "in", "x"),
+            R_("R2", "1 kOhm", "x", "0"), E_("E1", "3", "e", "0", "x", "0"),
+            R_("R3", "2 kOhm", "e", "0"), F_("F1", "2", "f", "0", "E1"),
+            R_("R4", "1 kOhm", "f", "0"))
+    r = assert_dc_solved(solve_linear_dc(c))
+    assert dc_voltages(r)["f"] == Decimal("-15")
+
+
+def test_audit_h_controlled_by_h():
+    # I(R1) = 10mA; H1 = 100*0.01 = 1V. H1 sources 1mA INTO h (R2 drains),
+    # so aux +->- current is -1mA; H2 = 200*(-0.001) = -0.2V.
+    c = ckt("ahh", V_("V1", "10 V", "in", "0"), R_("R1", "1 kOhm", "in", "0"),
+            H_("H1", "100 ohm", "h", "0", "R1"), R_("R2", "1 kOhm", "h", "0"),
+            H_("H2", "200 ohm", "out", "0", "H1"), R_("R3", "1 kOhm", "out", "0"))
+    r = assert_dc_solved(solve_linear_dc(c))
+    v = dc_voltages(r)
+    assert v["h"] == Decimal("1")
+    assert v["out"] == Decimal("-0.2")
+
+
+def test_audit_f_controlled_by_h():
+    # Front end as above (I(H1) aux = -1mA); F1 β=3 ctrl H1: delivered
+    # 3*(-1mA) = -3mA into f; Rf 2k -> Vf = -6V.
+    c = ckt("afh", V_("V1", "10 V", "in", "0"), R_("R1", "1 kOhm", "in", "0"),
+            H_("H1", "100 ohm", "h", "0", "R1"), R_("R2", "1 kOhm", "h", "0"),
+            F_("F1", "3", "f", "0", "H1"), R_("R3", "2 kOhm", "f", "0"))
+    r = assert_dc_solved(solve_linear_dc(c))
+    assert dc_voltages(r)["f"] == Decimal("-6")
+
+
+def test_audit_h_controlled_by_independent_i():
+    # I1 delivers 5mA into a; Va = 10V. Reconstructed I(I1) = -5mA (+->-).
+    # H1 = 100 * (-0.005) = -0.5V. Tests the -Is control convention.
+    c = ckt("ahi", I_("I1", "5 mA", "a", "0"), R_("R1", "2 kOhm", "a", "0"),
+            H_("H1", "100 ohm", "out", "0", "I1"), R_("R2", "1 kOhm", "out", "0"))
+    r = assert_dc_solved(solve_linear_dc(c))
+    v = dc_voltages(r)
+    assert v["a"] == Decimal("10")
+    assert v["out"] == Decimal("-0.5")
+
+
+def test_audit_f_controlled_by_independent_i():
+    # F1 β=2 ctrl I1: delivered 2*(-5mA) = -10mA into f -> Vf = -10V.
+    c = ckt("afi", I_("I1", "5 mA", "a", "0"), R_("R1", "2 kOhm", "a", "0"),
+            F_("F1", "2", "f", "0", "I1"), R_("R2", "1 kOhm", "f", "0"))
+    r = assert_dc_solved(solve_linear_dc(c))
+    assert dc_voltages(r)["f"] == Decimal("-10")
+
+
+def test_audit_h_self_control_deterministic():
+    # H1 ctrl H1: Vout = 100*I(H1), KCL: Vout/1k + I(H1) = 0
+    # -> 1.1*Vout = 0 -> Vout = 0 SOLVED (self-control, no false cycle).
+    c = ckt("ahs", H_("H1", "100 ohm", "out", "0", "H1"),
+            R_("R1", "1 kOhm", "out", "0"))
+    r = assert_dc_solved(solve_linear_dc(c))
+    assert dc_voltages(r)["out"] == Decimal("0")
+
+
+def test_audit_ac_l_controlled_h():
+    # I(L1) = 10/(j*2π*1000*0.01) = -j*0.15915A; H = 100*I -> -j*15.915V.
+    import cmath
+    c = ckt("ahl", V_("V1", "10 V", "in", "0"), L_("L1", "10 mH", "in", "0"),
+            H_("H1", "100 ohm", "out", "0", "L1"), R_("R1", "1 kOhm", "out", "0"))
+    r = solve_ac(c, "1 kHz")
+    assert r.status == ACStatus.SOLVED, r.diagnostics
+    w = 2 * cmath.pi * 1000.0
+    ref = 100.0 * (10.0 / complex(0, w * 0.01))
+    got = next(n.phasor for n in r.node_voltages if n.node == "out")
+    assert abs(complex(float(got.re), float(got.im)) - ref) / abs(ref) <= 1e-9
+
+
+def test_audit_ac_c_controlled_f():
+    # I(C1) 1->2 = +j*6.283mA (reconstructed). F β=1: delivered J = -Irep
+    # convention... precisely: reported F = -β*Irep = -j*6.283mA (+->-);
+    # KCL at f: Vf/1k + (-j*6.283mA) = 0 -> Vf = +j*6.283V.
+    import cmath
+    c = ckt("acf", V_("V1", "10 V", "in", "0"), C_("C1", "1 uF", "in", "0"),
+            F_("F1", "1", "f", "0", "C1"), R_("R1", "1 kOhm", "f", "0"))
+    r = solve_ac(c, "1 kHz")
+    assert r.status == ACStatus.SOLVED, r.diagnostics
+    w = 2 * cmath.pi * 1000.0
+    ref = (complex(0, w * 1e-6) * 10.0) * 1000.0
+    got = next(n.phasor for n in r.node_voltages if n.node == "f")
+    assert abs(complex(float(got.re), float(got.im)) - ref) / abs(ref) <= 1e-9

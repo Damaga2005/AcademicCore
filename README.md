@@ -1,9 +1,55 @@
-# Academic Core
+# AcademicCore
 
-**Academic Engineering Environment / Academic OS for Windows — Fase 0 foundation.**
+Academic engineering core, currently focused on the **electronics linear-circuits engine** (phases F0–F8). Modular monolith (Python), deterministic engines, evidence-gated certification per phase gate in `docs/gates/`.
 
-Modular monolith · PySide6/Qt native · SQLite + CAS + FTS5/TF-IDF ·
-Evidence-gated AI (Ollama runtime) · PDF via isolated Stirling adapter.
+## Status vocabulary
+
+- **IMPLEMENTED** — code present in the working tree.
+- **VERIFIED** — covered by tests with independent oracles where applicable.
+- **BENCHMARKED** — measured (performance) with recorded numbers.
+- **CERTIFIED** — phase gate declares PASS/CERTIFIED with evidence.
+- **SIMULATED** — validated against the external ngspice 47 integration (not vendored).
+- **EXPERIMENTAL** — present but not certified.
+- **OUT OF SCOPE** — explicitly not part of any certified phase.
+
+## Phase ledger (working tree at `main`)
+
+| Phase | Capability | Status |
+|---|---|---|
+| F0 | Foundation: canonical model, MATRIX/ROADMAP, architecture docs/ADRs (no phase gate file) | IMPLEMENTED |
+| F1 | Identity, SQLite (no ORM), grading, schedules, validation UI | CERTIFIED (`GATE-F1.md`) |
+| F2 | Resources: CAS SHA-256, adapters, FTS5, Resources tab | CERTIFIED (`GATE-F2.md`) |
+| F3 | Document engine (AST/parsers/renderers/provenance) + PDF (pypdf native; Stirling external, optional) | CERTIFIED (`GATE-F3.md`) |
+| F4 | Academic management (tree CRUD, gradebook, queries, JSON I/O) | CERTIFIED (`GATE-F4.md`) |
+| F5 | Authoring engine (deterministic commands, undo/redo, validation, search) | CERTIFIED (`GATE-F5.md`) |
+| F6 | Engineering foundation (Decimal quantities/units/dimensions, equations, topology/netlists, persistence) | CERTIFIED (`GATE-F6.md`) |
+| F7-A | Electronics knowledge base | CERTIFIED (`GATE-F7A.md`) |
+| F7-B | Simulation suite (transient/AC/noise/Monte Carlo/GUM/structural); ngspice-backed | CERTIFIED (`GATE-F7B8.md`) |
+| F8-A | Electronics knowledge core (concepts/models/applicability; no semiconductors) | CERTIFIED (`GATE-F8A.md`) |
+| F8-B | General DC linear MNA solver (R, V, I + dependent E/G/H/F; exact rationals) | CERTIFIED (`GATE-F8B.md`) |
+| F8-C | General DC Thevenin/Norton (test-source method; active networks) | CERTIFIED (`GATE-F8C.md`) |
+| F8-D1 | Complex mathematics (exact + high-precision) | CERTIFIED (`GATE-F8D1.md`) |
+| F8-D2 | Complex linear solver | CERTIFIED (`GATE-F8D2.md`) |
+| F8-D3 | General AC MNA (steady-state phasors, peak, `e^(+jωt)`) | CERTIFIED (`GATE-F8D3.md`) |
+| F8-D4 | AC power (absorbed convention, Tellegen) | CERTIFIED (`GATE-F8D4.md`) |
+| F8-D5 | AC impedance/admittance/transfer/sweep (test-source method) | CERTIFIED (`GATE-F8D5.md`) |
+| F8-D6 | Log-frequency/Bode (dB, unwrap, cutoff brackets, bandwidth intervals) | CERTIFIED (`GATE-F8D6.md`) |
+| F8-D7 | General AC Thevenin/Norton | CERTIFIED (`GATE-F8D7.md`) |
+| F8-D8 | AC resonance & quality factor (bracket-only verdicts, energy-Q) | CERTIFIED (`GATE-F8D8.md`) |
+| F8-E | Linear dependent sources VCVS/VCCS/CCVS/CCCS (DC + AC + power + transfer + Thevenin/Norton) | CERTIFIED (`GATE-F8E.md`) |
+| ngspice 47 | EXTERNAL integration only (`ngspice_con.exe`, not vendored); comparison oracle, never authority | SIMULATED |
+| F8-F and beyond (op-amps, BJT/MOSFET, nonlinear, transient-nonlinear) | Not started | OUT OF SCOPE |
+
+Full suite (working tree): **1403 collected = 1401 passed + 2 skipped** (`pytest -p no:cacheprovider`; the 2 skips are the pre-existing reportlab skips). Per-phase evidence lives in each gate document; do not reuse older totals as evidence for the current tree.
+
+## Known limitations (certified scope boundaries)
+
+- The F6 netlist format covers basic structure only. Serialization/persistence of the E/G/H/F control parameters is out of scope: circuits with dependent sources are **not** netlist roundtrip-complete (`tests/test_f8e_netlist_limitation.py` pins this behavior).
+- DC excludes L/C by certified rule (F8-B domain is R/V/I/E/G/H/F).
+- `Component` is frozen at attribute level; contained `pins`/`parameters`/`metadata` dicts are never mutated by any engine (audited — see the KNOWN ARCHITECTURAL DEBT note on `Component` in `circuit.py`), but Python-level deep immutability is not enforced and no refactor is planned without a demonstrated defect.
+- ngspice current sources use the opposite reference direction to the academic I-convention (delivered INTO "+"); oracle decks apply the documented mapping. The academic model is authoritative.
+- F8-D8 reports resonance brackets/candidates, never interpolated resonance frequencies; energy-Q only where defined.
+- Only part of the working tree is committed to git (tracked: gates through F8-E, F8-E engine files, F8-E tests); the D1–D8 engine sources and phase tests live in the working tree (Syncthing-synced). Reproduce from the working tree, not from git objects alone.
 
 ## Quickstart (Windows)
 
@@ -11,66 +57,25 @@ Evidence-gated AI (Ollama runtime) · PDF via isolated Stirling adapter.
 python -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
 pytest -m "not migration"      # fast loop
-pytest                         # full incl. migration contract
+pytest -p no:cacheprovider     # full suite (evidence)
 python -m academic_core        # minimal native window (Qt)
 python -m academic_core --config=config.json
 ```
 
 Headless smoke: `$env:QT_QPA_PLATFORM="offscreen"; python -m academic_core`.
 
-## Tree
+## Tree (abridged)
 
+```text
+src/academic_core/  app.py  config/  domain/  storage/  engines/
+                    infrastructure/  application/
+src/academic_core/domain/engineering/
+                    circuit.py  units.py  mna/  thevenin/  ac/  math/
+                    simulation.py (ngspice-backed analyses)
+tests/  per-phase suites incl. test_f8b*, test_f8c*, test_f8d*,
+        test_f8e_dependent_sources.py, test_f8e_netlist_limitation.py
+docs/   architecture/  adr/ (x16)  migration/  domain/  security/
+        testing/  roadmap/  gates/ (F1–F8-E)  phase-reports/
 ```
-src/academic_core/  app.py(Qt validación)  config/  domain/  storage/
-                    engines/  infrastructure/  application/
-tests/ (174: + authoring, validation, service, roundtrip-F5, security-F5,
-        compat-F3, perf-F5, ui-authoring)
-docs/{architecture,adr×16,migration,domain,security,testing,roadmap,gates,
-     phase-reports,F4_ACADEMIC_MANAGEMENT.md,F5_AUTHORING_AUDIT.md,
-     F5_AUTHORING-DESIGN.md}
-```
 
-## Fase 5 (actual)
-Authoring Engine: comandos deterministas + undo/redo + lifecycle +
-versionado + validación + plantillas + búsqueda + links académicos +
-pestaña Authoring. AST F3 intacto (sin nodos nuevos). Gate:
-`docs/gates/GATE-F5.md`.
-
-## Fase 6 (actual)
-Engineering Foundation: Decimal quantities/units/dimensions, safe equations,
-deterministic calculations, circuit topology/netlists, persistence and a
-structured Engineering tab. Simulation is explicitly deferred to F7.
-Gate: `docs/gates/GATE-F6.md`.
-
-## Fase 4 (actual)
-Academic Management: árbol navegable, CRUD + borrado seguro, gradebook
-genérico (escalas/pesos/parciales) junto al motor F1, queries planning,
-import/export JSON, UI workspace. Gate: `docs/gates/GATE-F4.md`.
-
-## Fase 3 (actual)
-Document Engine (AST canónico, parsers HTML/MD con reuse del Conversor,
-renderers, provenance) + PDF Engine (native pypdf + Stirling opcional
-v2.14.3). Gate: `docs/gates/GATE-F3.md`. Licencias: Conversor MIT misma
-autoría; pypdf BSD; Stirling open-core externo (no vendored).
-
-## Fase 2 (actual)
-Resource Engine: CAS SHA-256 + adapters (file/md/html/pdf) + pipeline
-idempotente + versiones + provenance + FTS5 derivado + tab Resources.
-Gate: `docs/gates/GATE-F2.md`. Plan: `docs/phase-reports/F2-PLAN.md`.
-
-## Fase 1 (actual)
-Modelo canónico + IDs estables + SQLite sin ORM + grading Decimal equivalente
-+ horarios/conflictos + servicios + UI validación. Gate: `docs/gates/GATE-F1.md`.
-
-## Fase 0 answers (short)
-1-4. Inventories + MATRIX.md (MIGRATE/REWRITE/ADAPT/REFERENCE/REJECT/INVESTIGATE).
-5-6. `docs/architecture/` + 10 ADRs. 7. `domain/` dataclasses. 8. SQLite+CAS.
-9. `PDFService` + disabled `StirlingAdapter`. 10. Ollama backend + `AIRouter`.
-11. `ResourceProvider` (OneDrive opt-in). 12. Canonical `Circuit` + external
-backends. 13-14. Provenance on every entity; `source_latex` immutable + 100%
-retrieval gate. 15. Boundary test. 16. Single model, stable IDs. 17. Status
-labels. 18. Lazy/streaming/index-incrementalexternals. 19. Installer Phase 13.
-20. MATRIX + ROADMAP phase order.
-
-Sources are READ-ONLY references; no commits made to them. Migration happens
-selectively per MATRIX with origin/license/decision recorded.
+No claims beyond the gates above. No marketing metrics: every number here traces to a gate, a test run, or git history.

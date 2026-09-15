@@ -128,9 +128,13 @@ def check_control_cycles(circuit) -> None:
     """Raise `CircularControlError` on any current-control dependency cycle.
 
     Only F outputs force recursion (their current has no MNA unknown of
-    its own); every other control-target kind terminates resolution, so
-    only paths ending in F matter. A self-controlled F output is the
-    length-1 cycle.
+    its own); every other control-target kind terminates resolution
+    (aux unknown, constant, or inline expression), so only paths
+    through F matter. A self-controlled F output is the length-1 cycle.
+    NOTE (pre-F8-F audit fix): an H output controlling itself is NOT a
+    cycle — its own auxiliary unknown exists directly, resolution never
+    recurses. The check below therefore follows an edge only into F
+    targets, exactly mirroring the resolver.
     """
     refs = {c.ref.upper(): c.type.upper() for c in circuit.components}
     graph = control_graph(circuit)
@@ -142,13 +146,14 @@ def check_control_cycles(circuit) -> None:
         ctrl = graph.get(node)
         if ctrl is None:
             return
+        if target_kind(ctrl) != "F":
+            return  # terminal: aux unknown, constant, or inline form
         if ctrl in stack:
             cycle = " -> ".join(stack + (ctrl,))
             raise CircularControlError(
                 f"circular current control: {cycle} (control-current "
                 f"resolution by substitution cannot represent the loop)")
-        if target_kind(ctrl) == "F":
-            visit(ctrl, stack + (ctrl,))
+        visit(ctrl, stack + (ctrl,))
 
     for ref in sorted(graph):
         visit(ref, (ref,))

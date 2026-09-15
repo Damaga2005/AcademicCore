@@ -35,6 +35,14 @@ class CircuitError(ValueError):
 
 @dataclass(frozen=True)
 class Component:
+    # NOTE (pre-F8-F audit: KNOWN ARCHITECTURAL DEBT): frozen=True blocks
+    # attribute reassignment, NOT mutation of the contained pins /
+    # parameters / metadata dicts. Audited 2026-09: no engine in
+    # src/ mutates them (every derived circuit copies via dict(...),
+    # builders create new objects); Circuit.components/nets are mutated
+    # only by Circuit.add during construction. Do not treat frozen=True
+    # as deep immutability, and do not refactor without a demonstrated
+    # functional defect.
     ref: str  # R1, C3, Q2, E1, G2… (type letter + number)
     type: str  # R|C|L|V|I|D|Q|E|G|H|F (E/G/H/F: linear dependent sources)
     value: Quantity | None  # None for ideal/semiconductor placeholders
