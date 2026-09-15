@@ -341,6 +341,16 @@ def test_sing_tied_outputs_conflict_inconsistent():
     assert solve_linear_dc(c).status == SolveStatus.INCONSISTENT
 
 
+def test_sing_positive_feedback_contradictory_inconsistent():
+    # Positive-feedback loop driven against itself: O1 follows X (=5V by
+    # V1); O2 non-inverting x2 of out1 wants out2 = 10V; out2 tied to X.
+    # Constraint chain forces 5 = 10 -> INCONSISTENT (solver verdict).
+    c = ckt("pfc", V_("V1", "5 V", "x", "0"), O_("O1", "x", "o1", "o1"),
+            R_("R1", "1 kOhm", "o1", "0"), O_("O2", "o1", "m", "x"),
+            R_("R2", "1 kOhm", "m", "0"), R_("R3", "1 kOhm", "x", "m"))
+    assert solve_linear_dc(c).status == SolveStatus.INCONSISTENT
+
+
 def test_sing_output_shorted_to_ground_singular():
     # + driven 0V (constraint 0=0 ok); o tied to ground so Vout = 0;
     # i_o appears in no KCL row -> free -> consistent SINGULAR.
@@ -604,6 +614,18 @@ def test_f8c_norton_port_across_ideal_source_undefined():
     n = analyze_norton(c, TheveninPort("inn", "0"))
     assert n.status == EquivalentStatus.UNDEFINED
     assert "zero" in " ".join(n.diagnostics).lower()
+
+
+def test_f8c_two_opamps_cascade_port():
+    # Follower (10V) feeding a x-10 inverter: port (out2,0).
+    # Vth = -100; Rth = 0 (ideal output); Norton UNDEFINED.
+    c = ckt("thc", V_("V1", "10 V", "inn", "0"), O_("O1", "inn", "a", "a"),
+            R_("R1", "1 kOhm", "a", "0"), R_("R2", "10 kOhm", "a", "m"),
+            R_("R3", "100 kOhm", "m", "out2"), O_("O2", "0", "m", "out2"))
+    t = analyze_thevenin(c, TheveninPort("out2", "0"))
+    assert t.status in (EquivalentStatus.SOLVED, EquivalentStatus.VERIFIED), t.diagnostics
+    assert Fraction(t.v_th.to_base()) == Fraction(-100)
+    assert t.resistance_kind == ResistanceKind.ZERO
 
 
 def test_f8c_deactivation_keeps_opamp():

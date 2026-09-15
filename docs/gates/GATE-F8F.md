@@ -15,7 +15,7 @@
   (provenance), `ac/__init__.py` (nothing: no new names),
   `thevenin/port.py` (O membership), `thevenin/analysis.py` +
   `ac/impedance.py` (keep-rule docstrings only),
-  `tests/test_f8f_ideal_opamp.py` (72 tests), this doc.
+   `tests/test_f8f_ideal_opamp.py` (74 tests), this doc.
   D1/D2/D4/D6/D8 untouched; `units.py` untouched; no SQLite migration.
 - **Status**: implemented, self-verified, committed LOCAL ONLY (no push).
 
@@ -88,7 +88,8 @@ open-loop SINGULAR; positive-feedback loop SINGULAR (free latch) or
 unique-zero SOLVED; tied outputs same-drive SINGULAR (undetermined
 split) / conflicting-drive INCONSISTENT; output shorted to ground
 with consistent inputs SINGULAR (free `i_o`); short contradicting
-drive INCONSISTENT; zero-excitation SOLVED-zero. AC mirrors DC.
+drive INCONSISTENT; zero-excitation SOLVED-zero. Contradictory positive-feedback loop
+(forced 5 = 10 around the loop) INCONSISTENT. AC mirrors DC.
 
 ## 8. Classical benchmarks (tests, not domain)
 
@@ -250,8 +251,8 @@ ngspice has no ideal device (bounded macro only).
 
 ## 24. Regression
 
-Final full suite: collected **1475** = baseline 1403 + F8-F delta
-72; **1473 passed + 2 skipped** (same pre-existing reportlab),
+Final full suite: collected **1477** = baseline 1403 + F8-F delta
+74; **1475 passed + 2 skipped** (same pre-existing reportlab),
 0 failed. D1–D8 + F8-E suites all green; RVI digests/summaries
 proven byte-identical (`test_provenance_rvi_untouched`).
 
@@ -283,9 +284,8 @@ ref grammar; UI type lists and structural-analysis filters
 
 ## 27. Commit
 
-`feat(engineering): certify F8-F ideal opamps` (LOCAL ONLY —
-hash recorded in the final implementation report; no
-fetch/pull/push/PR/merge; origin untouched).
+`567d2f7 feat(engineering): certify F8-F ideal opamps` (LOCAL ONLY —
+no fetch/pull/push/PR/merge; origin untouched).
 
 ## 28. Final verdict
 

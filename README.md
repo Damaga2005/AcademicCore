@@ -26,7 +26,7 @@ Academic engineering core, currently focused on the **electronics linear-circuit
 | F7-A | Electronics knowledge base | CERTIFIED (`GATE-F7A.md`) |
 | F7-B | Simulation suite (transient/AC/noise/Monte Carlo/GUM/structural); ngspice-backed | CERTIFIED (`GATE-F7B8.md`) |
 | F8-A | Electronics knowledge core (concepts/models/applicability; no semiconductors) | CERTIFIED (`GATE-F8A.md`) |
-| F8-B | General DC linear MNA solver (R, V, I + dependent E/G/H/F; exact rationals) | CERTIFIED (`GATE-F8B.md`) |
+| F8-B | General DC linear MNA solver (R, V, I, E/G/H/F, O; exact rationals) | CERTIFIED (`GATE-F8B.md`) |
 | F8-C | General DC Thevenin/Norton (test-source method; active networks) | CERTIFIED (`GATE-F8C.md`) |
 | F8-D1 | Complex mathematics (exact + high-precision) | CERTIFIED (`GATE-F8D1.md`) |
 | F8-D2 | Complex linear solver | CERTIFIED (`GATE-F8D2.md`) |
@@ -38,14 +38,15 @@ Academic engineering core, currently focused on the **electronics linear-circuit
 | F8-D8 | AC resonance & quality factor (bracket-only verdicts, energy-Q) | CERTIFIED (`GATE-F8D8.md`) |
 | F8-E | Linear dependent sources VCVS/VCCS/CCVS/CCCS (DC + AC + power + transfer + Thevenin/Norton) | CERTIFIED (`GATE-F8E.md`) |
 | ngspice 47 | EXTERNAL integration only (`ngspice_con.exe`, not vendored); comparison oracle, never authority | SIMULATED |
-| F8-F and beyond (op-amps, BJT/MOSFET, nonlinear, transient-nonlinear) | Not started | OUT OF SCOPE |
+| F8-F | Ideal op-amps, nullor MNA (DC exact + AC phasor, solver-classified singularities) | CERTIFIED (`GATE-F8F.md`) |
+| Beyond F8-F (BJT/MOSFET, nonlinear, transient-nonlinear, finite-gain/GBW/saturation) | Not started | OUT OF SCOPE |
 
-Full suite (working tree): **1403 collected = 1401 passed + 2 skipped** (`pytest -p no:cacheprovider`; the 2 skips are the pre-existing reportlab skips). Per-phase evidence lives in each gate document; do not reuse older totals as evidence for the current tree.
+Full suite (working tree): **1477 collected = 1475 passed + 2 skipped** (`pytest -p no:cacheprovider`; the 2 skips are the pre-existing reportlab skips). Per-phase evidence lives in each gate document; do not reuse older totals as evidence for the current tree.
 
 ## Known limitations (certified scope boundaries)
 
 - The F6 netlist format covers basic structure only. Serialization/persistence of the E/G/H/F control parameters is out of scope: circuits with dependent sources are **not** netlist roundtrip-complete (`tests/test_f8e_netlist_limitation.py` pins this behavior).
-- DC excludes L/C by certified rule (F8-B domain is R/V/I/E/G/H/F).
+- DC excludes L/C by certified rule (F8-B domain is R/V/I/E/G/H/F/O).
 - `Component` is frozen at attribute level; contained `pins`/`parameters`/`metadata` dicts are never mutated by any engine (audited — see the KNOWN ARCHITECTURAL DEBT note on `Component` in `circuit.py`), but Python-level deep immutability is not enforced and no refactor is planned without a demonstrated defect.
 - ngspice current sources use the opposite reference direction to the academic I-convention (delivered INTO "+"); oracle decks apply the documented mapping. The academic model is authoritative.
 - F8-D8 reports resonance brackets/candidates, never interpolated resonance frequencies; energy-Q only where defined.
