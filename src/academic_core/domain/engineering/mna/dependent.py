@@ -50,8 +50,9 @@ from academic_core.domain.engineering.units import (
 DEPENDENT_TYPES = frozenset({"E", "G", "H", "F"})
 
 #: Component types whose branches carry an MNA auxiliary current
-#: unknown (independent V plus dependent E/H outputs).
-VOLTAGE_BRANCH_TYPES = frozenset({"V", "E", "H"})
+#: unknown (independent V, dependent E/H outputs, and F8-F ideal
+#: op-amp outputs).
+VOLTAGE_BRANCH_TYPES = frozenset({"V", "E", "H", "O"})
 
 #: Kind -> SPICE-style role.
 DEPENDENT_KIND = {"E": "VCVS", "G": "VCCS", "H": "CCVS", "F": "CCCS"}

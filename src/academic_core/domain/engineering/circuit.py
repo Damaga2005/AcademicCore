@@ -1,9 +1,11 @@
 """Circuit model (Phase 6): explicit pins/nets, topology validation, netlist.
 
 Component types: R, C, L, V (voltage source), I (current source), D (diode),
-Q (BJT transistor). Each declares its pins; nets are explicit objects.
-Netlist is deterministic (sorted by reference) and parseable back
-(roundtrip). No simulation here — netlist is representation only.
+Q (BJT transistor), E/G/H/F (F8-E linear dependent sources), O (F8-F ideal
+op-amp: pins "+", "-", "o"; no value, no parameters). Each declares its
+pins; nets are explicit objects. Netlist is deterministic (sorted by
+reference) and parseable back (roundtrip). No simulation here — netlist
+is representation only.
 """
 
 from __future__ import annotations
@@ -24,9 +26,12 @@ COMPONENT_PINS = {
     # F8-E linear dependent sources (SPICE letters): output pins "+"/"-";
     # control data lives in `parameters` (E/G: cp/cn nets, H/F: control_ref).
     "E": ("+", "-"), "G": ("+", "-"), "H": ("+", "-"), "F": ("+", "-"),
+    # F8-F ideal op-amp (nullor): "+" non-inverting input, "-" inverting
+    # input, "o" output. No value, no parameters — topology in pins only.
+    "O": ("+", "-", "o"),
 }
 
-_REF_RE = re.compile(r"^([RCLVIDQEGHF])(\d+)$", re.IGNORECASE)
+_REF_RE = re.compile(r"^([RCLVIDQEGHFO])(\d+)$", re.IGNORECASE)
 
 
 class CircuitError(ValueError):
@@ -43,8 +48,8 @@ class Component:
     # only by Circuit.add during construction. Do not treat frozen=True
     # as deep immutability, and do not refactor without a demonstrated
     # functional defect.
-    ref: str  # R1, C3, Q2, E1, G2… (type letter + number)
-    type: str  # R|C|L|V|I|D|Q|E|G|H|F (E/G/H/F: linear dependent sources)
+    ref: str  # R1, C3, Q2, E1, G2, O1… (type letter + number)
+    type: str  # R|C|L|V|I|D|Q|E|G|H|F|O (O: ideal op-amp, no value/params)
     value: Quantity | None  # None for ideal/semiconductor placeholders
     pins: dict  # pin name -> net name
     parameters: dict = field(default_factory=dict)

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from academic_core.domain.engineering.circuit import Circuit
 from academic_core.domain.engineering.thevenin.errors import InvalidPortError, UnsupportedCircuitError
 
-SUPPORTED_TYPES = frozenset({"R", "V", "I", "E", "G", "H", "F"})
+SUPPORTED_TYPES = frozenset({"R", "V", "I", "E", "G", "H", "F", "O"})
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class TheveninPort:
         1. Both terminals exist as nets in `circuit.nets`.
         2. Reference node ('0' or 'GND') exists in `circuit.nets`.
         3. All components belong to the F8-B linear DC domain
-           (R, V, I plus dependent E, G, H, F).
+           (R, V, I, dependent E, G, H, F, and ideal op-amp O).
         """
         if self.positive_terminal not in circuit.nets:
             raise InvalidPortError(
@@ -64,5 +64,5 @@ class TheveninPort:
             if c.type.upper() not in SUPPORTED_TYPES:
                 raise UnsupportedCircuitError(
                     f"{c.ref}: component type {c.type!r} is unsupported in F8-C linear DC domain "
-                    f"(R, V, I plus dependent E, G, H, F)"
+                    f"(R, V, I, dependent E, G, H, F, ideal op-amp O)"
                 )

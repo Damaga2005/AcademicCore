@@ -94,6 +94,8 @@ def _deactivate_sources(circuit: Circuit) -> Circuit:
       Thevenin/Norton on active networks requires the test-source
       method with dependents present; deactivating them would answer
       a different (passive) network.
+    - Ideal op-amps (O) KEPT active (same rule: the nullor constraint
+      is part of the network being measured).
     - Any other type passes through untouched; the downstream exact
       solve classifies it honestly (UNSUPPORTED/INVALID).
     """

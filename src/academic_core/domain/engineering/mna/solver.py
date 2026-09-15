@@ -222,6 +222,17 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
         # F8-E provenance (conditional: RVI summaries byte-identical).
         system_summary["dependent_sources"] = dep_graph.to_dict()
         system_summary["dependent_digest"] = dep_graph.digest
+    opamps = sorted(
+        ({"ref": c.ref, "in_p": c.pins["+"], "in_n": c.pins["-"],
+          "out": c.pins["o"]}
+         for c in problem.circuit.components if c.type.upper() == "O"),
+        key=lambda d: d["ref"],
+    )
+    if opamps:
+        # F8-F provenance (conditional: summaries without O byte-identical).
+        # The ideal op-amp is pins-only (no value/parameters); full
+        # identity is these three nets.
+        system_summary["ideal_opamps"] = opamps
 
     if outcome.status == LinearSolveStatus.SINGULAR:
         return AnalysisResult(
@@ -277,6 +288,9 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
         t = c.type.upper()
         if t in ("V", "E", "H"):
             value = solution[problem.vsource_index[c.ref]]
+        elif t == "O":
+            # Reconstructed output-leg current (out -> ground): -i_o.
+            value = -solution[problem.vsource_index[c.ref]]
         elif t == "R":
             value = (_node_v(c.pins["1"]) - _node_v(c.pins["2"]))
             value = value * Fraction(1) / Fraction(c.value.to_base())
@@ -316,6 +330,16 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
             v_p, v_m = _voltage_of(c.pins["+"], problem, solution), _voltage_of(c.pins["-"], problem, solution)
             i_branch = _eval_control(c.ref.upper())
             convention = "+->-: dependent output current (delivered into '+', so I = -J)"
+        elif t == "O":
+            # Ideal op-amp output leg (out -> ground return): the aux
+            # unknown i_o is delivered INTO "o", so the leg current
+            # leaving "o" is -i_o. Absorbed power P = Vout * (-i_o).
+            v_out = _voltage_of(c.pins["o"], problem, solution)
+            i_o = solution[problem.vsource_index[c.ref]]
+            v_p, v_m = v_out, Fraction(0)
+            v_drop = v_out
+            i_branch = -i_o
+            convention = "o->gnd (op-amp output leg; reported = -i_o)"
         else:  # I
             v_p, v_m = _voltage_of(c.pins["+"], problem, solution), _voltage_of(c.pins["-"], problem, solution)
             # Is is delivered into the external circuit at "+" (flows "-"
@@ -346,8 +370,14 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
                  "E": ("+", "-"), "G": ("+", "-"), "H": ("+", "-"), "F": ("+", "-")}
     net_kcl: dict[str, Fraction] = {net: Fraction(0) for net in problem.circuit.nets}
     for c in problem.circuit.components:
-        p1, p2 = pin_pairs[c.type.upper()]
         ib = exact_branch_currents[c.ref]
+        if c.type.upper() == "O":
+            # Output leg (o -> ground return): leaving "o" is ib (=-i_o);
+            # the return enters ground. Inputs draw nothing (no entries).
+            net_kcl[c.pins["o"]] += ib
+            net_kcl[problem.ground] -= ib
+            continue
+        p1, p2 = pin_pairs[c.type.upper()]
         net_kcl[c.pins[p1]] += ib
         net_kcl[c.pins[p2]] -= ib
     kcl_residual = max((abs(resid) for resid in net_kcl.values()), default=Fraction(0))

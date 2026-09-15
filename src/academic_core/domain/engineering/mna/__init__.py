@@ -23,8 +23,9 @@ Public API:
     build_mna_problem(circuit) -> MNAProblem   (diagnostic/audit layer)
 
 Domain covered: DC linear networks built from R (resistor), V (ideal
-independent voltage source), I (ideal independent current source) and
-linear dependent sources E (VCVS), G (VCCS), H (CCVS), F (CCCS) of
+independent voltage source), I (ideal independent current source),
+linear dependent sources E (VCVS), G (VCCS), H (CCVS), F (CCCS) and
+ideal op-amps O (nullor: V+ = V-, zero input current) of
 `academic_core.domain.engineering.circuit.Circuit`, with a
 single GND/reference net named "0" or "GND" (case-insensitive), of
 arbitrary topology and arbitrary node/branch count. Reactive elements

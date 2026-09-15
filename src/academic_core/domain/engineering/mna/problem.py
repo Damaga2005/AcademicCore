@@ -63,7 +63,7 @@ from academic_core.domain.engineering.units import (
     Quantity,
 )
 
-SUPPORTED_TYPES = frozenset({"R", "V", "I", "E", "G", "H", "F"})
+SUPPORTED_TYPES = frozenset({"R", "V", "I", "E", "G", "H", "F", "O"})
 
 _EXPECTED_DIMENSION = {
     "R": RESISTANCE, "V": VOLTAGE, "I": CURRENT,
@@ -101,9 +101,21 @@ def _validate_components(circuit: Circuit) -> None:
         if c.type.upper() not in SUPPORTED_TYPES:
             raise UnsupportedElementError(
                 f"{c.ref}: component type {c.type!r} is NOT_SUPPORTED by the "
-                f"F8-B linear DC solver (domain: R, V, I plus dependent "
-                f"E, G, H, F)"
+                f"F8-B linear DC solver (domain: R, V, I, dependent "
+                f"E, G, H, F, ideal op-amp O)"
             )
+        if c.type.upper() == "O":
+            # Ideal op-amp: parameter-free by design. A value or parameters
+            # would be silently ignored physics — reject loudly instead.
+            if c.value is not None:
+                raise InvalidCircuitError(
+                    f"{c.ref}: ideal op-amp takes no value, got "
+                    f"{c.value.format()}")
+            if c.parameters:
+                raise InvalidCircuitError(
+                    f"{c.ref}: ideal op-amp takes no parameters, got "
+                    f"{sorted(c.parameters)}")
+            continue
         if c.value is None:
             raise InvalidCircuitError(f"{c.ref}: missing required value")
         expected_dim = _EXPECTED_DIMENSION[c.type.upper()]
@@ -221,8 +233,12 @@ def build_mna_problem(circuit: Circuit) -> MNAProblem:
                 f"circular current control involving {ref_upper}")
         target = by_ref[ref_upper]
         t = target.type.upper()
-        if t in VOLTAGE_BRANCH_TYPES:
+        if t in VOLTAGE_BRANCH_TYPES and t != "O":
             form = ({}, {target.ref: 1}, Fraction(0))
+        elif t == "O":
+            # Op-amp output leg (out -> ground return) reports -i_o;
+            # control sees the reconstructed branch current.
+            form = ({}, {target.ref: -1}, Fraction(0))
         elif t == "R":
             r = Fraction(target.value.to_base())
             a, b = target.pins["1"], target.pins["2"]
@@ -328,6 +344,21 @@ def build_mna_problem(circuit: Circuit) -> MNAProblem:
                 matrix[k][im] -= 1
             form = resolve_control(str(c.parameters["control_ref"]).upper())
             apply_form(k, form, r, negate=True)
+        elif t == "O":
+            # Ideal op-amp (nullor): constraint V(in+) - V(in-) = 0 plus
+            # one auxiliary current unknown i_o delivered INTO the output
+            # node (KCL sum-leaving at "o": -i_o). Inputs draw nothing:
+            # no stamp entries at "+" / "-" is the exact open circuit.
+            # rhs[k] stays 0 (matrix/rhs start zeroed).
+            inp, inm = idx(c.pins["+"]), idx(c.pins["-"])
+            io = idx(c.pins["o"])
+            k = vsource_index[c.ref]
+            if io is not None:
+                matrix[io][k] -= 1
+            if inp is not None:
+                matrix[k][inp] += 1
+            if inm is not None:
+                matrix[k][inm] -= 1
         elif t == "G":
             # VCCS: J = gm·(Vcp - Vcn) delivered into "+" (I-convention).
             gm = gain_of(c)
