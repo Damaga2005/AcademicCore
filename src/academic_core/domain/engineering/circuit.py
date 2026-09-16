@@ -2,10 +2,11 @@
 
 Component types: R, C, L, V (voltage source), I (current source), D (diode),
 Q (BJT transistor), E/G/H/F (F8-E linear dependent sources), O (F8-F ideal
-op-amp: pins "+", "-", "o"; no value, no parameters). Each declares its
-pins; nets are explicit objects. Netlist is deterministic (sorted by
-reference) and parseable back (roundtrip). No simulation here — netlist
-is representation only.
+op-amp: pins "+", "-", "o"; no value, no parameters), T (F8-G ideal
+transformer: pins "1", "2" primary +/-, "3", "4" secondary +/-, dimensionless
+turns-ratio value, no parameters). Each declares its pins; nets are explicit
+objects. Netlist is deterministic (sorted by reference) and parseable back
+(roundtrip). No simulation here — netlist is representation only.
 """
 
 from __future__ import annotations
@@ -29,9 +30,12 @@ COMPONENT_PINS = {
     # F8-F ideal op-amp (nullor): "+" non-inverting input, "-" inverting
     # input, "o" output. No value, no parameters — topology in pins only.
     "O": ("+", "-", "o"),
+    # F8-G ideal transformer: "1"/"2" primary +/-, "3"/"4" secondary +/-.
+    # Turns ratio n lives in `value` (dimensionless); no parameters.
+    "T": ("1", "2", "3", "4"),
 }
 
-_REF_RE = re.compile(r"^([RCLVIDQEGHFO])(\d+)$", re.IGNORECASE)
+_REF_RE = re.compile(r"^([RCLVIDQEGHFOT])(\d+)$", re.IGNORECASE)
 
 
 class CircuitError(ValueError):
@@ -48,8 +52,8 @@ class Component:
     # only by Circuit.add during construction. Do not treat frozen=True
     # as deep immutability, and do not refactor without a demonstrated
     # functional defect.
-    ref: str  # R1, C3, Q2, E1, G2, O1… (type letter + number)
-    type: str  # R|C|L|V|I|D|Q|E|G|H|F|O (O: ideal op-amp, no value/params)
+    ref: str  # R1, C3, Q2, E1, G2, O1, T1… (type letter + number)
+    type: str  # R|C|L|V|I|D|Q|E|G|H|F|O|T (T: ideal transformer, n in value)
     value: Quantity | None  # None for ideal/semiconductor placeholders
     pins: dict  # pin name -> net name
     parameters: dict = field(default_factory=dict)

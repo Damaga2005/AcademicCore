@@ -158,6 +158,19 @@ from academic_core.domain.engineering.ac.topology import (
     cycle_basis,
     reference_net,
 )
+from academic_core.domain.engineering.ac.twoport import (
+    ENGINE_VERSION as TWOPORT_ENGINE_VERSION,
+    KINDS as TWOPORT_KINDS,
+    TwoPortCategory,
+    TwoPortEntry,
+    TwoPortError,
+    TwoPortParameters,
+    abcd_parameters,
+    g_parameters,
+    h_parameters,
+    y_parameters,
+    z_parameters,
+)
 
 __all__ = [
     "ENGINE_VERSION",
@@ -277,6 +290,17 @@ __all__ = [
     "quality_from_bandwidth",
     "scan_port_equivalents",
     "scan_resonance",
+    "TWOPORT_ENGINE_VERSION",
+    "TWOPORT_KINDS",
+    "TwoPortCategory",
+    "TwoPortEntry",
+    "TwoPortError",
+    "TwoPortParameters",
+    "abcd_parameters",
+    "g_parameters",
+    "h_parameters",
+    "y_parameters",
+    "z_parameters",
     "check_connected",
     "cycle_basis",
     "reference_net",

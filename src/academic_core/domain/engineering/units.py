@@ -227,6 +227,10 @@ class Quantity:
         s = format(v, "f")
         if "." in s:
             s = s.rstrip("0").rstrip(".")
+        if self.unit.dimension == DIMENSIONLESS:
+            # Bare number: a "1" suffix would not parse back (F8-G: "2"
+            # must not serialize as "21").
+            return s
         return f"{s}{self.unit.prefix}{self.unit.base}"
 
 

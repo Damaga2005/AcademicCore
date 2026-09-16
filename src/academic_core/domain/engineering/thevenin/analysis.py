@@ -96,6 +96,8 @@ def _deactivate_sources(circuit: Circuit) -> Circuit:
       a different (passive) network.
     - Ideal op-amps (O) KEPT active (same rule: the nullor constraint
       is part of the network being measured).
+    - Ideal transformers (T) KEPT active (same rule: the turns-ratio
+      constraints are part of the network being measured).
     - Any other type passes through untouched; the downstream exact
       solve classifies it honestly (UNSUPPORTED/INVALID).
     """

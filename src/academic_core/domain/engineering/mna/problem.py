@@ -63,11 +63,12 @@ from academic_core.domain.engineering.units import (
     Quantity,
 )
 
-SUPPORTED_TYPES = frozenset({"R", "V", "I", "E", "G", "H", "F", "O"})
+SUPPORTED_TYPES = frozenset({"R", "V", "I", "E", "G", "H", "F", "O", "T"})
 
 _EXPECTED_DIMENSION = {
     "R": RESISTANCE, "V": VOLTAGE, "I": CURRENT,
     "E": DIMENSIONLESS, "G": ADMITTANCE, "H": RESISTANCE, "F": DIMENSIONLESS,
+    "T": DIMENSIONLESS,
 }
 
 
@@ -102,7 +103,7 @@ def _validate_components(circuit: Circuit) -> None:
             raise UnsupportedElementError(
                 f"{c.ref}: component type {c.type!r} is NOT_SUPPORTED by the "
                 f"F8-B linear DC solver (domain: R, V, I, dependent "
-                f"E, G, H, F, ideal op-amp O)"
+                f"E, G, H, F, ideal op-amp O, ideal transformer T)"
             )
         if c.type.upper() == "O":
             # Ideal op-amp: parameter-free by design. A value or parameters
@@ -116,6 +117,14 @@ def _validate_components(circuit: Circuit) -> None:
                     f"{c.ref}: ideal op-amp takes no parameters, got "
                     f"{sorted(c.parameters)}")
             continue
+        if c.type.upper() == "T":
+            # Ideal transformer: turns ratio n in `value` (dimensionless),
+            # no parameters. n = 0/negative allowed (degenerate/inverting);
+            # only finiteness is required.
+            if c.parameters:
+                raise InvalidCircuitError(
+                    f"{c.ref}: ideal transformer takes no parameters, got "
+                    f"{sorted(c.parameters)}")
         if c.value is None:
             raise InvalidCircuitError(f"{c.ref}: missing required value")
         expected_dim = _EXPECTED_DIMENSION[c.type.upper()]
@@ -128,6 +137,9 @@ def _validate_components(circuit: Circuit) -> None:
             raise InvalidCircuitError(f"{c.ref}: resistance must be > 0, got {c.value.format()}")
         if c.type.upper() in DEPENDENT_TYPES and not c.value.to_base().is_finite():
             raise InvalidCircuitError(f"{c.ref}: non-finite gain {c.value.format()}")
+        if c.type.upper() == "T" and not c.value.to_base().is_finite():
+            raise InvalidCircuitError(
+                f"{c.ref}: non-finite turns ratio {c.value.format()}")
     validate_dependent_structure(circuit)
     check_control_cycles(circuit)
 
@@ -176,13 +188,14 @@ class MNAProblem:
     nodes: tuple[str, ...]  # non-reference nets, sorted
     node_index: dict
     vsource_refs: tuple[str, ...]  # sorted refs of voltage branches (V, E, H)
-    vsource_index: dict
+    vsource_index: dict  # ...plus ideal-transformer leg keys "T1:1"/"T1:2"
     matrix: tuple
     rhs: tuple
+    tx_leg_refs: tuple[str, ...] = ()  # sorted T leg keys, 2 aux cols each
 
     @property
     def size(self) -> int:
-        return len(self.nodes) + len(self.vsource_refs)
+        return len(self.nodes) + len(self.vsource_refs) + len(self.tx_leg_refs)
 
 
 def build_mna_problem(circuit: Circuit) -> MNAProblem:
@@ -201,10 +214,21 @@ def build_mna_problem(circuit: Circuit) -> MNAProblem:
 
     vsource_refs = tuple(sorted(
         c.ref for c in circuit.components if c.type.upper() in VOLTAGE_BRANCH_TYPES))
+    # Ideal-transformer leg keys ("T1:1" primary, "T1:2" secondary) share
+    # the vsource aux namespace: each leg owns exactly one MNA current
+    # unknown, allocated deterministically after the single-aux refs.
+    # F8-E resolve_control/apply_form and F8-C i_v_map address aux unknowns
+    # exclusively through vsource_index, so legs compose without new fields.
+    tx_leg_refs = tuple(sorted(
+        f"{c.ref}:{leg}" for c in circuit.components
+        for leg in (1, 2) if c.type.upper() == "T"))
     n_nodes = len(nodes)
     vsource_index = {ref: n_nodes + j for j, ref in enumerate(vsource_refs)}
+    tx_index = {ref: n_nodes + len(vsource_refs) + j
+                for j, ref in enumerate(tx_leg_refs)}
+    vsource_index.update(tx_index)
 
-    size = n_nodes + len(vsource_refs)
+    size = n_nodes + len(vsource_refs) + len(tx_leg_refs)
     matrix = [[Fraction(0) for _ in range(size)] for _ in range(size)]
     rhs = [Fraction(0) for _ in range(size)]
 
@@ -383,6 +407,35 @@ def build_mna_problem(circuit: Circuit) -> MNAProblem:
                 apply_form(ip, form, beta, negate=True)
             if im is not None:
                 apply_form(im, form, beta, negate=False)
+        elif t == "T":
+            # Ideal transformer (turns ratio n): aux i1 = current 1->2,
+            # aux i2 = current 3->4 (both leaving their "+" pin, exactly
+            # like a V branch aux). Constraints: V(3)-V(4)-n(V(1)-V(2))
+            # = 0 on row k1, and I1+n·I2 = 0 on row k2. Both rows/cols
+            # keep the matrix square (+2 unknowns, +2 equations).
+            n = Fraction(c.value.to_base())
+            p1, p2 = idx(c.pins["1"]), idx(c.pins["2"])
+            s1, s2 = idx(c.pins["3"]), idx(c.pins["4"])
+            k1 = vsource_index[f"{c.ref}:1"]
+            k2 = vsource_index[f"{c.ref}:2"]
+            if p1 is not None:
+                matrix[p1][k1] += 1
+            if p2 is not None:
+                matrix[p2][k1] -= 1
+            if s1 is not None:
+                matrix[s1][k2] += 1
+            if s2 is not None:
+                matrix[s2][k2] -= 1
+            if s1 is not None:
+                matrix[k1][s1] += 1
+            if s2 is not None:
+                matrix[k1][s2] -= 1
+            if p1 is not None:
+                matrix[k1][p1] -= n
+            if p2 is not None:
+                matrix[k1][p2] += n
+            matrix[k2][k1] += 1
+            matrix[k2][k2] += n
 
     return MNAProblem(
         circuit=circuit,
@@ -393,4 +446,5 @@ def build_mna_problem(circuit: Circuit) -> MNAProblem:
         vsource_index=vsource_index,
         matrix=tuple(tuple(row) for row in matrix),
         rhs=tuple(rhs),
+        tx_leg_refs=tx_leg_refs,
     )

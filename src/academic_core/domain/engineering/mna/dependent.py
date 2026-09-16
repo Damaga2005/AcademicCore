@@ -113,6 +113,16 @@ def validate_dependent_structure(circuit) -> None:
                 raise InvalidCircuitError(
                     f"{c.ref}: control_ref {ctrl!r} names no component of "
                     f"circuit {circuit.name!r}")
+            if refs[ctrl.upper()].type.upper() == "T":
+                # An ideal transformer carries TWO winding currents, so a
+                # single control_ref is ambiguous (primary or secondary?).
+                # Reject loudly instead of guessing; leg refs ("T1:1")
+                # are branch records, not components, hence also invalid
+                # here. Documented F8-G limitation.
+                raise InvalidCircuitError(
+                    f"{c.ref}: control_ref {ctrl!r} names an ideal "
+                    f"transformer, which has two winding currents — H/F "
+                    f"control by transformer is not supported")
 
 
 def control_graph(circuit) -> dict[str, str]:

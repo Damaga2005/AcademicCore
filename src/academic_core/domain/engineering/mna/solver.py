@@ -233,6 +233,17 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
         # The ideal op-amp is pins-only (no value/parameters); full
         # identity is these three nets.
         system_summary["ideal_opamps"] = opamps
+    xfmrs = sorted(
+        ({"ref": c.ref, "p1": c.pins["1"], "p2": c.pins["2"],
+          "s1": c.pins["3"], "s2": c.pins["4"],
+          "n": str(c.value.to_base())}
+         for c in problem.circuit.components if c.type.upper() == "T"),
+        key=lambda d: d["ref"],
+    )
+    if xfmrs:
+        # F8-G provenance (conditional: summaries without T byte-identical).
+        # Identity is four nets plus the turns ratio from the digest.
+        system_summary["ideal_transformers"] = xfmrs
 
     if outcome.status == LinearSolveStatus.SINGULAR:
         return AnalysisResult(
@@ -340,6 +351,26 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
             v_drop = v_out
             i_branch = -i_o
             convention = "o->gnd (op-amp output leg; reported = -i_o)"
+        elif t == "T":
+            # Ideal transformer: two physical winding legs, reported
+            # 1->2 (primary) and 3->4 (secondary) straight from the aux
+            # unknowns. Absorbed power per leg sums to exactly zero for
+            # the ideal device (V1·I1 + V2·I2 = 0 by the constraints).
+            v1 = _voltage_of(c.pins["1"], problem, solution) - _voltage_of(c.pins["2"], problem, solution)
+            v2 = _voltage_of(c.pins["3"], problem, solution) - _voltage_of(c.pins["4"], problem, solution)
+            i1 = solution[problem.vsource_index[f"{c.ref}:1"]]
+            i2 = solution[problem.vsource_index[f"{c.ref}:2"]]
+            for leg, vv, ii in (("1", v1, i1), ("2", v2, i2)):
+                pw = vv * ii
+                total_power += pw
+                exact_branch_currents[f"{c.ref}:{leg}"] = ii
+                branch_currents.append(
+                    BranchCurrent(ref=f"{c.ref}:{leg}", current=Quantity(_fraction_to_decimal(ii), _AMP),
+                                  convention=f"winding {leg} (1->2 primary, 3->4 secondary): aux current"))
+                element_powers.append(
+                    ElementPower(ref=f"{c.ref}:{leg}", power=Quantity(_fraction_to_decimal(pw), _WATT),
+                                 absorbed=pw >= 0))
+            continue
         else:  # I
             v_p, v_m = _voltage_of(c.pins["+"], problem, solution), _voltage_of(c.pins["-"], problem, solution)
             # Is is delivered into the external circuit at "+" (flows "-"
@@ -370,13 +401,23 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
                  "E": ("+", "-"), "G": ("+", "-"), "H": ("+", "-"), "F": ("+", "-")}
     net_kcl: dict[str, Fraction] = {net: Fraction(0) for net in problem.circuit.nets}
     for c in problem.circuit.components:
-        ib = exact_branch_currents[c.ref]
         if c.type.upper() == "O":
+            ib = exact_branch_currents[c.ref]
             # Output leg (o -> ground return): leaving "o" is ib (=-i_o);
             # the return enters ground. Inputs draw nothing (no entries).
             net_kcl[c.pins["o"]] += ib
             net_kcl[problem.ground] -= ib
             continue
+        if c.type.upper() == "T":
+            # Two winding legs: 1->2 carries i1, 3->4 carries i2.
+            i1 = exact_branch_currents[f"{c.ref}:1"]
+            i2 = exact_branch_currents[f"{c.ref}:2"]
+            net_kcl[c.pins["1"]] += i1
+            net_kcl[c.pins["2"]] -= i1
+            net_kcl[c.pins["3"]] += i2
+            net_kcl[c.pins["4"]] -= i2
+            continue
+        ib = exact_branch_currents[c.ref]
         p1, p2 = pin_pairs[c.type.upper()]
         net_kcl[c.pins[p1]] += ib
         net_kcl[c.pins[p2]] -= ib
