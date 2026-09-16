@@ -123,6 +123,16 @@ def validate_dependent_structure(circuit) -> None:
                     f"{c.ref}: control_ref {ctrl!r} names an ideal "
                     f"transformer, which has two winding currents — H/F "
                     f"control by transformer is not supported")
+            if refs[ctrl.upper()].type.upper() == "D":
+                # A diode current is a NONLINEAR function of its branch
+                # voltage, so it cannot inhabit a linear control form.
+                # Reject loudly instead of linearizing silently at an
+                # unknown point. Documented F8-H limitation (same
+                # safety policy as the transformer rule above).
+                raise InvalidCircuitError(
+                    f"{c.ref}: control_ref {ctrl!r} names a diode, whose "
+                    f"current is nonlinear in its branch voltage — H/F "
+                    f"control by diode is not supported")
 
 
 def control_graph(circuit) -> dict[str, str]:

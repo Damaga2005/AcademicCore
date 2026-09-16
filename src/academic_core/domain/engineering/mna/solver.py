@@ -208,6 +208,17 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
         return AnalysisResult(status=SolveStatus.UNSUPPORTED, diagnostics=(str(exc),))
     except _INVALID_ERRORS as exc:
         return AnalysisResult(status=SolveStatus.INVALID, diagnostics=(str(exc),))
+    if any(c.type.upper() == "D" for c in problem.circuit.components):
+        # Diodes carry no linear stamp (F8-H): solving the unstamped
+        # system would silently drop the diode. The linear solver
+        # reports UNSUPPORTED (same status as before F8-H admitted D
+        # to validation); use solve_nonlinear_dc instead.
+        return AnalysisResult(
+            status=SolveStatus.UNSUPPORTED,
+            diagnostics=("diode D has no linear stamp: DC operating point "
+                         "needs solve_nonlinear_dc (F8-H), not the linear "
+                         "solver",),
+        )
 
     outcome = solve_exact([list(row) for row in problem.matrix], list(problem.rhs))
 

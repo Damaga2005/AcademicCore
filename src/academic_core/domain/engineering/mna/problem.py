@@ -91,7 +91,7 @@ def _reference_net(circuit: Circuit) -> str:
     return candidates[0]
 
 
-def _validate_components(circuit: Circuit) -> None:
+def _validate_components(circuit: Circuit, *, allow_diodes: bool = False) -> None:
     if not circuit.components:
         raise InvalidCircuitError(f"circuit {circuit.name!r} has no components")
     seen_refs: set[str] = set()
@@ -99,10 +99,26 @@ def _validate_components(circuit: Circuit) -> None:
         if c.ref.upper() in seen_refs:
             raise InvalidCircuitError(f"duplicate reference: {c.ref}")
         seen_refs.add(c.ref.upper())
+        if c.type.upper() == "D":
+            if not allow_diodes:
+                raise UnsupportedElementError(
+                    f"{c.ref}: component type 'D' is NOT_SUPPORTED by the "
+                    f"F8-B linear DC solver (domain: R, V, I, dependent "
+                    f"E, G, H, F, ideal op-amp O, ideal transformer T)"
+                )
+            if c.value is not None:
+                raise InvalidCircuitError(
+                    f"{c.ref}: diode takes no value, got "
+                    f"{c.value.format()}")
+            from academic_core.domain.engineering.mna.diode import (
+                extract_diode_params,
+            )
+            extract_diode_params(c)
+            continue
         if c.type.upper() not in SUPPORTED_TYPES:
             raise UnsupportedElementError(
                 f"{c.ref}: component type {c.type!r} is NOT_SUPPORTED by the "
-                f"F8-B linear DC solver (domain: R, V, I, dependent "
+                f"DC solver (domain: R, V, I, dependent "
                 f"E, G, H, F, ideal op-amp O, ideal transformer T)"
             )
         if c.type.upper() == "O":
@@ -198,14 +214,14 @@ class MNAProblem:
         return len(self.nodes) + len(self.vsource_refs) + len(self.tx_leg_refs)
 
 
-def build_mna_problem(circuit: Circuit) -> MNAProblem:
+def build_mna_problem(circuit: Circuit, *, allow_diodes: bool = False) -> MNAProblem:
     """Validate `circuit` and assemble its MNA `A x = z` system.
 
     Raises `InvalidCircuitError`, `UnsupportedElementError`,
     `DimensionalityError`, `MissingReferenceError` or `FloatingCircuitError`
     for any circuit outside F8-B's declared domain. Never proceeds silently.
     """
-    _validate_components(circuit)
+    _validate_components(circuit, allow_diodes=allow_diodes)
     ground = _reference_net(circuit)
     _check_reachability(circuit, ground)
 
@@ -436,6 +452,13 @@ def build_mna_problem(circuit: Circuit) -> MNAProblem:
                 matrix[k1][p2] += n
             matrix[k2][k1] += 1
             matrix[k2][k2] += n
+        elif t == "D":
+            # Shockley diode (F8-H): NO linear stamp. The diode current
+            # is a nonlinear function of its branch voltage, so it
+            # cannot inhabit the (A0, b0) linear system; the Newton
+            # layer (mna.nonlinear) adds the companion stamp per
+            # iterate. Explicit no-op (never silent fall-through).
+            pass
 
     return MNAProblem(
         circuit=circuit,
