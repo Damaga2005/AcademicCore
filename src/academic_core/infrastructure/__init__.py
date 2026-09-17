@@ -1,3 +1,4 @@
+from academic_core.infrastructure.assessment import AssessmentRepository
 from academic_core.infrastructure.authoring import AuthoringStore
 from academic_core.infrastructure.engineering import EngineeringRepository
 from academic_core.infrastructure.ngspice import (
@@ -19,7 +20,7 @@ from academic_core.infrastructure.resources import FtsResourceIndexer, SqliteRes
 __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "GradingRepository", "IntegrityError",
            "PlanningRepository", "StudyRepository",
-           "AuthoringStore", "EngineeringRepository",
+           "AuthoringStore", "EngineeringRepository", "AssessmentRepository",
            "NgSpiceBackend", "NgSpiceDiscovery", "RuntimeInfo", "SimulationExecution", "HEALTH_NETLIST",
            "parse_ngspice_op", "parse_ngspice_output",
            "BlobNotFound", "CorruptBlob", "FileBlobStore", "TooLarge",

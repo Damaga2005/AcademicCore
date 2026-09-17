@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from academic_core.application.academic_io import AcademicIO
+from academic_core.application.assessment import AssessmentService
 from academic_core.application.authoring import AuthoringService
 from academic_core.application.backup import BackupService
 from academic_core.application.documents import DocumentService
@@ -21,7 +22,7 @@ from academic_core.application.services import (
 )
 from academic_core.config import Settings
 from academic_core.infrastructure import (
-    AcademicRepository, AuthoringStore, Database, EngineeringRepository,
+    AcademicRepository, AssessmentRepository, AuthoringStore, Database, EngineeringRepository,
     FileBlobStore, FtsResourceIndexer, GradebookRepository, GradingRepository,
     PlanningRepository, SqliteResourceRecords, StudyRepository,
 )
@@ -65,6 +66,8 @@ class AcademicApp:
             autosave_dir=Path(settings.storage.location) / "autosave")
         self.engineering = EngineeringService(EngineeringRepository(self.db),
                                               self.authoring_store)
+        self.assessment_repo = AssessmentRepository(self.db)
+        self.assessment = AssessmentService(repo=self.assessment_repo)
         from academic_core.pdf.stirling import StirlingRuntime
         self.stirling = StirlingRuntime(settings.tools.stirling_url)
 

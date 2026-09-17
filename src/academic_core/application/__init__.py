@@ -4,6 +4,7 @@ from academic_core.application.ingest import IngestReport, IngestionService, Sec
 from academic_core.application.search import Hit, SearchService, SimpleSearchService, norm
 from academic_core.application.security import AppLock
 from academic_core.application.academic_io import AcademicIO, ImportError_
+from academic_core.application.assessment import AssessmentService, item_from_formula
 from academic_core.application.authoring import (
     AuthoringService, SaveReport, canonical_json, extract_text,
 )
@@ -22,4 +23,4 @@ __all__ = ["AcademicService", "ApplicationError", "GradingService", "ScheduleSer
            "AcademicIO", "ImportError_", "AcademicApp", "AcademicQueries",
            "DeadlineView", "ResultsService",
            "AuthoringService", "SaveReport", "canonical_json", "extract_text",
-           "EngineeringService"]
+           "EngineeringService", "AssessmentService", "item_from_formula"]

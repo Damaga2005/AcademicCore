@@ -18,7 +18,8 @@ _MIGRATIONS = ("001_academic.sql", "002_grading.sql",
                "003_planning.sql", "004_study.sql",
                "005_resources.sql", "006_fts.sql",
                "007_documents.sql", "008_academic_f4.sql",
-               "009_authoring.sql", "010_engineering.sql")
+               "009_authoring.sql", "010_engineering.sql",
+               "011_assessment.sql")
 
 
 class Database:

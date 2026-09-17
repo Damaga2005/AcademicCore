@@ -43,6 +43,8 @@ _PATTERNS = {
     "project": re.compile(rf"^project:{SLUG}:p:\d{{5}}$"),
     "exam": re.compile(rf"^exam:{SLUG}:e:\d{{5}}$"),
     "task": re.compile(rf"^task:{SLUG}:task:\d{{5}}$"),
+    "assessment": re.compile(rf"^assessment:{SLUG}:as:\d{{5}}$"),
+    "session": re.compile(rf"^session:{SLUG}:sess:\d{{5}}$"),
 }
 
 KINDS = tuple(_PATTERNS)
@@ -51,7 +53,7 @@ KINDS = tuple(_PATTERNS)
 _SCOPED = {
     "topic": "t", "concept": "c", "formula": "f", "resource": "r",
     "lab": "lab", "assignment": "a", "project": "p", "exam": "e",
-    "task": "task",
+    "task": "task", "assessment": "as", "session": "sess",
 }
 
 
