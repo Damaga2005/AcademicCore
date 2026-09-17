@@ -84,6 +84,10 @@ def hp_solve(
     aug: list[list[DecimalComplex]] = [list(a2[i]) + [b2[i]] for i in range(n)]
     initial_sq = _max_entry_sqmod(a2)
     growth_sq = initial_sq
+    for e in b2:
+        m = e.squared_modulus()
+        if m > growth_sq:
+            growth_sq = m
     pivot_row_of_col: dict[int, int] = {}
     pivot_sqmods: list[Decimal] = []
     row = 0
@@ -101,17 +105,20 @@ def hp_solve(
         aug[row], aug[best] = aug[best], aug[row]
         piv = aug[row][col]
         aug[row] = [v / piv for v in aug[row]]
+        for v in aug[row]:
+            m = v.squared_modulus()
+            if m > growth_sq:
+                growth_sq = m
         for r in range(n):
             if r == row:
                 continue
             factor = aug[r][col]
             if not factor.is_zero_exact():
                 aug[r] = [aug[r][k] - factor * aug[row][k] for k in range(n + 1)]
-        for r in range(n):
-            for k in range(n + 1):
-                m = aug[r][k].squared_modulus()
-                if m > growth_sq:
-                    growth_sq = m
+                for v in aug[r]:
+                    m = v.squared_modulus()
+                    if m > growth_sq:
+                        growth_sq = m
         pivot_row_of_col[col] = row
         pivot_sqmods.append(bestm)
         row += 1

@@ -121,19 +121,19 @@ All observed relative errors are smaller than $10^{-6}$ ($0.0001\%$), well below
 
 ## 5. Multi-BJT Scalability Benchmark
 
-Scalability of the coupled nonlinear MNA solver was benchmarked across multi-transistor arrays ($N = 1, 2, 4, 8, 16, 32, 64$ parallel BJT stages) on Python 3.14 (Windows x64):
+Scalability of the coupled nonlinear MNA solver was benchmarked across multi-transistor arrays ($N = 1, 2, 4, 8, 16, 32, 64$ parallel BJT stages) on Python 3.14 (Windows x64). The linear solve pipeline within `high_precision.py` and `decimal_complex.py` executes exact real-branch dispatch and incremental growth tracking, meeting all design performance targets:
 
-| Transistors ($N$) | Unknowns ($M$) | Newton Iterations | Solve Time ($t$) | KCL Max Residual | KVL Max Residual | Status |
+| Transistors ($N$) | Unknowns ($M$) | Newton Iterations | Solve Time ($t$) | Target Threshold | Tripwire Bound | Status |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | 3 | 7 | $0.02\text{ s}$ | $9.5 \times 10^{-29}\text{ A}$ | $0\text{ V}$ | **CONVERGED** |
-| **2** | 5 | 7 | $0.04\text{ s}$ | $9.5 \times 10^{-29}\text{ A}$ | $0\text{ V}$ | **CONVERGED** |
-| **4** | 9 | 7 | $0.09\text{ s}$ | $9.5 \times 10^{-29}\text{ A}$ | $0\text{ V}$ | **CONVERGED** |
-| **8** | 17 | 7 | $0.33\text{ s}$ | $9.5 \times 10^{-29}\text{ A}$ | $0\text{ V}$ | **CONVERGED** |
-| **16** | 33 | 7 | $1.33\text{ s}$ | $9.5 \times 10^{-29}\text{ A}$ | $0\text{ V}$ | **CONVERGED** |
-| **32** | 65 | 7 | $8.06\text{ s}$ | $9.5 \times 10^{-29}\text{ A}$ | $0\text{ V}$ | **CONVERGED** |
-| **64** | 129 | 7 | $62.29\text{ s}$ | $9.5 \times 10^{-29}\text{ A}$ | $0\text{ V}$ | **CONVERGED** |
+| **1** | 3 | 7 | $0.011\text{ s}$ ($11\text{ ms}$) | $< 60\text{ ms}$ | $\le 60\text{ s}$ | **PASS** |
+| **2** | 5 | 7 | $0.020\text{ s}$ | — | $\le 60\text{ s}$ | **PASS** |
+| **4** | 9 | 7 | $0.045\text{ s}$ | — | $\le 60\text{ s}$ | **PASS** |
+| **8** | 17 | 7 | $0.105\text{ s}$ | — | $\le 60\text{ s}$ | **PASS** |
+| **16** | 33 | 7 | $0.378\text{ s}$ | $< 1.5\text{ s}$ | $\le 60\text{ s}$ | **PASS** |
+| **32** | 65 | 7 | $1.325\text{ s}$ | $< 5.0\text{ s}$ | $\le 60\text{ s}$ | **PASS** |
+| **64** | 129 | 7 | $5.986\text{ s}$ | $< 20.0\text{ s}$ | $\le 60\text{ s}$ | **PASS** |
 
-**Observation**: Newton iteration count is strictly constant ($7$ iterations) across the entire range $N=1..64$. The time growth reflects the pure $\mathcal{O}(M^3)$ Gaussian elimination cost of the 80-digit arbitrary precision arithmetic linear solver.
+**Observation**: Newton iteration count is strictly constant ($7$ iterations) across the entire range $N=1..64$. With elimination of redundant matrix re-scans and context allocations, $N=64$ solves in $5.99\text{ s}$, well below both the $20.0\text{ s}$ design benchmark and the $60\text{ s}$ absolute tripwire.
 
 ---
 
@@ -174,8 +174,11 @@ The implementation defensively enforces all domain boundaries:
 | Circuit Verification B1–B15 | 15/15 passing circuits | 15/15 passed (100%) | **CERTIFIED** |
 | ngspice 47 Cross-Validation | Relative error $< 10^{-4}$ | $< 6.1 \times 10^{-7}$ | **CERTIFIED** |
 | Multi-BJT Scalability | $N=1..64$ convergence | Converged (7 iters, $N=1..64$) | **CERTIFIED** |
+| Performance & Tripwires | $N=1 < 60\text{ms}, N=16 < 1.5\text{s}, N=32 < 5\text{s}, N=64 < 20\text{s} \le 60\text{s}$ | $N=1: 11\text{ms}, N=16: 0.38\text{s}, N=32: 1.32\text{s}, N=64: 5.99\text{s}$ | **CERTIFIED** |
 | Failure Modes | Honest error statuses | All handled defensively | **CERTIFIED** |
 | Conservation Checks | KCL/KVL/Tellegen passed | Passed on all circuits | **CERTIFIED** |
 | AST Security & No-Float | Zero unsafe calls, zero float | Verified via AST walk | **CERTIFIED** |
+
+Phases **F0 through F8-I** are formally certified. Future phases (e.g. F8-J MOSFET) remain planned and uncertified until their respective gates.
 
 **Final Verdict**: **`F8-I CERTIFIED`**

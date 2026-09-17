@@ -172,6 +172,22 @@ class DecimalComplex:
         rhs, _ = coerced
         ctx = make_context()
         a, b, c, d = self.re, self.im, rhs.re, rhs.im
+        if not b and not d:
+            zero = Decimal(0)
+            if op == "+":
+                return DecimalComplex(ctx.add(a, c), zero)
+            if op == "-":
+                return DecimalComplex(ctx.subtract(a, c), zero)
+            if op == "*":
+                return DecimalComplex(ctx.multiply(a, c), zero)
+            if op == "/":
+                if c == 0:
+                    raise ZeroDivisionError(
+                        "DecimalComplex division by exactly zero; "
+                        "near-zero denominators are NOT collapsed to zero here "
+                        "(singularity policy belongs to the solver layer)"
+                    )
+                return DecimalComplex(ctx.divide(a, c), zero)
         if op == "+":
             return DecimalComplex(ctx.add(a, c), ctx.add(b, d))
         if op == "-":
@@ -253,11 +269,19 @@ class DecimalComplex:
 
     def squared_modulus(self) -> Decimal:
         """|z|^2 under the working context (controlled precision)."""
+        re = self.re
+        im = self.im
         ctx = make_context()
-        return ctx.add(ctx.multiply(self.re, self.re), ctx.multiply(self.im, self.im))
+        if not im:
+            return ctx.multiply(re, re)
+        return ctx.add(ctx.multiply(re, re), ctx.multiply(im, im))
 
     def modulus(self) -> Decimal:
         """|z| = sqrt(re^2 + im^2) under the working context (approximate)."""
+        re = self.re
+        im = self.im
+        if not im:
+            return abs(re)
         ctx = make_context()
         return ctx.sqrt(self.squared_modulus())
 

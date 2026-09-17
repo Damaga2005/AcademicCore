@@ -171,6 +171,12 @@ from academic_core.domain.engineering.ac.twoport import (
     y_parameters,
     z_parameters,
 )
+from academic_core.domain.engineering.ac.small_signal import (
+    BJTSmallSignalParams,
+    DiodeSmallSignalParams,
+    SmallSignalACResult,
+    solve_small_signal_ac,
+)
 
 __all__ = [
     "ENGINE_VERSION",
@@ -304,4 +310,8 @@ __all__ = [
     "check_connected",
     "cycle_basis",
     "reference_net",
+    "BJTSmallSignalParams",
+    "DiodeSmallSignalParams",
+    "SmallSignalACResult",
+    "solve_small_signal_ac",
 ]

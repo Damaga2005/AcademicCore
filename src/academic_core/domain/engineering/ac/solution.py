@@ -43,6 +43,7 @@ class ACStatus(Enum):
     NUMERICALLY_UNCERTAIN = "numerically_uncertain"
     INVALID = "invalid"
     UNSUPPORTED = "unsupported"
+    DIVERGED = "diverged"
 
 
 @dataclass(frozen=True)
