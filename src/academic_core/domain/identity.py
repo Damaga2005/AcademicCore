@@ -83,7 +83,7 @@ def make(kind: str, subject: str, code: str = "") -> str:
     elif kind == "subject":
         sid = f"subject:{subject}"
     elif kind == "topic":
-        sid = f"topic:{subject}:{code}"
+        sid = f"topic:{subject}:{_SCOPED['topic']}{code}"
     elif kind in _SCOPED:
         sid = f"{kind}:{subject}:{_SCOPED[kind]}:{code}"
     else:

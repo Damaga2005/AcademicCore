@@ -263,19 +263,49 @@ class _Eval:
 
 
 def _apply_func(name: str, arg: Quantity) -> Quantity:
-    import math
     from academic_core.domain.engineering.units import Unit
+    from academic_core.domain.engineering.math.trig import (
+        decimal_sin, decimal_cos, make_context,
+    )
+    from academic_core.domain.engineering.math.logarithm import decimal_log10
     one = Unit("1", "1", "", DIMENSIONLESS, Decimal(1))
     if name in ("sin", "cos", "tan", "exp", "log", "log10"):
         if arg.dimension != DIMENSIONLESS:
             raise EquationError(f"{name} needs a dimensionless argument")
-        x = float(arg.to_base())
+        x = arg.to_base()
+        ctx = make_context()
         try:
-            out = {"sin": math.sin, "cos": math.cos, "tan": math.tan,
-                   "exp": math.exp, "log": math.log, "log10": math.log10}[name](x)
-        except ValueError as e:
+            if name == "sin":
+                out = decimal_sin(x, ctx)
+            elif name == "cos":
+                out = decimal_cos(x, ctx)
+            elif name == "tan":
+                cos_x = decimal_cos(x, ctx)
+                # Guard against division by a cosine that is zero (or
+                # numerically indistinguishable from zero at working
+                # precision) instead of blowing up to Infinity/NaN.
+                if abs(cos_x) < Decimal(1).scaleb(-(ctx.prec - 2)):
+                    raise EquationError(f"tan domain: cos(x) ~ 0 near {x}")
+                out = ctx.divide(decimal_sin(x, ctx), cos_x)
+            elif name == "exp":
+                # decimal.Context.exp is a correctly-rounded Decimal-native
+                # operation (General Decimal Arithmetic spec) — the same
+                # primitive already used for exp() in mna/diode.py and
+                # mna/bjt.py. No float round-trip.
+                out = ctx.exp(x)
+            elif name == "log":
+                if x <= 0:
+                    raise EquationError(f"log domain: {x}")
+                out = ctx.ln(x)
+            else:  # log10
+                if x <= 0:
+                    raise EquationError(f"log10 domain: {x}")
+                out = decimal_log10(x, ctx)
+        except InvalidOperation as e:
             raise EquationError(f"{name} domain: {e}")
-        return Quantity(Decimal(str(out)), one)
+        except ArithmeticError as e:
+            raise EquationError(f"{name}: {e}")
+        return Quantity(out, one)
     if name == "abs":
         return Quantity(abs(arg.value), arg.unit)
     if name == "sqrt":

@@ -35,6 +35,14 @@ _ERROR_RE = re.compile(
     r"^(?:Error|Fatal error):\s*(.+)$",
     re.I | re.MULTILINE
 )
+# Looser "this line looks like a name + numeric-ish value" shape, used only
+# to detect candidate data rows that _TABLE_ROW_RE / Decimal() failed to
+# parse (e.g. engineering-suffix notation like "1.234u" instead of
+# "1.234e-06"). Never used to extract values, only to flag that something
+# worth reporting was silently skipped.
+_CANDIDATE_ROW_RE = re.compile(
+    r"^\s*([a-zA-Z0-9_#\+\-\.]+)\s+([+-]?[0-9][^\s]*)\s*$"
+)
 
 
 def parse_ngspice_output(
@@ -68,12 +76,18 @@ def parse_ngspice_output(
     signals: dict[str, Signal] = {}
     complex_signals: dict[str, ComplexSignal] = {}
     data: dict[str, str] = {}
+    # Non-fatal parse diagnostics: lines/values that looked like they were
+    # meant to carry data (matched a recognized section/table header) but
+    # could not be turned into a Signal/ComplexSignal (e.g. an unsupported
+    # engineering-suffix number format such as "1.234u"). Used below to
+    # distinguish "genuinely nothing to report" from "something was skipped".
+    diagnostics: list[str] = []
 
-    _parse_op_tables(stdout, signals, data)
-    _parse_index_tables(stdout, signals, data)
-    _parse_ac_tables(stdout, signals, complex_signals, data)
-    noise_info = _parse_noise_tables(stdout, signals, data)
-    sens_info = _parse_sens_tables(stdout, signals, complex_signals, data)
+    _parse_op_tables(stdout, signals, data, diagnostics)
+    _parse_index_tables(stdout, signals, data, diagnostics)
+    _parse_ac_tables(stdout, signals, complex_signals, data, diagnostics)
+    noise_info = _parse_noise_tables(stdout, signals, data, diagnostics)
+    sens_info = _parse_sens_tables(stdout, signals, complex_signals, data, diagnostics)
 
     # 3. Digest and CAS raw artifact reference
     netlist_text = netlist or execution.input_hash
@@ -110,6 +124,19 @@ def parse_ngspice_output(
             status = "FAILED"
             if not errors_found:
                 errors_found.append("no simulations run")
+        elif diagnostics:
+            # We saw recognized section/table headers and candidate data
+            # rows, but extracted zero signals from them -- this is a parse
+            # failure (e.g. unsupported engineering-suffix number format),
+            # not a legitimately empty result, so it must not be reported as
+            # a silent COMPLETED success.
+            status = "FAILED"
+            errors_found.append(
+                "ngspice output parser found candidate data rows but "
+                "extracted zero signals (possible unsupported number "
+                "format, e.g. engineering-suffix notation like '1.234u' "
+                "instead of '1.234e-06'): " + "; ".join(diagnostics[:5])
+            )
 
     is_noise_analysis = any(
         isinstance(a, NoiseAnalysis) or (isinstance(a, str) and a.strip().lower().startswith("noise"))
@@ -197,7 +224,12 @@ def parse_ngspice_output(
 parse_ngspice_op = parse_ngspice_output
 
 
-def _parse_op_tables(text: str, signals: dict[str, Signal], data: dict[str, str]) -> None:
+def _parse_op_tables(
+    text: str,
+    signals: dict[str, Signal],
+    data: dict[str, str],
+    diagnostics: list[str] | None = None,
+) -> None:
     """Parse standard ngspice 'Node Voltage' and 'Source Current' tables (.op format)."""
     section: str | None = None
     for line in text.splitlines():
@@ -230,6 +262,8 @@ def _parse_op_tables(text: str, signals: dict[str, Signal], data: dict[str, str]
                     dec = Decimal(val_str)
                     flt = float(val_str)
                 except Exception:
+                    if diagnostics is not None:
+                        diagnostics.append(f"unparsed {section} row: {lc!r}")
                     continue
 
                 if section == "voltage":
@@ -260,9 +294,20 @@ def _parse_op_tables(text: str, signals: dict[str, Signal], data: dict[str, str]
                     data[f"I({source_name.upper()})"] = val_str
                     data[sig_name] = str(dec)
                     data[raw_name] = str(dec)
+            elif diagnostics is not None and _CANDIDATE_ROW_RE.match(lc):
+                # Shaped like "<name> <value>" inside a recognized
+                # Node Voltage / Source Current section, but the value
+                # didn't match the strict numeric grammar (e.g. an
+                # engineering suffix like "1.23u").
+                diagnostics.append(f"unparsed {section} row: {lc!r}")
 
 
-def _parse_index_tables(text: str, signals: dict[str, Signal], data: dict[str, str]) -> None:
+def _parse_index_tables(
+    text: str,
+    signals: dict[str, Signal],
+    data: dict[str, str],
+    diagnostics: list[str] | None = None,
+) -> None:
     """Parse tabular .print output for .dc sweep and .op (Index col1 col2...).
 
     Supports multi-point series and multi-table / paginated outputs.
@@ -303,7 +348,10 @@ def _parse_index_tables(text: str, signals: dict[str, Signal], data: dict[str, s
                     flt = float(val_str)
                     columns[h].append((dec, flt))
                 except Exception:
-                    pass
+                    if diagnostics is not None:
+                        diagnostics.append(
+                            f"unparsed value for column {h!r}: {val_str!r}"
+                        )
 
     for col_name, sample_pairs in columns.items():
         if not sample_pairs:
@@ -350,6 +398,7 @@ def _parse_ac_tables(
     signals: dict[str, Signal],
     complex_signals: dict[str, ComplexSignal],
     data: dict[str, str],
+    diagnostics: list[str] | None = None,
 ) -> None:
     """Parse tabular AC analysis output (.print ac) from ngspice.
 
@@ -394,6 +443,8 @@ def _parse_ac_tables(
                 freq_dec = Decimal(parts[1])
                 freq_flt = float(parts[1])
             except Exception:
+                if diagnostics is not None:
+                    diagnostics.append(f"unparsed AC frequency value: {parts[1]!r}")
                 continue
 
             # Record frequency once across paginated tables
@@ -421,7 +472,11 @@ def _parse_ac_tables(
                     c_val = complex(float(re_str), float(im_str))
                     complex_columns[var_name].append((re_dec, im_dec, c_val))
                 except Exception:
-                    pass
+                    if diagnostics is not None:
+                        diagnostics.append(
+                            f"unparsed AC value for {var_name!r}: "
+                            f"{re_str!r}/{im_str!r}"
+                        )
 
     if freq_samples:
         f_dec = tuple(p[0] for p in freq_samples)
@@ -476,7 +531,12 @@ def _parse_ac_tables(
             data[col_name] = str(c_samples)
 
 
-def _parse_noise_tables(text: str, signals: dict[str, Signal], data: dict[str, str]) -> dict:
+def _parse_noise_tables(
+    text: str,
+    signals: dict[str, Signal],
+    data: dict[str, str],
+    diagnostics: list[str] | None = None,
+) -> dict:
     """Parse ngspice .noise output tables (Integrated Noise and Noise Spectral Density Curves)."""
     lines = text.splitlines()
     result_info: dict = {"is_noise": False, "onoise_total": None, "inoise_total": None}
@@ -512,7 +572,10 @@ def _parse_noise_tables(text: str, signals: dict[str, Signal], data: dict[str, s
                         elif "inoise" in h:
                             result_info["inoise_total"] = v_dec
                     except Exception:
-                        pass
+                        if diagnostics is not None:
+                            diagnostics.append(
+                                f"unparsed integrated noise value for {h!r}: {v_str!r}"
+                            )
                 in_integrated = False
 
     # 2. Parse Noise Spectral Density Curves table
@@ -549,7 +612,10 @@ def _parse_noise_tables(text: str, signals: dict[str, Signal], data: dict[str, s
                         flt = float(v_str)
                         density_columns[h].append((dec, flt))
                     except Exception:
-                        pass
+                        if diagnostics is not None:
+                            diagnostics.append(
+                                f"unparsed noise density value for {h!r}: {v_str!r}"
+                            )
 
     for col_name, sample_pairs in density_columns.items():
         if not sample_pairs:
@@ -583,6 +649,7 @@ def _parse_sens_tables(
     signals: dict[str, Signal],
     complex_signals: dict[str, ComplexSignal],
     data: dict[str, str],
+    diagnostics: list[str] | None = None,
 ) -> dict:
     """Parse ngspice .sens output tables (DC scalar sensitivity and AC complex sensitivity)."""
     lines = text.splitlines()
@@ -639,6 +706,8 @@ def _parse_sens_tables(
                     freq_dec = Decimal(parts[1])
                     freq_flt = float(parts[1])
                 except Exception:
+                    if diagnostics is not None:
+                        diagnostics.append(f"unparsed sens frequency value: {parts[1]!r}")
                     continue
                 if len(freq_samples) <= idx:
                     freq_samples.append((freq_dec, freq_flt))
@@ -662,7 +731,11 @@ def _parse_sens_tables(
                         c_val = complex(float(re_str), float(im_str))
                         ac_columns[var_name].append((re_dec, im_dec, c_val))
                     except Exception:
-                        pass
+                        if diagnostics is not None:
+                            diagnostics.append(
+                                f"unparsed sens AC value for {var_name!r}: "
+                                f"{re_str!r}/{im_str!r}"
+                            )
             else:
                 # DC scalar sensitivity row (row 0)
                 val_parts = parts[1:]
@@ -675,7 +748,10 @@ def _parse_sens_tables(
                         # Also provide Signal accessor
                         signals[h] = Signal(h, "sensitivity", "sensitivity", (dec,), (flt,))
                     except Exception:
-                        pass
+                        if diagnostics is not None:
+                            diagnostics.append(
+                                f"unparsed sens value for {h!r}: {val_str!r}"
+                            )
 
     if is_ac_sens and freq_samples:
         f_dec = tuple(p[0] for p in freq_samples)

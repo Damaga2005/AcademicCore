@@ -36,8 +36,8 @@ DIM_NAMES = {
     CHARGE: "charge", ENERGY: "energy", LENGTH: "length",
 }
 
-PREFIXES = {"p": "-12", "n": "-9", "u": "-6", "µ": "-6", "m": "-3", "c": "-2",
-            "": "0", "k": "3", "M": "6", "G": "9"}
+PREFIXES = {"f": "-15", "p": "-12", "n": "-9", "u": "-6", "µ": "-6", "m": "-3", "c": "-2",
+            "": "0", "k": "3", "M": "6", "G": "9", "T": "12"}
 
 # symbol -> (dimension, factor to base unit)
 _BASE_UNITS = {

@@ -216,14 +216,34 @@ class Document:
 
 
 def validate(doc: Document) -> None:
-    """Structural validation: inline nodes never carry block children."""
+    """Structural validation: inline nodes never carry block children, and
+    block kinds only carry the children their renderers actually expect.
+
+    - Inline kinds (text/emphasis/strong/link/inline_code/image/equation) may
+      only ever carry other inline children (or none): a heading, list, table
+      etc. nested under an `emphasis`/`strong`/`link` is just as illegal as
+      the narrower, historically-checked set of block kinds was.
+    - `paragraph` and `heading` are "leaf" block kinds: their renderers
+      (render_markdown._block/_inline, render_html._block/_inline) join their
+      children as inline runs, so a block child (another heading, a section,
+      a list, a table, ...) would silently degrade into flattened inline text
+      instead of erroring. `section`/`list_item`/`quote`/`table`/`table_row`
+      are legitimate block *holders* (e.g. `section` holding its own
+      `heading(2, ...)` title node per templates.py, `list_item` holding a
+      nested `list`, `quote` holding `paragraph`s) and are intentionally not
+      restricted here.
+    """
     inline = {"text", "emphasis", "strong", "link", "inline_code", "image", "equation"}
-    block_holders = {"document", "section", "list_item", "quote", "table", "table_row"}
+    leaf_blocks = {"paragraph", "heading"}
 
     def walk(n: Node, parent: str) -> None:
-        if n.kind in inline and any(isinstance(c, Node) and c.kind in block_holders
+        if n.kind in inline and any(isinstance(c, Node) and c.kind not in inline
                                     for c in n.children):
             raise AstError(f"inline node {n.kind} carries block children")
+        if n.kind in leaf_blocks and any(
+                isinstance(c, Node) and c.kind not in inline for c in n.children):
+            raise AstError(f"{n.kind} carries illegal block child "
+                            f"({', '.join(sorted({c.kind for c in n.children if isinstance(c, Node) and c.kind not in inline}))})")
         if n.kind == "table":
             if not n.children or any(c.kind != "table_row" for c in n.children):
                 raise AstError("table children must be table_row")

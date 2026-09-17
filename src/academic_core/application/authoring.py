@@ -139,7 +139,7 @@ class AuthoringService:
         if state.doc.meta.title and state.doc.meta.title != res.title:
             self.records.update_title(resource_id, state.doc.meta.title)
         self.store.touch(resource_id)
-        self.indexer.index(resource_id, "document", res.title, extract_text(state.doc))
+        self.indexer.index(resource_id, "document", state.doc.meta.title, extract_text(state.doc))
         self.cleanup_autosave(resource_id)
         state.mark_clean()
         return SaveReport(resource_id, res.current_version + 1, content_hash,
