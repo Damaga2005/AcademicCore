@@ -54,3 +54,28 @@ CREATE TABLE IF NOT EXISTS assessment_results (
 CREATE INDEX IF NOT EXISTS idx_assessments_subject ON assessments(subject_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_assessment ON assessment_sessions(assessment_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_student ON assessment_sessions(student_id);
+
+-- Enforce terminal session protection at database engine level:
+CREATE TRIGGER IF NOT EXISTS trg_prevent_response_on_terminal_session
+BEFORE INSERT ON assessment_responses
+FOR EACH ROW
+WHEN (SELECT status FROM assessment_sessions WHERE stable_id = NEW.session_id) IN ('SUBMITTED', 'EXPIRED', 'CANCELLED')
+BEGIN
+  SELECT RAISE(ABORT, 'Cannot record response: session is in terminal status');
+END;
+
+-- Enforce student response immutability at database engine level:
+CREATE TRIGGER IF NOT EXISTS trg_response_immutable
+BEFORE UPDATE ON assessment_responses
+FOR EACH ROW
+BEGIN
+  SELECT RAISE(ABORT, 'StudentResponse is immutable and cannot be updated');
+END;
+
+-- Enforce assessment result immutability at database engine level:
+CREATE TRIGGER IF NOT EXISTS trg_result_immutable
+BEFORE UPDATE ON assessment_results
+FOR EACH ROW
+BEGIN
+  SELECT RAISE(ABORT, 'AssessmentResult is immutable and cannot be updated');
+END;

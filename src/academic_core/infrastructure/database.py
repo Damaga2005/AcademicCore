@@ -28,9 +28,11 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def connect(self) -> sqlite3.Connection:
-        cx = sqlite3.connect(self.path)
+        cx = sqlite3.connect(self.path, timeout=10.0)
         cx.row_factory = sqlite3.Row
         cx.execute("PRAGMA foreign_keys=ON")
+        cx.execute("PRAGMA journal_mode=WAL")
+        cx.execute("PRAGMA busy_timeout=10000")
         cx.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")
         applied = {r[0] for r in cx.execute("SELECT version FROM schema_version")}
         for i, name in enumerate(_MIGRATIONS, start=1):

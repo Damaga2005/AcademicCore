@@ -4,6 +4,7 @@ Integrates certified F9-B domain models with application layer:
 - Session lifecycle orchestration (create, start, get_next_item, respond, submit, expire, cancel).
 - Pure Decimal grading policy execution.
 - Deterministic seed-based item delivery.
+- Persistent sequential ID allocation (no process-local collisions).
 - Formula-bearing question adaptation with 100% provenance retention.
 - Zero float policy, zero dynamic code execution.
 """
@@ -11,7 +12,7 @@ Integrates certified F9-B domain models with application layer:
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 import threading
 
@@ -27,7 +28,8 @@ from academic_core.domain.assessment import (
     StudentResponse,
 )
 from academic_core.domain.entities import DomainError
-from academic_core.domain.identity import make, validate
+from academic_core.domain.identity import IdAllocator, make, validate
+from academic_core.infrastructure.repositories import IntegrityError
 
 
 def item_from_formula(
@@ -71,13 +73,55 @@ class AssessmentService:
         self,
         repo=None,
         *,
+        clock: Callable[[], datetime] | None = None,
         on_completed_hook: Callable[[AssessmentSession, AssessmentResult], None] | None = None,
     ) -> None:
         self.repo = repo
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._allocator = IdAllocator()
         self._sessions: dict[str, AssessmentSession] = {}
-        self._counter: int = 0
         self._lock = threading.Lock()
         self._on_completed = on_completed_hook
+
+    def create_assessment(
+        self,
+        subject_id: str,
+        title: str,
+        items: tuple[AssessmentItem, ...] | list[AssessmentItem],
+        *,
+        duration_min: int = 60,
+        attempts_allowed: int = 1,
+        policy: GradingPolicy | None = None,
+        description: str = "",
+        shuffle_items: bool = False,
+        master_seed: int | None = None,
+        stable_id: str | None = None,
+    ) -> Assessment:
+        """Create and register a new Assessment specification."""
+        subject_slug = subject_id.split(":", 1)[1] if ":" in subject_id else "gen"
+
+        if stable_id is None:
+            if self.repo is not None:
+                stable_id = self.repo.allocate_assessment_id(subject_slug)
+            else:
+                with self._lock:
+                    stable_id = self._allocator.allocate("assessment", subject_slug)
+
+        asmt = Assessment(
+            stable_id=stable_id,
+            subject_id=subject_id,
+            title=title,
+            description=description,
+            items=tuple(items),
+            duration_min=duration_min,
+            attempts_allowed=attempts_allowed,
+            policy=policy or GradingPolicy(),
+            shuffle_items=shuffle_items,
+            master_seed=master_seed,
+        )
+        if self.repo is not None:
+            self.repo.save_assessment(asmt)
+        return asmt
 
     def create_session(
         self,
@@ -101,10 +145,11 @@ class AssessmentService:
 
         subject_slug = assessment.subject_id.split(":", 1)[1] if ":" in assessment.subject_id else "gen"
 
-        with self._lock:
-            self._counter += 1
-            code = f"{self._counter:05d}"
-            sess_id = make("session", subject_slug, code)
+        if self.repo is not None:
+            sess_id = self.repo.allocate_session_id(subject_slug)
+        else:
+            with self._lock:
+                sess_id = self._allocator.allocate("session", subject_slug)
 
         duration_sec = assessment.duration_min * 60
         item_order = assessment.generate_item_order(seed)
@@ -131,11 +176,14 @@ class AssessmentService:
 
         return session
 
-    def get_session(self, session_id: str) -> AssessmentSession:
+    def get_session(self, session_id: str, *, now: datetime | None = None) -> AssessmentSession:
         """Retrieve a session by its stable_id, checking repository if configured."""
         if self.repo is not None:
             sess = self.repo.get_session(session_id)
             if sess is not None:
+                if now is not None and sess.status == SessionStatus.IN_PROGRESS and sess.is_expired(now):
+                    sess.expire(now)
+                    self.repo.save_session(sess)
                 with self._lock:
                     self._sessions[session_id] = sess
                 return sess
@@ -144,6 +192,10 @@ class AssessmentService:
             sess = self._sessions.get(session_id)
         if sess is None:
             raise ApplicationError(f"Session not found: {session_id}")
+        if now is not None and sess.status == SessionStatus.IN_PROGRESS and sess.is_expired(now):
+            sess.expire(now)
+            if self.repo is not None:
+                self.repo.save_session(sess)
         return sess
 
     def start_session(self, session_id: str, now: datetime) -> AssessmentSession:
@@ -226,7 +278,7 @@ class AssessmentService:
             sess.record_response(item_id=item_id, answer=answer, now=now)
             if self.repo is not None:
                 self.repo.save_session(sess)
-        except DomainError as err:
+        except (DomainError, IntegrityError) as err:
             raise ApplicationError(str(err)) from err
 
         return sess.responses[item_id]
@@ -271,13 +323,13 @@ class AssessmentService:
             )
             if self.repo is not None:
                 self.repo.save_session(sess)
-        except DomainError as err:
+        except (DomainError, IntegrityError) as err:
             raise ApplicationError(f"Grading failure: {err}") from err
 
         if self._on_completed is not None:
             try:
                 self._on_completed(sess, result)
-            except Exception as hook_err:
+            except Exception:
                 # Do not mask result on hook failure
                 pass
 
@@ -309,7 +361,7 @@ class AssessmentService:
                     self._on_completed(sess, sess.result)
             if self.repo is not None:
                 self.repo.save_session(sess)
-        except DomainError as err:
+        except (DomainError, IntegrityError) as err:
             raise ApplicationError(f"Expiration error: {err}") from err
 
         return sess
@@ -324,7 +376,7 @@ class AssessmentService:
             sess.cancel(reason)
             if self.repo is not None:
                 self.repo.save_session(sess)
-        except DomainError as err:
+        except (DomainError, IntegrityError) as err:
             raise ApplicationError(f"Cancellation error: {err}") from err
 
         return sess
