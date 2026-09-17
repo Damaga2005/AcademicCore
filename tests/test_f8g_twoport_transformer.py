@@ -1682,6 +1682,7 @@ def test_ngspice_T_step_down_bounded():
         assert abs(o - ref) / abs(ref) <= bound, (node, o, ref, bound)
 
 
+@pytest.mark.slow
 def test_perf_f8g_scales():
     # N=16/32/64 on the T-buffered ladder: solver time (DC exact, AC) and
     # observable time (Z extraction, 2 derived solves) measured
