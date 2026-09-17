@@ -50,6 +50,15 @@ from academic_core.domain.engineering.mna.diode import (
     shockley_conductance,
     shockley_current,
 )
+from academic_core.domain.engineering.mna.bjt import (
+    BJTParams,
+    bjt_companion,
+    bjt_conductances,
+    bjt_injection_currents,
+    bjt_jacobian,
+    bjt_terminal_currents,
+    extract_bjt_params,
+)
 from academic_core.domain.engineering.mna.nonlinear import (
     NonlinearResult,
     NonlinearStatus,
@@ -91,6 +100,13 @@ __all__ = [
     "extract_diode_params",
     "shockley_conductance",
     "shockley_current",
+    "BJTParams",
+    "bjt_companion",
+    "bjt_conductances",
+    "bjt_injection_currents",
+    "bjt_jacobian",
+    "bjt_terminal_currents",
+    "extract_bjt_params",
     "build_mna_problem",
     "MNAProblem",
     "fundamental_cycle_chords",

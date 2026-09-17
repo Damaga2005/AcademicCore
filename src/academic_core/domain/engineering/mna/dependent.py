@@ -133,6 +133,14 @@ def validate_dependent_structure(circuit) -> None:
                     f"{c.ref}: control_ref {ctrl!r} names a diode, whose "
                     f"current is nonlinear in its branch voltage — H/F "
                     f"control by diode is not supported")
+            if refs[ctrl.upper()].type.upper() == "Q":
+                # BJT terminal currents are nonlinear functions of junction
+                # voltages. Reject loudly with InvalidCircuitError (same
+                # safety policy as D and T).
+                raise InvalidCircuitError(
+                    f"{c.ref}: control_ref {ctrl!r} names a BJT transistor, whose "
+                    f"currents are nonlinear functions of junction voltages — H/F "
+                    f"control by BJT is not supported")
 
 
 def control_graph(circuit) -> dict[str, str]:

@@ -47,4 +47,5 @@ coverage.xml
 # Temp
 *.tmp
 *.bak
+*.log
 scratch/

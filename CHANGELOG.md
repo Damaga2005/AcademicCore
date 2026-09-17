@@ -1,11 +1,75 @@
 # Changelog
 
+## 0.18.0 — Fase F8-I: BJT Ebers-Moll Nonlinear DC Operating Point (2026-09-16)
+- Bipolar Junction Transistor (BJT) model under classic Ebers-Moll equations for NPN and PNP polarities.
+- Exact coupled $3 \times 3$ analytical Jacobian without numerical approximations.
+- Invariant matrix properties: $\sum_i J_{ij} = 0$ (KCL conservation), $\sum_j J_{ij} = 0$ (reference voltage shift invariance).
+- Strict `Decimal` physical calculations (`prec=50`, `prec=80`) and zero `float` policy (verified via AST audit).
+- Robust exponential damping and clamping ($V_{\text{clamp}} = 100 \cdot V_T$) with geometric bisection line-search.
+- 15 canonical circuit topologies verified (B1–B15: fixed bias, self-bias, emitter follower, common base, PNP common emitter, saturation, reverse active, current mirror, differential pair, Darlington pair, inverter switch, BJT+diode, BJT+dependent sources, BJT+OpAmp, BJT+transformer).
+- Multi-BJT scaling matrix ($N=1..64$) with constant 7 Newton iterations.
+- Automated cross-validation with ngspice 47 (< $10^{-4}$ relative error).
+- Gate F8-I: 143 passed (69 F8-H diode + 33 F8-I BJT physics + 41 F8-I nonlinear MNA circuits).
+
+## 0.17.0 — Fase F8-H: Shockley Diode Nonlinear DC Operating Point (2026-09-16)
+- Nonlinear DC MNA solver with damped Newton-Raphson and geometric backtracking.
+- Shockley diode companion model and analytical conductance $g_d = \frac{I_S}{n V_T} \exp(V_d / n V_T)$.
+- Physical block convergence criteria: KCL residual $\le 10^{-12}\text{ A}$, aux residual $\le 10^{-9}\text{ V}$.
+- Full conservation checks: KCL, KVL, Tellegen power balance.
+- Automated cross-validation with ngspice 47.
+- Gate F8-H: 69 passed.
+
+## 0.16.0 — Fase F8-G: Ideal Transformers & Two-Port Network Parameters (2026-09-16)
+- Ideal transformer model with turns ratio $n$ ($V_1 = n V_2, I_2 = -n I_1$).
+- Auxiliary variables for primary and secondary winding currents in MNA.
+- Linear two-port matrix parameter extraction ($Z, Y, H, ABCD$) via test-source excitation.
+- Gate F8-G: CERTIFIED (`GATE-F8G.md`).
+
+## 0.15.0 — Fase F8-F: Ideal Operational Amplifiers / Nullors (2026-09-15)
+- Ideal op-amp model (nullor: $V_+ = V_-$, $i_+ = i_- = 0$) for DC and AC steady-state MNA.
+- Auxiliary output current unknown $i_o$ leaving op-amp output pin into ground.
+- Strict singularity and degenerate topology classification via `math.linsolve` rank analysis.
+- Gate F8-F: CERTIFIED (`GATE-F8F.md`).
+
+## 0.14.0 — Fase F8-E: Linear Dependent Sources (2026-09-14)
+- All four linear controlled sources: VCVS ($E$), VCCS ($G$), CCVS ($H$), CCCS ($F$).
+- Current control graph cycle detection (`check_control_cycles`) and `CircularControlError`.
+- Deterministic control current resolution and DC/AC stamping.
+- Gate F8-E: CERTIFIED (`GATE-F8E.md`).
+
+## 0.13.0 — Fase F8-D: AC Small-Signal Phasor Simulation Suite (2026-09-14)
+- F8-D1: Exact and arbitrary-precision complex arithmetic (`DecimalComplex`, `FractionComplex`).
+- F8-D2: Complex linear system solver with Rouché-Capelli rank analysis.
+- F8-D3: General AC MNA in steady-state with peak phasors ($e^{+j\omega t}$) for $R, L, C, V, I$.
+- F8-D4: Complex power $S = P + jQ$, apparent power, power factor, Tellegen balance in AC.
+- F8-D5: AC driving-point impedance/admittance and transfer functions.
+- F8-D6: Frequency sweep engine and Bode plots (dB magnitude, phase unwrap, $-3\text{ dB}$ cutoff brackets).
+- F8-D7: Complex AC Thévenin and Norton equivalents ($Z_{th}, V_{th}, I_{no}$).
+- F8-D8: Resonance detection by bracket search and reactive/dissipated energy quality factor ($Q$).
+- Gates F8-D1 through F8-D8: CERTIFIED.
+
+## 0.12.0 — Fase F8-C: DC Thévenin & Norton Reductions (2026-09-13)
+- General active one-port network reduction via test-source injection and open-circuit voltage calculation.
+- Certified equivalence validation across arbitrary linear resistive networks.
+- Gate F8-C: CERTIFIED (`GATE-F8C.md`).
+
+## 0.11.0 — Fase F8-B: General Linear DC MNA Solver (2026-09-13)
+- Exact rational MNA solver over `fractions.Fraction` for $R, V, I, E, G, H, F, O$.
+- Machine-zero KCL/KVL residuals and exact power balance.
+- Gate F8-B: CERTIFIED (`GATE-F8B.md`).
+
+## 0.10.0 — Fase F8-A: Electronics Knowledge Core (2026-09-13)
+- Canonical circuit model extensions, models registry, validation contracts.
+- Gate F8-A: CERTIFIED (`GATE-F8A.md`).
+
+## 0.9.0 — Fase F7-B: Simulation Suite Hardening (2026-09-13)
+- Hardened external ngspice 47 subprocess execution, timeout management, stdout/stderr isolation.
+- Report F7-B8: CERTIFIED (`F7-B8-HARDENING-REPORT.md`).
+
 ## 0.8.0 — F7-A Simulation Runtime Foundation (2026-09-12)
 - ngspice runtime discovery, version verification, isolated execution,
   stdout/stderr/exit capture, timeout, cancellation and cleanup.
 - Windows setup/runtime documentation and separate external integration test.
-- Real ngspice is unavailable in this environment: F7-A status is UNVERIFIED;
-  no binary was downloaded or committed. F7-B was not started.
 
 ## 0.7.0 — Fase 6 Engineering Foundation (2026-09-12)
 - Decimal quantities, SI units/prefixes/dimensions and safe equation parser.
