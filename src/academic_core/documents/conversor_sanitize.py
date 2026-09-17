@@ -11,6 +11,12 @@ from __future__ import annotations
 import re
 
 
+def _is_javascript_scheme(target: str) -> bool:
+    """True if `target` resolves to a javascript: URL once whitespace/control
+    characters (which browsers ignore when scheme-matching) are stripped out."""
+    return re.sub(r"[\x00-\x20]", "", target.lower()).startswith("javascript:")
+
+
 def clean_soup_noise(soup):
     """Drop comments, script/style/noscript, hidden and cookie/chrome nodes."""
     from bs4 import Comment
@@ -36,7 +42,7 @@ def clean_soup_noise(soup):
         for attr in [a for a in el.attrs if a.lower().startswith("on")]:
             del el.attrs[attr]
         for attr in ("href", "src", "action"):
-            if isinstance(el.get(attr), str) and el[attr].strip().lower().startswith("javascript:"):
+            if isinstance(el.get(attr), str) and _is_javascript_scheme(el[attr]):
                 del el.attrs[attr]
     return soup
 

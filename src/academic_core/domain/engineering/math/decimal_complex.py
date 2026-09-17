@@ -281,7 +281,17 @@ class DecimalComplex:
         re = self.re
         im = self.im
         if not im:
-            return abs(re)
+            # copy_abs() flips the sign bit only; it performs no rounding
+            # and never touches the ambient global decimal context. The
+            # bare builtin abs(re) is WRONG here: for a Decimal operand it
+            # implicitly rounds through decimal.getcontext() (default 28
+            # significant digits), silently truncating a 50-digit working
+            # value down to 28 digits whenever im is exactly zero -- e.g.
+            # every purely resistive branch power. That truncation alone
+            # was enough to break P/|S| power-factor equality (~1E-28
+            # spurious deviation from unity) despite the numerator (P)
+            # keeping its full 50-digit precision.
+            return re.copy_abs()
         ctx = make_context()
         return ctx.sqrt(self.squared_modulus())
 

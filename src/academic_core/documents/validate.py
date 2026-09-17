@@ -12,6 +12,12 @@ import re
 from dataclasses import dataclass
 
 
+def _is_javascript_scheme(target: str) -> bool:
+    """True if `target` resolves to a javascript: URL once whitespace/control
+    characters (which browsers ignore when scheme-matching) are stripped out."""
+    return re.sub(r"[\x00-\x20]", "", target.lower()).startswith("javascript:")
+
+
 @dataclass(frozen=True)
 class ValidationIssue:
     path: tuple
@@ -61,7 +67,7 @@ def validate_document(doc, blob_exists=None) -> list[ValidationIssue]:
             target = n.attrs.get("target", "")
             if not target:
                 issues.append(ValidationIssue(path, "link_empty", "link without target"))
-            elif target.strip().lower().startswith("javascript:"):
+            elif _is_javascript_scheme(target):
                 issues.append(ValidationIssue(path, "link_unsafe",
                                               "javascript: links are forbidden"))
             elif not re.match(r"^(https?://|#|/|[\w\-.~:/?#\[\]@!$&'()*+,;=%]+)$", target):

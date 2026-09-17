@@ -22,13 +22,44 @@ _MIGRATIONS = ("001_academic.sql", "002_grading.sql",
                "011_assessment.sql")
 
 
+def _split_statements(script: str) -> list[str]:
+    """Split a migration script into individually-executable statements.
+
+    Naively splitting on ``;`` is unsafe: a ``CREATE TRIGGER ... BEGIN ... END;``
+    body contains semicolons that do not terminate the outer statement, and a
+    string literal could in principle contain one too. ``sqlite3.complete_statement``
+    wraps SQLite's own ``sqlite3_complete()``, which tracks quoting, comments and
+    trigger BEGIN/END nesting, so it is the only safe boundary-detector available
+    without a full SQL parser. Statements are accumulated line-by-line until a
+    prefix is a complete statement on its own.
+    """
+    statements: list[str] = []
+    buf: list[str] = []
+    for line in script.splitlines(keepends=True):
+        buf.append(line)
+        candidate = "".join(buf)
+        if candidate.strip() and sqlite3.complete_statement(candidate):
+            statements.append(candidate)
+            buf = []
+    trailing = "".join(buf).strip()
+    if trailing:
+        # Leftover text that never formed a complete statement (e.g. a
+        # trailing comment or malformed SQL) — surface it rather than
+        # silently dropping it.
+        if trailing.lstrip().startswith("--"):
+            pass  # trailing-comment-only remainder, safe to ignore
+        else:
+            raise ValueError(f"incomplete trailing SQL statement: {trailing!r}")
+    return statements
+
+
 class Database:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def connect(self) -> sqlite3.Connection:
-        cx = sqlite3.connect(self.path, timeout=10.0)
+        cx = sqlite3.connect(self.path, timeout=10.0, isolation_level=None)
         cx.row_factory = sqlite3.Row
         cx.execute("PRAGMA foreign_keys=ON")
         cx.execute("PRAGMA journal_mode=WAL")
@@ -38,7 +69,25 @@ class Database:
         for i, name in enumerate(_MIGRATIONS, start=1):
             if i not in applied:
                 sql = resources.files("academic_core.infrastructure.migrations").joinpath(name).read_text(encoding="utf-8")
-                cx.executescript(sql)
-                cx.execute("INSERT INTO schema_version(version) VALUES (?)", (i,))
-        cx.commit()
+                statements = _split_statements(sql)
+                # Explicit transaction (isolation_level=None puts the
+                # connection in autocommit mode, so BEGIN/COMMIT below are
+                # the only things opening/closing a transaction — unlike
+                # executescript(), which forces a commit of any pending
+                # transaction before it runs and cannot be rolled back as a
+                # unit). SQLite's DDL (CREATE/ALTER/DROP) is transactional,
+                # so either every statement in this migration lands, or, on
+                # failure, none of them do and schema_version is never
+                # updated for this version — no partially-applied migration
+                # can be left on disk to wedge a later retry.
+                cx.execute("BEGIN IMMEDIATE")
+                try:
+                    for stmt in statements:
+                        cx.execute(stmt)
+                    cx.execute("INSERT INTO schema_version(version) VALUES (?)", (i,))
+                except BaseException:
+                    cx.execute("ROLLBACK")
+                    raise
+                else:
+                    cx.execute("COMMIT")
         return cx

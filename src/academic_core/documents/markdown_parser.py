@@ -21,6 +21,7 @@ _INLINE_RE = re.compile(
     r"(?P<code>`([^`]+)`)"
     r"|(?P<img>!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"([^\"]*)\")?\))"
     r"|(?P<link>\[([^\]]+)\]\(([^)\s]+)(?:\s+\"([^\"]*)\")?\))"
+    r"|(?P<strongem>\*\*\*([^*]+)\*\*\*|___([^_]+)___)"
     r"|(?P<strong>\*\*([^*]+)\*\*|__([^_]+)__)"
     r"|(?P<em>\*([^*]+)\*|_([^_]+)_)")
 
@@ -65,11 +66,14 @@ def _inline_md(s: str) -> list:
         elif m.group("link"):
             label, target = m.group(8), m.group(9)
             out.append(A.link(target, parse_inline(label), m.group(10) or ""))
-        elif m.group("strong"):
+        elif m.group("strongem"):
             inner = m.group(12) if m.group(12) is not None else m.group(13)
+            out.append(A.strong([A.emphasis(parse_inline(inner))]))
+        elif m.group("strong"):
+            inner = m.group(15) if m.group(15) is not None else m.group(16)
             out.append(A.strong(parse_inline(inner)))
         elif m.group("em"):
-            inner = m.group(15) if m.group(15) is not None else m.group(16)
+            inner = m.group(18) if m.group(18) is not None else m.group(19)
             out.append(A.emphasis(parse_inline(inner)))
         pos = m.end()
     if pos < len(s):

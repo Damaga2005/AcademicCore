@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from html import escape
 
 _INLINE = {"text", "emphasis", "strong", "link", "inline_code", "image", "equation"}
+
+
+def _is_javascript_scheme(target: str) -> bool:
+    """True if `target` resolves to a javascript: URL once whitespace/control
+    characters (which browsers ignore when scheme-matching) are stripped out."""
+    return re.sub(r"[\x00-\x20]", "", target.lower()).startswith("javascript:")
 
 
 def _any_block(n) -> str:
@@ -29,7 +36,7 @@ def _inline(n) -> str:
         return f"<code>{escape(a['code'])}</code>"
     if k == "link":
         target = a.get("target", "")
-        if target.strip().lower().startswith("javascript:"):
+        if _is_javascript_scheme(target):
             return "".join(_inline(c) for c in n.children)  # drop dangerous href
         title = f' title="{escape(a["title"])}"' if a.get("title") else ""
         return f'<a href="{escape(target)}"{title}>' + "".join(_inline(c) for c in n.children) + "</a>"

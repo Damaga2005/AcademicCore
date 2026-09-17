@@ -658,6 +658,7 @@ print v(2) i(v1)
             rel_error_iv1 = abs(bc["V1"] - ng_iv1) / abs(ng_iv1)
             assert rel_error_iv1 < 1e-4, f"I(V1) rel error too large: {rel_error_iv1} (got {bc['V1']}, ngspice {ng_iv1})"
 
+    @pytest.mark.skipif(NG is None, reason="ngspice external backend not found on system")
     def test_ngspice_diode_dc_op(self):
         """Alias for backward compatibility."""
         return self.test_ngspice_cross_validation_d1()

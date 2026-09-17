@@ -43,6 +43,18 @@ def test_no_scripts_or_handlers_survive():
     assert "clic" in md  # label kept, dangerous href dropped
 
 
+def test_javascript_scheme_with_embedded_whitespace_is_dropped():
+    """Regression: browsers ignore tabs/newlines/CR when scheme-matching a URL,
+    so `jav\tascript:` etc. must be treated as `javascript:` and stripped."""
+    evil = (b'<a href="jav\tascript:alert(1)">a</a>'
+            b'<a href="jav\nascript:alert(2)">b</a>'
+            b'<a href="jav\rascript:alert(3)">c</a>')
+    doc = parse_html(evil)
+    md, html = RM.render(doc), RH.render(doc)
+    assert "javascript:" not in html.lower().replace("\t", "").replace("\n", "").replace("\r", "")
+    assert "alert(1)" not in html and "alert(2)" not in html and "alert(3)" not in html
+
+
 def test_malformed_html_never_drops_text():
     doc = parse_html(b"<div><p>sin cerrar<li>item<p>otro")
     A.validate(doc)
