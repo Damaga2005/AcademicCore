@@ -24,12 +24,12 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-q -m \"not slow\""
+addopts = "-q"
 markers = [
   "arch: architecture boundary tests",
   "migration: migration / coverage gates",
   "repro: reproducibility tests",
   "external: needs live external runtime (never blocks normal pytest)",
   "integration: requires an installed external runtime",
-  "slow: exact-rational-arithmetic scaling stress test (minutes-long by design; excluded by default, run explicitly with -m slow)",
+  "slow: exact-rational-arithmetic scaling stress test (minutes-long by design; not excluded from the default gate, filter explicitly with -m \"not slow\" for a fast iteration loop)",
 ]

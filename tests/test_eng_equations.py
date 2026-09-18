@@ -1,5 +1,5 @@
 """Equations: parsing, safe evaluation, dimensional analysis, no eval."""
-from decimal import Decimal
+from decimal import Decimal, getcontext
 
 import pytest
 
@@ -41,6 +41,28 @@ def test_dimensional_validation():
         evaluate(parse_equation("X = V ** R"), env(V="5 V", R="2 ohm"))
     with pytest.raises(EvalFailure):
         evaluate(parse_equation("X = sqrt(-4 V)"), {})
+
+
+def test_abs_func_ignores_ambient_decimal_context():
+    """Regression test: abs() in _apply_func used to be a bare builtin.
+
+    ``abs(Decimal)`` implicitly rounds through the ambient/global
+    decimal context (default 28 significant digits) rather than an
+    explicit context, unlike every sibling branch of ``_apply_func``
+    (sin/cos/tan/exp/log/log10), which threads its own working-precision
+    Context explicitly. The fix uses ``Decimal.copy_abs()`` (sign flip
+    only, no rounding). This test degrades the ambient context to its
+    default 28 digits and checks a >28-digit value survives abs() whole.
+    """
+    old = getcontext().prec
+    try:
+        getcontext().prec = 28
+        big = "-1.2345678901234567890123456789012345678901234567890"  # 50 sig digits
+        q = evaluate(parse_equation("X = abs(V)"), env(V=f"{big} V"))
+        assert len(q.value.as_tuple().digits) > 28
+        assert q.value == Decimal(big).copy_abs()
+    finally:
+        getcontext().prec = old
 
 
 def test_no_eval_no_exec_no_imports():

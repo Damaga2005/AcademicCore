@@ -118,8 +118,10 @@ def parse_ngspice_output(
         "cancelled": execution.cancelled,
     }
 
+    have_any_signal = bool(signals) or bool(complex_signals) or bool(sens_info.get("sensitivities"))
+
     # If no signals extracted and execution was clean, but no circuit loaded or empty
-    if not signals and not complex_signals and not sens_info.get("sensitivities") and status == "COMPLETED":
+    if not have_any_signal and status == "COMPLETED":
         if "no simulations run" in combined.lower() or "no circuits loaded" in combined.lower():
             status = "FAILED"
             if not errors_found:
@@ -137,6 +139,22 @@ def parse_ngspice_output(
                 "format, e.g. engineering-suffix notation like '1.234u' "
                 "instead of '1.234e-06'): " + "; ".join(diagnostics[:5])
             )
+    elif have_any_signal and diagnostics and status == "COMPLETED":
+        # Some candidate rows in a recognized table parsed fine and others
+        # in that SAME table were silently skipped (e.g. one row used an
+        # unsupported engineering-suffix number format like "1.234u" while
+        # sibling rows parsed normally). Signals are kept -- callers do not
+        # lose the values that DID parse -- but this must never be reported
+        # as a clean, unqualified COMPLETED, since it would hide a partial
+        # data loss the caller has no other way to detect.
+        status = "PARTIAL"
+        errors_found.append(
+            "ngspice output parser dropped some candidate data rows while "
+            "other rows in the same table(s) parsed successfully (possible "
+            "unsupported number format, e.g. engineering-suffix notation "
+            "like '1.234u' instead of '1.234e-06'); signals reflect only "
+            "what parsed: " + "; ".join(diagnostics[:5])
+        )
 
     is_noise_analysis = any(
         isinstance(a, NoiseAnalysis) or (isinstance(a, str) and a.strip().lower().startswith("noise"))

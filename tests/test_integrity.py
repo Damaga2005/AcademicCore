@@ -1,4 +1,5 @@
 """Integrity: guards, orphans, duplicates, invalid refs/dates/weights/grades."""
+import threading
 from datetime import date
 
 import pytest
@@ -7,6 +8,7 @@ from academic_core.application import AcademicApp
 from academic_core.config import Settings
 from academic_core.domain import entities as E
 from academic_core.infrastructure import IntegrityError
+from academic_core.infrastructure.repositories import AcademicRepository
 
 
 def _app(tmp_path):
@@ -83,6 +85,59 @@ def test_task_with_space_blocks_delete(tmp_path):
                              kind="examen_final", day=date(2026, 1, 15))
     with pytest.raises(IntegrityError):
         core.svc.delete_task(core.planning, t.stable_id)
+
+
+def test_concurrent_prerequisite_insertion_never_forms_a_cycle(tmp_path):
+    """Two connections racing to add opposite-direction prerequisite edges
+    for the same pair of subjects must never both succeed: add_prerequisite's
+    cycle check (BFS) and its INSERT have to be atomic under a single write
+    lock (BEGIN IMMEDIATE), or two connections can each see "no cycle exists
+    yet" before either commits, and together insert a pair of edges that
+    forms one."""
+    iterations = 25
+    for i in range(iterations):
+        core = _app(tmp_path / f"race_{i}")
+        _chain(core)
+        core.academic.add_subject(
+            E.Subject("subject:other", "231", "Other", "OTH", term_id="term:c1"))
+
+        # Two independent Database/AcademicRepository instances over the
+        # same sqlite file: separate connection objects, as a second
+        # process or thread would use.
+        repo1 = AcademicRepository(core.db)
+        repo2 = AcademicRepository(core.db.__class__(core.db.path))
+
+        results = {}
+        barrier = threading.Barrier(2)
+
+        def add_a_requires_b():
+            barrier.wait()
+            try:
+                repo1.add_prerequisite("subject:sdm", "subject:other")
+                results["ab"] = "ok"
+            except IntegrityError:
+                results["ab"] = "rejected"
+
+        def add_b_requires_a():
+            barrier.wait()
+            try:
+                repo2.add_prerequisite("subject:other", "subject:sdm")
+                results["ba"] = "ok"
+            except IntegrityError:
+                results["ba"] = "rejected"
+
+        t1 = threading.Thread(target=add_a_requires_b)
+        t2 = threading.Thread(target=add_b_requires_a)
+        t1.start(); t2.start()
+        t1.join(timeout=10); t2.join(timeout=10)
+
+        assert not (t1.is_alive() or t2.is_alive()), "a racing insert deadlocked/timed out"
+        assert results.get("ab") in ("ok", "rejected")
+        assert results.get("ba") in ("ok", "rejected")
+        # At most one direction may have won the race; both winning would
+        # mean subject:sdm requires subject:other AND vice versa - a cycle.
+        assert not (results.get("ab") == "ok" and results.get("ba") == "ok"), (
+            f"both directions succeeded, forming a cycle: {results}")
 
 
 def test_reopen_after_all_operations(tmp_path):

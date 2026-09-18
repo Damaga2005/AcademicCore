@@ -111,3 +111,60 @@ def test_authored_indexed_and_searchable(tmp_path):
     sid = core.authoring.create_from_template("lecture-notes")
     hits = core.fts.search("Objectius")
     assert [h["stable_id"] for h in hits] == [sid]
+
+
+def _fts_title(core, sid):
+    cx = core.records.db.connect()
+    try:
+        row = cx.execute(
+            "SELECT title FROM resources_fts WHERE stable_id=?", (sid,)
+        ).fetchone()
+        return row["title"] if row else None
+    finally:
+        cx.close()
+
+
+def test_blank_title_document_indexes_blank_consistently(tmp_path):
+    # A document created via create_from_resource() from a titleless source
+    # can start with an empty meta.title. Saving it must keep the canonical
+    # record and the FTS entry in agreement (both blank), not desynced.
+    core = _app(tmp_path)
+    f = tmp_path / "untitled.md"
+    f.write_text("cuerpo sin titulo", encoding="utf-8")
+    rep = core.ingest.import_file(f)
+    sid = core.authoring.create_from_resource(rep.stable_id)
+    st = core.authoring.open(sid)
+    # Force the in-memory title blank, independent of whatever the source had.
+    st.execute(AU.UpdateMetadata(A.Metadata(title="")))
+    st.execute(AU.UpdateText((0, 0), "cuerpo editado"))
+    save_rep = core.authoring.save(st, sid)
+    assert save_rep.outcome == "saved"
+    res = core.records.get(sid)
+    assert res.title == ""
+    assert _fts_title(core, sid) == ""
+
+
+def test_clearing_title_updates_canonical_and_fts_together(tmp_path):
+    # Regression test: clearing an existing title ("X" -> "") must update
+    # BOTH the canonical resources record AND the FTS index to the new
+    # (blank) title. Before the fix, the update_title() guard only fired
+    # for non-empty titles, so canonical stayed stale at "X" while the FTS
+    # indexer (correctly reindexing from state.doc.meta.title) wrote "" -
+    # a canonical/FTS desync for the clear-title case specifically.
+    core = _app(tmp_path)
+    sid = core.authoring.create_from_template("lecture-notes")
+    st = core.authoring.open(sid)
+    st.execute(AU.UpdateMetadata(A.Metadata(title="X")))
+    core.authoring.save(st, sid)
+    assert core.records.get(sid).title == "X"
+    assert _fts_title(core, sid) == "X"
+
+    st2 = core.authoring.open(sid)
+    st2.execute(AU.UpdateMetadata(A.Metadata(title="")))
+    rep = core.authoring.save(st2, sid)
+    assert rep.outcome == "saved"
+    res = core.records.get(sid)
+    assert res.title == ""
+    assert _fts_title(core, sid) == ""
+    # canonical and FTS must never disagree
+    assert res.title == _fts_title(core, sid)

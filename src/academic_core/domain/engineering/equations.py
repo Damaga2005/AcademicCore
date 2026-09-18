@@ -307,7 +307,15 @@ def _apply_func(name: str, arg: Quantity) -> Quantity:
             raise EquationError(f"{name}: {e}")
         return Quantity(out, one)
     if name == "abs":
-        return Quantity(abs(arg.value), arg.unit)
+        # copy_abs() flips the sign bit only and performs no rounding; it
+        # never touches the ambient global decimal context. The bare
+        # builtin abs(arg.value) would be wrong here (same class of bug as
+        # the DecimalComplex.modulus() im==0 fast path): every sibling
+        # branch above (sin/cos/tan/exp/log/log10) explicitly threads its
+        # own working-precision Context, so a bare abs() on this branch
+        # alone would silently truncate the result to the ambient 28-digit
+        # default context instead.
+        return Quantity(arg.value.copy_abs(), arg.unit)
     if name == "sqrt":
         if arg.to_base() < 0:
             raise EquationError("sqrt of negative")

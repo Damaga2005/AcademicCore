@@ -206,6 +206,70 @@ def test_parse_malformed_or_empty_output():
     assert res.voltage("out") is None
 
 
+def test_parse_partial_row_loss_is_not_silent_completed():
+    """Regression: a table where SOME rows parse and OTHERS are silently
+    dropped must not be reported as a clean, unqualified COMPLETED.
+
+    V1 and V3 use the standard grammar and parse fine; V2 uses an
+    engineering-suffix value ("1.234u") that the strict numeric parser
+    rejects. Before the fix, this returned status=COMPLETED with
+    signals={v(v1), v(v3)} and no indication V2 was ever dropped.
+    """
+    partial_loss_output = """******
+** ngspice-47
+******
+Circuit: * partial row loss
+
+Node Voltage
+v1                               1.500000e+00
+v2                               1.234u
+v3                               2.500000e+00
+
+Total analysis time (seconds) = 0.000854
+"""
+    exec_info = _make_fake_execution(stdout=partial_loss_output)
+    res = parse_ngspice_op(exec_info)
+
+    # The rows that DID parse must still be present -- data that succeeded
+    # should not be thrown away just because a sibling row failed.
+    assert res.voltage("v1") == Decimal("1.500000e+00")
+    assert res.voltage("v3") == Decimal("2.500000e+00")
+    assert res.voltage("v2") is None
+
+    # But the overall result must not claim a clean, unqualified success:
+    # status must not be a bare "everything is fine" COMPLETED, and the
+    # dropped value must be named somewhere in errors.
+    assert res.status != "COMPLETED"
+    assert res.errors, "dropped row must be surfaced in errors/diagnostics"
+    assert any("v2" in e for e in res.errors)
+
+
+def test_parse_all_rows_valid_reports_clean_completed():
+    """Sanity check: when every candidate row parses, status stays COMPLETED
+    with no fabricated errors -- the partial-loss detection must not produce
+    false positives on a fully successful table."""
+    all_valid_output = """******
+** ngspice-47
+******
+Circuit: * all rows valid
+
+Node Voltage
+v1                               1.500000e+00
+v2                               1.700000e+00
+v3                               2.500000e+00
+
+Total analysis time (seconds) = 0.000854
+"""
+    exec_info = _make_fake_execution(stdout=all_valid_output)
+    res = parse_ngspice_op(exec_info)
+
+    assert res.status == "COMPLETED"
+    assert res.errors == ()
+    assert res.voltage("v1") == Decimal("1.500000e+00")
+    assert res.voltage("v2") == Decimal("1.700000e+00")
+    assert res.voltage("v3") == Decimal("2.500000e+00")
+
+
 def test_parse_determinism():
     exec_info = _make_fake_execution()
     res1 = parse_ngspice_op(exec_info)

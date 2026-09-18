@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -179,35 +180,50 @@ class AcademicRepository:
         if subject_id == requires_id:
             raise IntegrityError("a subject cannot require itself")
         cx = self.db.connect()
-        if not cx.execute("SELECT 1 FROM subjects WHERE stable_id=?",
-                          (requires_id,)).fetchone():
-            cx.close()
-            raise IntegrityError(f"unknown prerequisite: {requires_id}")
-        # Cycle check: adding subject_id -> requires_id would close a cycle
-        # if subject_id is already reachable from requires_id via existing
-        # prerequisite edges (BFS over the small prerequisite graph).
-        seen = {requires_id}
-        queue = [requires_id]
-        while queue:
-            current = queue.pop()
-            if current == subject_id:
-                cx.close()
-                raise IntegrityError(
-                    f"cannot add prerequisite {subject_id} -> {requires_id}: "
-                    f"would create a cycle in the prerequisite graph")
-            rows = cx.execute("SELECT requires_id FROM prerequisites WHERE subject_id=?",
-                              (current,)).fetchall()
-            for r in rows:
-                nxt = r["requires_id"]
-                if nxt not in seen:
-                    seen.add(nxt)
-                    queue.append(nxt)
+        # The cycle check (BFS below) and the INSERT must be atomic w.r.t.
+        # any other connection doing the same thing, or two concurrent
+        # connections can each see "no cycle" before either commits and
+        # together insert a pair of edges that form one. BEGIN IMMEDIATE
+        # acquires SQLite's RESERVED lock up front (rather than lazily on
+        # first write), so a second connection's own BEGIN IMMEDIATE blocks
+        # until this transaction commits or rolls back instead of racing
+        # past the check. connect() sets busy_timeout, so the blocked
+        # connection waits for the lock rather than immediately raising
+        # "database is locked" for ordinary contention.
+        cx.execute("BEGIN IMMEDIATE")
         try:
-            cx.execute("INSERT INTO prerequisites VALUES (?,?)", (subject_id, requires_id))
-        except Exception as e:
+            if not cx.execute("SELECT 1 FROM subjects WHERE stable_id=?",
+                              (requires_id,)).fetchone():
+                raise IntegrityError(f"unknown prerequisite: {requires_id}")
+            # Cycle check: adding subject_id -> requires_id would close a cycle
+            # if subject_id is already reachable from requires_id via existing
+            # prerequisite edges (BFS over the small prerequisite graph).
+            seen = {requires_id}
+            queue = [requires_id]
+            while queue:
+                current = queue.pop()
+                if current == subject_id:
+                    raise IntegrityError(
+                        f"cannot add prerequisite {subject_id} -> {requires_id}: "
+                        f"would create a cycle in the prerequisite graph")
+                rows = cx.execute("SELECT requires_id FROM prerequisites WHERE subject_id=?",
+                                  (current,)).fetchall()
+                for r in rows:
+                    nxt = r["requires_id"]
+                    if nxt not in seen:
+                        seen.add(nxt)
+                        queue.append(nxt)
+            try:
+                cx.execute("INSERT INTO prerequisites VALUES (?,?)", (subject_id, requires_id))
+            except sqlite3.Error as e:
+                raise IntegrityError(f"duplicate prerequisite: {e}")
+        except BaseException:
+            cx.execute("ROLLBACK")
+            raise
+        else:
+            cx.execute("COMMIT")
+        finally:
             cx.close()
-            raise IntegrityError(f"duplicate prerequisite: {e}")
-        cx.commit(); cx.close()
 
     def prerequisites_of(self, subject_id: str) -> list[str]:
         cx = self.db.connect()

@@ -503,6 +503,70 @@ def test_global_decimal_context_untouched():
     assert getcontext().prec == before_prec
 
 
+def test_modulus_im_zero_fast_path_ignores_ambient_context():
+    """Regression test for the modulus() im==0 fast-path precision bug.
+
+    modulus() used to do ``return abs(re)`` on that fast path. Python's
+    bare ``abs()`` on a Decimal implicitly rounds through
+    ``decimal.getcontext()`` (the ambient/global context, default 28
+    significant digits) rather than the module's explicit 50-digit
+    working context, silently truncating precision whenever im is
+    exactly zero. The fix uses ``re.copy_abs()``, which flips the sign
+    bit only and never consults any context. This test degrades the
+    ambient context to the default 28 digits, feeds in a >28-digit
+    Decimal with im=0, and asserts modulus() still returns the full
+    value untouched.
+    """
+    old = getcontext().prec
+    try:
+        getcontext().prec = 28  # the default/global context, explicitly
+        big_re = Decimal(
+            "1.2345678901234567890123456789012345678901234567890"
+        )  # 50 significant digits
+        assert len(big_re.as_tuple().digits) == 50
+        z = DecimalComplex(big_re, Decimal(0))
+
+        result = z.modulus()
+
+        # Full 50-digit precision must survive: no rounding to 28 digits.
+        assert result == big_re.copy_abs()
+        assert len(result.as_tuple().digits) > 28
+
+        # Sign is normalized (abs), value magnitude preserved exactly.
+        # (Built from a literal, not unary ``-big_re``: that bare builtin
+        # would itself round through the same degraded ambient context.)
+        neg_big_re = Decimal(
+            "-1.2345678901234567890123456789012345678901234567890"
+        )
+        neg_z = DecimalComplex(neg_big_re, Decimal(0))
+        neg_result = neg_z.modulus()
+        assert neg_result == big_re.copy_abs()
+        assert len(neg_result.as_tuple().digits) > 28
+    finally:
+        getcontext().prec = old
+
+
+def test_modulus_general_path_unaffected_by_fast_path_fix():
+    """Sanity check: the im != 0 branch still computes sqrt(re^2+im^2).
+
+    Guards against a regression in the non-fast-path branch while
+    fixing the im==0 fast path above.
+    """
+    z = DecimalComplex(Decimal(3), Decimal(4))
+    result = z.modulus()
+    tol = Decimal("1e-45")
+    assert abs(result - Decimal(5)) <= tol
+
+    z2 = DecimalComplex(Decimal("1.5"), Decimal("-2.5"))
+    expected = make_context().sqrt(
+        make_context().add(
+            make_context().multiply(z2.re, z2.re),
+            make_context().multiply(z2.im, z2.im),
+        )
+    )
+    assert z2.modulus() == expected
+
+
 # -- 9. serialization ---------------------------------------------------------------------------------
 
 def test_rational_serialization_roundtrip():

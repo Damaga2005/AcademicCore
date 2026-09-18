@@ -136,7 +136,7 @@ class AuthoringService:
             self.records.append_version(
                 R.ResourceVersion(resource_id, res.current_version + 1,
                                   content_hash, len(data), prov), cx)
-        if state.doc.meta.title and state.doc.meta.title != res.title:
+        if state.doc.meta.title != res.title:
             self.records.update_title(resource_id, state.doc.meta.title)
         self.store.touch(resource_id)
         self.indexer.index(resource_id, "document", state.doc.meta.title, extract_text(state.doc))
