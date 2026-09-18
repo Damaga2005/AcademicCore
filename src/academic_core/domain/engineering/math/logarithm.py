@@ -176,7 +176,7 @@ def decimal_log10(x: Decimal | int, ctx: Context | None = None) -> Decimal:
         raise ValueError(f"decimal_log10 domain is x > 0, got {xv}")
     g = make_context(_GUARD_DIGITS)
     e = xv.adjusted()
-    m = xv.scaleb(-e)
+    m = g.scaleb(xv, -e)
     if m == 1:
         return c.plus(Decimal(e))
     ln_m = _ln_of(m, g)

@@ -270,6 +270,47 @@ Total analysis time (seconds) = 0.000854
     assert res.voltage("v3") == Decimal("2.500000e+00")
 
 
+def test_parse_all_rows_corrupted_reports_failed_not_silent_completed():
+    """Regression: a recognized table where EVERY candidate row is
+    unparseable (e.g. all values use engineering-suffix notation) must be
+    reported as FAILED, not as a bare COMPLETED with an empty signals dict
+    that hides the fact rows existed but nothing could be read."""
+    all_corrupt_output = """******
+** ngspice-47
+******
+Circuit: * all rows corrupted
+
+Node Voltage
+v1                               1.234u
+v2                               5.678n
+
+Total analysis time (seconds) = 0.000854
+"""
+    exec_info = _make_fake_execution(stdout=all_corrupt_output)
+    res = parse_ngspice_op(exec_info)
+
+    assert res.status == "FAILED"
+    assert len(res.signals) == 0
+    assert res.voltage("v1") is None
+    assert res.voltage("v2") is None
+    assert res.errors, "candidate rows that all failed to parse must be surfaced in errors"
+    assert any("v1" in e for e in res.errors)
+    assert any("v2" in e for e in res.errors)
+
+
+def test_parse_empty_stdout_is_sane_completed_not_crash():
+    """A completely empty stdout (0 bytes) with a clean exit must not crash
+    the parser and must not be misreported as a parse failure -- there are
+    no candidate rows to have dropped, so this is a legitimately empty
+    result, not a hidden partial/total data loss."""
+    exec_info = _make_fake_execution(stdout="", stderr="")
+    res = parse_ngspice_op(exec_info)
+
+    assert res.status == "COMPLETED"
+    assert res.signals == {}
+    assert res.errors == ()
+
+
 def test_parse_determinism():
     exec_info = _make_fake_execution()
     res1 = parse_ngspice_op(exec_info)

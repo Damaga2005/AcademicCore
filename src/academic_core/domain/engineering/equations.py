@@ -319,7 +319,7 @@ def _apply_func(name: str, arg: Quantity) -> Quantity:
     if name == "sqrt":
         if arg.to_base() < 0:
             raise EquationError("sqrt of negative")
-        root = arg.to_base().sqrt()
+        root = make_context().sqrt(arg.to_base())
         # dimension must be an exact square
         dim = tuple(e // 2 if e % 2 == 0 else None for e in arg.dimension)
         if any(e is None for e in dim):

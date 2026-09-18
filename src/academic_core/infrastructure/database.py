@@ -11,6 +11,7 @@ bytes belong to CAS, Phase 0 Store).
 from __future__ import annotations
 
 import sqlite3
+import time
 from importlib import resources
 from pathlib import Path
 
@@ -62,8 +63,34 @@ class Database:
         cx = sqlite3.connect(self.path, timeout=10.0, isolation_level=None)
         cx.row_factory = sqlite3.Row
         cx.execute("PRAGMA foreign_keys=ON")
-        cx.execute("PRAGMA journal_mode=WAL")
+        # busy_timeout must be set before journal_mode=WAL: switching a
+        # brand-new database into WAL mode itself needs to acquire a lock,
+        # and with two connections racing to open the same fresh file, the
+        # loser would otherwise hit `sqlite3.OperationalError: database is
+        # locked` here immediately (busy_timeout not yet in effect) instead
+        # of waiting for the winner to finish.
         cx.execute("PRAGMA busy_timeout=10000")
+        # Switching a brand-new file into WAL mode takes a lock of its own
+        # to write the WAL header, and on some SQLite builds that specific
+        # lock acquisition can return SQLITE_BUSY without going through the
+        # normal busy-handler retry loop that `busy_timeout` installs (it
+        # reliably backs off writes done via BEGIN IMMEDIATE below, but not
+        # always this particular mode change). Retry it manually rather
+        # than let a raced first-open of the file surface as an unhandled
+        # "database is locked".
+        _last_exc: sqlite3.OperationalError | None = None
+        for _ in range(100):
+            try:
+                cx.execute("PRAGMA journal_mode=WAL")
+                _last_exc = None
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc) and "busy" not in str(exc):
+                    raise
+                _last_exc = exc
+                time.sleep(0.1)
+        if _last_exc is not None:
+            raise _last_exc
         cx.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")
         applied = {r[0] for r in cx.execute("SELECT version FROM schema_version")}
         for i, name in enumerate(_MIGRATIONS, start=1):
@@ -82,9 +109,21 @@ class Database:
                 # can be left on disk to wedge a later retry.
                 cx.execute("BEGIN IMMEDIATE")
                 try:
-                    for stmt in statements:
-                        cx.execute(stmt)
-                    cx.execute("INSERT INTO schema_version(version) VALUES (?)", (i,))
+                    # Re-check under the write lock: another connection may
+                    # have raced us to this exact migration and already
+                    # committed it while we were blocked acquiring the lock
+                    # above (the `applied` set read before this loop started
+                    # is now stale for this version). If so, this connection
+                    # lost the race — skip re-running the statements and the
+                    # INSERT (which would otherwise hit schema_version's
+                    # PRIMARY KEY) and just fall through to COMMIT.
+                    already = cx.execute(
+                        "SELECT 1 FROM schema_version WHERE version = ?", (i,)
+                    ).fetchone()
+                    if already is None:
+                        for stmt in statements:
+                            cx.execute(stmt)
+                        cx.execute("INSERT INTO schema_version(version) VALUES (?)", (i,))
                 except BaseException:
                     cx.execute("ROLLBACK")
                     raise

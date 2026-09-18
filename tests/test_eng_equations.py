@@ -81,3 +81,37 @@ def test_no_eval_no_exec_no_imports():
     import academic_core.domain.engineering.equations as m
     src = inspect.getsource(m)
     assert "eval(" not in src and "exec(" not in src
+
+
+def test_sqrt_func_ignores_ambient_decimal_context():
+    """Regression test (audit finding, currently FAILING -- real bug):
+
+    Unlike every sibling branch of ``_apply_func`` (sin/cos/tan/exp/log/
+    log10), which explicitly threads its own working-precision Context
+    (``ctx = make_context()``), the ``sqrt`` branch calls the bare
+    ``Decimal.sqrt()`` instance method on ``arg.to_base()`` with no
+    context argument. ``Decimal.sqrt(context=None)`` rounds through
+    ``decimal.getcontext()`` -- the ambient/global context (default 28
+    significant digits) -- exactly the same class of bug that was fixed
+    for ``abs()`` (see test_abs_func_ignores_ambient_decimal_context
+    above) and for DecimalComplex.modulus()'s im==0 fast path. This test
+    degrades the ambient context to its default 28 digits and checks
+    that sqrt(2) still comes back at (approximately) the module's
+    50-digit WORKING_PRECISION instead of being silently truncated to
+    28 digits.
+    """
+    old = getcontext().prec
+    try:
+        getcontext().prec = 28
+        q = evaluate(parse_equation("X = sqrt(V)"), env(V="2"))
+        # WORKING_PRECISION is 50; a healthy (context-independent) sqrt
+        # should return far more than 28 significant digits here.
+        assert len(q.value.as_tuple().digits) > 28, (
+            f"sqrt(2) came back with only {len(q.value.as_tuple().digits)} "
+            f"significant digits ({q.value!r}) -- it silently rounded "
+            "through the ambient global Decimal context (28 digits) "
+            "instead of the module's own explicit working-precision "
+            "Context, exactly like the already-fixed abs() bug."
+        )
+    finally:
+        getcontext().prec = old

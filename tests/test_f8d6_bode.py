@@ -247,6 +247,49 @@ def test_log10_errors_and_ln10():
     assert decimal_ln10() == decimal_ln10()  # cached determinism
 
 
+def test_log10_ignores_ambient_decimal_context():
+    """Regression test (audit finding, currently FAILING -- real bug):
+
+    ``decimal_log10`` decomposes ``x = m * 10**e`` via
+    ``m = xv.scaleb(-e)`` with NO context argument.
+    ``Decimal.scaleb(other, context=None)`` rounds its *coefficient* to
+    the current context's precision when none is supplied -- i.e. it
+    silently reads and rounds through ``decimal.getcontext()`` (the
+    ambient/global context, default 28 digits), corrupting the mantissa
+    ``m`` *before* the ln(m)/ln(10) computation even starts. This
+    contaminates the final log10 result whenever the ambient context
+    precision is lower than the input's significant-digit count --
+    exactly the class of ambient-context leak this module's docstring
+    says can never happen ("Every routine builds its own explicit
+    decimal.Context ... and never reads or mutates the ambient global
+    context"), and the same class of bug already fixed for abs() in
+    equations.py and DecimalComplex.modulus()'s im==0 fast path.
+
+    This test degrades the ambient context to 6 digits and shows the
+    high-precision digits of a >6-sig-digit input get rounded away
+    before log10 even runs, changing the numeric result (not just its
+    displayed length) relative to a healthy ambient-context run.
+    """
+    import decimal as _decimal
+
+    old = _decimal.getcontext().prec
+    try:
+        x = Decimal("12345.6789")  # 9 significant digits
+        _decimal.getcontext().prec = 50
+        healthy = decimal_log10(x)
+        _decimal.getcontext().prec = 6
+        degraded = decimal_log10(x)
+        assert degraded == healthy, (
+            "decimal_log10(12345.6789) changed value when the ambient "
+            f"Decimal context precision dropped to 6: healthy={healthy!r} "
+            f"degraded={degraded!r}. The internal mantissa split "
+            "(xv.scaleb(-e)) is rounding through decimal.getcontext() "
+            "instead of an explicit working-precision Context."
+        )
+    finally:
+        _decimal.getcontext().prec = old
+
+
 # -- dB --------------------------------------------------------------------------------------------
 
 def test_db_values_and_zero_category():
