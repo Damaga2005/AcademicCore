@@ -478,6 +478,43 @@ def _sig_digits(x: Decimal) -> int:
     return len(x.as_tuple().digits)
 
 
+def test_make_context_returns_fresh_object_each_call():
+    """Regression test: make_context() must never share a singleton.
+
+    A prior version returned the literal module-level ``_BASE_CONTEXT``
+    by reference whenever ``extra == 0``, so two callers of
+    ``make_context()`` held the *same* Context object and mutating one
+    caller's ``.traps``/``.flags`` silently contaminated every other
+    caller's context. Not exploitable today (nothing in the codebase
+    mutates ``.traps``/``.flags``), but latent and cheap to remove:
+    ``decimal.Context`` construction is trivial, so every call now
+    builds its own instance, for ``extra == 0`` and ``extra > 0`` alike.
+    """
+    a = make_context()
+    b = make_context()
+    assert a is not b
+    # decimal.Context has no value-based __eq__ (falls back to identity),
+    # so compare the attributes that matter instead.
+    assert (a.prec, a.rounding) == (b.prec, b.rounding)
+
+    a2 = make_context(15)
+    b2 = make_context(15)
+    assert a2 is not b2
+    assert (a2.prec, a2.rounding) == (b2.prec, b2.rounding)
+
+    # Mutating one instance's context state must never leak to another
+    # independently-obtained instance.
+    from decimal import DivisionByZero, Overflow
+
+    c1 = make_context()
+    c2 = make_context()
+    default_div_trap = c2.traps[DivisionByZero]
+    c1.traps[DivisionByZero] = not default_div_trap
+    assert c2.traps[DivisionByZero] == default_div_trap
+    c1.flags[Overflow] = True
+    assert c2.flags[Overflow] is False
+
+
 def test_global_decimal_context_untouched():
     before_prec = getcontext().prec
     old = getcontext().prec

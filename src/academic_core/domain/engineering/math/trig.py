@@ -27,13 +27,14 @@ WORKING_PRECISION = 50
 _GUARD_DIGITS = 15
 
 
-_BASE_CONTEXT = Context(prec=WORKING_PRECISION, rounding=ROUND_HALF_EVEN)
-
-
 def make_context(extra: int = 0) -> Context:
-    """Return an explicit context (never the ambient global one)."""
-    if extra == 0:
-        return _BASE_CONTEXT
+    """Return a fresh explicit context (never the ambient global one).
+
+    Always constructs a new ``Context`` object, even for ``extra == 0``.
+    ``decimal.Context`` construction is cheap, and never sharing a single
+    instance means no caller can ever contaminate another's rounding
+    state via ``.traps``/``.flags`` mutation, even latently.
+    """
     return Context(prec=WORKING_PRECISION + extra, rounding=ROUND_HALF_EVEN)
 
 

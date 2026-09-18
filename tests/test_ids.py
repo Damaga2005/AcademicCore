@@ -54,3 +54,24 @@ def test_allocator_sequential_unique():
     assert a != b and a.endswith("a:00001") and b.endswith("a:00002")
     snap = alloc.snapshot()
     assert IdAllocator(snap).allocate("assignment", "sdm").endswith("a:00003")
+
+
+def test_allocator_topic_includes_scope_letter():
+    """Regression: IdAllocator.allocate("topic", ...) must include the "t"
+    scope letter (topic:<subject>:tNN), matching every sibling scoped kind
+    (assignment -> a, exam -> e, formula -> f, ...). A prior bug built
+    topic ids as topic:<subject>:NN, missing the "t", which fails validate()."""
+    alloc = IdAllocator()
+    sid = alloc.allocate("topic", "sdm")
+    assert sid == "topic:sdm:t01"
+    assert validate(sid) == "topic"
+
+
+def test_allocator_topic_sequential_numbering():
+    alloc = IdAllocator()
+    first = alloc.allocate("topic", "sdm")
+    second = alloc.allocate("topic", "sdm")
+    assert first == "topic:sdm:t01"
+    assert second == "topic:sdm:t02"
+    assert validate(first) == "topic"
+    assert validate(second) == "topic"
