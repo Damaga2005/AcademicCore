@@ -19,7 +19,7 @@ Comprehensive test suite implementing canonical test matrix J1 to J20:
 - J16: Ideal Transformer AC (T turns ratio n)
 - J17: Mixed multi-node circuit (>= 10 nodes with R, L, C, D, Q, V, I; ngspice 47)
 - J18: Invalid frequency (f <= 0, non-finite, wrong dimension -> INVALID)
-- J19: Unsupported element (MOSFET M -> UNSUPPORTED)
+- J19: Unsupported element (unknown type X -> UNSUPPORTED; MOSFET M supported since F8-K)
 - J20: Deterministic provenance & digest (10 repeated runs bit-for-bit identical)
 
 Plus:
@@ -745,14 +745,19 @@ print mag(v(c1)) ph_c1 mag(v(e2)) ph_e2
         assert sol_dim.status == ACStatus.INVALID
 
     def test_j19_unsupported_element(self):
-        """J19: Unsupported element rejection (e.g. MOSFET)."""
+        """J19: Unsupported element rejection (unknown type letter).
+
+        NOTE (F8-K): MOSFET ``M`` is a supported small-signal type since
+        F8-K, so this probe now uses the still-unknown letter ``X`` to
+        exercise the UNSUPPORTED path (same bypass construction).
+        """
         c = Circuit("j19_unsupp")
         c.add(vsrc("V1", "1", "0", "0 V", ac_mag="1 V"))
         comp = object.__new__(Component)
-        object.__setattr__(comp, "ref", "M1")
-        object.__setattr__(comp, "type", "M")
+        object.__setattr__(comp, "ref", "X1")
+        object.__setattr__(comp, "type", "X")
         object.__setattr__(comp, "value", None)
-        object.__setattr__(comp, "pins", {"D": "1", "G": "1", "S": "0"})
+        object.__setattr__(comp, "pins", {"A": "1", "B": "0"})
         object.__setattr__(comp, "parameters", {})
         object.__setattr__(comp, "metadata", {})
         c.add(comp)
