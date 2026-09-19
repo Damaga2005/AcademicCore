@@ -2,7 +2,7 @@
 
 > **Proyecto**: AcademicCore  
 > **Documento**: Roadmap Maestro y Visión Funcional  
-> **Estado**: En Desarrollo Activo (Fases F0 a F8-L **CERTIFICADAS**)
+> **Estado**: En Desarrollo Activo (Fases F0 a F8-M **CERTIFICADAS**)
 > **Objetivo**: Plataforma académica técnica con conocimiento estructurado, evaluación, aprendizaje adaptativo, ingeniería/simulación e IA asistiva gobernada por guardrails deterministas.
 
 ---
@@ -122,7 +122,7 @@ La arquitectura permite incorporar nuevas disciplinas (Matemáticas, Electrónic
   │
  F7  MNA Lineal y Simulación SPICE             [CERTIFICADO]
   │
- F8  Electrónica Avanzada (F8-A ... F8-L)      [CERTIFICADO]
+ F8  Electrónica Avanzada (F8-A ... F8-M)      [CERTIFICADO]
   │
  F9  Assessment y Evaluación Formal            [EN PLANIFICACIÓN]
   │
@@ -163,7 +163,7 @@ F8-A a F8-I   Electrónica Avanzada                      [CERTIFICADO]
 F8-J   Small-Signal AC                                  [1º]
 F8-K   Semiconductores Adicionales (MOSFET/JFET/Zener)  [2º]
 F8-L   Transitorio (DAE, Backward Euler, Trapezoidal)   [3º]
-F8-M   Análisis Avanzados (Sweep, Sensibilidad, MC)     [4º]
+F8-M   Análisis Avanzados (Sweep, Sensibilidad, MC)     [4º] CERTIFICADO
 F8-N   Laboratorio Virtual                              [5º]
 F8-O   Metrología e Incertidumbre (GUM)                 [6º]
 F8-P1  Sistemas y Control                               [7º]
@@ -237,7 +237,7 @@ F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
 
 La familia **F8** constituye el motor de simulación circuital y electrónica de AcademicCore:
 
-### 6.1 Fases Certificadas (F8-A a F8-L)
+### 6.1 Fases Certificadas (F8-A a F8-M)
 
 | Fase | Denominación | Capacidades Principales | Estado | Gate |
 |:---:|:---|:---|:---:|:---:|
@@ -260,14 +260,14 @@ La familia **F8** constituye el motor de simulación circuital y electrónica de
 | **F8-J** | Small-Signal AC | Linealización de puntos de operación DC de dispositivos no lineales (diodos y BJT), extracción de parámetros de pequeña señal ($g_m$, $r_\pi$, $r_o$) y resolución de respuesta en alterna. | **CERTIFICADO** | [`GATE-F8J.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8J.md) |
 | **F8-K** | Semiconductores Adicionales | MOSFET Level 1 / Shichman-Hodges (`M`), JFET square-law (`J`), diodos Zener, LED, Schottky y fotodiodos (`D` + `kind`); MNA no lineal, Jacobiano analítico, contrato small-signal AC y validación ngspice 47. | **CERTIFICADO** | [`GATE-F8K.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8K.md) |
 | **F8-L** | Transitorio (DAE en tiempo) | Capacitores e inductores con modelos companion, integradores implícitos Backward Euler / Trapezoidal / BDF2, paso adaptativo por LTE, rollback transaccional y Newton-DAE acoplado con validación ngspice 47. | **CERTIFICADO** | [`GATE-F8L.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8L.md) |
+| **F8-M** | Análisis Avanzados | DC Sweep, Parameter Sweep (allowlist cerrado), Worst Case (esquinas $2^k$), sensibilidad DC implícita analítica, sensibilidad AC lineal y Monte Carlo nativo con semilla; warm-start con fallback trazable; validación por diferencias finitas y ngspice 47. | **CERTIFICADO** | [`GATE-F8M.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8M.md) |
 
 ### 6.2 Fases Futuras de la Familia F8
 
 > [!NOTE]
-> *Nota normativa:* F8-L ya está certificada y figura en §6.1. Las fases futuras de la familia F8 comienzan en **F8-M (NEXT)**, de acuerdo con el orden normativo de §5.1.
+> *Nota normativa:* F8-M ya está certificada y figura en §6.1. Las fases futuras de la familia F8 comienzan en **F8-N (NEXT)**, de acuerdo con el orden normativo de §5.1.
 
-- **F8-M — Análisis Avanzados (Siguiente Fase)**: Barridos DC (*DC Sweep*), barridos de parámetros (*Parameter Sweep*), análisis de sensibilidad ($\partial \text{salida} / \partial \text{parámetro}$), Monte Carlo y análisis de peor caso (*Worst Case*).
-- **F8-N — Laboratorio Virtual**: Instrumentación virtual interactiva (fuente de alimentación DC, multímetro digital, osciloscopio de doble canal, generador de funciones, analizador lógico).
+- **F8-N — Laboratorio Virtual (Siguiente Fase)**: Instrumentación virtual interactiva (fuente de alimentación DC, multímetro digital, osciloscopio de doble canal, generador de funciones, analizador lógico).
 - **F8-O — Metrología e Incertidumbre**: Expresión de incertidumbre según la guía GUM (tipo A, tipo B, combinada y expandida), propagación analítica y Monte Carlo, cifras significativas y trazabilidad metrológica.
 
 ---
