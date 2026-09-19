@@ -540,7 +540,17 @@ class GridSpec:
 
 def expand_grid(grid: GridSpec) -> tuple[Decimal, ...]:
     """Exact ordered grid values. ``InvalidCircuitError`` on any violation
-    (empty, sign/direction, log domain, ``> MAX_SWEEP_POINTS``)."""
+    (empty, sign/direction, log domain, ``> MAX_SWEEP_POINTS``, or grid
+    arithmetic that leaves the working-context range)."""
+    try:
+        return _expand_grid_impl(grid)
+    except ArithmeticError as exc:  # decimal traps: overflow / impossible op
+        raise InvalidCircuitError(
+            f"grid arithmetic out of range ({type(exc).__name__}); "
+            f"reduce the span/step ratio or exponents") from exc
+
+
+def _expand_grid_impl(grid: GridSpec) -> tuple[Decimal, ...]:
     if not isinstance(grid, GridSpec):
         raise InvalidCircuitError("grid must be a GridSpec")
     ctx = make_context()
@@ -646,6 +656,13 @@ class SweepPoint:
     newton_digest: str | None = None
     result: NonlinearResult | None = field(default=None, compare=False,
                                            repr=False)
+    observable_errors: tuple = ()  # requested observables that could not be
+    # evaluated at a converged point (arithmetic overflow): never silent
+
+    @property
+    def ok(self) -> bool:
+        return (self.status is NonlinearStatus.CONVERGED
+                and not self.observable_errors)
 
     def to_dict(self) -> dict:
         return {
@@ -661,6 +678,7 @@ class SweepPoint:
                               sorted(self.node_voltages.items())},
             "diagnostic": self.diagnostic,
             "newton_digest": self.newton_digest,
+            "observable_errors": list(self.observable_errors),
         }
 
 
@@ -674,10 +692,16 @@ def _make_point(index, label, params, result, state, init_mode, warm_used,
     obs: dict = {}
     volts: dict = {}
     diag = ""
+    obs_err: list[str] = []
     if result.status is NonlinearStatus.CONVERGED and state is not None:
         volts = {nv.node: nv.voltage.to_base() for nv in result.node_voltages}
         for spec in observables:
-            obs[spec.key] = observable_value(spec, state)
+            try:
+                obs[spec.key] = observable_value(spec, state)
+            except ArithmeticError as exc:
+                obs_err.append(f"{spec.key}: {type(exc).__name__}")
+        if obs_err:
+            diag = "observable evaluation failed: " + ", ".join(obs_err)
     else:
         diag = "; ".join(result.diagnostics[-1:]) if result.diagnostics else ""
     return SweepPoint(
@@ -686,7 +710,7 @@ def _make_point(index, label, params, result, state, init_mode, warm_used,
         fallback_used=fallback_used, iterations=_iters(result),
         observables=obs, node_voltages=volts, diagnostic=diag,
         newton_digest=(result.provenance or {}).get("solver_digest"),
-        result=result)
+        result=result, observable_errors=tuple(obs_err))
 
 
 def _drive_points(circuit: Circuit, plan: list[tuple[str, dict]],
@@ -743,10 +767,8 @@ def _points_provenance(method: str, config_doc: dict, circuit: Circuit,
         "config_digest": _sha(config_doc),
         "circuit_digest": circuit_digest(circuit),
         "n_points": len(points),
-        "n_converged": sum(p.status is NonlinearStatus.CONVERGED
-                           for p in points),
-        "n_failed": sum(p.status is not NonlinearStatus.CONVERGED
-                        for p in points),
+        "n_converged": sum(p.ok for p in points),
+        "n_failed": sum(not p.ok for p in points),
         "n_warm_start_used": sum(p.warm_start_used for p in points),
         "n_fallback": sum(p.fallback_used for p in points),
         "dc_mapping": "C removed; L -> 0 V short; waves/IC ignored (DC value)",
@@ -762,8 +784,7 @@ def _result_digest(prov: dict, points: list[SweepPoint]) -> str:
 
 
 def _sweep_status(points: list[SweepPoint]) -> SweepStatus:
-    return (SweepStatus.COMPLETED
-            if all(p.status is NonlinearStatus.CONVERGED for p in points)
+    return (SweepStatus.COMPLETED if all(p.ok for p in points)
             else SweepStatus.COMPLETED_WITH_POINT_FAILURES)
 
 
@@ -1085,11 +1106,9 @@ def solve_worst_case(circuit: Circuit, config: WorstCaseConfig
     prov = _points_provenance("worst-case-corners", doc, circuit, points,
                               {"k": len(ent), "n_corners": len(points),
                                "extremum_scope": CORNER_HONESTY})
-    status = (WorstCaseStatus.COMPLETED
-              if all(p.status is NonlinearStatus.CONVERGED for p in points)
+    status = (WorstCaseStatus.COMPLETED if all(p.ok for p in points)
               else WorstCaseStatus.COMPLETED_WITH_POINT_FAILURES)
-    failed = tuple(p.index for p in points
-                   if p.status is not NonlinearStatus.CONVERGED)
+    failed = tuple(p.index for p in points if not p.ok)
     digest = _sha({"provenance": prov,
                    "points": [p.to_dict() for p in points],
                    "extrema": {k: _ext_doc(v) for k, v in extrema.items()}})
@@ -1359,7 +1378,13 @@ def run_monte_carlo_native(circuit: Circuit, config: MCConfig) -> MCResult:
         return _mc_fail(MCStatus[kind], msg)
 
     dists = tuple(sorted(config.distributions, key=lambda d: d[0].key))
-    plan = build_mc_plan(dists, n, config.seed)
+    try:
+        plan = build_mc_plan(dists, n, config.seed)
+    except ArithmeticError as exc:
+        return _mc_fail(
+            MCStatus.INVALID,
+            f"distribution parameters overflow the sampling arithmetic "
+            f"({type(exc).__name__})")
     plan_digest = _sha({
         "seed": config.seed, "n": n,
         "distributions": [(a.key, _dist_doc(d)) for a, d in dists],
@@ -1385,7 +1410,13 @@ def run_monte_carlo_native(circuit: Circuit, config: MCConfig) -> MCResult:
             continue
         res, st = solve_point(variant)  # cold: never reuses prior state
         if res.status is NonlinearStatus.CONVERGED and st is not None:
-            obs = {o.key: observable_value(o, st) for o in observables}
+            try:
+                obs = {o.key: observable_value(o, st) for o in observables}
+            except ArithmeticError as exc:
+                iters.append(MCIteration(
+                    i, subs, params, "observable_overflow", "cold",
+                    _iters(res), diagnostic=type(exc).__name__))
+                continue
             iters.append(MCIteration(i, subs, params, "ok", "cold",
                                      _iters(res), obs))
         else:

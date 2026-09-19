@@ -780,9 +780,10 @@ def solve_dc_sensitivity(circuit: Circuit, config: SensitivityConfig
                         ctx.multiply(ctx.divide(rp.nominal, val), d))
                 rec["sensitivities"][a.key] = item
             obs_out[spec.key] = rec
-    except _Undefined as exc:
-        return _sens_fail(SensitivityStatus.UNSUPPORTED, str(exc),
-                          result.status.value)
+    except (_Undefined, ArithmeticError) as exc:
+        return _sens_fail(SensitivityStatus.UNSUPPORTED,
+                          f"derivative undefined/non-finite: {exc!s} "
+                          f"({type(exc).__name__})", result.status.value)
     doc = {"kind": "dc-sensitivity",
            "parameters": [a.key for a in params],
            "observables": [o.key for o in specs],
@@ -850,7 +851,18 @@ def _cplx(z: DecimalComplex) -> dict:
 def solve_ac_sensitivity(circuit: Circuit, config: ACSensitivityConfig
                          ) -> ACSensitivityResult:
     """M4-AC: ``dX/dp = A^-1 (db/dp - (dA/dp) X)`` + magnitude/phase/dB."""
+    try:
+        return _solve_ac_sensitivity(circuit, config)
+    except ArithmeticError as exc:  # decimal overflow / impossible operation
+        return ACSensitivityResult(
+            status=SensitivityStatus.UNSUPPORTED,
+            diagnostics=(f"AC derivative non-finite/out of range "
+                         f"({type(exc).__name__})",),
+            provenance={"engine": ENGINE_VERSION})
 
+
+def _solve_ac_sensitivity(circuit: Circuit, config: ACSensitivityConfig
+                          ) -> ACSensitivityResult:
     def fail(status, msg):
         return ACSensitivityResult(status=status, diagnostics=(msg,),
                                    provenance={"engine": ENGINE_VERSION})
