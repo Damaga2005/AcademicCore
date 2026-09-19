@@ -10,11 +10,9 @@ from __future__ import annotations
 
 import re
 
-
-def _is_javascript_scheme(target: str) -> bool:
-    """True if `target` resolves to a javascript: URL once whitespace/control
-    characters (which browsers ignore when scheme-matching) are stripped out."""
-    return re.sub(r"[\x00-\x20]", "", target.lower()).startswith("javascript:")
+from academic_core.documents.security import (
+    is_javascript_scheme as _is_javascript_scheme,
+)
 
 
 def clean_soup_noise(soup):

@@ -168,3 +168,29 @@ def test_clearing_title_updates_canonical_and_fts_together(tmp_path):
     assert _fts_title(core, sid) == ""
     # canonical and FTS must never disagree
     assert res.title == _fts_title(core, sid)
+
+
+def test_body_only_edit_with_empty_ast_title_preserves_stored_title(tmp_path):
+    """P0-07: existing title + empty AST metadata (no explicit
+    UpdateMetadata in this session) must NOT wipe the stored title —
+    a body-only edit preserves it in BOTH canonical and FTS."""
+    core = _app(tmp_path)
+    sid = core.authoring.create_from_template("lecture-notes")
+    st = core.authoring.open(sid)
+    st.execute(AU.UpdateMetadata(A.Metadata(title="Kept Title")))
+    core.authoring.save(st, sid)
+    assert core.records.get(sid).title == "Kept Title"
+
+    st2 = core.authoring.open(sid)
+    # Simulate an AST whose meta.title came back empty WITHOUT an
+    # explicit user title edit (bypasses execute/history on purpose).
+    st2.doc = A.Document(
+        A.Metadata(title=""), st2.doc.history, st2.doc.children
+    )
+    st2.execute(AU.UpdateText((0, 0), "body edit only"))
+    rep = core.authoring.save(st2, sid)
+    assert rep.outcome == "saved"
+    res = core.records.get(sid)
+    assert res.title == "Kept Title"
+    assert _fts_title(core, sid) == "Kept Title"
+    assert res.title == _fts_title(core, sid)

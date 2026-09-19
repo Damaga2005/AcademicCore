@@ -84,21 +84,17 @@ def test_no_eval_no_exec_no_imports():
 
 
 def test_sqrt_func_ignores_ambient_decimal_context():
-    """Regression test (audit finding, currently FAILING -- real bug):
-
-    Unlike every sibling branch of ``_apply_func`` (sin/cos/tan/exp/log/
-    log10), which explicitly threads its own working-precision Context
-    (``ctx = make_context()``), the ``sqrt`` branch calls the bare
-    ``Decimal.sqrt()`` instance method on ``arg.to_base()`` with no
-    context argument. ``Decimal.sqrt(context=None)`` rounds through
-    ``decimal.getcontext()`` -- the ambient/global context (default 28
-    significant digits) -- exactly the same class of bug that was fixed
-    for ``abs()`` (see test_abs_func_ignores_ambient_decimal_context
-    above) and for DecimalComplex.modulus()'s im==0 fast path. This test
-    degrades the ambient context to its default 28 digits and checks
-    that sqrt(2) still comes back at (approximately) the module's
-    50-digit WORKING_PRECISION instead of being silently truncated to
-    28 digits.
+    """Regression test (audit finding, fixed): the ``sqrt`` branch of
+    ``_apply_func`` used to call the bare ``Decimal.sqrt()`` instance
+    method on ``arg.to_base()`` with no context argument, rounding
+    through ``decimal.getcontext()`` (default 28 significant digits) --
+    the same bug class already fixed for ``abs()`` (see
+    test_abs_func_ignores_ambient_decimal_context above) and for
+    DecimalComplex.modulus()'s im==0 fast path. It now uses
+    ``make_context().sqrt(...)``, like every sibling branch
+    (sin/cos/tan/exp/log/log10). This test degrades the ambient context
+    to its default 28 digits and pins that sqrt(2) still comes back at
+    (approximately) the module's 50-digit WORKING_PRECISION.
     """
     old = getcontext().prec
     try:

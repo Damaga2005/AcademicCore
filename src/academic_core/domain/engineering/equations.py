@@ -284,7 +284,10 @@ def _apply_func(name: str, arg: Quantity) -> Quantity:
                 # Guard against division by a cosine that is zero (or
                 # numerically indistinguishable from zero at working
                 # precision) instead of blowing up to Infinity/NaN.
-                if abs(cos_x) < Decimal(1).scaleb(-(ctx.prec - 2)):
+                # copy_abs()/ctx.scaleb(): bare abs()/Decimal.scaleb()
+                # would round through the ambient global context (same
+                # bug class as DecimalComplex.modulus()).
+                if cos_x.copy_abs() < ctx.scaleb(Decimal(1), -(ctx.prec - 2)):
                     raise EquationError(f"tan domain: cos(x) ~ 0 near {x}")
                 out = ctx.divide(decimal_sin(x, ctx), cos_x)
             elif name == "exp":

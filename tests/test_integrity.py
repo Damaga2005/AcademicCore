@@ -94,7 +94,8 @@ def test_concurrent_prerequisite_insertion_never_forms_a_cycle(tmp_path):
     lock (BEGIN IMMEDIATE), or two connections can each see "no cycle exists
     yet" before either commits, and together insert a pair of edges that
     forms one."""
-    iterations = 25
+    # P0-09: 100 iterations per the approval checklist ("idealmente 100+").
+    iterations = 100
     for i in range(iterations):
         core = _app(tmp_path / f"race_{i}")
         _chain(core)

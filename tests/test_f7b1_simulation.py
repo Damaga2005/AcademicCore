@@ -237,9 +237,10 @@ Total analysis time (seconds) = 0.000854
     assert res.voltage("v2") is None
 
     # But the overall result must not claim a clean, unqualified success:
-    # status must not be a bare "everything is fine" COMPLETED, and the
-    # dropped value must be named somewhere in errors.
-    assert res.status != "COMPLETED"
+    # status must be PARTIAL (signals kept, loss surfaced), never a bare
+    # "everything is fine" COMPLETED, and the dropped value must be
+    # named somewhere in errors.
+    assert res.status == "PARTIAL"
     assert res.errors, "dropped row must be surfaced in errors/diagnostics"
     assert any("v2" in e for e in res.errors)
 

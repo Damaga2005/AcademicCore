@@ -248,27 +248,16 @@ def test_log10_errors_and_ln10():
 
 
 def test_log10_ignores_ambient_decimal_context():
-    """Regression test (audit finding, currently FAILING -- real bug):
-
-    ``decimal_log10`` decomposes ``x = m * 10**e`` via
-    ``m = xv.scaleb(-e)`` with NO context argument.
-    ``Decimal.scaleb(other, context=None)`` rounds its *coefficient* to
-    the current context's precision when none is supplied -- i.e. it
-    silently reads and rounds through ``decimal.getcontext()`` (the
-    ambient/global context, default 28 digits), corrupting the mantissa
-    ``m`` *before* the ln(m)/ln(10) computation even starts. This
-    contaminates the final log10 result whenever the ambient context
-    precision is lower than the input's significant-digit count --
-    exactly the class of ambient-context leak this module's docstring
-    says can never happen ("Every routine builds its own explicit
-    decimal.Context ... and never reads or mutates the ambient global
-    context"), and the same class of bug already fixed for abs() in
-    equations.py and DecimalComplex.modulus()'s im==0 fast path.
-
-    This test degrades the ambient context to 6 digits and shows the
-    high-precision digits of a >6-sig-digit input get rounded away
-    before log10 even runs, changing the numeric result (not just its
-    displayed length) relative to a healthy ambient-context run.
+    """Regression test (audit finding, fixed): ``decimal_log10`` used to
+    decompose ``x = m * 10**e`` via a bare ``xv.scaleb(-e)`` with no
+    context argument, which rounded the mantissa ``m`` through
+    ``decimal.getcontext()`` (default 28 digits) before the ln(m)/ln(10)
+    computation even started -- the same ambient-context leak class
+    already fixed for abs() in equations.py and for
+    DecimalComplex.modulus()'s im==0 fast path. It now splits the
+    mantissa with its own guard-precision context. This test degrades
+    the ambient context to 6 digits and pins that the value of
+    log10(12345.6789) is bit-identical to a healthy-context run.
     """
     import decimal as _decimal
 

@@ -10,6 +10,13 @@ formula:<s>:f:NNNNNN  resource:<s>:r:NNNNN  lab:<s>:lab:NNNNN
 assignment:<s>:a:NNNNN  project:<s>:p:NNNNN  exam:<s>:e:NNNNN
 task:<s>:task:NNNNN
 
+Topic legacy compatibility (P0-02, Option A): topic IDs created before
+the scope-letter fix use the bare form ``topic:<s>:NN``. Both forms
+validate as kind "topic" and are preserved byte-for-byte by
+reindex/conversion/migration/sync/export/import — the store never
+rewrites an existing ID. ``make("topic", ...)`` always mints the
+canonical ``tNN`` form for new rows.
+
 Policy (full text in docs/domain/ID-POLICY.md):
 - Assigned once at creation/INGEST, stored as SQLite PRIMARY KEY.
 - Never derived from SQL rowids, filesystem paths, or volatile data.
@@ -34,7 +41,9 @@ _PATTERNS = {
     "professor": re.compile(rf"^professor:{SLUG}$"),
     "tag": re.compile(rf"^tag:{SLUG}$"),
     "subject": re.compile(rf"^subject:{SLUG}$"),
-    "topic": re.compile(rf"^topic:{SLUG}:t\d{{2}}$"),
+    # Canonical tNN plus legacy bare NN (pre-scope-letter rows). Both
+    # validate as "topic"; see module docstring for preservation policy.
+    "topic": re.compile(rf"^topic:{SLUG}:(?:t\d{{2}}|\d{{2}})$"),
     "concept": re.compile(rf"^concept:{SLUG}:c:\d{{5}}$"),
     "formula": re.compile(rf"^formula:{SLUG}:f:\d{{6}}$"),
     "resource": re.compile(rf"^resource:{SLUG}:r:\d{{5}}$"),

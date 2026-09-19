@@ -277,6 +277,56 @@ class TestSplitStatements:
 
 
 @pytest.mark.migration
+def test_exhausted_wal_retries_close_connection_before_propagating(tmp_path, monkeypatch):
+    """If the WAL-mode switch stays locked through all retries, connect()
+    must close the opened connection before propagating _last_exc — the
+    connection must never escape open on a definitively failed init.
+
+    Controlled mock: every `PRAGMA journal_mode=WAL` raises a lock
+    OperationalError while all other statements succeed; sleeps are
+    stubbed so the 100-iteration retry budget runs instantly.
+    """
+    from unittest.mock import MagicMock
+
+    import academic_core.infrastructure.database as dbmod
+    from academic_core.infrastructure.database import Database
+
+    mock_cx = MagicMock(name="connect-spy")
+
+    def _execute(sql, *args, **kwargs):
+        if "journal_mode" in sql:
+            raise sqlite3.OperationalError("database is locked")
+        return MagicMock(name="cursor-spy")
+
+    mock_cx.execute.side_effect = _execute
+    monkeypatch.setattr(dbmod.sqlite3, "connect", lambda *a, **k: mock_cx)
+    monkeypatch.setattr(dbmod.time, "sleep", lambda s: None)
+
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        Database(tmp_path / "leak.db").connect()
+    mock_cx.close.assert_called_once()
+
+
+@pytest.mark.migration
+def test_failed_pragma_closes_connection_before_propagating(tmp_path, monkeypatch):
+    """Same guarantee for any other init-phase failure (here a failed
+    PRAGMA before the WAL loop): close, then propagate — never leak."""
+    from unittest.mock import MagicMock
+
+    import academic_core.infrastructure.database as dbmod
+    from academic_core.infrastructure.database import Database
+
+    mock_cx = MagicMock(name="connect-spy")
+    mock_cx.execute.side_effect = sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(dbmod.sqlite3, "connect", lambda *a, **k: mock_cx)
+    monkeypatch.setattr(dbmod.time, "sleep", lambda s: None)
+
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        Database(tmp_path / "leak.db").connect()
+    mock_cx.close.assert_called_once()
+
+
+@pytest.mark.migration
 def test_real_migration_files_split_cleanly():
     """Every real migration file must be splittable by _split_statements
     without raising, and must yield at least one statement. Guards

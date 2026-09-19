@@ -66,9 +66,13 @@ def decimal_nth_root(x: Decimal | int, n: int,
                      ctx: Context | None = None) -> Decimal:
     """Principal real ``x**(1/n)`` for ``x >= 0``, integer ``n >= 1``.
 
-    Newton's method on ``y**n - x = 0`` from above (``x0 = 1`` for
-    ``x < 1`` else ``x0 = x``, so ``x0**n >= x`` and convergence is
-    monotone). Returns only when both the step and the residual
+    Newton's method on ``y**n - x = 0`` from above. The starting point
+    is ``x0 = 10**(floor(adjusted(x)/n) + 1)`` (``adjusted()`` is
+    context-free), so ``x0**n >= x`` and convergence is monotone from
+    above; a bounded safety loop bumps ``x0`` by decades until that
+    holds. The old ``x0 = x`` start needed ~2000 linear steps for
+    inputs like ``1E100`` with ``n = 10`` and tripped the iteration
+    tripwire. Returns only when both the step and the residual
     ``|y**n - x|`` clear explicit tolerances derived from the working
     precision; otherwise raises ``ArithmeticError``.
     """
@@ -88,7 +92,7 @@ def decimal_nth_root(x: Decimal | int, n: int,
     # series-style prec+2 used for genuinely vanishing Taylor terms)
     # would stall forever on rounding noise. The residual gate below is
     # the real correctness check; the step gate only stops the loop.
-    eps = Decimal(1).scaleb(5 - g.prec)
+    eps = g.scaleb(Decimal(1), 5 - g.prec)
     # Residual gate: y**n needs n-1 rounded multiplications at guard
     # precision, so the checkable residual floor is ~n ulps of |x|.
     # Anything tighter would be unprovable (and would trip on its own
@@ -97,9 +101,20 @@ def decimal_nth_root(x: Decimal | int, n: int,
     scale = xv.copy_abs()
     if scale < 1:
         scale = Decimal(1)
-    tol = g.multiply(g.multiply(Decimal(n), Decimal(10).scaleb(2 - g.prec)),
+    tol = g.multiply(g.multiply(Decimal(n), g.scaleb(Decimal(10), 2 - g.prec)),
                      scale)
-    y = g.plus(Decimal(1)) if xv < 1 else g.plus(xv)
+    # Exponent-based start: 10**(floor(e/n) + 1) with e = adjusted(x).
+    # adjusted() is exact and context-free; scaleb of the single digit
+    # 1 is exact too, so the start itself never depends on any context.
+    y = g.scaleb(Decimal(1), xv.adjusted() // n + 1)
+    for _ in range(1000):
+        if g.power(y, n) >= xv:
+            break
+        y = g.multiply(y, Decimal(10))
+    else:  # pragma: no cover - estimate construction guarantees exit
+        raise ArithmeticError(
+            f"decimal_nth_root could not bracket x={xv}, n={n}"
+        )
     nn = Decimal(n)
     for _ in range(_MAX_NEWTON_ITERATIONS):
         y_pow = g.power(y, n - 1) if n > 1 else g.plus(Decimal(1))
@@ -107,10 +122,12 @@ def decimal_nth_root(x: Decimal | int, n: int,
             g.add(g.multiply(Decimal(n - 1), y), g.divide(xv, y_pow)),
             nn,
         )
-        step = abs(g.subtract(y_new, y))
+        # copy_abs(): bare abs() would round through the ambient global
+        # context (same bug class as DecimalComplex.modulus()).
+        step = g.subtract(y_new, y).copy_abs()
         y = y_new
         if step < eps:
-            if abs(g.subtract(g.power(y, n), xv)) <= tol:
+            if g.subtract(g.power(y, n), xv).copy_abs() <= tol:
                 return c.plus(y)
             break
     raise ArithmeticError(
@@ -121,7 +138,7 @@ def decimal_nth_root(x: Decimal | int, n: int,
 
 def _atanh_series(t: Decimal, ctx: Context) -> Decimal:
     """S(t) = t + t^3/3 + t^5/5 + ... ; caller keeps |t| well below 1."""
-    eps = Decimal(1).scaleb(-(ctx.prec + 2))
+    eps = ctx.scaleb(Decimal(1), -(ctx.prec + 2))
     total = ctx.plus(Decimal(0))
     t2 = ctx.multiply(t, t)
     power = t
@@ -131,7 +148,7 @@ def _atanh_series(t: Decimal, ctx: Context) -> Decimal:
         total = ctx.add(total, term)
         power = ctx.multiply(power, t2)
         k += 1
-        if abs(term) < eps:
+        if term.copy_abs() < eps:
             return total
     raise ArithmeticError(
         "atanh series failed to converge; refusing silent truncation"

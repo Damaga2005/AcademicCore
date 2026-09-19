@@ -17,13 +17,16 @@ PARSER_NAME = "markdown-parser"
 PARSER_VERSION = "3.0"
 
 _MATH_RE = re.compile(r"\$\$(.+?)\$\$|\$(.+?)\$", re.DOTALL)
+# Inner capture groups are named (not positional): adding or reordering
+# an alternative must never silently renumber m.group(N) references
+# elsewhere. Behavior is identical to positional groups.
 _INLINE_RE = re.compile(
-    r"(?P<code>`([^`]+)`)"
-    r"|(?P<img>!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"([^\"]*)\")?\))"
-    r"|(?P<link>\[([^\]]+)\]\(([^)\s]+)(?:\s+\"([^\"]*)\")?\))"
-    r"|(?P<strongem>\*\*\*([^*]+)\*\*\*|___([^_]+)___)"
-    r"|(?P<strong>\*\*([^*]+)\*\*|__([^_]+)__)"
-    r"|(?P<em>\*([^*]+)\*|_([^_]+)_)")
+    r"(?P<code>`(?P<code_text>[^`]+)`)"
+    r"|(?P<img>!\[(?P<img_alt>[^\]]*)\]\((?P<img_target>[^)\s]+)(?:\s+\"(?P<img_title>[^\"]*)\")?\))"
+    r"|(?P<link>\[(?P<link_label>[^\]]+)\]\((?P<link_target>[^)\s]+)(?:\s+\"(?P<link_title>[^\"]*)\")?\))"
+    r"|(?P<strongem>\*\*\*(?P<strongem_ast>[^*]+)\*\*\*|___(?P<strongem_us>[^_]+)___)"
+    r"|(?P<strong>\*\*(?P<strong_ast>[^*]+)\*\*|__(?P<strong_us>[^_]+)__)"
+    r"|(?P<em>\*(?P<em_ast>[^*]+)\*|_(?P<em_us>[^_]+)_)")
 
 
 def parse_inline(s: str) -> list:
@@ -56,24 +59,24 @@ def _inline_md(s: str) -> list:
         if m.start() > pos:
             out.append(A.text(s[pos:m.start()]))
         if m.group("code"):
-            out.append(A.inline_code(m.group(2)))
+            out.append(A.inline_code(m.group("code_text")))
         elif m.group("img"):
-            target = m.group(5)
+            target = m.group("img_target")
             if target.startswith("cas:"):
-                out.append(A.image(target, m.group(4), title=m.group(6) or ""))
+                out.append(A.image(target, m.group("img_alt"), title=m.group("img_title") or ""))
             else:
-                out.append(A.image("", m.group(4), title=target))
+                out.append(A.image("", m.group("img_alt"), title=target))
         elif m.group("link"):
-            label, target = m.group(8), m.group(9)
-            out.append(A.link(target, parse_inline(label), m.group(10) or ""))
+            label, target = m.group("link_label"), m.group("link_target")
+            out.append(A.link(target, parse_inline(label), m.group("link_title") or ""))
         elif m.group("strongem"):
-            inner = m.group(12) if m.group(12) is not None else m.group(13)
+            inner = m.group("strongem_ast") if m.group("strongem_ast") is not None else m.group("strongem_us")
             out.append(A.strong([A.emphasis(parse_inline(inner))]))
         elif m.group("strong"):
-            inner = m.group(15) if m.group(15) is not None else m.group(16)
+            inner = m.group("strong_ast") if m.group("strong_ast") is not None else m.group("strong_us")
             out.append(A.strong(parse_inline(inner)))
         elif m.group("em"):
-            inner = m.group(18) if m.group(18) is not None else m.group(19)
+            inner = m.group("em_ast") if m.group("em_ast") is not None else m.group("em_us")
             out.append(A.emphasis(parse_inline(inner)))
         pos = m.end()
     if pos < len(s):

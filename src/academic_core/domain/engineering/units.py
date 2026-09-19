@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 
 # SI base exponents: (mass, length, time, current, temp, amount, luminous)
 DIMENSIONLESS = (0, 0, 0, 0, 0, 0, 0)
@@ -139,7 +139,25 @@ class Quantity:
         return DIM_NAMES.get(self.dimension, "derived")
 
     def to_base(self) -> Decimal:
-        return self.value * self.unit.factor
+        factor = self.unit.factor
+        if factor == 1:
+            # Multiplying by exactly 1 preserves the representation;
+            # returning the value directly additionally skips the ambient
+            # context, which the naive `self.value * factor` would round
+            # a 50-digit working value through (same bug class as
+            # DecimalComplex.modulus() and P0-04).
+            return self.value
+        # Exact multiplication under a private context sized for the
+        # exact product (coefficient digits of value + factor can never
+        # round). Representation-identical to the old bare `*` for every
+        # previously exact case (e.g. 1 kHz -> Decimal("1000"), not
+        # "1E+3") — only the spurious ambient-context rounding of
+        # over-precise working values is removed.
+        need = len(self.value.as_tuple().digits) + len(factor.as_tuple().digits) + 2
+        with localcontext() as ctx:
+            if ctx.prec < need:
+                ctx.prec = need
+            return self.value * factor
 
     def convert_to(self, symbol: str) -> "Quantity":
         if symbol == self.unit.display:

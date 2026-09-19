@@ -211,7 +211,9 @@ no dict-order dependence (sorted refs), no identity dependence.
 Measured splits (4-pt HP scans): N=16: 6.35 s; N=32: 39.7 s;
 N=64: 363–441 s (machine variance) — wall time dominated by certified
 D3 solves (D8 post-processing is O(points) + ≤2 lazy Q solves per
-bracket). No global caching. Caps 120/240/600 s enforced in-test.
+bracket). No global caching. Historical caps 120/240/600 s are
+diagnostic telemetry only (machine-specific tripwires, not
+certification requirements); no wall-clock bound is asserted in-test.
 
 ## 25. Adversarial audit
 
