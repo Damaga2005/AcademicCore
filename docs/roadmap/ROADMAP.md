@@ -2,7 +2,7 @@
 
 > **Proyecto**: AcademicCore  
 > **Documento**: Roadmap Maestro y Visión Funcional  
-> **Estado**: En Desarrollo Activo (Fases F0 a F8-J **CERTIFICADAS**)
+> **Estado**: En Desarrollo Activo (Fases F0 a F8-K **CERTIFICADAS**)
 > **Objetivo**: Plataforma académica técnica con conocimiento estructurado, evaluación, aprendizaje adaptativo, ingeniería/simulación e IA asistiva gobernada por guardrails deterministas.
 
 ---
@@ -122,7 +122,7 @@ La arquitectura permite incorporar nuevas disciplinas (Matemáticas, Electrónic
   │
  F7  MNA Lineal y Simulación SPICE             [CERTIFICADO]
   │
- F8  Electrónica Avanzada (F8-A ... F8-J)      [CERTIFICADO]
+ F8  Electrónica Avanzada (F8-A ... F8-K)      [CERTIFICADO]
   │
  F9  Assessment y Evaluación Formal            [EN PLANIFICACIÓN]
   │
@@ -145,7 +145,7 @@ La arquitectura permite incorporar nuevas disciplinas (Matemáticas, Electrónic
 
 La familia **F8** constituye el motor de simulación circuital y electrónica de AcademicCore:
 
-### 6.1 Fases Certificadas (F8-A a F8-J)
+### 6.1 Fases Certificadas (F8-A a F8-K)
 
 | Fase | Denominación | Capacidades Principales | Estado | Gate |
 |:---:|:---|:---|:---:|:---:|
@@ -166,14 +166,14 @@ La familia **F8** constituye el motor de simulación circuital y electrónica de
 | **F8-H** | Diodo Shockley (Punto de Operación DC) | MNA no lineal con modelo de diodo Shockley, Jacobiano analítico, amortiguamiento Newton y validación ngspice. | **CERTIFICADO** | [`GATE-F8H.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8H.md) |
 | **F8-I** | Transistor BJT (Modelo Ebers-Moll DC) | Punto de operación DC de transistores bipolares NPN y PNP bajo Ebers-Moll, Jacobiano $3\times 3$ acoplado analítico, circuitos canónicos B1–B15, escalabilidad $N=1..64$ y validación ngspice 47. | **CERTIFICADO** | [`GATE-F8I.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8I.md) |
 | **F8-J** | Small-Signal AC (Linealización DC) | Linealización de puntos de operación DC de dispositivos no lineales (diodos y transistores) para extraer parámetros de pequeña señal ($g_m, r_\pi, r_o$) y resolver respuesta en alterna. | **CERTIFICADO** | [`GATE-F8J.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8J.md) |
+| **F8-K** | Semiconductores Adicionales | MOSFET Level 1 / Shichman-Hodges (`M`), JFET square-law (`J`), diodos Zener, LED, Schottky y fotodiodos (`D` + `kind`); MNA no lineal, Jacobiano analítico, contrato small-signal AC y validación ngspice 47. | **CERTIFICADO** | [`GATE-F8K.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8K.md) |
 
 ### 6.2 Fases Futuras de la Familia F8
 
 > [!NOTE]
-> *Nota normativa:* F8-J ya está certificada. Las fases futuras de la familia F8 comienzan en F8-K.
+> *Nota normativa:* F8-K ya está certificada. Las fases futuras de la familia F8 comienzan en F8-L (NEXT).
 
-- **F8-K — Semiconductores Adicionales (Siguiente Fase)**: Incorporación de modelos para MOSFET (Level 1 / Shichman-Hodges), JFET, diodos Zener, LEDs, Schottky y fotodiodos.
-- **F8-L — Transient (Régimen Transitorio)**: Integración temporal de ecuaciones diferenciales algebraicas (DAE) mediante esquemas implícitos (Backward Euler, Trapezoidal, BDF) con paso de tiempo adaptativo.
+- **F8-L — Transient (Régimen Transitorio) (Siguiente Fase)**: Integración temporal de ecuaciones diferenciales algebraicas (DAE) mediante esquemas implícitos (Backward Euler, Trapezoidal, BDF) con paso de tiempo adaptativo.
 - **F8-M — Análisis Avanzados**: Barridos DC (*DC Sweep*), barridos de parámetros (*Parameter Sweep*), análisis de sensibilidad ($\partial \text{salida} / \partial \text{parámetro}$), Monte Carlo y análisis de peor caso (*Worst Case*).
 - **F8-N — Laboratorio Virtual**: Instrumentación virtual interactiva (fuente de alimentación DC, multímetro digital, osciloscopio de doble canal, generador de funciones, analizador lógico).
 - **F8-O — Metrología e Incertidumbre**: Expresión de incertidumbre según la guía GUM (tipo A, tipo B, combinada y expandida), propagación analítica y Monte Carlo, cifras significativas y trazabilidad metrológica.
