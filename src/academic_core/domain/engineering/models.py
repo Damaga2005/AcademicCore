@@ -65,3 +65,11 @@ def diode() -> ComponentModel:
 
 def bjt() -> ComponentModel:
     return ComponentModel("Q", "BJT transistor (placeholder)", {})
+
+
+def mosfet() -> ComponentModel:
+    return ComponentModel("M", "MOSFET transistor (placeholder)", {})
+
+
+def jfet() -> ComponentModel:
+    return ComponentModel("J", "JFET transistor (placeholder)", {})

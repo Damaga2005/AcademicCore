@@ -1,7 +1,11 @@
 """Circuit model (Phase 6): explicit pins/nets, topology validation, netlist.
 
-Component types: R, C, L, V (voltage source), I (current source), D (diode),
-Q (BJT transistor), E/G/H/F (F8-E linear dependent sources), O (F8-F ideal
+Component types: R, C, L, V (voltage source), I (current source), D (diode,
+diode-kind variants Zener/LED/Schottky/photodiode via the ``kind`` parameter),
+Q (BJT transistor), M (F8-K MOSFET: pins "D", "G", "S", "B"; no value,
+parameters carry the Shichman-Hodges model), J (F8-K JFET: pins "D", "G",
+"S"; no value, parameters carry the square-law model), E/G/H/F (F8-E linear
+dependent sources), O (F8-F ideal
 op-amp: pins "+", "-", "o"; no value, no parameters), T (F8-G ideal
 transformer: pins "1", "2" primary +/-, "3", "4" secondary +/-, dimensionless
 turns-ratio value, no parameters). Each declares its pins; nets are explicit
@@ -24,6 +28,13 @@ COMPONENT_PINS = {
     "R": ("1", "2"), "C": ("1", "2"), "L": ("1", "2"),
     "V": ("+", "-"), "I": ("+", "-"),
     "D": ("A", "K"), "Q": ("C", "B", "E"),
+    # F8-K MOSFET (Shichman-Hodges Level 1): "D" drain, "G" gate,
+    # "S" source, "B" bulk (explicit; tie B to S for 3-terminal use).
+    # No value; model lives in `parameters`.
+    "M": ("D", "G", "S", "B"),
+    # F8-K JFET (square-law): "D" drain, "G" gate, "S" source.
+    # No value; model lives in `parameters`.
+    "J": ("D", "G", "S"),
     # F8-E linear dependent sources (SPICE letters): output pins "+"/"-";
     # control data lives in `parameters` (E/G: cp/cn nets, H/F: control_ref).
     "E": ("+", "-"), "G": ("+", "-"), "H": ("+", "-"), "F": ("+", "-"),
@@ -35,7 +46,7 @@ COMPONENT_PINS = {
     "T": ("1", "2", "3", "4"),
 }
 
-_REF_RE = re.compile(r"^([RCLVIDQEGHFOT])(\d+)$", re.IGNORECASE)
+_REF_RE = re.compile(r"^([RCLVIDQEGHFOTMJ])(\d+)$", re.IGNORECASE)
 
 
 class CircuitError(ValueError):
@@ -52,8 +63,8 @@ class Component:
     # only by Circuit.add during construction. Do not treat frozen=True
     # as deep immutability, and do not refactor without a demonstrated
     # functional defect.
-    ref: str  # R1, C3, Q2, E1, G2, O1, T1… (type letter + number)
-    type: str  # R|C|L|V|I|D|Q|E|G|H|F|O|T (T: ideal transformer, n in value)
+    ref: str  # R1, C3, Q2, M1, J3, E1, G2, O1, T1… (type letter + number)
+    type: str  # R|C|L|V|I|D|Q|M|J|E|G|H|F|O|T (T: ideal transformer, n in value)
     value: Quantity | None  # None for ideal/semiconductor placeholders
     pins: dict  # pin name -> net name
     parameters: dict = field(default_factory=dict)
