@@ -92,7 +92,10 @@ def _reference_net(circuit: Circuit) -> str:
 
 
 def _validate_components(circuit: Circuit, *, allow_diodes: bool = False,
-                         allow_bjts: bool = False) -> None:
+                          allow_bjts: bool = False,
+                          allow_mosfets: bool = False,
+                          allow_jfets: bool = False,
+                          allow_diode_variants: bool = False) -> None:
     if not circuit.components:
         raise InvalidCircuitError(f"circuit {circuit.name!r} has no components")
     seen_refs: set[str] = set()
@@ -101,16 +104,32 @@ def _validate_components(circuit: Circuit, *, allow_diodes: bool = False,
             raise InvalidCircuitError(f"duplicate reference: {c.ref}")
         seen_refs.add(c.ref.upper())
         if c.type.upper() == "D":
+            if c.value is not None:
+                raise InvalidCircuitError(
+                    f"{c.ref}: diode takes no value, got "
+                    f"{c.value.format()}")
+            from academic_core.domain.engineering.mna.diode import (
+                PARAM_KIND as PARAM_DIODE_KIND,
+            )
+            if PARAM_DIODE_KIND in (c.parameters or {}):
+                if not allow_diode_variants:
+                    raise UnsupportedElementError(
+                        f"{c.ref}: component type 'D' with a 'kind' parameter "
+                        f"(F8-K diode variant) is NOT_SUPPORTED by the "
+                        f"F8-B linear DC solver (domain: R, V, I, dependent "
+                        f"E, G, H, F, ideal op-amp O, ideal transformer T)"
+                    )
+                from academic_core.domain.engineering.mna.diode import (
+                    extract_diode_variant_params,
+                )
+                extract_diode_variant_params(c)
+                continue
             if not allow_diodes:
                 raise UnsupportedElementError(
                     f"{c.ref}: component type 'D' is NOT_SUPPORTED by the "
                     f"F8-B linear DC solver (domain: R, V, I, dependent "
                     f"E, G, H, F, ideal op-amp O, ideal transformer T)"
                 )
-            if c.value is not None:
-                raise InvalidCircuitError(
-                    f"{c.ref}: diode takes no value, got "
-                    f"{c.value.format()}")
             from academic_core.domain.engineering.mna.diode import (
                 extract_diode_params,
             )
@@ -131,6 +150,38 @@ def _validate_components(circuit: Circuit, *, allow_diodes: bool = False,
                 extract_bjt_params,
             )
             extract_bjt_params(c)
+            continue
+        if c.type.upper() == "M":
+            if not allow_mosfets:
+                raise UnsupportedElementError(
+                    f"{c.ref}: component type 'M' is NOT_SUPPORTED by the "
+                    f"linear DC solver (domain: R, V, I, dependent "
+                    f"E, G, H, F, ideal op-amp O, ideal transformer T)"
+                )
+            if c.value is not None:
+                raise InvalidCircuitError(
+                    f"{c.ref}: MOSFET takes no value, got "
+                    f"{c.value.format()}")
+            from academic_core.domain.engineering.mna.mosfet import (
+                extract_mosfet_params,
+            )
+            extract_mosfet_params(c)
+            continue
+        if c.type.upper() == "J":
+            if not allow_jfets:
+                raise UnsupportedElementError(
+                    f"{c.ref}: component type 'J' is NOT_SUPPORTED by the "
+                    f"linear DC solver (domain: R, V, I, dependent "
+                    f"E, G, H, F, ideal op-amp O, ideal transformer T)"
+                )
+            if c.value is not None:
+                raise InvalidCircuitError(
+                    f"{c.ref}: JFET takes no value, got "
+                    f"{c.value.format()}")
+            from academic_core.domain.engineering.mna.jfet import (
+                extract_jfet_params,
+            )
+            extract_jfet_params(c)
             continue
         if c.type.upper() not in SUPPORTED_TYPES:
             raise UnsupportedElementError(
@@ -232,7 +283,10 @@ class MNAProblem:
 
 
 def build_mna_problem(circuit: Circuit, *, allow_diodes: bool = False,
-                      allow_bjts: bool = False) -> MNAProblem:
+                       allow_bjts: bool = False,
+                       allow_mosfets: bool = False,
+                       allow_jfets: bool = False,
+                       allow_diode_variants: bool = False) -> MNAProblem:
     """Validate `circuit` and assemble its MNA `A x = z` system.
 
     Raises `InvalidCircuitError`, `UnsupportedElementError`,
@@ -240,7 +294,9 @@ def build_mna_problem(circuit: Circuit, *, allow_diodes: bool = False,
     for any circuit outside F8-B's declared domain. Never proceeds silently.
     """
     _validate_components(circuit, allow_diodes=allow_diodes,
-                         allow_bjts=allow_bjts)
+                          allow_bjts=allow_bjts, allow_mosfets=allow_mosfets,
+                          allow_jfets=allow_jfets,
+                          allow_diode_variants=allow_diode_variants)
     ground = _reference_net(circuit)
     _check_reachability(circuit, ground)
 
@@ -472,11 +528,16 @@ def build_mna_problem(circuit: Circuit, *, allow_diodes: bool = False,
             matrix[k2][k1] += 1
             matrix[k2][k2] += n
         elif t == "D":
-            # Shockley diode (F8-H): NO linear stamp. The diode current
-            # is a nonlinear function of its branch voltage, so it
-            # cannot inhabit the (A0, b0) linear system; the Newton
-            # layer (mna.nonlinear) adds the companion stamp per
+            # Shockley diode (F8-H) and F8-K diode-kind variants: NO linear
+            # stamp. The diode current is a nonlinear function of its branch
+            # voltage, so it cannot inhabit the (A0, b0) linear system; the
+            # Newton layer (mna.nonlinear) adds the companion stamp per
             # iterate. Explicit no-op (never silent fall-through).
+            pass
+        elif t in ("M", "J"):
+            # F8-K MOSFET/JFET: NO linear stamp (nonlinear channel current;
+            # Newton layer stamps per iterate). Explicit no-op.
+            # (BJT "Q" keeps its pre-existing implicit no-op path.)
             pass
 
     return MNAProblem(

@@ -51,9 +51,26 @@ from academic_core.domain.engineering.circuit import Circuit
 from academic_core.domain.engineering.mna.dependent import DEPENDENT_TYPES
 from academic_core.domain.engineering.mna.diode import (
     DiodeParams,
+    DiodeVariantParams,
     companion,
     extract_diode_params,
+    extract_diode_variant_params,
     shockley_current,
+    variant_companion,
+    variant_conductance,
+    variant_current,
+)
+from academic_core.domain.engineering.mna.mosfet import (
+    MOSParams,
+    extract_mosfet_params,
+    mos_jacobian,
+    mos_terminal_currents,
+)
+from academic_core.domain.engineering.mna.jfet import (
+    JFETParams,
+    extract_jfet_params,
+    jfet_jacobian,
+    jfet_terminal_currents,
 )
 from academic_core.domain.engineering.mna.bjt import (
     BJTParams,
@@ -181,8 +198,12 @@ def _block_ok(rows: list[Decimal], scale: Decimal) -> bool:
 
 
 def _canonical_structure(circuit: Circuit,
-                         diodes: dict[str, DiodeParams],
-                         bjts: dict[str, BJTParams] | None = None) -> dict:
+                          diodes: dict[str, DiodeParams],
+                          bjts: dict[str, BJTParams] | None = None,
+                          mosfets: dict[str, MOSParams] | None = None,
+                          jfets: dict[str, JFETParams] | None = None,
+                          variants: dict[str, DiodeVariantParams] | None = None
+                          ) -> dict:
     entries = []
     for c in circuit.components:
         entry = {
@@ -198,13 +219,26 @@ def _canonical_structure(circuit: Circuit,
                     dict(c.parameters or {}).items(), key=lambda kv: kv[0])
             }
         if c.type.upper() == "D":
-            p = diodes[c.ref.upper()]
-            entry["model"] = {
-                "kind": "Shockley",
-                "Is_A": str(p.Is),
-                "n": str(p.n),
-                "Vt_V": str(p.Vt),
-            }
+            if variants and c.ref.upper() in variants:
+                vp = variants[c.ref.upper()]
+                entry["model"] = {
+                    "kind": vp.kind,
+                    "Is_A": str(vp.Is),
+                    "n": str(vp.n),
+                    "Vt_V": str(vp.Vt),
+                    "Vz_V": str(vp.Vz) if vp.Vz is not None else None,
+                    "nz": str(vp.nz) if vp.nz is not None else None,
+                    "Iz_A": str(vp.Iz) if vp.Iz is not None else None,
+                    "Iph_A": str(vp.Iph) if vp.Iph is not None else None,
+                }
+            else:
+                p = diodes[c.ref.upper()]
+                entry["model"] = {
+                    "kind": "Shockley",
+                    "Is_A": str(p.Is),
+                    "n": str(p.n),
+                    "Vt_V": str(p.Vt),
+                }
         if c.type.upper() == "Q" and bjts and c.ref.upper() in bjts:
             bp = bjts[c.ref.upper()]
             entry["model"] = {
@@ -217,8 +251,29 @@ def _canonical_structure(circuit: Circuit,
                 "Nr": str(bp.Nr),
                 "Vt_V": str(bp.Vt),
             }
+        if c.type.upper() == "M" and mosfets and c.ref.upper() in mosfets:
+            mp = mosfets[c.ref.upper()]
+            entry["model"] = {
+                "kind": "Shichman-Hodges-L1",
+                "polarity": mp.polarity,
+                "Kp_A_per_V2": str(mp.Kp),
+                "Vto_V": str(mp.Vto),
+                "Lambda_per_V": str(mp.Lambda),
+                "Phi_V": str(mp.Phi),
+                "Gamma_sqrtV": str(mp.Gamma),
+            }
+        if c.type.upper() == "J" and jfets and c.ref.upper() in jfets:
+            jp = jfets[c.ref.upper()]
+            entry["model"] = {
+                "kind": "JFET-square-law",
+                "polarity": jp.polarity,
+                "Idss_A": str(jp.Idss),
+                "Vp_V": str(jp.Vp),
+                "Lambda_per_V": str(jp.Lambda),
+            }
         entries.append(entry)
-    formulation = "MNA residual F(x) = A0 x - b0 + D(x) + Q(x); J = A0 + diode/bjt stamps; damped Newton"
+    formulation = ("MNA residual F(x) = A0 x - b0 + D(x) + Q(x) + M(x) + J(x); "
+                   "J = A0 + diode/bjt/mosfet/jfet stamps; damped Newton")
     return {
         "solver": ENGINE_VERSION,
         "formulation": formulation,
@@ -242,15 +297,20 @@ class _NewtonSystem:
     """Residual/Jacobian assembly over a fixed ``MNAProblem``."""
 
     def __init__(self, problem: MNAProblem,
-                 diodes: dict[str, DiodeParams],
-                 bjts: dict[str, BJTParams] | None = None) -> None:
+                  diodes: dict[str, DiodeParams],
+                  bjts: dict[str, BJTParams] | None = None,
+                  mosfets: dict[str, MOSParams] | None = None,
+                  jfets: dict[str, JFETParams] | None = None,
+                  variants: dict[str, DiodeVariantParams] | None = None,
+                  ) -> None:
         self.problem = problem
         self.ctx = make_context()
         self.n = problem.size
         self.n_nodes = len(problem.nodes)
         self.diode_list = sorted(
             (c for c in problem.circuit.components
-             if c.type.upper() == "D"),
+              if c.type.upper() == "D" and
+              c.ref.upper() not in (variants or {})),
             key=lambda c: c.ref.upper(),
         )
         self.models = {c.ref.upper(): diodes[c.ref.upper()]
@@ -259,6 +319,18 @@ class _NewtonSystem:
                         for c in self.diode_list}
         self.k_index = {c.ref.upper(): problem.node_index.get(c.pins["K"])
                         for c in self.diode_list}
+        self.variant_list = sorted(
+            (c for c in problem.circuit.components
+              if c.type.upper() == "D" and
+              c.ref.upper() in (variants or {})),
+            key=lambda c: c.ref.upper(),
+        )
+        self.variant_models = {c.ref.upper(): (variants or {})[c.ref.upper()]
+                               for c in self.variant_list}
+        self.va_index = {c.ref.upper(): problem.node_index.get(c.pins["A"])
+                         for c in self.variant_list}
+        self.vk_index = {c.ref.upper(): problem.node_index.get(c.pins["K"])
+                         for c in self.variant_list}
 
         self.bjt_list = sorted(
             (c for c in problem.circuit.components
@@ -274,6 +346,36 @@ class _NewtonSystem:
         self.e_index = {c.ref.upper(): problem.node_index.get(c.pins["E"])
                         for c in self.bjt_list}
 
+        self.mos_list = sorted(
+            (c for c in problem.circuit.components
+              if c.type.upper() == "M"),
+            key=lambda c: c.ref.upper(),
+        )
+        self.mos_models = {c.ref.upper(): (mosfets or {})[c.ref.upper()]
+                           for c in self.mos_list}
+        self.md_index = {c.ref.upper(): problem.node_index.get(c.pins["D"])
+                         for c in self.mos_list}
+        self.mg_index = {c.ref.upper(): problem.node_index.get(c.pins["G"])
+                         for c in self.mos_list}
+        self.ms_index = {c.ref.upper(): problem.node_index.get(c.pins["S"])
+                         for c in self.mos_list}
+        self.mb_index = {c.ref.upper(): problem.node_index.get(c.pins["B"])
+                         for c in self.mos_list}
+
+        self.jfet_list = sorted(
+            (c for c in problem.circuit.components
+              if c.type.upper() == "J"),
+            key=lambda c: c.ref.upper(),
+        )
+        self.jfet_models = {c.ref.upper(): (jfets or {})[c.ref.upper()]
+                            for c in self.jfet_list}
+        self.jd_index = {c.ref.upper(): problem.node_index.get(c.pins["D"])
+                         for c in self.jfet_list}
+        self.jg_index = {c.ref.upper(): problem.node_index.get(c.pins["G"])
+                         for c in self.jfet_list}
+        self.js_index = {c.ref.upper(): problem.node_index.get(c.pins["S"])
+                         for c in self.jfet_list}
+
         self.a0 = tuple(
             tuple(_decimal_of(v) for v in row) for row in problem.matrix)
         self.b0 = tuple(_decimal_of(v) for v in problem.rhs)
@@ -282,8 +384,8 @@ class _NewtonSystem:
         return Decimal(0) if idx is None else x[idx]
 
     def residual(self, x: tuple[Decimal, ...]
-                 ) -> tuple[Decimal, ...] | None:
-        """``F(x)``; ``None`` if any diode or BJT evaluation is non-finite."""
+                  ) -> tuple[Decimal, ...] | None:
+        """``F(x)``; ``None`` if any device evaluation is non-finite."""
         ctx = self.ctx
         try:
             acc = []
@@ -305,6 +407,18 @@ class _NewtonSystem:
                     acc[ia] = ctx.add(acc[ia], ival)
                 if ik is not None:
                     acc[ik] = ctx.subtract(acc[ik], ival)
+            for ref in self.variant_models:
+                p = self.variant_models[ref]
+                vd = ctx.subtract(self._x_of(x, self.va_index[ref]),
+                                  self._x_of(x, self.vk_index[ref]))
+                ival, _, _ = variant_companion(vd, p, ctx)
+                if not ival.is_finite():
+                    return None
+                ia, ik = self.va_index[ref], self.vk_index[ref]
+                if ia is not None:
+                    acc[ia] = ctx.add(acc[ia], ival)
+                if ik is not None:
+                    acc[ik] = ctx.subtract(acc[ik], ival)
             for ref in self.bjt_models:
                 bp = self.bjt_models[ref]
                 vc = self._x_of(x, self.c_index[ref])
@@ -322,6 +436,35 @@ class _NewtonSystem:
                     acc[ib_idx] = ctx.add(acc[ib_idx], ib)
                 if ie_idx is not None:
                     acc[ie_idx] = ctx.add(acc[ie_idx], ie)
+            for ref in self.mos_models:
+                mp = self.mos_models[ref]
+                vd = self._x_of(x, self.md_index[ref])
+                vg = self._x_of(x, self.mg_index[ref])
+                vs = self._x_of(x, self.ms_index[ref])
+                vb = self._x_of(x, self.mb_index[ref])
+                idc, ig, isc, ib = mos_terminal_currents(
+                    vd, vg, vs, vb, mp, ctx)
+                if not all(v.is_finite() for v in (idc, ig, isc, ib)):
+                    return None
+                for idx, cur in ((self.md_index[ref], idc),
+                                 (self.mg_index[ref], ig),
+                                 (self.ms_index[ref], isc),
+                                 (self.mb_index[ref], ib)):
+                    if idx is not None:
+                        acc[idx] = ctx.add(acc[idx], cur)
+            for ref in self.jfet_models:
+                jp = self.jfet_models[ref]
+                vd = self._x_of(x, self.jd_index[ref])
+                vg = self._x_of(x, self.jg_index[ref])
+                vs = self._x_of(x, self.js_index[ref])
+                idc, ig, isc = jfet_terminal_currents(vd, vg, vs, jp, ctx)
+                if not all(v.is_finite() for v in (idc, ig, isc)):
+                    return None
+                for idx, cur in ((self.jd_index[ref], idc),
+                                 (self.jg_index[ref], ig),
+                                 (self.js_index[ref], isc)):
+                    if idx is not None:
+                        acc[idx] = ctx.add(acc[idx], cur)
             if not all(v.is_finite() for v in acc):
                 return None
             return tuple(acc)
@@ -329,8 +472,8 @@ class _NewtonSystem:
             return None
 
     def jacobian(self, x: tuple[Decimal, ...]
-                 ) -> list[list[Decimal]] | None:
-        """``J(x)``; ``None`` if any diode or BJT evaluation is non-finite."""
+                  ) -> list[list[Decimal]] | None:
+        """``J(x)``; ``None`` if any device evaluation is non-finite."""
         ctx = self.ctx
         try:
             rows = [list(r) for r in self.a0]
@@ -342,6 +485,21 @@ class _NewtonSystem:
                 if not gval.is_finite():
                     return None
                 ia, ik = self.a_index[ref], self.k_index[ref]
+                if ia is not None:
+                    rows[ia][ia] = ctx.add(rows[ia][ia], gval)
+                if ik is not None:
+                    rows[ik][ik] = ctx.add(rows[ik][ik], gval)
+                if ia is not None and ik is not None:
+                    rows[ia][ik] = ctx.subtract(rows[ia][ik], gval)
+                    rows[ik][ia] = ctx.subtract(rows[ik][ia], gval)
+            for ref in self.variant_models:
+                p = self.variant_models[ref]
+                vd = ctx.subtract(self._x_of(x, self.va_index[ref]),
+                                  self._x_of(x, self.vk_index[ref]))
+                _, gval, _ = variant_companion(vd, p, ctx)
+                if not gval.is_finite():
+                    return None
+                ia, ik = self.va_index[ref], self.vk_index[ref]
                 if ia is not None:
                     rows[ia][ia] = ctx.add(rows[ia][ia], gval)
                 if ik is not None:
@@ -370,6 +528,47 @@ class _NewtonSystem:
                         if n_c is None:
                             continue
                         rows[n_r][n_c] = ctx.add(rows[n_r][n_c], bjt_j[r_i][c_j])
+            for ref in self.mos_models:
+                mp = self.mos_models[ref]
+                vd = self._x_of(x, self.md_index[ref])
+                vg = self._x_of(x, self.mg_index[ref])
+                vs = self._x_of(x, self.ms_index[ref])
+                vb = self._x_of(x, self.mb_index[ref])
+                mos_j = mos_jacobian(vd, vg, vs, vb, mp, ctx)
+                if mos_j is None:
+                    return None
+                mos_nodes = (self.md_index[ref], self.mg_index[ref],
+                             self.ms_index[ref], self.mb_index[ref])
+                for r_i in range(4):
+                    n_r = mos_nodes[r_i]
+                    if n_r is None:
+                        continue
+                    for c_j in range(4):
+                        n_c = mos_nodes[c_j]
+                        if n_c is None:
+                            continue
+                        rows[n_r][n_c] = ctx.add(rows[n_r][n_c],
+                                                 mos_j[r_i][c_j])
+            for ref in self.jfet_models:
+                jp = self.jfet_models[ref]
+                vd = self._x_of(x, self.jd_index[ref])
+                vg = self._x_of(x, self.jg_index[ref])
+                vs = self._x_of(x, self.js_index[ref])
+                jfet_j = jfet_jacobian(vd, vg, vs, jp, ctx)
+                if jfet_j is None:
+                    return None
+                jfet_nodes = (self.jd_index[ref], self.jg_index[ref],
+                              self.js_index[ref])
+                for r_i in range(3):
+                    n_r = jfet_nodes[r_i]
+                    if n_r is None:
+                        continue
+                    for c_j in range(3):
+                        n_c = jfet_nodes[c_j]
+                        if n_c is None:
+                            continue
+                        rows[n_r][n_c] = ctx.add(rows[n_r][n_c],
+                                                 jfet_j[r_i][c_j])
             for r in rows:
                 if not all(v.is_finite() for v in r):
                     return None
@@ -391,8 +590,10 @@ class _NewtonSystem:
 
 
 def solve_nonlinear_dc(circuit: Circuit, *,
-                       max_iter: int = MAX_ITER) -> NonlinearResult:
-    """DC operating point with Shockley diodes (F8-H) via damped Newton.
+                        max_iter: int = MAX_ITER) -> NonlinearResult:
+    """DC operating point with Shockley diodes (F8-H), Ebers-Moll BJTs
+    (F8-I) and F8-K devices (MOSFET, JFET, diode-kind variants) via
+    damped Newton.
 
     ``max_iter`` override exists for honest ``MAX_ITERATIONS``
     testing; provenance always records the effective value.
@@ -404,7 +605,10 @@ def solve_nonlinear_dc(circuit: Circuit, *,
             diagnostics=("max_iter must be a non-negative int",),
         )
     try:
-        problem = build_mna_problem(circuit, allow_diodes=True, allow_bjts=True)
+        problem = build_mna_problem(circuit, allow_diodes=True,
+                                    allow_bjts=True, allow_mosfets=True,
+                                    allow_jfets=True,
+                                    allow_diode_variants=True)
     except UnsupportedElementError as exc:
         return NonlinearResult(status=NonlinearStatus.UNSUPPORTED,
                                 diagnostics=(str(exc),))
@@ -412,15 +616,26 @@ def solve_nonlinear_dc(circuit: Circuit, *,
         return NonlinearResult(status=NonlinearStatus.INVALID,
                                 diagnostics=(str(exc),))
     try:
+        from academic_core.domain.engineering.mna.diode import PARAM_KIND
         diodes = {c.ref.upper(): extract_diode_params(c)
-                  for c in circuit.components if c.type.upper() == "D"}
+                  for c in circuit.components
+                  if c.type.upper() == "D" and
+                  PARAM_KIND not in (c.parameters or {})}
+        variants = {c.ref.upper(): extract_diode_variant_params(c)
+                    for c in circuit.components
+                    if c.type.upper() == "D" and
+                    PARAM_KIND in (c.parameters or {})}
         bjts = {c.ref.upper(): extract_bjt_params(c)
                 for c in circuit.components if c.type.upper() == "Q"}
+        mosfets = {c.ref.upper(): extract_mosfet_params(c)
+                   for c in circuit.components if c.type.upper() == "M"}
+        jfets = {c.ref.upper(): extract_jfet_params(c)
+                 for c in circuit.components if c.type.upper() == "J"}
     except InvalidCircuitError as exc:
         return NonlinearResult(status=NonlinearStatus.INVALID,
                                 diagnostics=(str(exc),))
 
-    system = _NewtonSystem(problem, diodes, bjts)
+    system = _NewtonSystem(problem, diodes, bjts, mosfets, jfets, variants)
     ctx = system.ctx
     n = system.n
     x: tuple[Decimal, ...] = tuple(Decimal(0) for _ in range(n))
@@ -429,6 +644,9 @@ def solve_nonlinear_dc(circuit: Circuit, *,
         f"n_unknowns={n}",
         f"n_diodes={len(diodes)}",
         f"n_bjts={len(bjts)}",
+        f"n_mosfets={len(mosfets)}",
+        f"n_jfets={len(jfets)}",
+        f"n_diode_variants={len(variants)}",
         "initial_guess=zero-vector (deterministic)",
         f"tolerances: rtol={RTOL} atol={ATOL} stol={STOL}",
         f"max_iter={max_iter} max_backtracking={MAX_BACKTRACK}",
@@ -440,8 +658,10 @@ def solve_nonlinear_dc(circuit: Circuit, *,
     if f0 is None:
         return NonlinearResult(
             status=NonlinearStatus.DIVERGED,
-            system_summary=_summary(problem, diodes, bjts, 0),
-            provenance=_provenance(problem, diodes, bjts, max_iter, 0,
+            system_summary=_summary(problem, diodes, bjts, mosfets, jfets,
+                                      variants, 0),
+            provenance=_provenance(problem, diodes, bjts, mosfets, jfets,
+                                   variants, max_iter, 0,
                                    NonlinearStatus.DIVERGED, f0,
                                    backtrack_uses, warnings),
             diagnostics=tuple(diagnostics + [
@@ -453,7 +673,8 @@ def solve_nonlinear_dc(circuit: Circuit, *,
     if _block_ok(list(f0[:system.n_nodes]), scale) and \
             _block_ok(list(f0[system.n_nodes:]), scale):
         return _converged_result(
-            problem, system, diodes, bjts, x, f0, 0, max_iter, backtrack_uses,
+            problem, system, diodes, bjts, mosfets, jfets, variants,
+            x, f0, 0, max_iter, backtrack_uses,
             warnings, diagnostics, initial=(k0, a0n))
 
     it = 0
@@ -464,8 +685,8 @@ def solve_nonlinear_dc(circuit: Circuit, *,
         if jac is None:
             return NonlinearResult(
                 status=NonlinearStatus.DIVERGED,
-                system_summary=_summary(problem, diodes, bjts, it),
-                provenance=_provenance(problem, diodes, bjts, max_iter, it,
+                system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
+                provenance=_provenance(problem, diodes, bjts, mosfets, jfets, variants, max_iter, it,
                                        NonlinearStatus.DIVERGED, final_f,
                                        backtrack_uses, warnings),
                 diagnostics=tuple(diagnostics + [
@@ -482,8 +703,8 @@ def solve_nonlinear_dc(circuit: Circuit, *,
         except Exception as exc:
             return NonlinearResult(
                 status=NonlinearStatus.DIVERGED,
-                system_summary=_summary(problem, diodes, bjts, it),
-                provenance=_provenance(problem, diodes, bjts, max_iter, it,
+                system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
+                provenance=_provenance(problem, diodes, bjts, mosfets, jfets, variants, max_iter, it,
                                        NonlinearStatus.DIVERGED, final_f,
                                        backtrack_uses, warnings),
                 diagnostics=tuple(diagnostics + [
@@ -493,8 +714,8 @@ def solve_nonlinear_dc(circuit: Circuit, *,
         if lin.status in (LinearStatus.SINGULAR, LinearStatus.INCONSISTENT):
             return NonlinearResult(
                 status=NonlinearStatus.SINGULAR_JACOBIAN,
-                system_summary=_summary(problem, diodes, bjts, it),
-                provenance=_provenance(problem, diodes, bjts, max_iter, it,
+                system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
+                provenance=_provenance(problem, diodes, bjts, mosfets, jfets, variants, max_iter, it,
                                        NonlinearStatus.SINGULAR_JACOBIAN,
                                        final_f, backtrack_uses, warnings),
                 diagnostics=tuple(diagnostics + [
@@ -505,8 +726,8 @@ def solve_nonlinear_dc(circuit: Circuit, *,
         if lin.status != LinearStatus.SOLVED or lin.solution is None:
             return NonlinearResult(
                 status=NonlinearStatus.DIVERGED,
-                system_summary=_summary(problem, diodes, bjts, it),
-                provenance=_provenance(problem, diodes, bjts, max_iter, it,
+                system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
+                provenance=_provenance(problem, diodes, bjts, mosfets, jfets, variants, max_iter, it,
                                        NonlinearStatus.DIVERGED, final_f,
                                        backtrack_uses, warnings),
                 diagnostics=tuple(diagnostics + [
@@ -529,12 +750,31 @@ def solve_nonlinear_dc(circuit: Circuit, *,
                 if max(kt, at) < cur:
                     accepted, accepted_f = trial, ft
                     break
+                # SOLVER-EXT-01 (F8-K): exact-flat-region standstill.
+                # Piecewise devices (MOSFET/JFET cutoff, diode-kind
+                # branches) can make the residual EXACTLY zero while the
+                # Newton correction is not yet tolerance-small. Strict
+                # decrease from exactly 0 is impossible, so the next
+                # iterate would be misreported as stagnation. Accept a
+                # non-increasing trial ONLY when it already satisfies the
+                # certified block tolerances: the convergence certificate
+                # below (res_ok AND step_ok, same RTOL/ATOL/STOL) is
+                # unchanged, every state-changing step still strictly
+                # decreases, and the iteration budget still bounds the
+                # loop. D/Q-only paths are unaffected (their residuals
+                # never hit exact zero through exp-based branches).
+                scale_t = system.scale_of(trial)
+                if max(kt, at) <= cur and \
+                        _block_ok(list(ft[:system.n_nodes]), scale_t) and \
+                        _block_ok(list(ft[system.n_nodes:]), scale_t):
+                    accepted, accepted_f = trial, ft
+                    break
             alpha = ctx.divide(alpha, Decimal(2))
         if accepted is None or accepted_f is None:
             return NonlinearResult(
                 status=NonlinearStatus.DIVERGED,
-                system_summary=_summary(problem, diodes, bjts, it),
-                provenance=_provenance(problem, diodes, bjts, max_iter, it,
+                system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
+                provenance=_provenance(problem, diodes, bjts, mosfets, jfets, variants, max_iter, it,
                                        NonlinearStatus.DIVERGED, final_f,
                                        backtrack_uses, warnings),
                 diagnostics=tuple(diagnostics + [
@@ -557,13 +797,16 @@ def solve_nonlinear_dc(circuit: Circuit, *,
         step_ok = step_peak <= STOL + RTOL * scale
         if res_ok and step_ok:
             return _converged_result(
-                problem, system, diodes, bjts, x, final_f, it, max_iter,
+                problem, system, diodes, bjts, mosfets, jfets, variants,
+                x, final_f, it, max_iter,
                 backtrack_uses, warnings, diagnostics,
                 initial=(k0, a0n))
     return NonlinearResult(
         status=NonlinearStatus.MAX_ITERATIONS,
-        system_summary=_summary(problem, diodes, bjts, it),
-        provenance=_provenance(problem, diodes, bjts, max_iter, it,
+        system_summary=_summary(problem, diodes, bjts, mosfets, jfets,
+                                  variants, it),
+        provenance=_provenance(problem, diodes, bjts, mosfets, jfets,
+                               variants, max_iter, it,
                                NonlinearStatus.MAX_ITERATIONS, final_f,
                                backtrack_uses, warnings),
         diagnostics=tuple(diagnostics + [
@@ -574,7 +817,11 @@ def solve_nonlinear_dc(circuit: Circuit, *,
 
 
 def _summary(problem: MNAProblem, diodes: dict[str, DiodeParams],
-             bjts: dict[str, BJTParams] | None, iters: int) -> dict:
+              bjts: dict[str, BJTParams] | None,
+              mosfets: dict[str, MOSParams] | None,
+              jfets: dict[str, JFETParams] | None,
+              variants: dict[str, DiodeVariantParams] | None,
+              iters: int) -> dict:
     summary = {
         "n_nodes": len(problem.nodes),
         "n_voltage_sources": len(problem.vsource_refs),
@@ -587,7 +834,18 @@ def _summary(problem: MNAProblem, diodes: dict[str, DiodeParams],
             {"ref": c.ref, "anode": c.pins["A"], "cathode": c.pins["K"]}
             for c in sorted(
                 (c for c in problem.circuit.components
-                 if c.type.upper() == "D"),
+                  if c.type.upper() == "D" and
+                  c.ref.upper() not in (variants or {})),
+                key=lambda c: c.ref.upper())
+        ]
+    if variants:
+        summary["diode_variants"] = [
+            {"ref": c.ref, "anode": c.pins["A"], "cathode": c.pins["K"],
+             "kind": variants[c.ref.upper()].kind}
+            for c in sorted(
+                (c for c in problem.circuit.components
+                  if c.type.upper() == "D" and
+                  c.ref.upper() in variants),
                 key=lambda c: c.ref.upper())
         ]
     if bjts:
@@ -596,18 +854,42 @@ def _summary(problem: MNAProblem, diodes: dict[str, DiodeParams],
              "emitter": c.pins["E"], "polarity": bjts[c.ref.upper()].polarity}
             for c in sorted(
                 (c for c in problem.circuit.components
-                 if c.type.upper() == "Q"),
+                  if c.type.upper() == "Q"),
+                key=lambda c: c.ref.upper())
+        ]
+    if mosfets:
+        summary["mosfets"] = [
+            {"ref": c.ref, "drain": c.pins["D"], "gate": c.pins["G"],
+             "source": c.pins["S"], "bulk": c.pins["B"],
+             "polarity": mosfets[c.ref.upper()].polarity}
+            for c in sorted(
+                (c for c in problem.circuit.components
+                  if c.type.upper() == "M"),
+                key=lambda c: c.ref.upper())
+        ]
+    if jfets:
+        summary["jfets"] = [
+            {"ref": c.ref, "drain": c.pins["D"], "gate": c.pins["G"],
+             "source": c.pins["S"],
+             "polarity": jfets[c.ref.upper()].polarity}
+            for c in sorted(
+                (c for c in problem.circuit.components
+                  if c.type.upper() == "J"),
                 key=lambda c: c.ref.upper())
         ]
     return summary
 
 
 def _provenance(problem: MNAProblem, diodes: dict[str, DiodeParams],
-                bjts: dict[str, BJTParams] | None,
-                max_iter: int, iters: int, status: NonlinearStatus,
-                final_f: tuple[Decimal, ...] | None, backtracks: int,
-                warnings: list[str]) -> dict:
-    struct = _canonical_structure(problem.circuit, diodes, bjts)
+                 bjts: dict[str, BJTParams] | None,
+                 mosfets: dict[str, MOSParams] | None,
+                 jfets: dict[str, JFETParams] | None,
+                 variants: dict[str, DiodeVariantParams] | None,
+                 max_iter: int, iters: int, status: NonlinearStatus,
+                 final_f: tuple[Decimal, ...] | None, backtracks: int,
+                 warnings: list[str]) -> dict:
+    struct = _canonical_structure(problem.circuit, diodes, bjts, mosfets,
+                                  jfets, variants)
     kf, af = (None, None)
     if final_f is not None:
         n_nodes = len(problem.nodes)
@@ -615,7 +897,14 @@ def _provenance(problem: MNAProblem, diodes: dict[str, DiodeParams],
                      or [Decimal(0)]))
         af = str(max([abs(v) for v in final_f[n_nodes:]]
                      or [Decimal(0)]))
-    model_name = "Shockley+Ebers-Moll" if (diodes and bjts) else ("Ebers-Moll" if bjts else "Shockley")
+    model_name = "+".join(
+        name for present, name in (
+            (bool(diodes), "Shockley"),
+            (bool(bjts), "Ebers-Moll"),
+            (bool(mosfets), "Shichman-Hodges-L1"),
+            (bool(jfets), "JFET-square-law"),
+            (bool(variants), "D-kind"),
+        ) if present) or "linear-only"
     prov = {
         "engine": ENGINE_VERSION,
         "model": model_name,
@@ -660,16 +949,55 @@ def _provenance(problem: MNAProblem, diodes: dict[str, DiodeParams],
             }
             for ref, bp in sorted(bjts.items())
         }
+    if variants:
+        prov["diode_variant_parameters"] = {
+            ref: {
+                "kind": vp.kind,
+                "Is_A": str(vp.Is),
+                "n": str(vp.n),
+                "Vt_V": str(vp.Vt),
+                "Vz_V": str(vp.Vz) if vp.Vz is not None else None,
+                "nz": str(vp.nz) if vp.nz is not None else None,
+                "Iz_A": str(vp.Iz) if vp.Iz is not None else None,
+                "Iph_A": str(vp.Iph) if vp.Iph is not None else None,
+            }
+            for ref, vp in sorted(variants.items())
+        }
+    if mosfets:
+        prov["mosfet_parameters"] = {
+            ref: {
+                "polarity": mp.polarity,
+                "Kp_A_per_V2": str(mp.Kp),
+                "Vto_V": str(mp.Vto),
+                "Lambda_per_V": str(mp.Lambda),
+                "Phi_V": str(mp.Phi),
+                "Gamma_sqrtV": str(mp.Gamma),
+            }
+            for ref, mp in sorted(mosfets.items())
+        }
+    if jfets:
+        prov["jfet_parameters"] = {
+            ref: {
+                "polarity": jp.polarity,
+                "Idss_A": str(jp.Idss),
+                "Vp_V": str(jp.Vp),
+                "Lambda_per_V": str(jp.Lambda),
+            }
+            for ref, jp in sorted(jfets.items())
+        }
     return prov
 
 
 def _converged_result(problem: MNAProblem, system: _NewtonSystem,
-                      diodes: dict[str, DiodeParams],
-                      bjts: dict[str, BJTParams] | None,
-                      x: tuple[Decimal, ...], f: tuple[Decimal, ...],
-                      iters: int, max_iter: int, backtracks: int,
-                      warnings: list[str], diagnostics: list[str],
-                      initial: tuple[Decimal, Decimal]) -> NonlinearResult:
+                       diodes: dict[str, DiodeParams],
+                       bjts: dict[str, BJTParams] | None,
+                       mosfets: dict[str, MOSParams] | None,
+                       jfets: dict[str, JFETParams] | None,
+                       variants: dict[str, DiodeVariantParams] | None,
+                       x: tuple[Decimal, ...], f: tuple[Decimal, ...],
+                       iters: int, max_iter: int, backtracks: int,
+                       warnings: list[str], diagnostics: list[str],
+                       initial: tuple[Decimal, Decimal]) -> NonlinearResult:
     ctx = system.ctx
     kfin, afin = system.block_norms(f)
     node_voltages = tuple(
@@ -726,11 +1054,16 @@ def _converged_result(problem: MNAProblem, system: _NewtonSystem,
     for c in sorted(problem.circuit.components, key=lambda c: c.ref.upper()):
         t = c.type.upper()
         if t == "D":
-            p = diodes[c.ref.upper()]
             vd = ctx.subtract(node_v(c.pins["A"]), node_v(c.pins["K"]))
-            ival = shockley_current(vd, p, ctx)
+            if variants and c.ref.upper() in variants:
+                vp = variants[c.ref.upper()]
+                ival = variant_current(vd, vp, ctx)
+                convention = (f"A->K: {vp.kind} I(Vd), Vd = V(A) - V(K)")
+            else:
+                p = diodes[c.ref.upper()]
+                ival = shockley_current(vd, p, ctx)
+                convention = "A->K: Shockley I(Vd), Vd = V(A) - V(K)"
             v_drop, i_branch = vd, ival
-            convention = "A->K: Shockley I(Vd), Vd = V(A) - V(K)"
         elif t == "Q":
             bp = (bjts or {})[c.ref.upper()]
             vc = node_v(c.pins["C"])
@@ -758,6 +1091,54 @@ def _converged_result(problem: MNAProblem, system: _NewtonSystem,
             vce = ctx.subtract(vc, ve)
             vbe = ctx.subtract(vb, ve)
             pw = ctx.add(ctx.multiply(vce, ic), ctx.multiply(vbe, ib))
+            element_powers.append(ElementPower(
+                ref=c.ref, power=Quantity(pw, _WATT), absorbed=pw >= 0))
+            continue
+        elif t == "M":
+            mp = (mosfets or {})[c.ref.upper()]
+            vd = node_v(c.pins["D"])
+            vg = node_v(c.pins["G"])
+            vs = node_v(c.pins["S"])
+            vb = node_v(c.pins["B"])
+            idc, ig, isc, ib = mos_terminal_currents(
+                vd, vg, vs, vb, mp, ctx)
+            exact_i[f"{c.ref}:D"] = idc
+            exact_i[f"{c.ref}:G"] = ig
+            exact_i[f"{c.ref}:S"] = isc
+            exact_i[f"{c.ref}:B"] = ib
+            for leg, cur in (("D", idc), ("G", ig), ("S", isc), ("B", ib)):
+                branch_currents.append(BranchCurrent(
+                    ref=f"{c.ref}:{leg}",
+                    current=Quantity(cur, _AMP),
+                    convention=f"into {leg} (terminal current)",
+                ))
+            vds = ctx.subtract(vd, vs)
+            vgs = ctx.subtract(vg, vs)
+            vbs = ctx.subtract(vb, vs)
+            pw = ctx.add(ctx.add(ctx.multiply(vds, idc),
+                                 ctx.multiply(vgs, ig)),
+                         ctx.multiply(vbs, ib))
+            element_powers.append(ElementPower(
+                ref=c.ref, power=Quantity(pw, _WATT), absorbed=pw >= 0))
+            continue
+        elif t == "J":
+            jp = (jfets or {})[c.ref.upper()]
+            vd = node_v(c.pins["D"])
+            vg = node_v(c.pins["G"])
+            vs = node_v(c.pins["S"])
+            idc, ig, isc = jfet_terminal_currents(vd, vg, vs, jp, ctx)
+            exact_i[f"{c.ref}:D"] = idc
+            exact_i[f"{c.ref}:G"] = ig
+            exact_i[f"{c.ref}:S"] = isc
+            for leg, cur in (("D", idc), ("G", ig), ("S", isc)):
+                branch_currents.append(BranchCurrent(
+                    ref=f"{c.ref}:{leg}",
+                    current=Quantity(cur, _AMP),
+                    convention=f"into {leg} (terminal current)",
+                ))
+            vds = ctx.subtract(vd, vs)
+            vgs = ctx.subtract(vg, vs)
+            pw = ctx.add(ctx.multiply(vds, idc), ctx.multiply(vgs, ig))
             element_powers.append(ElementPower(
                 ref=c.ref, power=Quantity(pw, _WATT), absorbed=pw >= 0))
             continue
@@ -825,6 +1206,14 @@ def _converged_result(problem: MNAProblem, system: _NewtonSystem,
             net_kcl[c.pins["C"]] = ctx.add(net_kcl[c.pins["C"]], ic)
             net_kcl[c.pins["B"]] = ctx.add(net_kcl[c.pins["B"]], ib)
             net_kcl[c.pins["E"]] = ctx.add(net_kcl[c.pins["E"]], ie)
+        elif t == "M":
+            for leg in ("D", "G", "S", "B"):
+                cur = exact_i[f"{c.ref}:{leg}"]
+                net_kcl[c.pins[leg]] = ctx.add(net_kcl[c.pins[leg]], cur)
+        elif t == "J":
+            for leg in ("D", "G", "S"):
+                cur = exact_i[f"{c.ref}:{leg}"]
+                net_kcl[c.pins[leg]] = ctx.add(net_kcl[c.pins[leg]], cur)
         elif t == "D":
             ib = exact_i[c.ref]
             net_kcl[c.pins["A"]] = ctx.add(net_kcl[c.pins["A"]], ib)
@@ -883,9 +1272,11 @@ def _converged_result(problem: MNAProblem, system: _NewtonSystem,
         node_voltages=node_voltages,
         branch_currents=tuple(branch_currents),
         element_powers=tuple(element_powers),
-        system_summary=_summary(problem, diodes, bjts, iters),
+        system_summary=_summary(problem, diodes, bjts, mosfets, jfets,
+                                  variants, iters),
         conservation_checks=checks,
-        provenance=_provenance(problem, diodes, bjts, max_iter, iters,
+        provenance=_provenance(problem, diodes, bjts, mosfets, jfets,
+                               variants, max_iter, iters,
                                NonlinearStatus.CONVERGED, f, backtracks,
                                warnings),
         diagnostics=tuple(diagnostics + [

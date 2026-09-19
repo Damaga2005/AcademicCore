@@ -88,11 +88,30 @@ from academic_core.domain.engineering.mna.dependent import (
     resolution_order,
     validate_dependent_structure,
 )
+from academic_core.domain.engineering.mna.mosfet import (
+    MOSParams,
+    extract_mosfet_params,
+    mos_conductances,
+    mos_jacobian,
+    mos_region,
+    mos_terminal_currents,
+)
+from academic_core.domain.engineering.mna.jfet import (
+    JFETParams,
+    extract_jfet_params,
+    jfet_conductances,
+    jfet_jacobian,
+    jfet_region,
+    jfet_terminal_currents,
+)
 from academic_core.domain.engineering.mna.diode import (
     DiodeParams,
     extract_diode_params,
+    extract_diode_variant_params,
     shockley_conductance,
     shockley_current,
+    variant_conductance,
+    variant_current,
 )
 from academic_core.domain.engineering.mna.nonlinear import (
     NonlinearResult,
@@ -110,7 +129,8 @@ from academic_core.domain.engineering.units import (
 )
 
 ENGINE_VERSION = "f8j-small-signal-ac/1.0"
-SUPPORTED_TYPES = frozenset({"R", "L", "C", "V", "I", "E", "G", "H", "F", "O", "T", "D", "Q"})
+SUPPORTED_TYPES = frozenset({"R", "L", "C", "V", "I", "E", "G", "H", "F",
+                             "O", "T", "D", "Q", "M", "J"})
 
 _INVALID_ERRORS = (
     InvalidCircuitError,
@@ -126,7 +146,7 @@ _INVALID_ERRORS = (
 
 @dataclass(frozen=True)
 class DiodeSmallSignalParams:
-    """Small-signal linearized parameters of a Shockley diode at DC operating point."""
+    """Small-signal linearized parameters of a diode at DC operating point."""
 
     ref: str
     anode: str
@@ -135,6 +155,45 @@ class DiodeSmallSignalParams:
     i_d0: Decimal  # DC bias current I_D0 (A)
     g_d: Decimal   # Dynamic conductance dI/dV (S)
     r_d: Decimal   # Dynamic resistance 1/g_d (ohm)
+    kind: str = "RECT"  # F8-K diode kind (RECT/ZENER/LED/SCHOTTKY/PHOTO)
+
+
+@dataclass(frozen=True)
+class MOSFETSmallSignalParams:
+    """Small-signal linearized parameters of a Level-1 MOSFET at DC bias."""
+
+    ref: str
+    drain: str
+    gate: str
+    source: str
+    bulk: str
+    polarity: str  # "NMOS" | "PMOS"
+    region: str  # "cutoff" | "triode" | "saturation"
+    v_gs0: Decimal  # DC gate-source bias (signed actual, V)
+    v_ds0: Decimal  # DC drain-source bias (signed actual, V)
+    i_d0: Decimal  # DC drain terminal current (A)
+    g_m: Decimal  # Transconductance dID/dVG (S)
+    g_ds: Decimal  # Output conductance dID/dVD (S)
+    g_mb: Decimal  # Body transconductance dID/dVB (S)
+    jacobian: tuple[tuple[Decimal, Decimal, Decimal, Decimal], ...]  # 4x4
+
+
+@dataclass(frozen=True)
+class JFETSmallSignalParams:
+    """Small-signal linearized parameters of a square-law JFET at DC bias."""
+
+    ref: str
+    drain: str
+    gate: str
+    source: str
+    polarity: str  # "NCHAN" | "PCHAN"
+    region: str  # "cutoff" | "triode" | "saturation"
+    v_gs0: Decimal  # DC gate-source bias (signed actual, V)
+    v_ds0: Decimal  # DC drain-source bias (signed actual, V)
+    i_d0: Decimal  # DC drain terminal current (A)
+    g_m: Decimal  # Transconductance dID/dVG (S)
+    g_ds: Decimal  # Output conductance dID/dVD (S)
+    jacobian: tuple[tuple[Decimal, Decimal, Decimal], ...]  # 3x3
 
 
 @dataclass(frozen=True)
@@ -173,6 +232,8 @@ class SmallSignalACResult:
     branch_voltages: tuple[BranchVoltage, ...] = ()
     diode_parameters: tuple[DiodeSmallSignalParams, ...] = ()
     bjt_parameters: tuple[BJTSmallSignalParams, ...] = ()
+    mosfet_parameters: tuple[MOSFETSmallSignalParams, ...] = ()
+    jfet_parameters: tuple[JFETSmallSignalParams, ...] = ()
     kcl_max_residual: Decimal | None = None
     kvl_max_residual: Decimal | None = None
     solver_result: object | None = None
@@ -231,6 +292,7 @@ class SmallSignalACResult:
                     "i_d0": str(dp.i_d0),
                     "g_d": str(dp.g_d),
                     "r_d": str(dp.r_d),
+                    "kind": dp.kind,
                 }
                 for dp in self.diode_parameters
             ],
@@ -255,6 +317,40 @@ class SmallSignalACResult:
                     "g_R": str(bp.g_R),
                 }
                 for bp in self.bjt_parameters
+            ],
+            "mosfet_parameters": [
+                {
+                    "ref": mp.ref,
+                    "drain": mp.drain,
+                    "gate": mp.gate,
+                    "source": mp.source,
+                    "bulk": mp.bulk,
+                    "polarity": mp.polarity,
+                    "region": mp.region,
+                    "v_gs0": str(mp.v_gs0),
+                    "v_ds0": str(mp.v_ds0),
+                    "i_d0": str(mp.i_d0),
+                    "g_m": str(mp.g_m),
+                    "g_ds": str(mp.g_ds),
+                    "g_mb": str(mp.g_mb),
+                }
+                for mp in self.mosfet_parameters
+            ],
+            "jfet_parameters": [
+                {
+                    "ref": jp.ref,
+                    "drain": jp.drain,
+                    "gate": jp.gate,
+                    "source": jp.source,
+                    "polarity": jp.polarity,
+                    "region": jp.region,
+                    "v_gs0": str(jp.v_gs0),
+                    "v_ds0": str(jp.v_ds0),
+                    "i_d0": str(jp.i_d0),
+                    "g_m": str(jp.g_m),
+                    "g_ds": str(jp.g_ds),
+                }
+                for jp in self.jfet_parameters
             ],
             "kcl_max_residual": str(self.kcl_max_residual) if self.kcl_max_residual is not None else None,
             "kvl_max_residual": str(self.kvl_max_residual) if self.kvl_max_residual is not None else None,
@@ -516,7 +612,7 @@ def solve_small_signal_ac(
     # 3. DC Operating Point Resolution
     if dc_result is None:
         dc_circ = _build_dc_equivalent_circuit(circuit)
-        has_nonlinear = any(c.type.upper() in ("D", "Q") for c in dc_circ.components)
+        has_nonlinear = any(c.type.upper() in ("D", "Q", "M", "J") for c in dc_circ.components)
         if has_nonlinear:
             dc_res = solve_nonlinear_dc(dc_circ)
             if dc_res.status != NonlinearStatus.CONVERGED:
@@ -585,22 +681,35 @@ def solve_small_signal_ac(
     def get_dc_v(net: str) -> Decimal:
         return dc_node_v.get(net, Decimal(0))
 
-    # 4. Extract incremental small-signal parameters for D and Q
+    # 4. Extract incremental small-signal parameters for D, Q, M and J
     diodes_ss: list[DiodeSmallSignalParams] = []
     bjts_ss: list[BJTSmallSignalParams] = []
+    mosfets_ss: list[MOSFETSmallSignalParams] = []
+    jfets_ss: list[JFETSmallSignalParams] = []
 
     for c in sorted(circuit.components, key=lambda e: e.ref.upper()):
         t = c.type.upper()
         if t == "D":
+            from academic_core.domain.engineering.mna.diode import PARAM_KIND
+            is_variant = PARAM_KIND in (c.parameters or {})
             try:
-                dp = extract_diode_params(c)
+                if is_variant:
+                    vp = extract_diode_variant_params(c)
+                    kind = vp.kind
+                else:
+                    dp = extract_diode_params(c)
+                    kind = "RECT"
             except InvalidCircuitError as exc:
                 return SmallSignalACResult(status=ACStatus.INVALID, diagnostics=(str(exc),))
             v_a0 = get_dc_v(c.pins["A"])
             v_k0 = get_dc_v(c.pins["K"])
             vd0 = ctx.subtract(v_a0, v_k0)
-            id0 = shockley_current(vd0, dp, ctx)
-            gd = shockley_conductance(vd0, dp, ctx)
+            if is_variant:
+                id0 = variant_current(vd0, vp, ctx)
+                gd = variant_conductance(vd0, vp, ctx)
+            else:
+                id0 = shockley_current(vd0, dp, ctx)
+                gd = shockley_conductance(vd0, dp, ctx)
             if not (id0.is_finite() and gd.is_finite()):
                 return SmallSignalACResult(
                     status=ACStatus.DIVERGED,
@@ -615,6 +724,7 @@ def solve_small_signal_ac(
                 i_d0=id0,
                 g_d=gd,
                 r_d=rd,
+                kind=kind,
             ))
         elif t == "Q":
             try:
@@ -654,6 +764,73 @@ def solve_small_signal_ac(
                 r_pi=r_pi,
                 g_F=gf,
                 g_R=gr,
+                jacobian=jac,
+            ))
+        elif t == "M":
+            try:
+                mp = extract_mosfet_params(c)
+            except InvalidCircuitError as exc:
+                return SmallSignalACResult(status=ACStatus.INVALID, diagnostics=(str(exc),))
+            vd0 = get_dc_v(c.pins["D"])
+            vg0 = get_dc_v(c.pins["G"])
+            vs0 = get_dc_v(c.pins["S"])
+            vb0 = get_dc_v(c.pins["B"])
+            region = mos_region(vd0, vg0, vs0, vb0, mp, ctx)
+            trio = mos_conductances(vd0, vg0, vs0, vb0, mp, ctx)
+            jac = mos_jacobian(vd0, vg0, vs0, vb0, mp, ctx)
+            idc, _, _, _ = mos_terminal_currents(vd0, vg0, vs0, vb0, mp, ctx)
+            if region is None or trio is None or jac is None or not idc.is_finite():
+                return SmallSignalACResult(
+                    status=ACStatus.DIVERGED,
+                    diagnostics=(f"{c.ref}: non-finite MOSFET small-signal evaluation at DC bias",),
+                )
+            gm, gds, gmb = trio
+            mosfets_ss.append(MOSFETSmallSignalParams(
+                ref=c.ref,
+                drain=c.pins["D"],
+                gate=c.pins["G"],
+                source=c.pins["S"],
+                bulk=c.pins["B"],
+                polarity=mp.polarity,
+                region=region,
+                v_gs0=ctx.subtract(vg0, vs0),
+                v_ds0=ctx.subtract(vd0, vs0),
+                i_d0=idc,
+                g_m=gm,
+                g_ds=gds,
+                g_mb=gmb,
+                jacobian=jac,
+            ))
+        elif t == "J":
+            try:
+                jp = extract_jfet_params(c)
+            except InvalidCircuitError as exc:
+                return SmallSignalACResult(status=ACStatus.INVALID, diagnostics=(str(exc),))
+            vd0 = get_dc_v(c.pins["D"])
+            vg0 = get_dc_v(c.pins["G"])
+            vs0 = get_dc_v(c.pins["S"])
+            region = jfet_region(vd0, vg0, vs0, jp, ctx)
+            pair = jfet_conductances(vd0, vg0, vs0, jp, ctx)
+            jac = jfet_jacobian(vd0, vg0, vs0, jp, ctx)
+            idc, _, _ = jfet_terminal_currents(vd0, vg0, vs0, jp, ctx)
+            if region is None or pair is None or jac is None or not idc.is_finite():
+                return SmallSignalACResult(
+                    status=ACStatus.DIVERGED,
+                    diagnostics=(f"{c.ref}: non-finite JFET small-signal evaluation at DC bias",),
+                )
+            gm, gds = pair
+            jfets_ss.append(JFETSmallSignalParams(
+                ref=c.ref,
+                drain=c.pins["D"],
+                gate=c.pins["G"],
+                source=c.pins["S"],
+                polarity=jp.polarity,
+                region=region,
+                v_gs0=ctx.subtract(vg0, vs0),
+                v_ds0=ctx.subtract(vd0, vs0),
+                i_d0=idc,
+                g_m=gm,
+                g_ds=gds,
                 jacobian=jac,
             ))
 
@@ -772,6 +949,8 @@ def solve_small_signal_ac(
     # Stamping components
     diode_map = {dp.ref.upper(): dp for dp in diodes_ss}
     bjt_map = {bp.ref.upper(): bp for bp in bjts_ss}
+    mosfet_map = {mp.ref.upper(): mp for mp in mosfets_ss}
+    jfet_map = {jp.ref.upper(): jp for jp in jfets_ss}
 
     for c in sorted(circuit.components, key=lambda e: e.ref.upper()):
         t = c.type.upper()
@@ -804,6 +983,38 @@ def solve_small_signal_ac(
             bp = bjt_map[c.ref.upper()]
             jac = bp.jacobian
             pin_nets = (c.pins["C"], c.pins["B"], c.pins["E"])
+            pin_indices = tuple(idx(net) for net in pin_nets)
+            for r in range(3):
+                row_idx = pin_indices[r]
+                if row_idx is None:
+                    continue
+                for s in range(3):
+                    col_idx = pin_indices[s]
+                    if col_idx is None:
+                        continue
+                    j_val = DecimalComplex(jac[r][s], Decimal(0))
+                    matrix[row_idx][col_idx] = matrix[row_idx][col_idx] + j_val
+
+        elif t == "M":
+            mp = mosfet_map[c.ref.upper()]
+            jac = mp.jacobian
+            pin_nets = (c.pins["D"], c.pins["G"], c.pins["S"], c.pins["B"])
+            pin_indices = tuple(idx(net) for net in pin_nets)
+            for r in range(4):
+                row_idx = pin_indices[r]
+                if row_idx is None:
+                    continue
+                for s in range(4):
+                    col_idx = pin_indices[s]
+                    if col_idx is None:
+                        continue
+                    j_val = DecimalComplex(jac[r][s], Decimal(0))
+                    matrix[row_idx][col_idx] = matrix[row_idx][col_idx] + j_val
+
+        elif t == "J":
+            jp = jfet_map[c.ref.upper()]
+            jac = jp.jacobian
+            pin_nets = (c.pins["D"], c.pins["G"], c.pins["S"])
             pin_indices = tuple(idx(net) for net in pin_nets)
             for r in range(3):
                 row_idx = pin_indices[r]
@@ -932,6 +1143,8 @@ def solve_small_signal_ac(
             dc_operating_point=dc_res,
             diode_parameters=tuple(diodes_ss),
             bjt_parameters=tuple(bjts_ss),
+            mosfet_parameters=tuple(mosfets_ss),
+            jfet_parameters=tuple(jfets_ss),
             solver_result=lin_sol,
             numeric_mode=NumericMode.HIGH_PRECISION,
             diagnostics=(f"AC linear solve status: {lin_sol.status.value}",),
@@ -996,6 +1209,43 @@ def solve_small_signal_ac(
             net_kcl_leaving[c.pins["C"]] = net_kcl_leaving[c.pins["C"]] + ic
             net_kcl_leaving[c.pins["B"]] = net_kcl_leaving[c.pins["B"]] + ib
             net_kcl_leaving[c.pins["E"]] = net_kcl_leaving[c.pins["E"]] + ie
+
+        elif t == "M":
+            mp = mosfet_map[c.ref.upper()]
+            jac = mp.jacobian
+            v_term = (node_v(c.pins["D"]), node_v(c.pins["G"]),
+                      node_v(c.pins["S"]), node_v(c.pins["B"]))
+            legs = ("D", "G", "S", "B")
+            i_term = []
+            for r in range(4):
+                acc = DecimalComplex.zero()
+                for s in range(4):
+                    acc = acc + DecimalComplex(jac[r][s], Decimal(0)) * v_term[s]
+                i_term.append(acc)
+            branch_voltages_list.append(BranchVoltage(f"{c.ref}:GS", v_term[1] - v_term[2], "VG-VS"))
+            branch_voltages_list.append(BranchVoltage(f"{c.ref}:DS", v_term[0] - v_term[2], "VD-VS"))
+            for leg, cur in zip(legs, i_term):
+                branch_currents_list.append(BranchCurrent(f"{c.ref}:{leg}", cur, f"into_{leg.lower()}"))
+            for pin, cur in zip((c.pins["D"], c.pins["G"], c.pins["S"], c.pins["B"]), i_term):
+                net_kcl_leaving[pin] = net_kcl_leaving[pin] + cur
+
+        elif t == "J":
+            jp = jfet_map[c.ref.upper()]
+            jac = jp.jacobian
+            v_term = (node_v(c.pins["D"]), node_v(c.pins["G"]), node_v(c.pins["S"]))
+            legs = ("D", "G", "S")
+            i_term = []
+            for r in range(3):
+                acc = DecimalComplex.zero()
+                for s in range(3):
+                    acc = acc + DecimalComplex(jac[r][s], Decimal(0)) * v_term[s]
+                i_term.append(acc)
+            branch_voltages_list.append(BranchVoltage(f"{c.ref}:GS", v_term[1] - v_term[2], "VG-VS"))
+            branch_voltages_list.append(BranchVoltage(f"{c.ref}:DS", v_term[0] - v_term[2], "VD-VS"))
+            for leg, cur in zip(legs, i_term):
+                branch_currents_list.append(BranchCurrent(f"{c.ref}:{leg}", cur, f"into_{leg.lower()}"))
+            for pin, cur in zip((c.pins["D"], c.pins["G"], c.pins["S"]), i_term):
+                net_kcl_leaving[pin] = net_kcl_leaving[pin] + cur
 
         elif t == "I":
             p, m = c.pins["+"], c.pins["-"]
@@ -1112,6 +1362,8 @@ def solve_small_signal_ac(
         f"kvl_max_residual={kvl_peak}",
         f"diodes_linearized={len(diodes_ss)}",
         f"bjts_linearized={len(bjts_ss)}",
+        f"mosfets_linearized={len(mosfets_ss)}",
+        f"jfets_linearized={len(jfets_ss)}",
     ]
 
     return SmallSignalACResult(
@@ -1123,6 +1375,8 @@ def solve_small_signal_ac(
         branch_voltages=tuple(branch_voltages_list),
         diode_parameters=tuple(diodes_ss),
         bjt_parameters=tuple(bjts_ss),
+        mosfet_parameters=tuple(mosfets_ss),
+        jfet_parameters=tuple(jfets_ss),
         kcl_max_residual=kcl_peak,
         kvl_max_residual=kvl_peak,
         solver_result=lin_sol,

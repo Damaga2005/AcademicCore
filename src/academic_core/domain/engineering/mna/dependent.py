@@ -141,6 +141,16 @@ def validate_dependent_structure(circuit) -> None:
                     f"{c.ref}: control_ref {ctrl!r} names a BJT transistor, whose "
                     f"currents are nonlinear functions of junction voltages — H/F "
                     f"control by BJT is not supported")
+            if refs[ctrl.upper()].type.upper() in ("M", "J"):
+                # MOSFET/JFET channel currents are nonlinear functions of
+                # terminal voltages. Reject loudly (same safety policy as
+                # D and Q; documented F8-K limitation).
+                raise InvalidCircuitError(
+                    f"{c.ref}: control_ref {ctrl!r} names a "
+                    f"{'MOSFET' if refs[ctrl.upper()].type.upper() == 'M' else 'JFET'} "
+                    f"transistor, whose channel current is a nonlinear "
+                    f"function of terminal voltages — H/F control by "
+                    f"MOSFET/JFET is not supported")
 
 
 def control_graph(circuit) -> dict[str, str]:
