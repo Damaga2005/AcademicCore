@@ -93,6 +93,13 @@ from academic_core.domain.engineering.mna.nonlinear import (
     NonlinearStatus,
     solve_nonlinear_dc,
 )
+from academic_core.domain.engineering.mna.transient import (
+    MAX_TRANSIENT_STEPS,
+    TransientConfig,
+    TransientResult,
+    TransientStatus,
+    solve_transient,
+)
 from academic_core.domain.engineering.mna.errors import (
     CircularControlError,
     DimensionalityError,
@@ -122,6 +129,11 @@ from academic_core.domain.engineering.mna.solver import (
 __all__ = [
     "solve_linear_dc",
     "solve_nonlinear_dc",
+    "solve_transient",
+    "TransientConfig",
+    "TransientResult",
+    "TransientStatus",
+    "MAX_TRANSIENT_STEPS",
     "NonlinearResult",
     "NonlinearStatus",
     "DiodeParams",

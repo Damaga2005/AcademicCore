@@ -56,8 +56,10 @@ from academic_core.domain.engineering.mna.errors import (
 )
 from academic_core.domain.engineering.units import (
     ADMITTANCE,
+    CAPACITANCE,
     CURRENT,
     DIMENSIONLESS,
+    INDUCTANCE,
     RESISTANCE,
     VOLTAGE,
     Quantity,
@@ -95,7 +97,8 @@ def _validate_components(circuit: Circuit, *, allow_diodes: bool = False,
                           allow_bjts: bool = False,
                           allow_mosfets: bool = False,
                           allow_jfets: bool = False,
-                          allow_diode_variants: bool = False) -> None:
+                          allow_diode_variants: bool = False,
+                          allow_transient: bool = False) -> None:
     if not circuit.components:
         raise InvalidCircuitError(f"circuit {circuit.name!r} has no components")
     seen_refs: set[str] = set()
@@ -182,6 +185,50 @@ def _validate_components(circuit: Circuit, *, allow_diodes: bool = False,
                 extract_jfet_params,
             )
             extract_jfet_params(c)
+            continue
+        if c.type.upper() == "C":
+            if not allow_transient:
+                raise UnsupportedElementError(
+                    f"{c.ref}: component type 'C' is NOT_SUPPORTED by the "
+                    f"DC solver (domain: R, V, I, dependent "
+                    f"E, G, H, F, ideal op-amp O, ideal transformer T)"
+                )
+            if c.value is None:
+                raise InvalidCircuitError(f"{c.ref}: missing required value")
+            if c.value.dimension != CAPACITANCE:
+                raise DimensionalityError(
+                    f"{c.ref}: value {c.value.format()} has the wrong "
+                    f"dimension for a C component"
+                )
+            if c.value.to_base() <= 0:
+                raise InvalidCircuitError(
+                    f"{c.ref}: capacitance must be > 0, "
+                    f"got {c.value.format()}")
+            if not c.value.to_base().is_finite():
+                raise InvalidCircuitError(
+                    f"{c.ref}: non-finite capacitance {c.value.format()}")
+            continue
+        if c.type.upper() == "L":
+            if not allow_transient:
+                raise UnsupportedElementError(
+                    f"{c.ref}: component type 'L' is NOT_SUPPORTED by the "
+                    f"DC solver (domain: R, V, I, dependent "
+                    f"E, G, H, F, ideal op-amp O, ideal transformer T)"
+                )
+            if c.value is None:
+                raise InvalidCircuitError(f"{c.ref}: missing required value")
+            if c.value.dimension != INDUCTANCE:
+                raise DimensionalityError(
+                    f"{c.ref}: value {c.value.format()} has the wrong "
+                    f"dimension for a L component"
+                )
+            if c.value.to_base() <= 0:
+                raise InvalidCircuitError(
+                    f"{c.ref}: inductance must be > 0, "
+                    f"got {c.value.format()}")
+            if not c.value.to_base().is_finite():
+                raise InvalidCircuitError(
+                    f"{c.ref}: non-finite inductance {c.value.format()}")
             continue
         if c.type.upper() not in SUPPORTED_TYPES:
             raise UnsupportedElementError(
@@ -276,27 +323,37 @@ class MNAProblem:
     matrix: tuple
     rhs: tuple
     tx_leg_refs: tuple[str, ...] = ()  # sorted T leg keys, 2 aux cols each
+    l_aux_refs: tuple[str, ...] = ()  # sorted L refs, 1 aux col each (F8-L)
 
     @property
     def size(self) -> int:
-        return len(self.nodes) + len(self.vsource_refs) + len(self.tx_leg_refs)
+        return (len(self.nodes) + len(self.vsource_refs)
+                + len(self.tx_leg_refs) + len(self.l_aux_refs))
 
 
 def build_mna_problem(circuit: Circuit, *, allow_diodes: bool = False,
                        allow_bjts: bool = False,
                        allow_mosfets: bool = False,
                        allow_jfets: bool = False,
-                       allow_diode_variants: bool = False) -> MNAProblem:
+                       allow_diode_variants: bool = False,
+                       allow_transient: bool = False) -> MNAProblem:
     """Validate `circuit` and assemble its MNA `A x = z` system.
 
     Raises `InvalidCircuitError`, `UnsupportedElementError`,
     `DimensionalityError`, `MissingReferenceError` or `FloatingCircuitError`
     for any circuit outside F8-B's declared domain. Never proceeds silently.
+
+    With ``allow_transient`` (F8-L only): capacitors carry no linear stamp
+    (open circuit) and inductors own one auxiliary current unknown each,
+    statically stamped as a short circuit (0 V source pattern); the
+    transient engine overwrites the inductor constraint rows per step with
+    the dynamic companion equivalents.
     """
     _validate_components(circuit, allow_diodes=allow_diodes,
                           allow_bjts=allow_bjts, allow_mosfets=allow_mosfets,
                           allow_jfets=allow_jfets,
-                          allow_diode_variants=allow_diode_variants)
+                          allow_diode_variants=allow_diode_variants,
+                          allow_transient=allow_transient)
     ground = _reference_net(circuit)
     _check_reachability(circuit, ground)
 
@@ -313,13 +370,23 @@ def build_mna_problem(circuit: Circuit, *, allow_diodes: bool = False,
     tx_leg_refs = tuple(sorted(
         f"{c.ref}:{leg}" for c in circuit.components
         for leg in (1, 2) if c.type.upper() == "T"))
+    # F8-L inductor auxiliary currents ("L1", ...): one MNA current
+    # unknown each, allocated deterministically after the transformer
+    # legs. Component refs are unique circuit-wide, so bare refs are
+    # unambiguous aux keys.
+    l_aux_refs = tuple(sorted(
+        c.ref for c in circuit.components if c.type.upper() == "L"))
     n_nodes = len(nodes)
     vsource_index = {ref: n_nodes + j for j, ref in enumerate(vsource_refs)}
     tx_index = {ref: n_nodes + len(vsource_refs) + j
                 for j, ref in enumerate(tx_leg_refs)}
     vsource_index.update(tx_index)
+    l_index = {ref: n_nodes + len(vsource_refs) + len(tx_leg_refs) + j
+               for j, ref in enumerate(l_aux_refs)}
+    vsource_index.update(l_index)
 
-    size = n_nodes + len(vsource_refs) + len(tx_leg_refs)
+    size = (n_nodes + len(vsource_refs) + len(tx_leg_refs)
+            + len(l_aux_refs))
     matrix = [[Fraction(0) for _ in range(size)] for _ in range(size)]
     rhs = [Fraction(0) for _ in range(size)]
 
@@ -539,6 +606,27 @@ def build_mna_problem(circuit: Circuit, *, allow_diodes: bool = False,
             # Newton layer stamps per iterate). Explicit no-op.
             # (BJT "Q" keeps its pre-existing implicit no-op path.)
             pass
+        elif t == "C":
+            # F8-L capacitor: NO static stamp (open circuit). The
+            # transient engine adds the dynamic companion stamp per
+            # step. Explicit no-op (never silent fall-through).
+            pass
+        elif t == "L":
+            # F8-L inductor: statically a short circuit (0 V source
+            # pattern: KCL +-iL, constraint V(1)-V(2) = 0). The
+            # transient engine overwrites the constraint row per step
+            # with the dynamic companion equivalents.
+            p1, p2 = idx(c.pins["1"]), idx(c.pins["2"])
+            k = vsource_index[c.ref]
+            if p1 is not None:
+                matrix[p1][k] += 1
+            if p2 is not None:
+                matrix[p2][k] -= 1
+            if p1 is not None:
+                matrix[k][p1] += 1
+            if p2 is not None:
+                matrix[k][p2] -= 1
+            # rhs[k] stays 0 (matrix/rhs start zeroed).
 
     return MNAProblem(
         circuit=circuit,
@@ -550,4 +638,5 @@ def build_mna_problem(circuit: Circuit, *, allow_diodes: bool = False,
         matrix=tuple(tuple(row) for row in matrix),
         rhs=tuple(rhs),
         tx_leg_refs=tx_leg_refs,
+        l_aux_refs=l_aux_refs,
     )
