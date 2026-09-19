@@ -589,15 +589,57 @@ class _NewtonSystem:
         return max(Decimal(1), peak)
 
 
+@dataclass(frozen=True)
+class NewtonState:
+    """Converged Newton state exposed for F8-M (R-01).
+
+    ``system`` is the certified residual/Jacobian assembly
+    (``residual(x)`` / ``jacobian(x)``), ``x`` the converged unknown
+    vector (nodes, then aux currents in ``problem.vsource_index`` order).
+    Read-only view: nothing here alters solver behaviour.
+    """
+
+    problem: MNAProblem
+    system: "_NewtonSystem"
+    x: tuple[Decimal, ...]
+
+
 def solve_nonlinear_dc(circuit: Circuit, *,
-                        max_iter: int = MAX_ITER) -> NonlinearResult:
+                        max_iter: int = MAX_ITER,
+                        x_init: "tuple[Decimal, ...] | None" = None
+                        ) -> NonlinearResult:
     """DC operating point with Shockley diodes (F8-H), Ebers-Moll BJTs
     (F8-I) and F8-K devices (MOSFET, JFET, diode-kind variants) via
     damped Newton.
 
     ``max_iter`` override exists for honest ``MAX_ITERATIONS``
     testing; provenance always records the effective value.
+
+    ``x_init`` (F8-M R-02) is an optional warm-start vector (length
+    ``n_unknowns``, finite ``Decimal`` entries). ``None`` (default) keeps
+    the certified zero-vector start bit-for-bit. Convergence policy (Q1)
+    is unchanged either way.
     """
+    return _solve_nonlinear_dc_impl(circuit, max_iter, x_init, None)
+
+
+def solve_nonlinear_dc_state(circuit: Circuit, *,
+                              max_iter: int = MAX_ITER,
+                              x_init: "tuple[Decimal, ...] | None" = None
+                              ) -> "tuple[NonlinearResult, NewtonState | None]":
+    """Same solve as :func:`solve_nonlinear_dc`, additionally returning the
+    converged :class:`NewtonState` (``None`` unless ``CONVERGED``)."""
+    capture: dict = {}
+    result = _solve_nonlinear_dc_impl(circuit, max_iter, x_init, capture)
+    if result.status is NonlinearStatus.CONVERGED and capture:
+        return result, NewtonState(capture["problem"], capture["system"],
+                                    capture["x"])
+    return result, None
+
+
+def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
+                              x_init: "tuple[Decimal, ...] | None",
+                              capture: "dict | None") -> NonlinearResult:
     if not isinstance(max_iter, int) or isinstance(max_iter, bool) \
             or max_iter < 0:
         return NonlinearResult(
@@ -639,6 +681,15 @@ def solve_nonlinear_dc(circuit: Circuit, *,
     ctx = system.ctx
     n = system.n
     x: tuple[Decimal, ...] = tuple(Decimal(0) for _ in range(n))
+    if x_init is not None:
+        if (not isinstance(x_init, (tuple, list)) or len(x_init) != n
+                or not all(isinstance(v, Decimal) and v.is_finite()
+                           for v in x_init)):
+            return NonlinearResult(
+                status=NonlinearStatus.INVALID,
+                diagnostics=(f"x_init must be a length-{n} sequence of "
+                             f"finite Decimal",))
+        x = tuple(x_init)
     diagnostics: list[str] = [
         f"engine={ENGINE_VERSION}",
         f"n_unknowns={n}",
@@ -647,7 +698,8 @@ def solve_nonlinear_dc(circuit: Circuit, *,
         f"n_mosfets={len(mosfets)}",
         f"n_jfets={len(jfets)}",
         f"n_diode_variants={len(variants)}",
-        "initial_guess=zero-vector (deterministic)",
+        ("initial_guess=zero-vector (deterministic)" if x_init is None
+         else "initial_guess=x_init (warm-start, F8-M R-02)"),
         f"tolerances: rtol={RTOL} atol={ATOL} stol={STOL}",
         f"max_iter={max_iter} max_backtracking={MAX_BACKTRACK}",
     ]
@@ -672,10 +724,12 @@ def solve_nonlinear_dc(circuit: Circuit, *,
     scale = system.scale_of(x)
     if _block_ok(list(f0[:system.n_nodes]), scale) and \
             _block_ok(list(f0[system.n_nodes:]), scale):
-        return _converged_result(
+        if capture is not None:
+            capture.update(problem=problem, system=system, x=x)
+        return _warm_tag(_converged_result(
             problem, system, diodes, bjts, mosfets, jfets, variants,
             x, f0, 0, max_iter, backtrack_uses,
-            warnings, diagnostics, initial=(k0, a0n))
+            warnings, diagnostics, initial=(k0, a0n)), x_init, n)
 
     it = 0
     final_f = f0
@@ -796,11 +850,13 @@ def solve_nonlinear_dc(circuit: Circuit, *,
             _block_ok(list(final_f[system.n_nodes:]), scale)
         step_ok = step_peak <= STOL + RTOL * scale
         if res_ok and step_ok:
-            return _converged_result(
+            if capture is not None:
+                capture.update(problem=problem, system=system, x=x)
+            return _warm_tag(_converged_result(
                 problem, system, diodes, bjts, mosfets, jfets, variants,
                 x, final_f, it, max_iter,
                 backtrack_uses, warnings, diagnostics,
-                initial=(k0, a0n))
+                initial=(k0, a0n)), x_init, n)
     return NonlinearResult(
         status=NonlinearStatus.MAX_ITERATIONS,
         system_summary=_summary(problem, diodes, bjts, mosfets, jfets,
@@ -814,6 +870,14 @@ def solve_nonlinear_dc(circuit: Circuit, *,
             f"kcl={final_pair[0]} aux={final_pair[1]}",
         ]),
     )
+
+
+def _warm_tag(result: NonlinearResult, x_init, n: int) -> NonlinearResult:
+    """Record a warm start in provenance (no-op for the default start)."""
+    if x_init is not None:
+        result.provenance["initial_guess"] = {
+            "strategy": "x_init (warm-start)", "n_unknowns": n}
+    return result
 
 
 def _summary(problem: MNAProblem, diodes: dict[str, DiodeParams],
