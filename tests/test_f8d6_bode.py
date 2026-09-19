@@ -247,6 +247,38 @@ def test_log10_errors_and_ln10():
     assert decimal_ln10() == decimal_ln10()  # cached determinism
 
 
+def test_log10_ignores_ambient_decimal_context():
+    """Regression test (audit finding, fixed): ``decimal_log10`` used to
+    decompose ``x = m * 10**e`` via a bare ``xv.scaleb(-e)`` with no
+    context argument, which rounded the mantissa ``m`` through
+    ``decimal.getcontext()`` (default 28 digits) before the ln(m)/ln(10)
+    computation even started -- the same ambient-context leak class
+    already fixed for abs() in equations.py and for
+    DecimalComplex.modulus()'s im==0 fast path. It now splits the
+    mantissa with its own guard-precision context. This test degrades
+    the ambient context to 6 digits and pins that the value of
+    log10(12345.6789) is bit-identical to a healthy-context run.
+    """
+    import decimal as _decimal
+
+    old = _decimal.getcontext().prec
+    try:
+        x = Decimal("12345.6789")  # 9 significant digits
+        _decimal.getcontext().prec = 50
+        healthy = decimal_log10(x)
+        _decimal.getcontext().prec = 6
+        degraded = decimal_log10(x)
+        assert degraded == healthy, (
+            "decimal_log10(12345.6789) changed value when the ambient "
+            f"Decimal context precision dropped to 6: healthy={healthy!r} "
+            f"degraded={degraded!r}. The internal mantissa split "
+            "(xv.scaleb(-e)) is rounding through decimal.getcontext() "
+            "instead of an explicit working-precision Context."
+        )
+    finally:
+        _decimal.getcontext().prec = old
+
+
 # -- dB --------------------------------------------------------------------------------------------
 
 def test_db_values_and_zero_category():

@@ -1,5 +1,5 @@
 """Equations: parsing, safe evaluation, dimensional analysis, no eval."""
-from decimal import Decimal
+from decimal import Decimal, getcontext
 
 import pytest
 
@@ -43,6 +43,28 @@ def test_dimensional_validation():
         evaluate(parse_equation("X = sqrt(-4 V)"), {})
 
 
+def test_abs_func_ignores_ambient_decimal_context():
+    """Regression test: abs() in _apply_func used to be a bare builtin.
+
+    ``abs(Decimal)`` implicitly rounds through the ambient/global
+    decimal context (default 28 significant digits) rather than an
+    explicit context, unlike every sibling branch of ``_apply_func``
+    (sin/cos/tan/exp/log/log10), which threads its own working-precision
+    Context explicitly. The fix uses ``Decimal.copy_abs()`` (sign flip
+    only, no rounding). This test degrades the ambient context to its
+    default 28 digits and checks a >28-digit value survives abs() whole.
+    """
+    old = getcontext().prec
+    try:
+        getcontext().prec = 28
+        big = "-1.2345678901234567890123456789012345678901234567890"  # 50 sig digits
+        q = evaluate(parse_equation("X = abs(V)"), env(V=f"{big} V"))
+        assert len(q.value.as_tuple().digits) > 28
+        assert q.value == Decimal(big).copy_abs()
+    finally:
+        getcontext().prec = old
+
+
 def test_no_eval_no_exec_no_imports():
     for evil in ("X = __import__('os').system('x')", "X = V.attr",
                  "X = eval('1')", "X = 5 V @ 2", "X = `id`", "X = "):
@@ -59,3 +81,33 @@ def test_no_eval_no_exec_no_imports():
     import academic_core.domain.engineering.equations as m
     src = inspect.getsource(m)
     assert "eval(" not in src and "exec(" not in src
+
+
+def test_sqrt_func_ignores_ambient_decimal_context():
+    """Regression test (audit finding, fixed): the ``sqrt`` branch of
+    ``_apply_func`` used to call the bare ``Decimal.sqrt()`` instance
+    method on ``arg.to_base()`` with no context argument, rounding
+    through ``decimal.getcontext()`` (default 28 significant digits) --
+    the same bug class already fixed for ``abs()`` (see
+    test_abs_func_ignores_ambient_decimal_context above) and for
+    DecimalComplex.modulus()'s im==0 fast path. It now uses
+    ``make_context().sqrt(...)``, like every sibling branch
+    (sin/cos/tan/exp/log/log10). This test degrades the ambient context
+    to its default 28 digits and pins that sqrt(2) still comes back at
+    (approximately) the module's 50-digit WORKING_PRECISION.
+    """
+    old = getcontext().prec
+    try:
+        getcontext().prec = 28
+        q = evaluate(parse_equation("X = sqrt(V)"), env(V="2"))
+        # WORKING_PRECISION is 50; a healthy (context-independent) sqrt
+        # should return far more than 28 significant digits here.
+        assert len(q.value.as_tuple().digits) > 28, (
+            f"sqrt(2) came back with only {len(q.value.as_tuple().digits)} "
+            f"significant digits ({q.value!r}) -- it silently rounded "
+            "through the ambient global Decimal context (28 digits) "
+            "instead of the module's own explicit working-precision "
+            "Context, exactly like the already-fixed abs() bug."
+        )
+    finally:
+        getcontext().prec = old

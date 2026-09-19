@@ -1,4 +1,5 @@
 """F7-A unit tests: no ngspice required, no fake is runtime evidence."""
+import sys
 from pathlib import Path
 
 import pytest
@@ -239,8 +240,30 @@ quit
     assert not Path(res.workspace).exists()
 
 
+def _find_ngspice():
+    import shutil
+    from pathlib import Path
+    try:
+        b = NgSpiceBackend()
+        det = b.detect()
+        if det.verified and det.executable_path and Path(det.executable_path).is_file():
+            return det.executable_path
+    except Exception:
+        pass
+    for name in ("ngspice_con", "ngspice_con.exe", "ngspice", "ngspice.exe"):
+        p = shutil.which(name)
+        if p:
+            return p
+    return None
+
+
+_NG = _find_ngspice()
+
+
 @pytest.mark.external
 @pytest.mark.integration
+@pytest.mark.skipif(sys.platform != "win32", reason="tasklist is a Windows-only command")
+@pytest.mark.skipif(_NG is None, reason="ngspice external backend not found on system")
 def test_real_ngspice_no_orphan_processes():
     import subprocess
     proc = subprocess.run(["tasklist", "/FI", "IMAGENAME eq ngspice*"],

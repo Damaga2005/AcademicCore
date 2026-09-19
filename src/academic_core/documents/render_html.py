@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from html import escape
 
+from academic_core.documents.security import (
+    is_javascript_scheme as _is_javascript_scheme,
+)
+
 _INLINE = {"text", "emphasis", "strong", "link", "inline_code", "image", "equation"}
 
 
@@ -29,7 +33,7 @@ def _inline(n) -> str:
         return f"<code>{escape(a['code'])}</code>"
     if k == "link":
         target = a.get("target", "")
-        if target.strip().lower().startswith("javascript:"):
+        if _is_javascript_scheme(target):
             return "".join(_inline(c) for c in n.children)  # drop dangerous href
         title = f' title="{escape(a["title"])}"' if a.get("title") else ""
         return f'<a href="{escape(target)}"{title}>' + "".join(_inline(c) for c in n.children) + "</a>"

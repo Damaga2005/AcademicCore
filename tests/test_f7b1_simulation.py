@@ -206,6 +206,112 @@ def test_parse_malformed_or_empty_output():
     assert res.voltage("out") is None
 
 
+def test_parse_partial_row_loss_is_not_silent_completed():
+    """Regression: a table where SOME rows parse and OTHERS are silently
+    dropped must not be reported as a clean, unqualified COMPLETED.
+
+    V1 and V3 use the standard grammar and parse fine; V2 uses an
+    engineering-suffix value ("1.234u") that the strict numeric parser
+    rejects. Before the fix, this returned status=COMPLETED with
+    signals={v(v1), v(v3)} and no indication V2 was ever dropped.
+    """
+    partial_loss_output = """******
+** ngspice-47
+******
+Circuit: * partial row loss
+
+Node Voltage
+v1                               1.500000e+00
+v2                               1.234u
+v3                               2.500000e+00
+
+Total analysis time (seconds) = 0.000854
+"""
+    exec_info = _make_fake_execution(stdout=partial_loss_output)
+    res = parse_ngspice_op(exec_info)
+
+    # The rows that DID parse must still be present -- data that succeeded
+    # should not be thrown away just because a sibling row failed.
+    assert res.voltage("v1") == Decimal("1.500000e+00")
+    assert res.voltage("v3") == Decimal("2.500000e+00")
+    assert res.voltage("v2") is None
+
+    # But the overall result must not claim a clean, unqualified success:
+    # status must be PARTIAL (signals kept, loss surfaced), never a bare
+    # "everything is fine" COMPLETED, and the dropped value must be
+    # named somewhere in errors.
+    assert res.status == "PARTIAL"
+    assert res.errors, "dropped row must be surfaced in errors/diagnostics"
+    assert any("v2" in e for e in res.errors)
+
+
+def test_parse_all_rows_valid_reports_clean_completed():
+    """Sanity check: when every candidate row parses, status stays COMPLETED
+    with no fabricated errors -- the partial-loss detection must not produce
+    false positives on a fully successful table."""
+    all_valid_output = """******
+** ngspice-47
+******
+Circuit: * all rows valid
+
+Node Voltage
+v1                               1.500000e+00
+v2                               1.700000e+00
+v3                               2.500000e+00
+
+Total analysis time (seconds) = 0.000854
+"""
+    exec_info = _make_fake_execution(stdout=all_valid_output)
+    res = parse_ngspice_op(exec_info)
+
+    assert res.status == "COMPLETED"
+    assert res.errors == ()
+    assert res.voltage("v1") == Decimal("1.500000e+00")
+    assert res.voltage("v2") == Decimal("1.700000e+00")
+    assert res.voltage("v3") == Decimal("2.500000e+00")
+
+
+def test_parse_all_rows_corrupted_reports_failed_not_silent_completed():
+    """Regression: a recognized table where EVERY candidate row is
+    unparseable (e.g. all values use engineering-suffix notation) must be
+    reported as FAILED, not as a bare COMPLETED with an empty signals dict
+    that hides the fact rows existed but nothing could be read."""
+    all_corrupt_output = """******
+** ngspice-47
+******
+Circuit: * all rows corrupted
+
+Node Voltage
+v1                               1.234u
+v2                               5.678n
+
+Total analysis time (seconds) = 0.000854
+"""
+    exec_info = _make_fake_execution(stdout=all_corrupt_output)
+    res = parse_ngspice_op(exec_info)
+
+    assert res.status == "FAILED"
+    assert len(res.signals) == 0
+    assert res.voltage("v1") is None
+    assert res.voltage("v2") is None
+    assert res.errors, "candidate rows that all failed to parse must be surfaced in errors"
+    assert any("v1" in e for e in res.errors)
+    assert any("v2" in e for e in res.errors)
+
+
+def test_parse_empty_stdout_is_sane_completed_not_crash():
+    """A completely empty stdout (0 bytes) with a clean exit must not crash
+    the parser and must not be misreported as a parse failure -- there are
+    no candidate rows to have dropped, so this is a legitimately empty
+    result, not a hidden partial/total data loss."""
+    exec_info = _make_fake_execution(stdout="", stderr="")
+    res = parse_ngspice_op(exec_info)
+
+    assert res.status == "COMPLETED"
+    assert res.signals == {}
+    assert res.errors == ()
+
+
 def test_parse_determinism():
     exec_info = _make_fake_execution()
     res1 = parse_ngspice_op(exec_info)

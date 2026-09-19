@@ -819,7 +819,20 @@ class TestASTSecurityAndInvariants:
                 pytest.fail(f"Float literal found in engine: {node.value}")
 
     def test_scalability_benchmark(self):
-        """Measure performance across ladder sizes N = 1, 10, 32, 64."""
+        """Convergence scaling across ladder sizes N = 1, 10, 32, 64.
+
+        Normative criterion (GATE-F8J §9): convergence without singular
+        matrix up to N=64 — asserted below via ACStatus.SOLVED at every
+        size. Wall-clock timings are recorded as diagnostic information
+        only: the historical <150 s bound was a snapshot of one machine
+        (GATE-F8J §6: 88.4 s on Python 3.14/Windows x64), not a
+        certification requirement (DESIGN §17.2/§24 contain no time
+        bound; DESIGN §23 defers artificial thresholds). The DESIGN
+        normative metric (AC linear solve <= 20% of total) is not
+        asserted here because the engine exposes no timing breakdown
+        for the AC phase; instrumenting it is explicit future work, and
+        no substitute seconds-bound is imposed in its place.
+        """
         timings = {}
         for n_stages in (1, 10, 32, 64):
             c = Circuit(f"ladder_{n_stages}")
@@ -844,7 +857,7 @@ class TestASTSecurityAndInvariants:
             assert sol.status == ACStatus.SOLVED
             timings[n_stages] = elapsed
 
-        print(f"\nPerformance timings: {timings}")
+        print(f"\nPerformance timings (diagnostic, non-normative): {timings}")
         # Tiempos puramente diagnósticos (no criterios normativos PASS/FAIL):
         print(f"\n[BENCHMARK F8-J DIAGNÓSTICO] Timings: {timings}")
 

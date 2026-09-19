@@ -36,6 +36,16 @@ def test_validation_reports_never_sanitizes():
     assert doc.children[4].children[0].attrs["source"] == ""
 
 
+def test_validation_catches_javascript_scheme_with_embedded_whitespace():
+    """Regression: `jav\tascript:` etc. must not bypass the javascript: check."""
+    doc = A.Document(A.Metadata(), (),
+                     (A.paragraph([A.link("jav\tascript:alert(1)", [A.text("x")])]),
+                      A.paragraph([A.link("jav\nascript:alert(2)", [A.text("y")])]),
+                      A.paragraph([A.link("jav\rascript:alert(3)", [A.text("z")])])))
+    codes = [i.code for i in validate_document(doc, lambda h: False)]
+    assert codes.count("link_unsafe") == 3
+
+
 def test_search_deterministic():
     doc = A.Document(A.Metadata(title="Guia"), (),
                      (A.heading(1, [A.text("Introducció")]),

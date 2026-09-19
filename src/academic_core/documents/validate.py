@@ -11,6 +11,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from academic_core.documents.security import (
+    is_javascript_scheme as _is_javascript_scheme,
+)
+
 
 @dataclass(frozen=True)
 class ValidationIssue:
@@ -61,7 +65,7 @@ def validate_document(doc, blob_exists=None) -> list[ValidationIssue]:
             target = n.attrs.get("target", "")
             if not target:
                 issues.append(ValidationIssue(path, "link_empty", "link without target"))
-            elif target.strip().lower().startswith("javascript:"):
+            elif _is_javascript_scheme(target):
                 issues.append(ValidationIssue(path, "link_unsafe",
                                               "javascript: links are forbidden"))
             elif not re.match(r"^(https?://|#|/|[\w\-.~:/?#\[\]@!$&'()*+,;=%]+)$", target):

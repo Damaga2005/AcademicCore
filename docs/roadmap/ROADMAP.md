@@ -139,6 +139,98 @@ La arquitectura permite incorporar nuevas disciplinas (Matemáticas, Electrónic
  F15 Aplicación Final Integral                 [EN PLANIFICACIÓN]
 ```
 
+### 5.1 Orden de implementación vigente (a partir de F8-J)
+
+> Fuente: `ROADMAP_orden_implementacion.md` (2026-09-19). Este orden es
+> estricto y único: sin fases en paralelo salvo decisión explícita.
+> Nota de estado local (verificado en repo): F8-J está implementado
+> (`GATE-F8J.md` CERTIFIED) y existe dominio F9/assessment (`GATE-F9A.md`,
+> tests `test_f9*`); el orden de lo pendiente sigue siendo el de abajo.
+
+```
+F0   Auditoría y Arquitectura                          [CERTIFICADO]
+F1   Núcleo de Dominio                                 [CERTIFICADO]
+F2   Recursos y Almacenamiento CAS                      [CERTIFICADO]
+F3   Documentos / PDF / AST                             [CERTIFICADO]
+F4   Knowledge / Modelo Académico                       [CERTIFICADO]
+F5   Authoring Engine                                   [CERTIFICADO]
+F6   Matemáticas e Ingeniería Base                      [CERTIFICADO]
+F7   MNA Lineal y Simulación SPICE                      [CERTIFICADO]
+F8-A a F8-I   Electrónica Avanzada                      [CERTIFICADO]
+ │
+ │  ═══════════ A PARTIR DE AQUÍ: NUEVO ORDEN ═══════════
+ │
+F8-J   Small-Signal AC                                  [1º]
+F8-K   Semiconductores Adicionales (MOSFET/JFET/Zener)  [2º]
+F8-L   Transitorio (DAE, Backward Euler, Trapezoidal)   [3º]
+F8-M   Análisis Avanzados (Sweep, Sensibilidad, MC)     [4º]
+F8-N   Laboratorio Virtual                              [5º]
+F8-O   Metrología e Incertidumbre (GUM)                 [6º]
+F8-P1  Sistemas y Control                               [7º]
+F8-P2  DSP                                              [8º]
+F8-P3  RF y Líneas de Transmisión                       [9º]
+F8-P4  Comunicaciones Digitales                         [10º]
+F8-P5  Síntesis Satcom                                  [11º]
+ │
+ │  ═══════════ CIERRE DE F8. EMPIEZA CONSTRUCCIÓN DE APP ═══════════
+ │
+[D1]   Decisión: Arquitectura de módulos/plugins        [12º]
+[D2]   Decisión: Estándar de logging/errores            [13º]
+[D3]   Decisión: Licencia única del proyecto             [14º]
+F15    Aplicación Final (app mínima funcional)          [15º]
+F3-ext Integración conversor HTML→MD/LaTeX              [16º]
+F4-ext Fusión gestión académica                         [17º]
+F13-ext Sync entre 2 PCs personales                     [18º]
+ │
+ │  ═══════════ APP FUNCIONAL. CONSTRUCCIÓN SOBRE ELLA ═══════════
+ │
+[D4]   Pipeline CI/build (GitHub Actions)               [19º]
+[D5]   Suite de tests                                   [20º]
+[D6]   Esquema neutro de banco de preguntas             [21º]
+[D7]   Ingesta estructurada al Knowledge Core (F4)      [22º]
+F9     Assessment y Evaluación Formal                   [23º]
+F10    Mastery y Modelado del Estudiante                [24º]
+F11    Aprendizaje Adaptativo                           [25º]
+F12    IA / Tutor Socrático con Guardrails               [26º]
+F13    OneDrive / Cloud Sync (completo)                 [27º]
+F14    Migración de Sistemes-de-Mesura                  [28º]
+F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
+```
+
+| # | Código | Nombre | Depende de | Nota |
+|---|---|---|---|---|
+| 1 | F8-J | Small-Signal AC | F8-H, F8-I | Linealización de diodo/BJT para pequeña señal |
+| 2 | F8-K | Semiconductores Adicionales | F8-J | MOSFET Level 1, JFET, Zener, LED, Schottky, fotodiodo |
+| 3 | F8-L | Transitorio | F8-K | DAE, Backward Euler, Trapezoidal, BDF, paso adaptativo |
+| 4 | F8-M | Análisis Avanzados | F8-L | DC Sweep, Parameter Sweep, sensibilidad, Monte Carlo, Worst Case |
+| 5 | F8-N | Laboratorio Virtual | F8-M | Fuente DC, multímetro, osciloscopio, generador, analizador lógico |
+| 6 | F8-O | Metrología e Incertidumbre (GUM) | F8-N, F6 | Reutiliza calculadora GUM del repo `Conversor-HTML-A-MD`; **bloqueado** hasta sustituir `eval()` |
+| 7 | F8-P1 | Sistemas y Control | F8-D6 (Bode ya certificado) | Función de transferencia, Bode, lugar de raíces, PID, espacio de estados |
+| 8 | F8-P2 | DSP | F8-P1 | FFT/DFT, transformada Z, FIR/IIR, muestreo, aliasing |
+| 9 | F8-P3 | RF y Líneas de Transmisión | F8-D1/D2, F8-P2 | Carta de Smith, parámetros S, antenas, link budget |
+| 10 | F8-P4 | Comunicaciones Digitales | F8-P2, F8-P3 | Modulaciones, constelaciones, BER/SNR, Shannon |
+| 11 | F8-P5 | Síntesis Satcom | F8-P1..P4 | Módulo integrador: link budget + modulación + ruido + antenas |
+| 12 | D1 | Arquitectura de módulos/plugins | — | Manifiesto común antes de fusionar `GestionAcademicaGREELEC.exe`, el conversor y AcademicCore |
+| 13 | D2 | Estándar de logging/errores | — | Sustituye el patrón `except Exception: pass` del conversor |
+| 14 | D3 | Licencia única | — | El conversor ya usa MIT; fijar antes de fusionar más repos |
+| 15 | F15 | Aplicación Final | D1, D2, D3, toda F8 | Qt/PySide6, dashboard, resolución de ejercicios, simulación |
+| 16 | F3-ext | Integración del conversor HTML→MD/LaTeX | F15 | Motor de `Conversor-HTML-A-MD` (ya desacoplado de Tkinter) |
+| 17 | F4-ext | Fusión de gestión académica | F15, F3-ext | Migra `GestionAcademicaGREELEC.exe` al modelo F4 y al dashboard |
+| 18 | F13-ext | Sync entre 2 PCs personales | F15 | Última edición gana + log (no CRDT) |
+| 19 | D4 | Pipeline de CI/build | F15 | GitHub Actions, tests en cada commit |
+| 20 | D5 | Suite de tests | D4 | Empieza por el motor de conversión HTML→MD |
+| 21 | D6 | Esquema neutro de banco de preguntas | — | Generaliza `BANC`/`DATA.items`/`ITEMS` a JSON neutro por asignatura |
+| 22 | D7 | Ingesta estructurada al Knowledge Core | D6, F4 | Definiciones/fórmulas/preguntas como entidades F4, no `.md` sueltos |
+| 23 | F9 | Assessment y Evaluación Formal | D6, D7 | Tipos de pregunta, pipeline de corrección |
+| 24 | F10 | Mastery y Modelado del Estudiante | F9 | Modelo bayesiano de dominio |
+| 25 | F11 | Aprendizaje Adaptativo | F10 | Rutas personalizadas, `LLM = OFF` garantizado |
+| 26 | F12 | IA / Tutor Socrático con Guardrails | F11 | LLM → JSON estructurado → Validador → Solver determinista |
+| 27 | F13 | OneDrive / Cloud Sync (completo) | F13-ext | Versión completa más allá del sync entre 2 PCs |
+| 28 | F14 | Migración de Sistemes-de-Mesura | F4-ext | Ingesta del repo `Damaga2005/Sistemes-de-Mesura` |
+| 29 | F16 | Contenido Aeroespacial/Satélite | F8-P5 | Mecánica orbital básica; última fase, sin prisa |
+
+**Regla de oro:** no empezar una fase con dependencias sin marcar como hecha. Orden estricto, sin paralelo salvo decisión explícita.
+
 ---
 
 ## 6. Familia F8 — Electrónica Avanzada
@@ -165,13 +257,13 @@ La familia **F8** constituye el motor de simulación circuital y electrónica de
 | **F8-G** | Transformadores Ideales y Redes Dos Puertos| Modelo de transformador ideal (relación de espiras $n$, $V_1 = n V_2$, $I_2 = -n I_1$) y matrices $Z, Y, H, ABCD$. | **CERTIFICADO** | [`GATE-F8G.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8G.md) |
 | **F8-H** | Diodo Shockley (Punto de Operación DC) | MNA no lineal con modelo de diodo Shockley, Jacobiano analítico, amortiguamiento Newton y validación ngspice. | **CERTIFICADO** | [`GATE-F8H.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8H.md) |
 | **F8-I** | Transistor BJT (Modelo Ebers-Moll DC) | Punto de operación DC de transistores bipolares NPN y PNP bajo Ebers-Moll, Jacobiano $3\times 3$ acoplado analítico, circuitos canónicos B1–B15, escalabilidad $N=1..64$ y validación ngspice 47. | **CERTIFICADO** | [`GATE-F8I.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8I.md) |
-| **F8-J** | Small-Signal AC (Linealización DC) | Linealización de puntos de operación DC de dispositivos no lineales (diodos y transistores) para extraer parámetros de pequeña señal ($g_m, r_\pi, r_o$) y resolver respuesta en alterna. | **CERTIFICADO** | [`GATE-F8J.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8J.md) |
+| **F8-J** | Small-Signal AC | Linealización de puntos de operación DC de dispositivos no lineales (diodos y BJT), extracción de parámetros de pequeña señal ($g_m$, $r_\pi$, $r_o$) y resolución de respuesta en alterna. | **CERTIFICADO** | [`GATE-F8J.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8J.md) |
 | **F8-K** | Semiconductores Adicionales | MOSFET Level 1 / Shichman-Hodges (`M`), JFET square-law (`J`), diodos Zener, LED, Schottky y fotodiodos (`D` + `kind`); MNA no lineal, Jacobiano analítico, contrato small-signal AC y validación ngspice 47. | **CERTIFICADO** | [`GATE-F8K.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8K.md) |
 
 ### 6.2 Fases Futuras de la Familia F8
 
 > [!NOTE]
-> *Nota normativa:* F8-K ya está certificada. Las fases futuras de la familia F8 comienzan en F8-L (NEXT).
+> *Nota normativa:* F8-K ya está certificada y figura en §6.1. Las fases futuras de la familia F8 comienzan en **F8-L (NEXT)**, de acuerdo con el orden normativo de §5.1.
 
 - **F8-L — Transient (Régimen Transitorio) (Siguiente Fase)**: Integración temporal de ecuaciones diferenciales algebraicas (DAE) mediante esquemas implícitos (Backward Euler, Trapezoidal, BDF) con paso de tiempo adaptativo.
 - **F8-M — Análisis Avanzados**: Barridos DC (*DC Sweep*), barridos de parámetros (*Parameter Sweep*), análisis de sensibilidad ($\partial \text{salida} / \partial \text{parámetro}$), Monte Carlo y análisis de peor caso (*Worst Case*).

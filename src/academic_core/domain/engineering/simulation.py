@@ -800,7 +800,7 @@ class SimulationResult:
     mocked: bool = False
     signals: dict[str, Signal] = field(default_factory=dict)
     complex_signals: dict[str, ComplexSignal] = field(default_factory=dict)
-    status: str = "COMPLETED"  # COMPLETED | FAILED | TIMEOUT | CANCELLED
+    status: str = "COMPLETED"  # COMPLETED | PARTIAL | FAILED | TIMEOUT | CANCELLED
     exit_code: int | None = 0
     duration_seconds: float = 0.0
     started_at: str = ""

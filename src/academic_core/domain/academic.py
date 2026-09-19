@@ -53,7 +53,7 @@ class Section:
 
 @dataclass
 class Topic:
-    stable_id: str  # topic:<slug>:tNN
+    stable_id: str  # topic:<slug>:tNN (canonical); legacy topic:<slug>:NN also valid
     subject_id: str
     index: str
     title: str
