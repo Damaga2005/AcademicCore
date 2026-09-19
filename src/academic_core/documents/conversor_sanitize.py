@@ -10,6 +10,10 @@ from __future__ import annotations
 
 import re
 
+from academic_core.documents.security import (
+    is_javascript_scheme as _is_javascript_scheme,
+)
+
 
 def clean_soup_noise(soup):
     """Drop comments, script/style/noscript, hidden and cookie/chrome nodes."""
@@ -36,7 +40,7 @@ def clean_soup_noise(soup):
         for attr in [a for a in el.attrs if a.lower().startswith("on")]:
             del el.attrs[attr]
         for attr in ("href", "src", "action"):
-            if isinstance(el.get(attr), str) and el[attr].strip().lower().startswith("javascript:"):
+            if isinstance(el.get(attr), str) and _is_javascript_scheme(el[attr]):
                 del el.attrs[attr]
     return soup
 

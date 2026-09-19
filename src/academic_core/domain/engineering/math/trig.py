@@ -27,13 +27,14 @@ WORKING_PRECISION = 50
 _GUARD_DIGITS = 15
 
 
-_BASE_CONTEXT = Context(prec=WORKING_PRECISION, rounding=ROUND_HALF_EVEN)
-
-
 def make_context(extra: int = 0) -> Context:
-    """Return an explicit context (never the ambient global one)."""
-    if extra == 0:
-        return _BASE_CONTEXT
+    """Return a fresh explicit context (never the ambient global one).
+
+    Always constructs a new ``Context`` object, even for ``extra == 0``.
+    ``decimal.Context`` construction is cheap, and never sharing a single
+    instance means no caller can ever contaminate another's rounding
+    state via ``.traps``/``.flags`` mutation, even latently.
+    """
     return Context(prec=WORKING_PRECISION + extra, rounding=ROUND_HALF_EVEN)
 
 
@@ -82,12 +83,15 @@ def _arctan_series(t: Decimal, ctx: Context) -> Decimal:
     """
     half = ctx.divide(Decimal(1), Decimal(2))
     factor = 1
-    if abs(t) > half:
+    # copy_abs() flips the sign bit only: no rounding, never touches the
+    # ambient global decimal context. Bare abs(t) would round through
+    # getcontext() (same bug class as DecimalComplex.modulus()).
+    if t.copy_abs() > half:
         one_p_t2 = ctx.add(Decimal(1), ctx.multiply(t, t))
         u = ctx.divide(t, ctx.add(Decimal(1), ctx.sqrt(one_p_t2)))
         t = u
         factor = 2
-    eps = Decimal(1).scaleb(-(ctx.prec + 2))
+    eps = ctx.scaleb(Decimal(1), -(ctx.prec + 2))
     total = ctx.plus(Decimal(0))
     t2 = ctx.multiply(t, t)
     power = t  # t^(2n+1), starts at n = 0
@@ -99,18 +103,18 @@ def _arctan_series(t: Decimal, ctx: Context) -> Decimal:
         power = ctx.multiply(power, t2)
         n += 1
         sign = -sign
-        if abs(term) < eps:
+        if term.copy_abs() < eps:
             return ctx.multiply(Decimal(factor), total)
     raise ArithmeticError(
         f"arctan Taylor series failed to converge in {_SERIES_MAX_TERMS} "
-        f"terms (|t| = {abs(t)} after reduction); refusing silent truncation"
+        f"terms (|t| = {t.copy_abs()} after reduction); refusing silent truncation"
     )
 
 
 def _arctan(t: Decimal, ctx: Context) -> Decimal:
     """arctan(t) for any finite Decimal t, with argument reduction."""
     one = Decimal(1)
-    if abs(t) > one:
+    if t.copy_abs() > one:
         # arctan(t) = sign(t) * pi/2 - arctan(1/t)
         inv = ctx.divide(one, t)
         small = _arctan_series(inv, ctx)
@@ -171,7 +175,9 @@ def _reduce_angle(x: Decimal, ctx: Context) -> Decimal:
     """Reduce x modulo 2*pi into [-pi, pi] under the given context."""
     pi = decimal_pi()
     two_pi = ctx.multiply(pi, Decimal(2))
-    q = (ctx.divide(x, two_pi)).to_integral_value(rounding=ROUND_HALF_EVEN)
+    # Context-explicit integral value: the Decimal method without a
+    # context argument would round through the ambient global context.
+    q = ctx.to_integral_value(ctx.divide(x, two_pi))
     r = ctx.subtract(x, ctx.multiply(q, two_pi))
     if r > pi:
         r = ctx.subtract(r, two_pi)
@@ -185,7 +191,7 @@ def decimal_sin(x: Decimal | int, ctx: Context | None = None) -> Decimal:
     c = ctx or make_context()
     g = make_context(_GUARD_DIGITS)
     r = _reduce_angle(_as_decimal(x), g)
-    eps = Decimal(1).scaleb(-(g.prec + 2))
+    eps = g.scaleb(Decimal(1), -(g.prec + 2))
     total = r
     term = r
     r2 = g.multiply(r, r)
@@ -197,7 +203,7 @@ def decimal_sin(x: Decimal | int, ctx: Context | None = None) -> Decimal:
             total = g.subtract(total, term)
         else:
             total = g.add(total, term)
-        if abs(term) < eps:
+        if term.copy_abs() < eps:
             break
         n += 1
     return c.plus(total)
@@ -208,7 +214,7 @@ def decimal_cos(x: Decimal | int, ctx: Context | None = None) -> Decimal:
     c = ctx or make_context()
     g = make_context(_GUARD_DIGITS)
     r = _reduce_angle(_as_decimal(x), g)
-    eps = Decimal(1).scaleb(-(g.prec + 2))
+    eps = g.scaleb(Decimal(1), -(g.prec + 2))
     total = g.plus(Decimal(1))
     term = g.plus(Decimal(1))
     r2 = g.multiply(r, r)
@@ -220,7 +226,7 @@ def decimal_cos(x: Decimal | int, ctx: Context | None = None) -> Decimal:
             total = g.subtract(total, term)
         else:
             total = g.add(total, term)
-        if abs(term) < eps:
+        if term.copy_abs() < eps:
             break
         n += 1
     return c.plus(total)

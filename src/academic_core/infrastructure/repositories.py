@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -43,6 +44,10 @@ class AcademicRepository:
 
     def add_degree(self, d: E.Degree) -> None:
         cx = self.db.connect()
+        if not cx.execute("SELECT 1 FROM universities WHERE stable_id=?",
+                          (d.university_id,)).fetchone():
+            cx.close()
+            raise IntegrityError(f"parent university does not exist: {d.university_id}")
         cx.execute("INSERT OR REPLACE INTO degrees VALUES (?,?,?)",
                    (d.stable_id, d.name, d.university_id))
         cx.commit(); cx.close()
@@ -55,6 +60,10 @@ class AcademicRepository:
 
     def add_year(self, y: E.AcademicYear) -> None:
         cx = self.db.connect()
+        if not cx.execute("SELECT 1 FROM degrees WHERE stable_id=?",
+                          (y.degree_id,)).fetchone():
+            cx.close()
+            raise IntegrityError(f"parent degree does not exist: {y.degree_id}")
         cx.execute("INSERT OR REPLACE INTO academic_years VALUES (?,?,?,?)",
                    (y.stable_id, y.label, y.degree_id, y.state))
         cx.commit(); cx.close()
@@ -69,6 +78,10 @@ class AcademicRepository:
 
     def add_term(self, t: E.Term) -> None:
         cx = self.db.connect()
+        if not cx.execute("SELECT 1 FROM academic_years WHERE stable_id=?",
+                          (t.academic_year_id,)).fetchone():
+            cx.close()
+            raise IntegrityError(f"parent academic year does not exist: {t.academic_year_id}")
         cx.execute("INSERT OR REPLACE INTO terms VALUES (?,?,?,?,?,?,?,?)",
                    (t.stable_id, t.label, t.kind, t.index, t.academic_year_id,
                     t.start.isoformat() if t.start else None,
@@ -91,6 +104,10 @@ class AcademicRepository:
 
     def add_subject(self, s: E.Subject) -> None:
         cx = self.db.connect()
+        if s.term_id and not cx.execute("SELECT 1 FROM terms WHERE stable_id=?",
+                          (s.term_id,)).fetchone():
+            cx.close()
+            raise IntegrityError(f"parent term does not exist: {s.term_id}")
         cx.execute("INSERT OR REPLACE INTO subjects VALUES (?,?,?,?,?,?,?,?,?,?)",
                    (s.stable_id, s.code, s.name, s.acronym, s.description,
                     s.credits, s.kind, s.course, s.term_id, s.state))
@@ -163,15 +180,50 @@ class AcademicRepository:
         if subject_id == requires_id:
             raise IntegrityError("a subject cannot require itself")
         cx = self.db.connect()
-        if not cx.execute("SELECT 1 FROM subjects WHERE stable_id=?",
-                          (requires_id,)).fetchone():
-            raise IntegrityError(f"unknown prerequisite: {requires_id}")
+        # The cycle check (BFS below) and the INSERT must be atomic w.r.t.
+        # any other connection doing the same thing, or two concurrent
+        # connections can each see "no cycle" before either commits and
+        # together insert a pair of edges that form one. BEGIN IMMEDIATE
+        # acquires SQLite's RESERVED lock up front (rather than lazily on
+        # first write), so a second connection's own BEGIN IMMEDIATE blocks
+        # until this transaction commits or rolls back instead of racing
+        # past the check. connect() sets busy_timeout, so the blocked
+        # connection waits for the lock rather than immediately raising
+        # "database is locked" for ordinary contention.
+        cx.execute("BEGIN IMMEDIATE")
         try:
-            cx.execute("INSERT INTO prerequisites VALUES (?,?)", (subject_id, requires_id))
-        except Exception as e:
+            if not cx.execute("SELECT 1 FROM subjects WHERE stable_id=?",
+                              (requires_id,)).fetchone():
+                raise IntegrityError(f"unknown prerequisite: {requires_id}")
+            # Cycle check: adding subject_id -> requires_id would close a cycle
+            # if subject_id is already reachable from requires_id via existing
+            # prerequisite edges (BFS over the small prerequisite graph).
+            seen = {requires_id}
+            queue = [requires_id]
+            while queue:
+                current = queue.pop()
+                if current == subject_id:
+                    raise IntegrityError(
+                        f"cannot add prerequisite {subject_id} -> {requires_id}: "
+                        f"would create a cycle in the prerequisite graph")
+                rows = cx.execute("SELECT requires_id FROM prerequisites WHERE subject_id=?",
+                                  (current,)).fetchall()
+                for r in rows:
+                    nxt = r["requires_id"]
+                    if nxt not in seen:
+                        seen.add(nxt)
+                        queue.append(nxt)
+            try:
+                cx.execute("INSERT INTO prerequisites VALUES (?,?)", (subject_id, requires_id))
+            except sqlite3.Error as e:
+                raise IntegrityError(f"duplicate prerequisite: {e}")
+        except BaseException:
+            cx.execute("ROLLBACK")
+            raise
+        else:
+            cx.execute("COMMIT")
+        finally:
             cx.close()
-            raise IntegrityError(f"duplicate prerequisite: {e}")
-        cx.commit(); cx.close()
 
     def prerequisites_of(self, subject_id: str) -> list[str]:
         cx = self.db.connect()

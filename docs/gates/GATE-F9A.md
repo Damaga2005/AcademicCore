@@ -1,20 +1,22 @@
 # F9-A INITIAL AUDIT & DESIGN REPORT
 **Assessment / Evaluation Subsystem — Discovery, Architecture & Readiness Audit**
 **Subsystem:** F9 — Assessment / Evaluation  
-**Repository:** Damaga2005/Sistemes-de-Mesura (`academic_core`)  
+**Repository:** Damaga2005/AcademicCore (`academic_core`)  
 **Status:** AUDITED / READY FOR PLANNING (ZERO CODE MUTATION)  
 **Date:** September 2026  
 ---
 ## A. Executive Summary
-Phase F8 (**Small-Signal Linearized Frequency-Domain (AC) Analysis**) was conclusively certified and closed through **F8-M** with 
-289/289 passing regression tests, full validation against `ngspice-47`, zero dynamic execution risks, and a verified deterministic 
-SHA-256 provenance chain.
+Phase F8 (**Engineering Circuit & AC Solver**) was, as of this gate, certified through **F8-J** (**Small-Signal Linearized 
+Frequency-Domain (AC) Analysis**) with 283/283 passing regression tests, full validation against `ngspice-47`, zero dynamic execution 
+risks, and a verified deterministic SHA-256 provenance chain. Later F8 sub-phases (**F8-K** — Additional Semiconductors/MOSFET, 
+**F8-L** — Transient Analysis, **F8-M** — Advanced Sweeps/Monte Carlo) were, at the time of this gate, still pending roadmap items 
+and had not yet been implemented or certified.
 The project roadmap advances to **F9 — Assessment / Evaluation**. This gate (**F9-A**) is strictly an **initial discovery, architectural 
 mapping, and readiness audit**. In accordance with the hard constraints:
 * **Zero production code** was created or modified.
 * **Zero existing tests** were altered or weakened.
 * **No speculative architecture, duplicate engines, or LLM-based assessment hacks** were introduced.
-* **F8 remains permanently closed, sealed, and untouched.**
+* **F8 (through F8-J) remains permanently closed, sealed, and untouched.**
 The primary finding of F9-A is that **the repository already possesses the core analytical and pedagogical building blocks**:
 1. Question generation and parameterized problem representation via `ExaminerEngine` and domain curriculum schemas.
 2. Formal student attempts (`StudentAttempt`), typed answers, and verification routines in `CorrectionService` (originating from F4/F5).
@@ -26,7 +28,7 @@ distribution), and translates correction results into formal summative grading s
 ---
 ## B. Repository State
 * **Target Subsystem:** F9 — Assessment
-* **Repository:** `Damaga2005/Sistemes-de-Mesura`
+* **Repository:** `Damaga2005/AcademicCore`
 * **Preceding Subsystems Status:**
   * F1 (Knowledge Base): Certified
   * F2 (Retrieval): Certified
@@ -34,7 +36,7 @@ distribution), and translates correction results into formal summative grading s
   * F4 (Evidence & Answer Validation): Certified
   * F5 (Correction & Regression): Certified
   * F6 (Adaptive Learning & Mastery): Certified
-  * F8 (Engineering Circuit & AC Solver): Certified & Closed (F8-M)
+  * F8 (Engineering Circuit & AC Solver): Certified through F8-J (F8-K, F8-L, F8-M pending on the roadmap)
 * **Working Tree State:** Clean with respect to production code. No modified tracked source files. Only audit and gate documentation 
 tracked in `docs/gates/`.
 * **F8 Boundary Invariant:** F8 implementation files (`circuit.py`, `models.py`, `mna/`, `ac/`, `math/linsolve/`) are completely 

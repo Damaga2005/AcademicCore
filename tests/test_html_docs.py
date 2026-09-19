@@ -43,6 +43,59 @@ def test_no_scripts_or_handlers_survive():
     assert "clic" in md  # label kept, dangerous href dropped
 
 
+def test_javascript_scheme_with_embedded_whitespace_is_dropped():
+    """Regression: browsers ignore tabs/newlines/CR when scheme-matching a URL,
+    so `jav\tascript:` etc. must be treated as `javascript:` and stripped."""
+    evil = (b'<a href="jav\tascript:alert(1)">a</a>'
+            b'<a href="jav\nascript:alert(2)">b</a>'
+            b'<a href="jav\rascript:alert(3)">c</a>')
+    doc = parse_html(evil)
+    md, html = RM.render(doc), RH.render(doc)
+    assert "javascript:" not in html.lower().replace("\t", "").replace("\n", "").replace("\r", "")
+    assert "alert(1)" not in html and "alert(2)" not in html and "alert(3)" not in html
+
+
+def test_javascript_scheme_single_shared_implementation_all_layers():
+    """The three defense layers (sanitizer, validator, renderer) must use
+    exactly one shared predicate, so a future bypass variant can never be
+    blocked in one layer but missed in another. Covers the full variant
+    matrix (case, tabs, newlines, CR, NUL, vertical tab, form feed,
+    spaces) end-to-end through every layer."""
+    from bs4 import BeautifulSoup
+
+    from academic_core.documents import conversor_sanitize as SAN
+    from academic_core.documents import security as SEC
+    from academic_core.documents import validate as VAL
+    from academic_core.documents.validate import validate_document
+
+    assert SAN._is_javascript_scheme is SEC.is_javascript_scheme
+    assert VAL._is_javascript_scheme is SEC.is_javascript_scheme
+    assert RH._is_javascript_scheme is SEC.is_javascript_scheme
+
+    variants = ["javascript:alert(1)", "JAVASCRIPT:alert(1)", "JaVaScRiPt:alert(1)",
+                "jav\tascript:alert(1)", "jav\nascript:alert(1)",
+                "jav\rascript:alert(1)", "jav\x00ascript:alert(1)",
+                "jav\x0bascript:alert(1)", "jav\x0cascript:alert(1)",
+                "  javascript:alert(1)", "java\tscript:alert(1)"]
+    for v in variants:
+        assert SEC.is_javascript_scheme(v), f"predicate missed {v!r}"
+        # Validator layer flags it.
+        vdoc = A.Document(A.Metadata(title="t"), (),
+                          (A.paragraph([A.link(v, [A.text("x")])]),))
+        assert any(i.code == "link_unsafe" for i in validate_document(vdoc)), v
+        # Renderer layer drops the href but keeps the label.
+        html = RH.render(vdoc)
+        assert "alert(1)" not in html, v
+        # Sanitizer layer strips the attribute value. The value is set
+        # directly on the parsed element: a raw NUL byte in HTML source
+        # never even reaches this layer (the HTML parser itself truncates
+        # the attribute there, so no link is formed at all).
+        soup = BeautifulSoup('<a href="placeholder">x</a>', "lxml")
+        soup.a["href"] = v
+        SAN.clean_soup_noise(soup)
+        assert soup.a.get("href") is None, v
+
+
 def test_malformed_html_never_drops_text():
     doc = parse_html(b"<div><p>sin cerrar<li>item<p>otro")
     A.validate(doc)

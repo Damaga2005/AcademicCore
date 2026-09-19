@@ -478,6 +478,43 @@ def _sig_digits(x: Decimal) -> int:
     return len(x.as_tuple().digits)
 
 
+def test_make_context_returns_fresh_object_each_call():
+    """Regression test: make_context() must never share a singleton.
+
+    A prior version returned the literal module-level ``_BASE_CONTEXT``
+    by reference whenever ``extra == 0``, so two callers of
+    ``make_context()`` held the *same* Context object and mutating one
+    caller's ``.traps``/``.flags`` silently contaminated every other
+    caller's context. Not exploitable today (nothing in the codebase
+    mutates ``.traps``/``.flags``), but latent and cheap to remove:
+    ``decimal.Context`` construction is trivial, so every call now
+    builds its own instance, for ``extra == 0`` and ``extra > 0`` alike.
+    """
+    a = make_context()
+    b = make_context()
+    assert a is not b
+    # decimal.Context has no value-based __eq__ (falls back to identity),
+    # so compare the attributes that matter instead.
+    assert (a.prec, a.rounding) == (b.prec, b.rounding)
+
+    a2 = make_context(15)
+    b2 = make_context(15)
+    assert a2 is not b2
+    assert (a2.prec, a2.rounding) == (b2.prec, b2.rounding)
+
+    # Mutating one instance's context state must never leak to another
+    # independently-obtained instance.
+    from decimal import DivisionByZero, Overflow
+
+    c1 = make_context()
+    c2 = make_context()
+    default_div_trap = c2.traps[DivisionByZero]
+    c1.traps[DivisionByZero] = not default_div_trap
+    assert c2.traps[DivisionByZero] == default_div_trap
+    c1.flags[Overflow] = True
+    assert c2.flags[Overflow] is False
+
+
 def test_global_decimal_context_untouched():
     before_prec = getcontext().prec
     old = getcontext().prec
@@ -501,6 +538,70 @@ def test_global_decimal_context_untouched():
     finally:
         getcontext().prec = old
     assert getcontext().prec == before_prec
+
+
+def test_modulus_im_zero_fast_path_ignores_ambient_context():
+    """Regression test for the modulus() im==0 fast-path precision bug.
+
+    modulus() used to do ``return abs(re)`` on that fast path. Python's
+    bare ``abs()`` on a Decimal implicitly rounds through
+    ``decimal.getcontext()`` (the ambient/global context, default 28
+    significant digits) rather than the module's explicit 50-digit
+    working context, silently truncating precision whenever im is
+    exactly zero. The fix uses ``re.copy_abs()``, which flips the sign
+    bit only and never consults any context. This test degrades the
+    ambient context to the default 28 digits, feeds in a >28-digit
+    Decimal with im=0, and asserts modulus() still returns the full
+    value untouched.
+    """
+    old = getcontext().prec
+    try:
+        getcontext().prec = 28  # the default/global context, explicitly
+        big_re = Decimal(
+            "1.2345678901234567890123456789012345678901234567890"
+        )  # 50 significant digits
+        assert len(big_re.as_tuple().digits) == 50
+        z = DecimalComplex(big_re, Decimal(0))
+
+        result = z.modulus()
+
+        # Full 50-digit precision must survive: no rounding to 28 digits.
+        assert result == big_re.copy_abs()
+        assert len(result.as_tuple().digits) > 28
+
+        # Sign is normalized (abs), value magnitude preserved exactly.
+        # (Built from a literal, not unary ``-big_re``: that bare builtin
+        # would itself round through the same degraded ambient context.)
+        neg_big_re = Decimal(
+            "-1.2345678901234567890123456789012345678901234567890"
+        )
+        neg_z = DecimalComplex(neg_big_re, Decimal(0))
+        neg_result = neg_z.modulus()
+        assert neg_result == big_re.copy_abs()
+        assert len(neg_result.as_tuple().digits) > 28
+    finally:
+        getcontext().prec = old
+
+
+def test_modulus_general_path_unaffected_by_fast_path_fix():
+    """Sanity check: the im != 0 branch still computes sqrt(re^2+im^2).
+
+    Guards against a regression in the non-fast-path branch while
+    fixing the im==0 fast path above.
+    """
+    z = DecimalComplex(Decimal(3), Decimal(4))
+    result = z.modulus()
+    tol = Decimal("1e-45")
+    assert abs(result - Decimal(5)) <= tol
+
+    z2 = DecimalComplex(Decimal("1.5"), Decimal("-2.5"))
+    expected = make_context().sqrt(
+        make_context().add(
+            make_context().multiply(z2.re, z2.re),
+            make_context().multiply(z2.im, z2.im),
+        )
+    )
+    assert z2.modulus() == expected
 
 
 # -- 9. serialization ---------------------------------------------------------------------------------

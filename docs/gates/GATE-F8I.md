@@ -174,7 +174,7 @@ The implementation defensively enforces all domain boundaries:
 | Circuit Verification B1–B15 | 15/15 passing circuits | 15/15 passed (100%) | **CERTIFIED** |
 | ngspice 47 Cross-Validation | Relative error $< 10^{-4}$ | $< 6.1 \times 10^{-7}$ | **CERTIFIED** |
 | Multi-BJT Scalability | $N=1..64$ convergence | Converged (7 iters, $N=1..64$) | **CERTIFIED** |
-| Performance & Tripwires | $N=1 < 60\text{ms}, N=16 < 1.5\text{s}, N=32 < 5\text{s}, N=64 < 20\text{s} \le 60\text{s}$ | $N=1: 11\text{ms}, N=16: 0.38\text{s}, N=32: 1.32\text{s}, N=64: 5.99\text{s}$ | **CERTIFIED** |
+| Performance & Tripwires | Diagnostic benchmark (historical targets: $N=64 < 20\text{s}$, tripwire $\le 60\text{s}$; machine-specific, not a certification gate) | $N=1: 11\text{ms}, N=16: 0.38\text{s}, N=32: 1.32\text{s}, N=64: 5.99\text{s}$ (recorded, not enforced) | **RECORDED** |
 | Failure Modes | Honest error statuses | All handled defensively | **CERTIFIED** |
 | Conservation Checks | KCL/KVL/Tellegen passed | Passed on all circuits | **CERTIFIED** |
 | AST Security & No-Float | Zero unsafe calls, zero float | Verified via AST walk | **CERTIFIED** |

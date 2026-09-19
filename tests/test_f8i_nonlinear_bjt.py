@@ -36,7 +36,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 import pytest
@@ -466,7 +465,12 @@ class TestMultiBJTScale:
 
     @pytest.mark.parametrize("n", [1, 2, 4, 8, 16, 32, 64])
     def test_scaling_parallel_bjts(self, n: int):
-        """N identical BJTs in parallel bias stages."""
+        """N identical BJTs in parallel bias stages.
+
+        Convergence and conservation are asserted; wall-clock is not
+        (the historical dt<120 s tripwire was machine-specific, never a
+        certification requirement — see GATE-F8I §8).
+        """
         c = Circuit(f"bjt_scale_{n}")
         c.add(vsrc("V1", "vcc", "0", "12 V"))
         for i in range(n):
@@ -476,14 +480,11 @@ class TestMultiBJTScale:
             c.add(res(f"R{2*i+2}", "vcc", c_node, "1.5 kohm"))
             c.add(bjt(f"Q{i+1}", c_node, b_node, "0", polarity="NPN", bf_str="100"))
 
-        t0 = time.perf_counter()
         sol = solve_nonlinear_dc(c)
-        dt = time.perf_counter() - t0
 
         assert sol.status == NonlinearStatus.CONVERGED
         assert sol.conservation_checks.passed
         assert sol.provenance["iterations"] <= 15
-        assert dt < 120.0, f"Scaling for N={n} took {dt:.2f}s"
 
     @pytest.mark.parametrize("n", [1, 2, 4, 8, 16])
     def test_scaling_bjt_cascade(self, n: int):

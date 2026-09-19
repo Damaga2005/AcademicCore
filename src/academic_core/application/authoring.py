@@ -45,6 +45,18 @@ def extract_text(doc: A.Document) -> str:
     return "\n".join(parts)
 
 
+def _title_explicitly_touched(state: AU.AuthoringDocument) -> bool:
+    """True iff the session's undo history holds any UpdateMetadata step
+    (i.e. the user is explicitly managing metadata this session, so the
+    current title — even an empty one — is intent, not an untouched
+    default). A bare body-only edit leaves no such step and an empty
+    AST title must not wipe the stored title."""
+    for form in getattr(state, "_undo", ()):
+        if hasattr(form, "meta") and hasattr(form, "old"):
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class SaveReport:
     stable_id: str
@@ -136,10 +148,21 @@ class AuthoringService:
             self.records.append_version(
                 R.ResourceVersion(resource_id, res.current_version + 1,
                                   content_hash, len(data), prov), cx)
-        if state.doc.meta.title and state.doc.meta.title != res.title:
-            self.records.update_title(resource_id, state.doc.meta.title)
+        # P0-07 title policy: canonical record and FTS index always agree.
+        # An empty meta.title with a non-empty stored title is ambiguous:
+        # it is an intentional clear ONLY when the user explicitly ran
+        # UpdateMetadata in this session (visible in undo history);
+        # otherwise it is an accidental empty (e.g. body-only edit on a
+        # doc whose AST title was never set) and the stored title is
+        # preserved instead of wiped.
+        new_title = state.doc.meta.title
+        if new_title != res.title:
+            if new_title == "" and res.title != "" and not _title_explicitly_touched(state):
+                new_title = res.title
+            if new_title != res.title:
+                self.records.update_title(resource_id, new_title)
         self.store.touch(resource_id)
-        self.indexer.index(resource_id, "document", res.title, extract_text(state.doc))
+        self.indexer.index(resource_id, "document", new_title, extract_text(state.doc))
         self.cleanup_autosave(resource_id)
         state.mark_clean()
         return SaveReport(resource_id, res.current_version + 1, content_hash,

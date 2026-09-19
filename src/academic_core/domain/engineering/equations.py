@@ -263,25 +263,66 @@ class _Eval:
 
 
 def _apply_func(name: str, arg: Quantity) -> Quantity:
-    import math
     from academic_core.domain.engineering.units import Unit
+    from academic_core.domain.engineering.math.trig import (
+        decimal_sin, decimal_cos, make_context,
+    )
+    from academic_core.domain.engineering.math.logarithm import decimal_log10
     one = Unit("1", "1", "", DIMENSIONLESS, Decimal(1))
     if name in ("sin", "cos", "tan", "exp", "log", "log10"):
         if arg.dimension != DIMENSIONLESS:
             raise EquationError(f"{name} needs a dimensionless argument")
-        x = float(arg.to_base())
+        x = arg.to_base()
+        ctx = make_context()
         try:
-            out = {"sin": math.sin, "cos": math.cos, "tan": math.tan,
-                   "exp": math.exp, "log": math.log, "log10": math.log10}[name](x)
-        except ValueError as e:
+            if name == "sin":
+                out = decimal_sin(x, ctx)
+            elif name == "cos":
+                out = decimal_cos(x, ctx)
+            elif name == "tan":
+                cos_x = decimal_cos(x, ctx)
+                # Guard against division by a cosine that is zero (or
+                # numerically indistinguishable from zero at working
+                # precision) instead of blowing up to Infinity/NaN.
+                # copy_abs()/ctx.scaleb(): bare abs()/Decimal.scaleb()
+                # would round through the ambient global context (same
+                # bug class as DecimalComplex.modulus()).
+                if cos_x.copy_abs() < ctx.scaleb(Decimal(1), -(ctx.prec - 2)):
+                    raise EquationError(f"tan domain: cos(x) ~ 0 near {x}")
+                out = ctx.divide(decimal_sin(x, ctx), cos_x)
+            elif name == "exp":
+                # decimal.Context.exp is a correctly-rounded Decimal-native
+                # operation (General Decimal Arithmetic spec) — the same
+                # primitive already used for exp() in mna/diode.py and
+                # mna/bjt.py. No float round-trip.
+                out = ctx.exp(x)
+            elif name == "log":
+                if x <= 0:
+                    raise EquationError(f"log domain: {x}")
+                out = ctx.ln(x)
+            else:  # log10
+                if x <= 0:
+                    raise EquationError(f"log10 domain: {x}")
+                out = decimal_log10(x, ctx)
+        except InvalidOperation as e:
             raise EquationError(f"{name} domain: {e}")
-        return Quantity(Decimal(str(out)), one)
+        except ArithmeticError as e:
+            raise EquationError(f"{name}: {e}")
+        return Quantity(out, one)
     if name == "abs":
-        return Quantity(abs(arg.value), arg.unit)
+        # copy_abs() flips the sign bit only and performs no rounding; it
+        # never touches the ambient global decimal context. The bare
+        # builtin abs(arg.value) would be wrong here (same class of bug as
+        # the DecimalComplex.modulus() im==0 fast path): every sibling
+        # branch above (sin/cos/tan/exp/log/log10) explicitly threads its
+        # own working-precision Context, so a bare abs() on this branch
+        # alone would silently truncate the result to the ambient 28-digit
+        # default context instead.
+        return Quantity(arg.value.copy_abs(), arg.unit)
     if name == "sqrt":
         if arg.to_base() < 0:
             raise EquationError("sqrt of negative")
-        root = arg.to_base().sqrt()
+        root = make_context().sqrt(arg.to_base())
         # dimension must be an exact square
         dim = tuple(e // 2 if e % 2 == 0 else None for e in arg.dimension)
         if any(e is None for e in dim):
