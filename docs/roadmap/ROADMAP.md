@@ -164,7 +164,7 @@ F8-J   Small-Signal AC                                  [1º]
 F8-K   Semiconductores Adicionales (MOSFET/JFET/Zener)  [2º]
 F8-L   Transitorio (DAE, Backward Euler, Trapezoidal)   [3º]
 F8-M   Análisis Avanzados (Sweep, Sensibilidad, MC)     [4º] CERTIFICADO
-F8-N   Laboratorio Virtual                              [5º]
+F8-N   Laboratorio Virtual                              [5º] CERTIFICADO
 F8-O   Metrología e Incertidumbre (GUM)                 [6º]
 F8-P1  Sistemas y Control                               [7º]
 F8-P2  DSP                                              [8º]
@@ -237,7 +237,7 @@ F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
 
 La familia **F8** constituye el motor de simulación circuital y electrónica de AcademicCore:
 
-### 6.1 Fases Certificadas (F8-A a F8-M)
+### 6.1 Fases Certificadas (F8-A a F8-N)
 
 | Fase | Denominación | Capacidades Principales | Estado | Gate |
 |:---:|:---|:---|:---:|:---:|
@@ -261,14 +261,14 @@ La familia **F8** constituye el motor de simulación circuital y electrónica de
 | **F8-K** | Semiconductores Adicionales | MOSFET Level 1 / Shichman-Hodges (`M`), JFET square-law (`J`), diodos Zener, LED, Schottky y fotodiodos (`D` + `kind`); MNA no lineal, Jacobiano analítico, contrato small-signal AC y validación ngspice 47. | **CERTIFICADO** | [`GATE-F8K.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8K.md) |
 | **F8-L** | Transitorio (DAE en tiempo) | Capacitores e inductores con modelos companion, integradores implícitos Backward Euler / Trapezoidal / BDF2, paso adaptativo por LTE, rollback transaccional y Newton-DAE acoplado con validación ngspice 47. | **CERTIFICADO** | [`GATE-F8L.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8L.md) |
 | **F8-M** | Análisis Avanzados | DC Sweep, Parameter Sweep (allowlist cerrado), Worst Case (esquinas $2^k$), sensibilidad DC implícita analítica, sensibilidad AC lineal y Monte Carlo nativo con semilla; warm-start con fallback trazable; validación por diferencias finitas y ngspice 47. | **CERTIFICADO** | [`GATE-F8M.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8M.md) |
+| **F8-N** | Laboratorio Virtual | Orquestación reproducible de sesiones, experimentos, runs, probes, instrumentos ideales, measurements, stimuli, serialización canónica y replay sobre los engines certificados. | **CERTIFICADO** | [`GATE-F8N.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8N.md) |
 
 ### 6.2 Fases Futuras de la Familia F8
 
 > [!NOTE]
-> *Nota normativa:* F8-M ya está certificada y figura en §6.1. Las fases futuras de la familia F8 comienzan en **F8-N (NEXT)**, de acuerdo con el orden normativo de §5.1.
+> *Nota normativa:* F8-N ya está certificada y figura en §6.1. La siguiente fase de la familia F8 es **F8-O (NEXT)**, de acuerdo con el orden normativo de §5.1.
 
-- **F8-N — Laboratorio Virtual (Siguiente Fase)**: Instrumentación virtual interactiva (fuente de alimentación DC, multímetro digital, osciloscopio de doble canal, generador de funciones, analizador lógico).
-- **F8-O — Metrología e Incertidumbre**: Expresión de incertidumbre según la guía GUM (tipo A, tipo B, combinada y expandida), propagación analítica y Monte Carlo, cifras significativas y trazabilidad metrológica.
+- **F8-O — Metrología e Incertidumbre (Siguiente Fase)**: Expresión de incertidumbre según la guía GUM (tipo A, tipo B, combinada y expandida), propagación analítica y Monte Carlo, cifras significativas y trazabilidad metrológica.
 
 ---
 
