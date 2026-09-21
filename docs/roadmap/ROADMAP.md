@@ -2,7 +2,7 @@
 
 > **Proyecto**: AcademicCore  
 > **Documento**: Roadmap Maestro y Visión Funcional  
-> **Estado**: En Desarrollo Activo (Fases F0 a F8-M **CERTIFICADAS**)
+> **Estado**: En Desarrollo Activo (Fases F0 a F8-O **CERTIFICADAS**)
 > **Objetivo**: Plataforma académica técnica con conocimiento estructurado, evaluación, aprendizaje adaptativo, ingeniería/simulación e IA asistiva gobernada por guardrails deterministas.
 
 ---
@@ -165,8 +165,8 @@ F8-K   Semiconductores Adicionales (MOSFET/JFET/Zener)  [2º]
 F8-L   Transitorio (DAE, Backward Euler, Trapezoidal)   [3º]
 F8-M   Análisis Avanzados (Sweep, Sensibilidad, MC)     [4º] CERTIFICADO
 F8-N   Laboratorio Virtual                              [5º] CERTIFICADO
-F8-O   Metrología e Incertidumbre (GUM)                 [6º]
-F8-P1  Sistemas y Control                               [7º]
+F8-O   Metrología e Incertidumbre (GUM)                 [6º] CERTIFICADO
+F8-P1  Sistemas y Control                               [7º] (NEXT)
 F8-P2  DSP                                              [8º]
 F8-P3  RF y Líneas de Transmisión                       [9º]
 F8-P4  Comunicaciones Digitales                         [10º]
@@ -204,7 +204,7 @@ F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
 | 3 | F8-L | Transitorio | F8-K | DAE, Backward Euler, Trapezoidal, BDF, paso adaptativo |
 | 4 | F8-M | Análisis Avanzados | F8-L | DC Sweep, Parameter Sweep, sensibilidad, Monte Carlo, Worst Case |
 | 5 | F8-N | Laboratorio Virtual | F8-M | Fuente DC, multímetro, osciloscopio, generador, analizador lógico |
-| 6 | F8-O | Metrología e Incertidumbre (GUM) | F8-N, F6 | Reutiliza calculadora GUM del repo `Conversor-HTML-A-MD`; **bloqueado** hasta sustituir `eval()` |
+| 6 | F8-O | Metrología e Incertidumbre (GUM) | F8-N, F6 | Capa de metrología sobre GUM local F7-B7 (sin `eval`); propagación analítica + MC, cifras significativas, trazabilidad — **CERTIFICADO** |
 | 7 | F8-P1 | Sistemas y Control | F8-D6 (Bode ya certificado) | Función de transferencia, Bode, lugar de raíces, PID, espacio de estados |
 | 8 | F8-P2 | DSP | F8-P1 | FFT/DFT, transformada Z, FIR/IIR, muestreo, aliasing |
 | 9 | F8-P3 | RF y Líneas de Transmisión | F8-D1/D2, F8-P2 | Carta de Smith, parámetros S, antenas, link budget |
@@ -237,7 +237,7 @@ F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
 
 La familia **F8** constituye el motor de simulación circuital y electrónica de AcademicCore:
 
-### 6.1 Fases Certificadas (F8-A a F8-N)
+### 6.1 Fases Certificadas (F8-A a F8-O)
 
 | Fase | Denominación | Capacidades Principales | Estado | Gate |
 |:---:|:---|:---|:---:|:---:|
@@ -262,13 +262,14 @@ La familia **F8** constituye el motor de simulación circuital y electrónica de
 | **F8-L** | Transitorio (DAE en tiempo) | Capacitores e inductores con modelos companion, integradores implícitos Backward Euler / Trapezoidal / BDF2, paso adaptativo por LTE, rollback transaccional y Newton-DAE acoplado con validación ngspice 47. | **CERTIFICADO** | [`GATE-F8L.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8L.md) |
 | **F8-M** | Análisis Avanzados | DC Sweep, Parameter Sweep (allowlist cerrado), Worst Case (esquinas $2^k$), sensibilidad DC implícita analítica, sensibilidad AC lineal y Monte Carlo nativo con semilla; warm-start con fallback trazable; validación por diferencias finitas y ngspice 47. | **CERTIFICADO** | [`GATE-F8M.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8M.md) |
 | **F8-N** | Laboratorio Virtual | Orquestación reproducible de sesiones, experimentos, runs, probes, instrumentos ideales, measurements, stimuli, serialización canónica y replay sobre los engines certificados. | **CERTIFICADO** | [`GATE-F8N.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8N.md) |
+| **F8-O** | Metrología e Incertidumbre (GUM) | Capa de metrología sobre motores certificados: Tipo A/B, propagación analítica (law of propagation con correlaciones), sensibilidades de circuito F8-M, Monte Carlo nativo con semilla, cifras significativas y trazabilidad con digests deterministas. | **CERTIFICADO** | [`GATE-F8O.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8O.md) |
 
 ### 6.2 Fases Futuras de la Familia F8
 
 > [!NOTE]
-> *Nota normativa:* F8-N ya está certificada y figura en §6.1. La siguiente fase de la familia F8 es **F8-O (NEXT)**, de acuerdo con el orden normativo de §5.1.
+> *Nota normativa:* F8-O ya está certificada y figura en §6.1. La siguiente fase de la familia F8 es **F8-P1 (NEXT)**, de acuerdo con el orden normativo de §5.1.
 
-- **F8-O — Metrología e Incertidumbre (Siguiente Fase)**: Expresión de incertidumbre según la guía GUM (tipo A, tipo B, combinada y expandida), propagación analítica y Monte Carlo, cifras significativas y trazabilidad metrológica.
+- **F8-O — Metrología e Incertidumbre**: **CERTIFICADA** ([`GATE-F8O.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8O.md)). Expresión de incertidumbre según la guía GUM (tipo A, tipo B, combinada y expandida), propagación analítica y Monte Carlo, cifras significativas y trazabilidad metrológica.
 
 ---
 
