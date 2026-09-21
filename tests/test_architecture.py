@@ -129,3 +129,52 @@ def test_pdf_backend_never_in_domain():
         tree = _ast.parse(f.read_text(encoding="utf-8"))
         src = _ast.dump(tree)
         assert "Stirling" not in src and "subprocess" not in src and "PyMuPDF" not in src, f
+
+
+def test_dsp_layer_direction():
+    """F8-P2 DSP boundaries (N-110 principle: lower layers take no edges
+    from upper layers). dsp MAY consume control downward (acyclic);
+    nothing flows upward into control/mna/ac/lab, and dsp never touches
+    lab/simulation/UI/filesystem/network. Parsed with ast: only real
+    imports count."""
+    import ast as _ast
+    eng = pathlib.Path(__file__).resolve().parents[1] / "src" / "academic_core" / "domain" / "engineering"
+    dsp_files = list((eng / "dsp").glob("*.py")) if (eng / "dsp").exists() else []
+    assert dsp_files, "dsp package missing"
+    violations = []
+    for f in dsp_files:
+        tree = _ast.parse(f.read_text(encoding="utf-8"))
+        for node in _ast.walk(tree):
+            mods = []
+            if isinstance(node, _ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, _ast.ImportFrom):
+                mods = [node.module or ""]
+            for mod in mods:
+                segs = mod.split(".")
+                if "lab" in segs and "domain" in segs:
+                    violations.append(f"{f.name}: dsp -> lab")
+                if mod in ("simulation",) or "simulation" in segs:
+                    violations.append(f"{f.name}: dsp -> simulation")
+                if segs[:2] == ["academic_core", "app"] or "academic_core.app" in mod:
+                    violations.append(f"{f.name}: dsp -> app")
+    for f in (eng / "control").glob("*.py"):
+        tree = _ast.parse(f.read_text(encoding="utf-8"))
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                mods = ([a.name for a in node.names] if isinstance(node, _ast.Import)
+                        else [node.module or ""])
+                for mod in mods:
+                    if "engineering.dsp" in mod.split(".") or mod == "dsp":
+                        violations.append(f"control/{f.name}: control -> dsp")
+    for sub in ("mna", "ac", "lab"):
+        for f in (eng / sub).glob("*.py"):
+            tree = _ast.parse(f.read_text(encoding="utf-8"))
+            for node in _ast.walk(tree):
+                if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                    mods = ([a.name for a in node.names] if isinstance(node, _ast.Import)
+                            else [node.module or ""])
+                    for mod in mods:
+                        if "dsp" in mod.split("."):
+                            violations.append(f"{sub}/{f.name}: {sub} -> dsp")
+    assert not violations, violations
