@@ -2,7 +2,7 @@
 
 > **Proyecto**: AcademicCore  
 > **Documento**: Roadmap Maestro y Visión Funcional  
-> **Estado**: En Desarrollo Activo (Fases F0 a F8-P2 **CERTIFICADAS**)
+> **Estado**: En Desarrollo Activo (Fases F0 a F8-P3 **CERTIFICADAS**)
 > **Objetivo**: Plataforma académica técnica con conocimiento estructurado, evaluación, aprendizaje adaptativo, ingeniería/simulación e IA asistiva gobernada por guardrails deterministas.
 
 ---
@@ -168,8 +168,8 @@ F8-N   Laboratorio Virtual                              [5º] CERTIFICADO
 F8-O   Metrología e Incertidumbre (GUM)                 [6º] CERTIFICADO
 F8-P1  Sistemas y Control                               [7º] CERTIFICADO
 F8-P2  DSP                                              [8º] CERTIFICADO
-F8-P3  RF y Líneas de Transmisión                       [9º] (NEXT)
-F8-P4  Comunicaciones Digitales                         [10º]
+F8-P3  RF y Líneas de Transmisión                       [9º] CERTIFICADO
+F8-P4  Comunicaciones Digitales                         [10º] (NEXT)
 F8-P5  Síntesis Satcom                                  [11º]
  │
  │  ═══════════ CIERRE DE F8. EMPIEZA CONSTRUCCIÓN DE APP ═══════════
@@ -207,8 +207,8 @@ F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
 | 6 | F8-O | Metrología e Incertidumbre (GUM) | F8-N, F6 | Capa de metrología sobre GUM local F7-B7 (sin `eval`); propagación analítica + MC, cifras significativas, trazabilidad — **CERTIFICADO** |
 | 7 | F8-P1 | Sistemas y Control | F8-D6 (Bode ya certificado) | Función de transferencia, Bode, lugar de raíces, PID, espacio de estados — **CERTIFICADO** |
 | 8 | F8-P2 | DSP | F8-P1 | FFT/DFT, transformada Z, FIR/IIR, muestreo, aliasing — **CERTIFICADO** |
-| 9 | F8-P3 | RF y Líneas de Transmisión | F8-D1/D2, F8-P2 | Carta de Smith, parámetros S, antenas, link budget — (NEXT) |
-| 10 | F8-P4 | Comunicaciones Digitales | F8-P2, F8-P3 | Modulaciones, constelaciones, BER/SNR, Shannon |
+| 9 | F8-P3 | RF y Líneas de Transmisión | F8-D1/D2, F8-P2 | Carta de Smith, parámetros S, líneas de transmisión, matching — **CERTIFICADO** (antenas/link budget diferidos a F8-P5, roadmap:212) |
+| 10 | F8-P4 | Comunicaciones Digitales | F8-P2, F8-P3 | Modulaciones, constelaciones, BER/SNR, Shannon — (NEXT) |
 | 11 | F8-P5 | Síntesis Satcom | F8-P1..P4 | Módulo integrador: link budget + modulación + ruido + antenas |
 | 12 | D1 | Arquitectura de módulos/plugins | — | Manifiesto común antes de fusionar `GestionAcademicaGREELEC.exe`, el conversor y AcademicCore |
 | 13 | D2 | Estándar de logging/errores | — | Sustituye el patrón `except Exception: pass` del conversor |
@@ -265,11 +265,12 @@ La familia **F8** constituye el motor de simulación circuital y electrónica de
 | **F8-O** | Metrología e Incertidumbre (GUM) | Capa de metrología sobre motores certificados: Tipo A/B, propagación analítica (law of propagation con correlaciones), sensibilidades de circuito F8-M, Monte Carlo nativo con semilla, cifras significativas y trazabilidad con digests deterministas. | **CERTIFICADO** | [`GATE-F8O.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8O.md) |
 | **F8-P1** | Sistemas y Control (SISO LTI) | Función de transferencia, márgenes de Bode por bisección, lugar de Evans, PID y Ziegler–Nichols, espacio de estados, respuestas temporales analíticas y serialización `f8p1-control/1`. | **CERTIFICADO** | [`GATE-F8P1.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8P1.md) |
 | **F8-P2** | DSP (tiempo discreto) | FFT/DFT, Z unilateral causal, FIR/IIR, bilineal desde P1, muestreo/Nyquist/aliasing, márgenes discretos, serialización F8-P2. | **CERTIFICADO** | [GATE-F8P2.md](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8P2.md) |
+| **F8-P3** | RF y Líneas de Transmisión | Primitivas RF, líneas de transmisión (RLGC/lossless), reflexión/VSWR/RL, redes dos-puertos Z/Y/ABCD, parámetros S (Kurokawa), cascada ABCD, Carta de Smith (matemática), matching de impedancias en forma cerrada (conjugado/λ4/stub/LC), márgenes RF (VSWR/RL/IL/ML/GT/K-μ), serialización `f8p3-rf/1`. | **CERTIFICADO** | [GATE-F8P3.md](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8P3.md) |
 
 ### 6.2 Fases Futuras de la Familia F8
 
 > [!NOTE]
-> *Nota normativa:* F8-P2 ya está certificada y figura en §6.1. La siguiente fase de la familia F8 es **F8-P3 (NEXT)**, de acuerdo con el orden normativo de §5.1.
+> *Nota normativa:* F8-P2 y F8-P3 ya están certificadas y figuran en §6.1. La siguiente fase de la familia F8 es **F8-P4 (NEXT)**, de acuerdo con el orden normativo de §5.1.
 
 - **F8-O — Metrología e Incertidumbre**: **CERTIFICADA** ([`GATE-F8O.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8O.md)). Expresión de incertidumbre según la guía GUM (tipo A, tipo B, combinada y expandida), propagación analítica y Monte Carlo, cifras significativas y trazabilidad metrológica.
 

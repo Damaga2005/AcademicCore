@@ -178,3 +178,68 @@ def test_dsp_layer_direction():
                         if "dsp" in mod.split("."):
                             violations.append(f"{sub}/{f.name}: {sub} -> dsp")
     assert not violations, violations
+
+
+def test_rf_layer_direction():
+    """F8-P3 RF boundaries (N-110 principle, mirrors test_dsp_layer_direction).
+    rf MAY consume control/math/units downward (acyclic); nothing flows
+    upward into control/math/units, and rf never touches mna/ac/lab/
+    simulation/UI/filesystem/network. rf is a closed-form math layer:
+    it must never import the live-circuit ac/twoport.py extraction
+    layer either (gate §26)."""
+    import ast as _ast
+    eng = pathlib.Path(__file__).resolve().parents[1] / "src" / "academic_core" / "domain" / "engineering"
+    rf_files = list((eng / "rf").glob("*.py")) if (eng / "rf").exists() else []
+    assert rf_files, "rf package missing"
+    violations = []
+    for f in rf_files:
+        tree = _ast.parse(f.read_text(encoding="utf-8"))
+        for node in _ast.walk(tree):
+            mods = []
+            if isinstance(node, _ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, _ast.ImportFrom):
+                mods = [node.module or ""]
+            for mod in mods:
+                segs = mod.split(".")
+                if "lab" in segs and "domain" in segs:
+                    violations.append(f"{f.name}: rf -> lab")
+                if mod in ("simulation",) or "simulation" in segs:
+                    violations.append(f"{f.name}: rf -> simulation")
+                if segs[:2] == ["academic_core", "app"] or "academic_core.app" in mod:
+                    violations.append(f"{f.name}: rf -> app")
+                if "mna" in segs:
+                    violations.append(f"{f.name}: rf -> mna")
+                if "ac" in segs and "engineering" in segs:
+                    violations.append(f"{f.name}: rf -> ac")
+    for sub in ("control", "math"):
+        for f in (eng / sub).glob("*.py"):
+            tree = _ast.parse(f.read_text(encoding="utf-8"))
+            for node in _ast.walk(tree):
+                if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                    mods = ([a.name for a in node.names] if isinstance(node, _ast.Import)
+                            else [node.module or ""])
+                    for mod in mods:
+                        if "engineering.rf" in mod.split(".") or mod == "rf":
+                            violations.append(f"{sub}/{f.name}: {sub} -> rf")
+    units_file = eng / "units.py"
+    if units_file.exists():
+        tree = _ast.parse(units_file.read_text(encoding="utf-8"))
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                mods = ([a.name for a in node.names] if isinstance(node, _ast.Import)
+                        else [node.module or ""])
+                for mod in mods:
+                    if "engineering.rf" in mod.split(".") or mod == "rf":
+                        violations.append(f"units.py: units -> rf")
+    for sub in ("mna", "ac", "lab"):
+        for f in (eng / sub).glob("*.py"):
+            tree = _ast.parse(f.read_text(encoding="utf-8"))
+            for node in _ast.walk(tree):
+                if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                    mods = ([a.name for a in node.names] if isinstance(node, _ast.Import)
+                            else [node.module or ""])
+                    for mod in mods:
+                        if "rf" in mod.split("."):
+                            violations.append(f"{sub}/{f.name}: {sub} -> rf")
+    assert not violations, violations
