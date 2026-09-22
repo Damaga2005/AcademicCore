@@ -436,6 +436,23 @@ pytest tests/test_eng_security.py -k "zero_float"
 pytest tests/test_architecture.py
 ```
 
+### 4. Launching the F15 Application
+
+```bash
+# From an installed environment (runtime deps: pip install -r requirements.txt)
+python -m academic_core
+# or, after `pip install .`:
+academic-core
+```
+
+F15 capabilities: Dashboard (navigation + version/state), Exercise
+resolution (engineering library via `ExerciseService`), Simulation
+(circuit OP / sweep / transient via `SimulationService`), Virtual Lab
+(F8-N sessions, experiments, stimuli, probes, instruments, measurements,
+serialization `f8n-lab/1`, replay). Errors surface as UI-safe `UiError`
+values (D2); license is MIT (`LICENSE`, `THIRD_PARTY_NOTICES.md`).
+```
+
 ---
 
 ## Repository Directory Layout

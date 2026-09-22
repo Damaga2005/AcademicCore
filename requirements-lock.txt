@@ -1,0 +1,12 @@
+# AcademicCore locked runtime/test inventory (F15, 2026-09-22).
+# Generated from the F15 build environment (pinned, reproducible).
+# Runtime distribution ships only the non-dev rows; dev rows are test-only.
+PySide6==6.11.1
+beautifulsoup4==4.15.0
+lxml==6.1.3
+pypdf==6.14.2
+markdownify==1.2.3
+mathml2latex==0.2.12
+genanki==0.13.1
+pytest==9.1.1
+pytest-qt==4.5.0
