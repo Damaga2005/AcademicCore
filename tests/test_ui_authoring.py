@@ -20,7 +20,7 @@ def _win(qtbot, tmp_path, monkeypatch):
 
 def test_authoring_tab_present_and_empty_state(qtbot, tmp_path, monkeypatch):
     win, _ = _win(qtbot, tmp_path, monkeypatch)
-    assert win.tabs.count() == 12  # F15: Dashboard + legacy + Exercises + Simulation + Virtual Lab + Settings
+    assert win.tabs.count() == 13  # F15: Dashboard + legacy + Exercises + Simulation + Virtual Lab + Logic Analyzer (F8-Q.6) + Settings
     panel = win.authoring_panel
     assert panel.browser.count() == 0
     assert panel.status.text() == "No document open"

@@ -77,6 +77,9 @@ class AcademicApp:
         self.lab = LabService()
         self.exercises = ExerciseService(self.engineering)
         self.simulation = SimulationService(self.lab)
+        # -- F8-Q.6 digital logic analyzer (application boundary, no Qt) --
+        from academic_core.application.digital_service import DigitalAnalysisService
+        self.digital = DigitalAnalysisService()
 
     def ensure_demo(self) -> None:
         """Generic, deletable demo hierarchy (never institution-specific)."""

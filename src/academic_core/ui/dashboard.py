@@ -44,6 +44,8 @@ class DashboardPanel(QWidget):
              "Run circuit OP / sweep / transient simulations", True),
             ("lab", "Virtual Lab",
              "F8-N sessions, instruments, measurements, replay", True),
+            ("logic", "Logic Analyzer",
+             "F8-Q digital capture: channels, edge trigger, waveform, digital-trace/1", True),
             ("resources", "Resources / sessions",
              "Available when the Resources tab has content", True),
             ("settings", "Configuration",

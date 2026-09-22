@@ -86,16 +86,19 @@ class AcademicMainWindow(QMainWindow):
         # -- F15 tabs (dashboard first, then vertical slices) ---------------
         from academic_core.ui.dashboard import DashboardPanel
         from academic_core.ui.exercises import ExercisePanel
+        from academic_core.ui.logic_analyzer import LogicAnalyzerPanel
         from academic_core.ui.simulation import SimulationPanel
         from academic_core.ui.virtual_lab import VirtualLabPanel
         self.dashboard_panel = DashboardPanel(app)
         self.exercise_panel = ExercisePanel(app)
         self.simulation_panel = SimulationPanel(app)
         self.virtual_lab_panel = VirtualLabPanel(app)
+        self.logic_analyzer_panel = LogicAnalyzerPanel(app)
         self.tabs.insertTab(0, self.dashboard_panel, "Dashboard")
         self.tabs.addTab(self.exercise_panel, "Exercises")
         self.tabs.addTab(self.simulation_panel, "Simulation")
         self.tabs.addTab(self.virtual_lab_panel, "Virtual Lab")
+        self.tabs.addTab(self.logic_analyzer_panel, "Logic Analyzer")
         self.dashboard_panel.navigate.connect(self._navigate)
         config_tab = QWidget()
         config_layout = QVBoxLayout(config_tab)
@@ -167,6 +170,7 @@ class AcademicMainWindow(QMainWindow):
             "exercises": self.exercise_panel,
             "simulation": self.simulation_panel,
             "lab": self.virtual_lab_panel,
+            "logic": self.logic_analyzer_panel,
             "resources": None,  # resource browser lives in the Resources tab
             "settings": None,  # last tab
         }
