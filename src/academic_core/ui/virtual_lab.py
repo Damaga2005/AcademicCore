@@ -133,6 +133,7 @@ class VirtualLabPanel(QWidget):
         from academic_core.domain.engineering.lab.model import (
             AnalysisKind,
             AnalysisSpec,
+            ExperimentDefinition,
             InstrumentKind,
             InstrumentSpec,
             MeasurementKind,
@@ -263,16 +264,16 @@ class VirtualLabPanel(QWidget):
         return self.lab.run_experiment(session, exp_id)
 
     def _on_result(self, payload) -> None:
-        session, summary = payload
+        session, summary = payload  # (LaboratorySession, LabRunSummary)
         self.session = session
-        self.last_run_id = summary.run.run_id
-        lines = [f"run: {summary.run.run_id}",
-                 f"status: {summary.run.status} "
-                 f"engine={summary.run.engine_status}",
-                 f"digest: {summary.run.result_digest[:16]}"]
-        for m in summary.run.measurements:
+        self.last_run_id = summary.run_id
+        lines = [f"run: {summary.run_id}",
+                 f"status: {summary.status} "
+                 f"engine={summary.engine_status}",
+                 f"digest: {summary.result_digest[:16]}"]
+        for m in summary.measurements:
             lines.append(f"• measurement {m.key} [{m.status}] {m.value}")
-        for r in summary.run.readings:
+        for r in summary.readings:
             lines.append(f"• instrument {r.key} ({r.kind}) [{r.status}] "
                          f"{self._reading_brief(r)}")
         self._render("\n".join(lines))

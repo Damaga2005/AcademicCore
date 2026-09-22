@@ -272,7 +272,10 @@ Run on the Q6 tree, offscreen Qt:
       raises `NameError: name 'ExperimentDefinition' is not defined`.
     - The F15 tests don't exercise that widget method. They test the
       service path, which works.
-    - Fix: one import, in a separate F15 change.
+    - Fix: one import, in a separate F15 change. **Fixed afterwards**
+      by `fix(ui): repair Virtual Lab Add + Run`, together with a second
+      defect it had been hiding (`summary.run.*`). See
+      [GATE-F8Q-FINAL.md](GATE-F8Q-FINAL.md).
   - `ui/authoring.py` has an unused `QComboBox` import (ruff F401).
 
 ## Verdict

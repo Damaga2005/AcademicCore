@@ -298,6 +298,15 @@ One run of the full suite on the Q7 tree, offscreen Qt,
     widget method.
   - The fix is one import in an F15 change. It was not made here
     because it is outside F8-Q's scope.
+  - **Update: fixed after certification** by `fix(ui): repair Virtual
+    Lab Add + Run`.
+    - The fix added the missing import.
+    - The repaired path then exposed a second, hidden defect:
+      `_on_result` read `summary.run.*`, but `LabRunSummary` exposes its
+      fields directly. That was fixed as well.
+    - Covered by `tests/test_f15_virtual_lab_ui.py`, which clicks the
+      real button through the worker for OP, DC_SWEEP, TRANSIENT,
+      AC_POINT and AC_SWEEP, plus replay.
 - **`ui/authoring.py`** has an unused `QComboBox` import (ruff F401).
 - **`GATE-F15.md` is now outdated on one point.** It still lists the
   logic analyzer as an F15 limitation. That is accurate for F8-N, and
