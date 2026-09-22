@@ -243,6 +243,89 @@ class AuthoringService:
         except ValueError:
             pass
 
+    # -- F15 block editing (D1 AI-001: UI calls these, never domain) ----
+    def template_names(self) -> list[str]:
+        from academic_core.documents import templates as T
+        return sorted(T.TEMPLATES)
+
+    def top_block_labels(self, state: AU.AuthoringDocument) -> list[str]:
+        return [self._block_label(b) for b in state.doc.children]
+
+    @staticmethod
+    def _block_label(node) -> str:
+        if node.kind == "heading":
+            kids = "".join(c.attrs.get("value", "") for c in node.children
+                            if c.kind == "text")
+            return f"H{node.attrs.get('level', '?')} {kids[:40]}"
+        if node.kind == "paragraph":
+            kids = "".join(c.attrs.get("value", "") for c in node.children
+                            if c.kind == "text")
+            return f"¶ {kids[:40]}"
+        if node.kind == "equation":
+            return f"= {node.attrs.get('source', '')[:40]}"
+        if node.kind == "code_block":
+            return f"<> {node.attrs.get('language', '')}"
+        if node.kind == "table":
+            return f"▦ {len(node.children)} rows"
+        if node.kind == "image":
+            return f"🖼 {node.attrs.get('alt', '')[:30]}"
+        return node.kind
+
+    def block_editor_text(self, state: AU.AuthoringDocument,
+                          path: tuple) -> tuple[str, str, bool]:
+        """Plain-data view of one block: (kind, editable text, display flag)."""
+        from academic_core.documents import render_markdown as RM
+        node = AU._get(state.doc, path)
+        if node.kind == "equation":
+            return node.kind, node.attrs.get("source", ""), bool(node.attrs.get("display"))
+        if node.kind == "code_block":
+            return node.kind, node.attrs.get("code", ""), False
+        return node.kind, RM.render(
+            A.Document(A.Metadata(), (), (node,))).strip(), False
+
+    def apply_equation(self, state: AU.AuthoringDocument, path: tuple,
+                       source: str, display: bool) -> None:
+        state.execute(AU.ReplaceNode(path, A.equation(source, "latex", display)))
+
+    def apply_code(self, state: AU.AuthoringDocument, path: tuple,
+                   code: str) -> None:
+        node = AU._get(state.doc, path)
+        state.execute(AU.ReplaceNode(
+            path, A.code_block(code, node.attrs.get("language", ""))))
+
+    def apply_markdown(self, state: AU.AuthoringDocument, path: tuple,
+                       text: str) -> None:
+        from academic_core.documents.markdown_parser import parse_markdown
+        parsed = parse_markdown(text)
+        if len(parsed.children) != 1:
+            raise ValueError(
+                f"expected 1 block, got {len(parsed.children)} (nothing applied)")
+        state.execute(AU.ReplaceNode(path, parsed.children[0]))
+
+    def delete_block(self, state: AU.AuthoringDocument, path: tuple) -> None:
+        state.execute(AU.DeleteNode(path))
+
+    def insert_paragraph(self, state: AU.AuthoringDocument, anchor: int) -> None:
+        state.execute(AU.InsertNode((anchor,), A.paragraph([A.text("…")])))
+
+    def set_title(self, state: AU.AuthoringDocument, title: str) -> None:
+        meta = A.Metadata(**{**state.doc.meta.to_dict(), "title": title})
+        state.execute(AU.UpdateMetadata(meta))
+
+    def doc_title(self, state: AU.AuthoringDocument) -> str:
+        return state.doc.meta.title
+
+    def doc_status(self, state: AU.AuthoringDocument) -> tuple:
+        return (state.revision, state.dirty, len(state.doc.children))
+
+    def export_markdown(self, state: AU.AuthoringDocument) -> str:
+        from academic_core.documents import render_markdown as RM
+        return RM.render(state.doc)
+
+    def export_html(self, state: AU.AuthoringDocument) -> str:
+        from academic_core.documents import render_html as RH
+        return RH.render(state.doc)
+
     # -- copy / paste ----------------------------------------------------------------------
     @staticmethod
     def copy_nodes(nodes: list) -> str:

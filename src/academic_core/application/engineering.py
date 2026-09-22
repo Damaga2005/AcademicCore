@@ -24,6 +24,26 @@ class EngineeringService:
         self.authoring_store = authoring_store
         self.backend: S.SimulationBackend = S.NullSimulationBackend()
 
+    # -- F15 UI helpers: widgets must not import domain.circuit (AI-002) ---
+    def new_circuit(self, name: str) -> Circuit:
+        return Circuit(name)
+
+    def component_pins(self, ctype: str) -> tuple:
+        from academic_core.domain.engineering.circuit import COMPONENT_PINS
+        try:
+            return tuple(COMPONENT_PINS[str(ctype).upper()])
+        except KeyError:
+            raise ValueError(f"unknown component type: {ctype}") from None
+
+    def circuit_warnings(self, circuit: Circuit) -> list[str]:
+        return circuit.validate()
+
+    def backend_status_lines(self) -> list[str]:
+        lines = [f"null: detected={self.backend.detect()} (NOT IMPLEMENTED, F7)"]
+        if isinstance(self.backend, S.MockSimulationBackend):
+            lines.append("mock: active (prefixed results, tests only)")
+        return lines
+
     # -- projects --------------------------------------------------------------
     def create_project(self, name: str, subject_id: str = "",
                        topic_id: str = "", description: str = "") -> EngineeringProject:

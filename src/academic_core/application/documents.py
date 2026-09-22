@@ -23,6 +23,16 @@ class DocumentService:
         self.records = records
         self.db = db
 
+    # -- F15 render helpers (D1 AI-001: UI never imports documents.*) ----
+    def render_markdown(self, resource_id: str, version: int,
+                        parser: str) -> str:
+        from academic_core.documents import render_markdown as RM
+        return RM.render(self.get(resource_id, version, parser))
+
+    def render_html(self, resource_id: str, version: int, parser: str) -> str:
+        from academic_core.documents import render_html as RH
+        return RH.render(self.get(resource_id, version, parser))
+
     def build(self, resource_id: str, version: int | None = None,
               parser: str = "auto") -> dict:
         """Parse the resource bytes into a Document; persist + return summary."""

@@ -70,6 +70,13 @@ class AcademicApp:
         self.assessment = AssessmentService(repo=self.assessment_repo)
         from academic_core.pdf.stirling import StirlingRuntime
         self.stirling = StirlingRuntime(settings.tools.stirling_url)
+        # -- F15 application services (coordinate domain, no Qt, no math) --
+        from academic_core.application.exercise_service import ExerciseService
+        from academic_core.application.lab_service import LabService
+        from academic_core.application.simulation_service import SimulationService
+        self.lab = LabService()
+        self.exercises = ExerciseService(self.engineering)
+        self.simulation = SimulationService(self.lab)
 
     def ensure_demo(self) -> None:
         """Generic, deletable demo hierarchy (never institution-specific)."""
