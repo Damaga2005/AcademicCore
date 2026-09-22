@@ -23,19 +23,27 @@ time (zero-delay glitches, e.g. ``t=1 HIGH`` then ``t=1 LOW``) are ALL kept,
 in canonical processing order (ascending ``sequence``). They are never
 collapsed; a future renderer or analyzer decides how to show them.
 
-Digest policy: ``DigitalTrace.canonical()`` is a deterministic text built
-only from the channel ids, net ids, the initial states, and each channel's
-samples in order (``str(Decimal)`` time, state 0/1), plus the trace window.
-``digest()`` is its SHA-256. Raw event ``sequence`` numbers, no-op counts,
-memory addresses, Python ``hash()``, dict/set order and wall-clock time are
-excluded. Order within a channel is carried by position. This is an
-internal canonical form; the ``digital-trace/1`` wire schema belongs to Q4.
+Digest policy (F8-Q.4): ``DigitalTrace.digest()`` is the SHA-256 of the
+UTF-8 bytes of the canonical ``digital-trace/1`` JSON document
+(``canonical_json()``, see ``serialization.py``). It covers exactly the
+observable content: window, channel ids, net ids, initial states, samples
+in order (canonical Decimal time, LOW/HIGH), and no-op counts. Raw event
+``sequence`` numbers, memory addresses, Python ``hash()``, dict/set order
+and wall-clock time are excluded. Numerically equal times (``1``, ``1.0``,
+``1.00``) share one canonical form, hence one digest.
+
+Sequence policy (F8-Q.4): ``TraceSample.sequence`` is runtime ordering
+metadata. It is validated and kept (it orders same-time samples), but it
+is excluded from equality: two samples are equal iff their time and
+state are, and order within a channel is carried by position.
+
+``canonical()`` is the legacy Q3R debug text (``digital-trace-internal/0``).
+It is kept for compatibility, it is not hashed, and it is not a contract.
 """
 
 from __future__ import annotations
 
-import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 from academic_core.domain.engineering.digital.core import (
@@ -66,7 +74,7 @@ class TraceSample:
     """One real transition: ``state`` became effective at ``time``."""
 
     time: Decimal
-    sequence: int
+    sequence: int = field(compare=False)  # runtime metadata, not observable (Q4)
     state: LogicState
 
     def __post_init__(self):
@@ -117,7 +125,12 @@ class TraceChannel:
 
 @dataclass(frozen=True)
 class DigitalTrace:
-    """Immutable capture. Channels are sorted by ``probe_id``."""
+    """Immutable capture. Channels are sorted by ``probe_id``.
+
+    Channels observing the same net carry identical content (initial,
+    samples, no-op count): the simulator captures once per net (Q3R), and
+    the invariant is enforced so a trace can always be replayed (Q4).
+    """
 
     start: Decimal
     end: Decimal
@@ -138,6 +151,12 @@ class DigitalTrace:
         for c in self.channels:
             if c.samples and not (self.start <= c.samples[0].time and c.samples[-1].time <= self.end):
                 raise _invalid("INVALID_TRACE", f"channel {c.probe_id!r} has samples outside the window")
+        by_net: dict[str, TraceChannel] = {}
+        for c in self.channels:
+            first = by_net.setdefault(c.net_id, c)
+            if (c.initial, c.samples, c.noop_count) != (first.initial, first.samples, first.noop_count):
+                raise _invalid("INVALID_TRACE", f"channels {first.probe_id!r} and {c.probe_id!r} observe "
+                               f"net {c.net_id!r} but disagree")
 
     def channel(self, probe_id: str) -> TraceChannel:
         for c in self.channels:
@@ -156,5 +175,38 @@ class DigitalTrace:
             lines.extend(f"sample|{s.time}|{int(s.state)}" for s in c.samples)
         return "\n".join(lines) + "\n"
 
+    # -- digital-trace/1 (F8-Q.4); implementation in serialization.py ------
+
+    def to_dict(self) -> dict:
+        from academic_core.domain.engineering.digital.serialization import trace_to_dict
+
+        return trace_to_dict(self)
+
+    def to_json(self) -> str:
+        """Canonical ``digital-trace/1`` JSON text (the only wire form)."""
+        from academic_core.domain.engineering.digital.serialization import trace_to_json
+
+        return trace_to_json(self)
+
+    canonical_json = to_json
+
+    def canonical_bytes(self) -> bytes:
+        return self.to_json().encode("utf-8")
+
     def digest(self) -> str:
-        return hashlib.sha256(self.canonical().encode("utf-8")).hexdigest()
+        """SHA-256 hex of ``canonical_bytes()``."""
+        from academic_core.domain.engineering.digital.serialization import trace_digest
+
+        return trace_digest(self)
+
+    @classmethod
+    def from_dict(cls, data: object) -> "DigitalTrace":
+        from academic_core.domain.engineering.digital.serialization import trace_from_dict
+
+        return trace_from_dict(data)
+
+    @classmethod
+    def from_json(cls, text: object) -> "DigitalTrace":
+        from academic_core.domain.engineering.digital.serialization import trace_from_json
+
+        return trace_from_json(text)

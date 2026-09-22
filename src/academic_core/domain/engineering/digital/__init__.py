@@ -1,4 +1,5 @@
-"""F8-Q digital engine (NEW): public surface (Q.1 core, Q.2/Q.2R/Q.3R components, Q.2 stimuli, Q.3R probes + trace)."""
+"""F8-Q digital engine (NEW): public surface (Q.1 core, Q.2/Q.2R/Q.3R components, Q.2 stimuli,
+Q.3R probes + trace, Q.4 digital-trace/1 serialization + replay)."""
 
 from academic_core.domain.engineering.digital.components import (
     ARITY_RANGE,
@@ -28,6 +29,20 @@ from academic_core.domain.engineering.digital.core import (
     check_state,
     check_time,
 )
+from academic_core.domain.engineering.digital.replay import replay_trace, verify_replay
+from academic_core.domain.engineering.digital.serialization import (
+    DIGITAL_TRACE_FORMAT,
+    DIGITAL_TRACE_SCHEMA,
+    DIGITAL_TRACE_VERSION,
+    MAX_TRACE_CHANNELS,
+    MAX_TRACE_DEPTH,
+    MAX_TRACE_ITEMS,
+    MAX_TRACE_JSON_BYTES,
+    MAX_TRACE_NOOPS,
+    MAX_TRACE_SAMPLES,
+    MAX_TRACE_STRING,
+    canonical_time,
+)
 from academic_core.domain.engineering.digital.stimuli import (
     MAX_STIMULUS_EVENTS,
     STIMULUS_TYPES,
@@ -48,6 +63,9 @@ from academic_core.domain.engineering.digital.trace import (
 __all__ = [
     "ARITY_RANGE",
     "DIGITAL_CORE_VERSION",
+    "DIGITAL_TRACE_FORMAT",
+    "DIGITAL_TRACE_SCHEMA",
+    "DIGITAL_TRACE_VERSION",
     "GATE_SEMANTICS",
     "ID_RE",
     "MAX_DELTA_EVENTS",
@@ -56,6 +74,13 @@ __all__ = [
     "MAX_PROBES",
     "MAX_STIMULUS_EVENTS",
     "MAX_TIME",
+    "MAX_TRACE_CHANNELS",
+    "MAX_TRACE_DEPTH",
+    "MAX_TRACE_ITEMS",
+    "MAX_TRACE_JSON_BYTES",
+    "MAX_TRACE_NOOPS",
+    "MAX_TRACE_SAMPLES",
+    "MAX_TRACE_STRING",
     "STIMULUS_TYPES",
     "TRACE_CANONICAL_VERSION",
     "TRUTH_TABLES",
@@ -78,8 +103,11 @@ __all__ = [
     "ToggleStimulus",
     "TraceChannel",
     "TraceSample",
+    "canonical_time",
     "check_id",
     "check_sequence",
     "check_state",
     "check_time",
+    "replay_trace",
+    "verify_replay",
 ]

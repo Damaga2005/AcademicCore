@@ -543,3 +543,360 @@ Q2R `DUPLICATE_INPUT` rule.
 
 F8-Q.3R status: **DIGITAL HARDENING + DIGITALTRACE READY** (sub-phase only;
 F8-Q not certified).
+
+## F8-Q.4 — DigitalTrace Serialization + Replay + Determinism
+
+Baseline: `b634d58` on `main`, clean tree. The brief named `03016d7`
+(F8-Q.3R). `b634d58` descends directly from it and adds only
+`docs/roadmap/ROADMAP.md` (no code). The user approved building on it.
+Before this change, Q1/Q2/Q2R/Q3R passed 85/70/43/99.
+
+Scope ends at Trace → Canonical Representation → Serialize → Deserialize
+→ Replay → Verify. Nothing else is added: no Logic Analyzer, triggers,
+sampling, renderer, UI, F15, new gates or stimuli, sequential logic,
+X/Z or mixed-signal.
+
+### Files
+
+- New `digital/serialization.py`: the `digital-trace/1` codec, canonical
+  time, digest and limits.
+- New `digital/replay.py`: `replay_trace`, `verify_replay`.
+- `digital/trace.py`:
+  - `TraceSample.sequence` no longer takes part in equality.
+  - `DigitalTrace` enforces the same-net invariant.
+  - `DigitalTrace` gains `to_dict` / `to_json` / `canonical_json` /
+    `canonical_bytes` / `from_dict` / `from_json`.
+  - `digest()` now follows the Q4 contract.
+- `digital/__init__.py`: new public names (listed under API).
+- New tests `tests/test_f8q4_digital_trace_serialization.py` and golden
+  fixtures `tests/fixtures/digital_trace/*.json`.
+
+### Schema `digital-trace/1`
+
+A JSON object. Every key is required, and unknown keys are rejected at
+every level (strict).
+
+| Path | Type | Meaning |
+|:---|:---|:---|
+| `schema` | string | exactly `"digital-trace"` |
+| `version` | integer | exactly `1` (the pair is the contract id `digital-trace/1`) |
+| `window.start_time`, `window.end_time` | canonical time string | Q3R window, `start_time <= end_time` |
+| `channels[]` | array | sorted by `probe_id`, unique, at most 32 |
+| `channels[].probe_id` | id | channel / probe identity |
+| `channels[].net_id` | id | observed net (may repeat across channels) |
+| `channels[].initial_state` | `"LOW"` / `"HIGH"` | net state at `start_time` |
+| `channels[].samples[]` | array | real transitions, in canonical processing order |
+| `channels[].samples[].time` | canonical time string | transition time |
+| `channels[].samples[].state` | `"LOW"` / `"HIGH"` | new state |
+| `channels[].no_op_count` | integer ≥ 0 | Q3R no-op counter |
+
+- **Identities.**
+  - `probe_id` identifies the channel. v1 has one channel per probe, so
+    there is no separate `channel_id`: the channel id is the `probe_id`.
+  - `net_id` identifies the observed net. Both must match `ID_RE`.
+  - Duplicate `probe_id` → `DUPLICATE_PROBE`. A repeated `net_id` is
+    allowed (several probes on one net).
+  - No id is ever generated on decode.
+- **Order.**
+  - Channel order is `probe_id` code-point order; unsorted input is
+    rejected.
+  - Sample order is position, and it is part of the contract.
+  - The runtime `sequence` is not serialized. Decoding assigns the
+    position (0, 1, …), which keeps same-time samples ordered.
+- **Relations** (same checks as the Q3R model):
+  - Samples lie inside the window and are non-decreasing in time.
+  - Each sample is a real transition from the previous state, starting
+    from `initial_state`.
+  - Channels on the same net carry identical `initial_state`, `samples`
+    and `no_op_count`. The model enforces this too; it is how the
+    simulator captures, once per net.
+
+### Decimal policy (final; closes the Q3R `1` vs `1.0` limitation)
+
+- A time is a Decimal from end to end and never becomes a float.
+- On the wire it is a JSON **string** in canonical form:
+  - plain positional notation, with no exponent and no sign
+  - no trailing fractional zeros and no trailing `.`
+  - zero is `"0"` (including `-0`, `0.000` and `0E+3`)
+- Numerically equal values (`1`, `1.0`, `1.00`, `1E+0`, `10E-1`) have one
+  representation (`"1"`), so they produce one JSON document and one
+  digest.
+- `canonical_time` builds the string from the digit tuple, with no
+  context precision or rounding. `Decimal(canonical_time(t)) == t`
+  exactly (tested with 37 significant digits and 61 fractional digits).
+- Decoding accepts **only** canonical strings
+  (`(0|[1-9][0-9]*)(\.[0-9]*[1-9])?`), then applies `check_time`
+  (0 ≤ t ≤ `MAX_TIME`).
+  - Rejected with `INVALID_TIME`: `"1.0"`, `"01"`, `"+1"`, `"-0"`,
+    `"1e0"`, `"NaN"`, `" 1"` and non-ASCII digits.
+  - A JSON number is rejected: `INVALID_TRACE`, or `INVALID_JSON` when
+    it has a fraction.
+
+### States
+
+- The wire form is exactly `"LOW"` or `"HIGH"`.
+- Everything else is `INVALID_STATE`: `null`, `0`, `1`, booleans,
+  lowercase, `"X"`, `"Z"`, `"H"`, arrays and objects.
+- The Python model still accepts only `LogicState` (unchanged Q1 rule).
+- X/Z remain out of scope.
+
+### Canonical representation and serialization
+
+- `trace.to_dict()` returns fresh dicts and lists holding only `str` and
+  `int`.
+- `trace.to_json()` (alias `canonical_json()`) is the only wire form:
+  - `json.dumps(to_dict(), sort_keys=True, separators=(",", ":"),
+    ensure_ascii=True, allow_nan=False)`
+  - no whitespace and no trailing newline
+- **Key order:** sorted by code point at every level.
+- **Unicode/escaping:** every string is ASCII by construction (ids match
+  `ID_RE`, and times and states are ASCII), so no escape ever occurs.
+  `ensure_ascii` is a guard.
+- **Bytes:** `canonical_bytes()` is `to_json().encode("utf-8")`.
+- **Newline policy:** the canonical form has no newline. The golden
+  fixture files store it followed by exactly one `\n`.
+- Nothing runtime-dependent is written: no `sequence`, wall clock,
+  `id()`, `hash()`, `repr()` or Python object.
+- The encoder refuses (`TRACE_LIMIT`) any trace the decoder would refuse,
+  so every serialized document can be read back.
+
+### Digest
+
+- `digest = sha256(canonical_bytes()).hexdigest()` (64 lowercase hex
+  digits).
+- It depends only on the schema content: window, ids, initial states,
+  ordered samples and no-op counts.
+- It is independent of `sequence` numbers, queue internals, memory,
+  `hash()`/`PYTHONHASHSEED`, dict/set order, probe registration order and
+  wall clock.
+- **Change from Q3R:**
+  - `digest()` now hashes the `digital-trace/1` bytes. It includes
+    `no_op_count`, which the schema makes observable.
+  - `canonical()` (the `digital-trace-internal/0` text) is kept unchanged
+    for Q3R compatibility, but it is legacy debug output: not hashed, not
+    a contract.
+- Six golden digests are pinned in the tests.
+
+### Deserialization (strict; input is untrusted)
+
+`DigitalTrace.from_json(str | bytes)` runs these steps in order:
+
+1. Type check.
+2. Byte limit.
+3. Strict UTF-8 (a BOM is rejected).
+4. Pre-scan: nesting depth and value count, bounded before `json.loads`
+   builds anything. String literals are stripped first with a linear
+   regex.
+5. `json.loads` with hooks:
+   - duplicate keys rejected
+   - any float rejected
+   - `NaN` / `Infinity` rejected
+   - integers limited to 20 digits
+6. `from_dict`.
+
+`DigitalTrace.from_dict(data)` then:
+
+1. Checks `schema`, then `version`.
+2. Checks exact key sets and types at every level.
+3. Checks ids, states, canonical times and limits.
+4. Builds the trace only through the typed constructors (`TraceSample`,
+   `TraceChannel`, `DigitalTrace`), which re-check every Q3R invariant.
+
+There is no eval/exec/compile, pickle/marshal, dynamic import,
+`getattr`, or class lookup by a received name. Received strings are only
+compared with fixed literals.
+
+### Errors (D2, no new codes, no `AC-DIG-*`)
+
+| Class | Code | Reasons |
+|:---|:---|:---|
+| `SerializationError` | AC-SER-001 | `INVALID_JSON` (syntax, UTF-8, BOM, duplicate key, float, NaN/Infinity, wrong input type), `TRACE_LIMIT` (bytes, depth, items, huge integer) |
+| `VersionMismatchError` | AC-VER-001 | `UNSUPPORTED_VERSION` |
+| `ValidationError` | AC-VAL-001 | `INVALID_SCHEMA`, `INVALID_TRACE` (missing/extra field, wrong type, order, window, impossible samples, same-net disagreement), `INVALID_ID`, `INVALID_STATE`, `INVALID_TIME` / `TIME_LIMIT`, `DUPLICATE_PROBE`, `TRACE_LIMIT` (channels, samples, strings, no-ops) |
+| `IntegrationError` | AC-INT-001 | `REPLAY_MISMATCH` (`verify_replay`) |
+
+All of them are subclasses of `ValueError` (D2 root).
+
+### Limits
+
+| Limit | Value |
+|:---|:---|
+| `MAX_TRACE_JSON_BYTES` | 16 MiB |
+| `MAX_TRACE_CHANNELS` | 32 (= `MAX_PROBES`) |
+| `MAX_TRACE_SAMPLES` | 200 000 in total (same-net channels each count) |
+| `MAX_TRACE_STRING` | 128 characters per string value (ids ≤ 64 by `ID_RE`) |
+| `MAX_TRACE_DEPTH` | 5 (root > channels > channel > samples > sample) |
+| `MAX_TRACE_ITEMS` | 1 000 000 JSON values (`{` `[` `,` tokens) |
+| `MAX_TRACE_NOOPS` | `MAX_EVENTS` per channel |
+| integer literal | ≤ 20 digits |
+
+Tests confirm that each limit is enforced and that oversize input fails
+fast with a controlled D2 error: a 16 MiB string, 100 000 nested
+brackets, and 1 000 001 values.
+
+### Replay
+
+`replay_trace(trace)` rebuilds the observable trace through the Q1 event
+engine. It is not a second circuit simulation, because the schema has no
+gates or stimuli.
+
+- It builds one net per distinct `net_id` (initial state =
+  `initial_state`) and one probe per channel.
+- The simulator clock starts at `start_time`.
+- Each net's samples are scheduled in stored order. `schedule` assigns
+  the sequences, so same-time transitions keep their order.
+- Each net gets `no_op_count` no-op events (state = final state) at
+  `end_time`, after its transitions.
+- The queue is drained, the clock is set to `end_time`, and the result is
+  `sim.trace()`.
+
+`verify_replay(trace)` requires `replay == trace` and equal digests, and
+raises `IntegrationError REPLAY_MISMATCH` otherwise. The tested pipeline
+is:
+
+```text
+simulate → trace → to_json → from_json → replay → trace'
+trace == trace' and digest(trace) == digest(trace') and to_json(trace') == to_json(trace)
+```
+
+- **Same timestamp:** `t=1 HIGH, t=1 LOW, t=1 HIGH` (XOR of three inputs
+  rising together) is kept, in order, through JSON, decoding and replay.
+  Reordering changes the digest. Input that would need collapsing (e.g.
+  `LOW, LOW`) is rejected, never repaired.
+- **No-op:** `no_op_count` is serialized, decoded and reproduced exactly
+  by the engine, including when several probes share a net.
+
+### Immutability
+
+- The decoded trace consists of frozen dataclasses and tuples. Assigning
+  window, channels, ids, states, samples or counts raises
+  `FrozenInstanceError`.
+- Mutating the input dict after decoding, or the dict returned by
+  `to_dict()`, never affects the trace.
+- `replay_trace` doesn't modify its input.
+
+### Equality (compatibility note)
+
+- `TraceSample.sequence` is still validated, stored and used for
+  ordering, but it is `compare=False`.
+- Two traces are equal iff their observable content is equal. Decimal
+  equality applies, as in Q1.
+- This is needed for `trace == replay(deserialize(serialize(trace)))`,
+  since replay has no knowledge of the original circuit's sequence
+  numbers.
+- No Q1–Q3R test depended on sequence-sensitive equality.
+
+### API (re-exported by `digital/__init__.py`)
+
+- Constants: `DIGITAL_TRACE_SCHEMA`, `DIGITAL_TRACE_VERSION`,
+  `DIGITAL_TRACE_FORMAT`, and the `MAX_TRACE_*` limits.
+- Functions: `canonical_time`, `replay_trace`, `verify_replay`.
+- Methods on `DigitalTrace` (listed under Files).
+
+### Compatibility
+
+- The Q1/Q2/Q2R/Q3R test files are unchanged and pass (85/70/43/99).
+- The `canonical()` text and `TRACE_CANONICAL_VERSION` are unchanged.
+- Q3R `digest()` values change, as the brief asked: that was the internal
+  form, and it is now the `digital-trace/1` contract. No persisted Q3R
+  digest exists.
+- The new same-net invariant only rejects traces that the simulator can't
+  produce.
+- No change to core, components or stimuli.
+
+### Tests — `tests/test_f8q4_digital_trace_serialization.py` (144 tests)
+
+- **Schema/canonical form:** constants; `to_dict` structure (JSON data
+  model only); canonical JSON rules; empty trace; legacy `canonical()`
+  not hashed.
+- **Decimal:** 23 canonical-time cases, including `1`/`1.0`/`1.00`/
+  `1E+0`/`10E-1`/`-0`; equivalent spellings give one JSON document and
+  one digest; high precision stays exact; oversize times are bounded;
+  20 non-canonical texts rejected; bounds and types.
+- **States:** 20 invalid wire values, checked both as sample state and as
+  initial state; Python-level strictness.
+- **Strict decoding:**
+  - unknown schema (8) and version (9)
+  - missing fields and extra fields at every level
+  - wrong container types; invalid ids
+  - duplicate and unsorted channels; impossible samples
+  - same-net disagreement
+  - JSON-layer strictness (duplicate key, NaN/±Infinity, floats, huge
+    integer, BOM, truncated or trailing text, invalid UTF-8, wrong input
+    type)
+- **Limits:** bytes (ASCII and multibyte); depth; items; channels;
+  samples; no-ops; string length. The encoder refuses a 224 000-sample
+  trace; a 192 000-sample (≈6.2 MB) simulated trace round-trips.
+- **Security:** eight malicious payloads (code strings as ids, states and
+  times; `__class__` / `__reduce__` / `py/object` keys; pickle byte
+  streams) are rejected with no call to `eval`/`exec`/`compile`; an AST
+  policy check on the codec, replay and trace sources; D2 codes.
+- **Digest:** changes with each of 8 observable mutations; independent of
+  `sequence`.
+- **Same timestamp / no-op:** HIGH→LOW→HIGH at t=1 kept through the whole
+  pipeline; order significant; no-op count through replay, shared nets.
+- **Immutability:** frozen decoded trace; no aliasing with the input or
+  output dicts.
+- **Replay:** the full pipeline for all six golden scenarios plus the Q3R
+  mixed circuit; non-zero window start; windows without events;
+  mismatch detection; input untouched.
+- **Determinism:** 5 in-process runs give the same trace, JSON, bytes,
+  digest and replay. Four separate interpreter processes
+  (`PYTHONHASHSEED` 0 / 1 / 12345 / random) give identical digests,
+  equal to the in-process ones.
+- **Golden fixtures** (`tests/fixtures/digital_trace/`): `empty`,
+  `one_channel`, `multi_channel`, `same_timestamp`, `noop_count`,
+  `repeated_probe_net`. For each one:
+  - the file bytes equal the canonical bytes plus `\n`
+  - it decodes to the simulated trace and re-encodes byte-identical
+  - its SHA-256 is pinned
+  - replay is verified
+- **Properties** (LCG, no RNG module and no hypothesis):
+  - 300 generated traces (shared nets, same-time runs, mixed Decimal
+    spellings, no-ops)
+  - 40 generated simulations (all six N-ary kinds, repeated pins)
+
+  Checked on every case: `deserialize(serialize(t)) == t`,
+  `digest(t) == digest(roundtrip(t))`, `replay(roundtrip(t)) == t`,
+  `serialize(deserialize(serialize(t))) == serialize(t)`, plus
+  preservation of order and exact Decimal values.
+
+### Regression
+
+- Q1/Q2/Q2R/Q3R: 85/70/43/99 passed. Q4: 144 passed.
+- F8-N 125, F8-P 221, F15 27, architecture 13, AST 5, domain 4,
+  engineering security 5: all passed.
+- Full suite (`pytest`, offscreen Qt): **2875 passed, 134 skipped, 0
+  failed**.
+  - The first full run hit 7 PDF test failures because the environment
+    lacked `_cffi_backend`, which pypdf needs.
+  - These were unrelated to this change. After installing `cffi` the
+    three affected files pass (19 passed, 2 skipped), and so does the
+    rerun of the whole suite.
+
+### Known limitations
+
+- **Replay limits.** Replay places no-op events at `end_time` because the
+  schema, following Q3R, records a no-op count but not when the no-ops
+  happened. So replay reproduces the count, not the timing. A trace
+  whose no-ops put more than `MAX_DELTA_EVENTS` (100 000) events at one
+  timestamp, or more than `MAX_EVENTS` events in total, fails replay
+  with a controlled `DomainError` (`INVALID_CYCLE` / `EVENT_LIMIT`).
+- **Wire limits.** The engine can capture more than the wire accepts: up
+  to 32 probes × 1 000 000 transitions, versus the 200 000-sample and
+  16 MiB caps. Serializing such a trace fails with `TRACE_LIMIT`; the
+  trace itself is never truncated.
+- **Time length.** A time whose canonical form needs more than 128
+  characters is valid in memory but cannot be serialized
+  (`TRACE_LIMIT`).
+- **Forward compatibility.** v1 is strict. There is no forward
+  compatibility and no migration path yet; a future `version` 2 needs
+  its own decoder.
+- **Decoding cost.** `from_json` holds the whole document in memory
+  (bounded by 16 MiB). It is not a streaming decoder.
+- **Out of scope.** Logic Analyzer, triggers, sampling, aliasing,
+  renderer, UI, F15, sequential logic, X/Z and mixed-signal are all later
+  phases.
+
+F8-Q.4 status: **DIGITAL TRACE SERIALIZATION + REPLAY READY** (sub-phase
+only; F8-Q not certified).
