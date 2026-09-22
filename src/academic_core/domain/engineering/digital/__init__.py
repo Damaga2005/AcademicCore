@@ -1,8 +1,17 @@
-"""F8-Q.1 digital core (NEW): public surface."""
+"""F8-Q digital engine (NEW): public surface (Q.1 core + Q.2 components/stimuli)."""
 
+from academic_core.domain.engineering.digital.components import (
+    ARITY,
+    TRUTH_TABLES,
+    DigitalComponent,
+    GateKind,
+    Pin,
+    PinDirection,
+)
 from academic_core.domain.engineering.digital.core import (
     DIGITAL_CORE_VERSION,
     ID_RE,
+    MAX_DELTA_EVENTS,
     MAX_EVENTS,
     MAX_NETS,
     MAX_TIME,
@@ -17,19 +26,40 @@ from academic_core.domain.engineering.digital.core import (
     check_state,
     check_time,
 )
+from academic_core.domain.engineering.digital.stimuli import (
+    MAX_STIMULUS_EVENTS,
+    STIMULUS_TYPES,
+    ConstantStimulus,
+    PatternStimulus,
+    PulseStimulus,
+    ToggleStimulus,
+)
 
 __all__ = [
+    "ARITY",
     "DIGITAL_CORE_VERSION",
     "ID_RE",
+    "MAX_DELTA_EVENTS",
     "MAX_EVENTS",
     "MAX_NETS",
+    "MAX_STIMULUS_EVENTS",
     "MAX_TIME",
+    "STIMULUS_TYPES",
+    "TRUTH_TABLES",
+    "ConstantStimulus",
     "DigitalCircuit",
+    "DigitalComponent",
     "DigitalEvent",
     "DigitalNet",
     "DigitalSimulator",
     "EventQueue",
+    "GateKind",
     "LogicState",
+    "PatternStimulus",
+    "Pin",
+    "PinDirection",
+    "PulseStimulus",
+    "ToggleStimulus",
     "check_id",
     "check_sequence",
     "check_state",

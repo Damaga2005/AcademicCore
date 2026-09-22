@@ -38,6 +38,8 @@ DIGITAL_CORE_VERSION = "digital-core/1"
 MAX_NETS = 1024
 MAX_EVENTS = 1_000_000
 MAX_TIME = Decimal(3600)  # seconds of simulation time (design MAX_TRACE_DURATION)
+# Per-timestamp event cap: zero-delay loop detection (design §17, F8-Q.2).
+MAX_DELTA_EVENTS = 100_000
 
 ID_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}\Z")
 MAX_NAME_LEN = 128
@@ -182,7 +184,12 @@ class EventQueue:
 
 
 class DigitalCircuit:
-    """Registry of nets keyed by stable id. No components/stimuli yet (F8-Q.2)."""
+    """Nets + components + stimuli, keyed by stable ids (F8-Q.2 adds the last two).
+
+    Single-driver rule (design §46): each net has at most one driver,
+    a component output or a stimulus. Component and stimulus ids share one
+    namespace. Since every driver owns one net, drivers <= nets <= MAX_NETS.
+    """
 
     def __init__(self, max_nets: int = MAX_NETS):
         if isinstance(max_nets, bool) or not isinstance(max_nets, int) or not (
@@ -190,6 +197,11 @@ class DigitalCircuit:
             raise _invalid("INVALID_LIMIT", f"max_nets must be 1..{MAX_NETS}")
         self.max_nets = max_nets
         self._nets: dict[str, DigitalNet] = {}
+        self._components: dict[str, object] = {}
+        self._stimuli: dict[str, object] = {}
+        self._drivers: dict[str, str] = {}  # net_id -> driver id
+        self._fanout: dict[str, tuple[str, ...]] = {}  # net_id -> sorted component ids
+        self.revision = 0  # bumped by add_component/add_stimulus
 
     def add_net(self, net_id: str, initial: LogicState, name: str | None = None) -> DigitalNet:
         """Register a net. ``initial`` is required (no magic default, DIG-I014)."""
@@ -200,6 +212,56 @@ class DigitalCircuit:
             raise _domain_error("NET_LIMIT", f"circuit holds {self.max_nets} nets")
         self._nets[net.net_id] = net
         return net
+
+    def _claim_driver(self, driver_id: str, net_id: str) -> None:
+        if driver_id in self._components or driver_id in self._stimuli:
+            raise _invalid("DUPLICATE_COMPONENT", f"driver id {driver_id!r} already registered")
+        self.net(net_id)
+        if net_id in self._drivers:
+            raise _invalid("DRIVER_CONFLICT",
+                           f"net {net_id!r} driven by {self._drivers[net_id]!r} and {driver_id!r}")
+        self._drivers[net_id] = driver_id
+
+    def add_component(self, component):
+        """Register a gate; all its nets must exist and its output be undriven."""
+        # Local import: components.py imports this module's validators.
+        from academic_core.domain.engineering.digital.components import DigitalComponent
+
+        if not isinstance(component, DigitalComponent):
+            raise _invalid("INVALID_COMPONENT", f"expected DigitalComponent, got {type(component).__name__}")
+        for net_id in component.inputs:
+            self.net(net_id)
+        self._claim_driver(component.component_id, component.output)
+        self._components[component.component_id] = component
+        for net_id in set(component.inputs):
+            self._fanout[net_id] = tuple(sorted(self._fanout.get(net_id, ()) + (component.component_id,)))
+        self.revision += 1
+        return component
+
+    def add_stimulus(self, stimulus):
+        """Register a stimulus as the sole driver of its net."""
+        from academic_core.domain.engineering.digital.stimuli import STIMULUS_TYPES
+
+        if not isinstance(stimulus, STIMULUS_TYPES):
+            raise _invalid("INVALID_STIMULUS", f"expected a stimulus, got {type(stimulus).__name__}")
+        self._claim_driver(stimulus.stimulus_id, stimulus.net_id)
+        self._stimuli[stimulus.stimulus_id] = stimulus
+        self.revision += 1
+        return stimulus
+
+    def components(self) -> tuple:
+        return tuple(self._components[k] for k in sorted(self._components))
+
+    def stimuli(self) -> tuple:
+        return tuple(self._stimuli[k] for k in sorted(self._stimuli))
+
+    def fanout(self, net_id: str) -> tuple:
+        """Components reading ``net_id``, sorted by component id."""
+        return tuple(self._components[k] for k in self._fanout.get(net_id, ()))
+
+    def driver(self, net_id: str) -> str | None:
+        self.net(net_id)
+        return self._drivers.get(net_id)
 
     def net(self, net_id: str) -> DigitalNet:
         try:
@@ -235,16 +297,39 @@ class DigitalSimulator:
     never moves backwards (scheduling before ``now`` is refused), and the
     total number of events per simulator is capped by ``max_events``, so
     ``run`` always terminates.
+
+    F8-Q.2 propagation happens in the same queue; there is no second mechanism.
+    - Start-up happens on the first ``step``. Components are evaluated in id
+      order (settling their outputs to the initial net states), then every
+      stimulus edge is scheduled in stimulus-id order.
+    - When an applied event changes a net, the fanout components are
+      re-evaluated in id order. An output event is scheduled at the SAME
+      time (zero-delay) only if it differs from the output's projected
+      state, which is the last state scheduled for that net, falling back
+      to the current state.
+    - More than ``max_delta_events`` events at one timestamp is a
+      zero-delay loop, reported as ``DomainError INVALID_CYCLE``
+      (design §17). ``EVENT_LIMIT`` still caps the whole run.
+    - Components/stimuli must be registered before the first ``step``.
+      A later registration raises ``CIRCUIT_CHANGED``.
     """
 
-    def __init__(self, circuit: DigitalCircuit, max_events: int = MAX_EVENTS):
+    def __init__(self, circuit: DigitalCircuit, max_events: int = MAX_EVENTS,
+                 max_delta_events: int = MAX_DELTA_EVENTS):
         if not isinstance(circuit, DigitalCircuit):
             raise _invalid("INVALID_CIRCUIT", f"expected DigitalCircuit, got {type(circuit).__name__}")
+        if isinstance(max_delta_events, bool) or not isinstance(max_delta_events, int) or not (
+                1 <= max_delta_events <= MAX_DELTA_EVENTS):
+            raise _invalid("INVALID_LIMIT", f"max_delta_events must be 1..{MAX_DELTA_EVENTS}")
         self.circuit = circuit
         self.queue = EventQueue(max_events)
+        self.max_delta_events = max_delta_events
         self.now = Decimal(0)
         self._next_sequence = 0
         self._processed: list[DigitalEvent] = []
+        self._projected: dict[str, LogicState] = {}  # net_id -> last scheduled state
+        self._revision: int | None = None  # circuit revision seen at start-up
+        self._delta: tuple[Decimal | None, int] = (None, 0)
 
     def schedule(self, time: Decimal, net_id: str, state: LogicState,
                  stable_id: str | None = None) -> DigitalEvent:
@@ -258,17 +343,45 @@ class DigitalSimulator:
             raise _domain_error("CAUSALITY", f"time {event.time} is before now={self.now}")
         self.queue.push(event)
         self._next_sequence += 1
+        self._projected[net_id] = event.state
         return event
 
+    def _evaluate(self, component) -> None:
+        out = component.evaluate(tuple(self.circuit.state(n) for n in component.inputs))
+        if out != self._projected.get(component.output, self.circuit.state(component.output)):
+            self.schedule(self.now, component.output, out, component.component_id)
+
+    def _start(self) -> None:
+        if self._revision is None:
+            self._revision = self.circuit.revision
+            for component in self.circuit.components():
+                self._evaluate(component)
+            for stimulus in self.circuit.stimuli():
+                for t, state in stimulus.edges():
+                    self.schedule(t, stimulus.net_id, state, stimulus.stimulus_id)
+        elif self._revision != self.circuit.revision:
+            raise _domain_error("CIRCUIT_CHANGED", "components/stimuli added after simulation start")
+
     def step(self) -> DigitalEvent:
+        self._start()
+        nxt = self.queue.peek()
+        last_time, count = self._delta
+        count = count + 1 if nxt.time == last_time else 1
+        if count > self.max_delta_events:
+            raise _domain_error("INVALID_CYCLE", f"more than {self.max_delta_events} events at "
+                                f"t={nxt.time} (zero-delay loop via net {nxt.net_id!r})")
+        self._delta = (nxt.time, count)
         event = self.queue.pop()
         self.now = event.time
-        self.circuit.apply(event)
+        if self.circuit.apply(event):
+            for component in self.circuit.fanout(event.net_id):
+                self._evaluate(component)
         self._processed.append(event)
         return event
 
     def run(self) -> tuple[DigitalEvent, ...]:
         """Drain the queue in canonical order; return this call's events."""
+        self._start()
         start = len(self._processed)
         while not self.queue.empty():
             self.step()

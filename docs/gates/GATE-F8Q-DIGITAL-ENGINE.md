@@ -113,3 +113,144 @@ Q1-001…Q1-020 follow the phase brief. Extra checks:
   F8-Q comes from the owner's phase brief.
 
 F8-Q.1 status: **DIGITAL CORE READY** (sub-phase only; F8-Q not certified).
+
+## F8-Q.2 — Digital components + stimuli
+
+Baseline `49752cc`, branch `main`, clean tree. Scope: the NOT/AND/OR/XOR
+gates and the constant/toggle/pulse/pattern stimuli, running on the Q1
+queue. Still deferred: trace, probes, Logic Analyzer, serialization/replay,
+application service, UI, F15, sequential logic, X/Z, tri-state, and
+mixed-signal.
+
+### Files
+
+- New: `digital/components.py`, `digital/stimuli.py`,
+  `tests/test_f8q2_digital_components.py`.
+- Modified: `digital/core.py` (`DigitalCircuit` and `DigitalSimulator` were
+  extended; see compatibility below) and `digital/__init__.py` (exports).
+  No file outside `digital/` or the docs was touched.
+
+### Component API (`components.py`)
+
+| Name | Contract |
+|:---|:---|
+| `GateKind` | `NOT / AND / OR / XOR` (closed `str` enum) |
+| `TRUTH_TABLES` | read-only `MappingProxyType`, keyed by tuples of `LogicState`, covering every input combination (2^n rows). This is data only (design §50). |
+| `ARITY` | derived from the tables: NOT=1, AND/OR/XOR=2 |
+| `PinDirection`, `Pin(name, direction, net_id)` | frozen; input pins are `in0..in{n-1}`, the output pin is `out` |
+| `DigitalComponent(component_id, kind, inputs: tuple, output)` | frozen; `.pins`, `.pin(name)` (unknown → `UNKNOWN_PIN`), `.evaluate(states)` (table lookup) |
+
+Pins bind to nets. Direct pin-to-pin wiring cannot be expressed, and the
+single-driver rule refuses two outputs on one net. The component has no
+`delay` field: v1 is zero-delay only, so a delay cannot be expressed
+(design §16).
+
+### Stimulus API (`stimuli.py`)
+
+All four stimuli are frozen data. Each expands through `edges()` to a
+finite, strictly increasing sequence of `(Decimal time, LogicState)` pairs.
+
+| Stimulus | Edges |
+|:---|:---|
+| `ConstantStimulus(id, net, state, time=0)` | one edge |
+| `ToggleStimulus(id, net, first, start, period, count)` | `first, ¬first, …` at `start + i·period` |
+| `PulseStimulus(id, net, start, width, level=HIGH)` | `level` at `start`, `¬level` at `start + width` |
+| `PatternStimulus(id, net, start, step, states: tuple)` | `states[i]` at `start + i·step` |
+
+Validation rules:
+- Times use Q1 `check_time`.
+- `period`, `step` and `width` must be greater than 0 (`INVALID_PERIOD` /
+  `INVALID_WIDTH`).
+- A stimulus has at most `MAX_STIMULUS_EVENTS` = 100 000 edges and no
+  repeat (`STIMULUS_LIMIT`).
+- The last edge must be at or before `MAX_TIME` (`TIME_LIMIT`).
+- Edge times are computed in an exact 60-digit context that traps
+  `Inexact`. A time that would need rounding is refused, never silently
+  rounded (`INVALID_TIME`).
+- A pattern must be a tuple of `LogicState`. Strings, lists and callables
+  are refused.
+
+### Circuit and propagation (additions to `core.py`)
+
+- `DigitalCircuit` gains `add_component`, `add_stimulus`, `components`,
+  `stimuli`, `fanout(net)` (sorted by component id) and `driver(net)`.
+  - Each net has at most one driver, either a component output or a
+    stimulus. A second driver raises `DRIVER_CONFLICT`, naming both.
+  - Components and stimuli share one id namespace (`DUPLICATE_COMPONENT`).
+  - A component on a net that doesn't exist raises `UNKNOWN_NET`.
+  - The number of drivers is bounded by `MAX_NETS`, so no new limit is
+    needed.
+- `DigitalSimulator` propagates through the same Q1 `EventQueue`; there is
+  no second mechanism.
+  1. On the first `step`, all components are evaluated in id order and
+     their outputs settle to the initial net states at `t=now`. Then
+     every stimulus edge is scheduled in stimulus-id order.
+  2. After an event that changes a net, the components reading that net
+     are re-evaluated in id order.
+  3. An output event is scheduled at the same timestamp (zero-delay, no
+     artificial delta time). It is scheduled only if the new value
+     differs from the output's projected state: the last state scheduled
+     for that net, or its current state if nothing is pending.
+  4. Comparing against the projected state prevents a stale output when
+     two inputs change at the same instant (Q2-013).
+  5. Any cascade at the same timestamp is ordered by `(sequence, stable_id)`.
+- Loop detection (design §17): more than `max_delta_events` events
+  (`MAX_DELTA_EVENTS` = 100 000, lowerable per instance) at one timestamp
+  raises `DomainError INVALID_CYCLE` before the next event is popped. The
+  Q1 `EVENT_LIMIT` still caps the whole run. A→NOT→A therefore fails
+  deterministically, within a bounded number of events and bounded memory.
+- If a component or stimulus is registered after the simulator starts,
+  the next step raises `CIRCUIT_CHANGED`.
+
+**Q1 compatibility:** every Q1 signature, default and behaviour is
+unchanged. The new `max_delta_events` constructor argument is keyword-
+compatible, and a circuit without components or stimuli behaves exactly
+as before. The Q1 test file was not modified: all 85 tests pass, and
+Q1-S01 (AST purity) now also scans `components.py` and `stimuli.py`.
+
+### Error model (D2, no new codes)
+
+- `AC-VAL-001 ValidationError` adds these reasons: `INVALID_KIND`,
+  `INVALID_INPUTS`, `INVALID_ARITY`, `UNKNOWN_PIN`, `INVALID_PIN_DIRECTION`,
+  `INVALID_COMPONENT`, `DUPLICATE_COMPONENT`, `DRIVER_CONFLICT`,
+  `INVALID_STIMULUS`, `INVALID_PERIOD`, `INVALID_WIDTH`, `INVALID_PATTERN`,
+  `STIMULUS_LIMIT`.
+- `AC-DOM-001 DomainError` adds `INVALID_CYCLE` and `CIRCUIT_CHANGED`.
+
+### Tests — `tests/test_f8q2_digital_components.py`
+
+- Q2-001…Q2-025 follow the brief. The gate truth tables are checked
+  exhaustively over all 2^n input combinations, both by direct evaluation
+  and through the full simulator, against an independent Python 0/1
+  oracle.
+- Extra checks:
+  - gate identities and De Morgan
+  - frozen tables
+  - fanout order
+  - projected-state race
+  - XOR loop
+  - default-cap loop
+  - `CIRCUIT_CHANGED`
+  - exact-time refusal
+  - D2 conversion
+
+### Known limitations
+
+- Zero-delay hazards are visible. Simultaneous input edges can produce a
+  same-timestamp output glitch (for example Y: H then L at t=1 in Q2-013).
+  The final state is correct. The future trace layer must decide whether
+  to show or collapse these zero-width pulses.
+- Start-up settling can also emit events at `t=0` while outputs converge
+  from explicit initial net states that are logically inconsistent.
+- Loop detection is dynamic, via the per-timestamp cap. A cyclic structure
+  that happens to settle is not refused statically. Only oscillation or
+  over-long cascades fail.
+- Q1 `DigitalSimulator.schedule` can still target any net, including a
+  gate output. Single-driver validation covers registered drivers only.
+- Not implemented: clock-domain semantics, NAND/NOR/XNOR, arity > 2,
+  per-gate delays, stimulus `repeat`, undriven-net validation (a net with
+  no driver holds its explicit initial state), trace, probes, analyzer,
+  serialization, service, UI.
+
+F8-Q.2 status: **DIGITAL COMPONENTS + STIMULI READY** (sub-phase only;
+F8-Q not certified).
