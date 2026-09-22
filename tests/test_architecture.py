@@ -243,3 +243,73 @@ def test_rf_layer_direction():
                         if "rf" in mod.split("."):
                             violations.append(f"{sub}/{f.name}: {sub} -> rf")
     assert not violations, violations
+
+
+def test_comms_layer_direction():
+    """F8-P4 comms boundaries (N-110 principle, mirrors dsp/rf tests).
+    comms MAY consume dsp/control/math/units/metrology.o5 downward
+    (acyclic); nothing flows upward into control/math/dsp/units, and
+    comms never touches rf/mna/ac/lab/simulation/UI/filesystem/network.
+    comms is a closed-form math layer: no second FFT/DFT/Sequence/
+    digest/serializer/replay engine lives inside it."""
+    import ast as _ast
+    eng = pathlib.Path(__file__).resolve().parents[1] / "src" / "academic_core" / "domain" / "engineering"
+    comms_files = list((eng / "comms").glob("*.py")) if (eng / "comms").exists() else []
+    assert comms_files, "comms package missing"
+    violations = []
+    for f in comms_files:
+        tree = _ast.parse(f.read_text(encoding="utf-8"))
+        for node in _ast.walk(tree):
+            mods = []
+            if isinstance(node, _ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, _ast.ImportFrom):
+                mods = [node.module or ""]
+            for mod in mods:
+                segs = mod.split(".")
+                if "lab" in segs and "domain" in segs:
+                    violations.append(f"{f.name}: comms -> lab")
+                if mod in ("simulation",) or "simulation" in segs:
+                    if "domain.engineering" not in mod:
+                        violations.append(f"{f.name}: comms -> simulation")
+                if segs[:2] == ["academic_core", "app"] or "academic_core.app" in mod:
+                    violations.append(f"{f.name}: comms -> app")
+                if "mna" in segs:
+                    violations.append(f"{f.name}: comms -> mna")
+                if "engineering" in segs:
+                    tail = segs[segs.index("engineering") + 1:]
+                    if tail[:1] == ["rf"]:
+                        violations.append(f"{f.name}: comms -> rf")
+                    if tail[:1] == ["ac"]:
+                        violations.append(f"{f.name}: comms -> ac")
+    for sub in ("control", "math", "dsp"):
+        for f in (eng / sub).glob("*.py"):
+            tree = _ast.parse(f.read_text(encoding="utf-8"))
+            for node in _ast.walk(tree):
+                if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                    mods = ([a.name for a in node.names] if isinstance(node, _ast.Import)
+                            else [node.module or ""])
+                    for mod in mods:
+                        if "engineering.comms" in mod:
+                            violations.append(f"{sub}/{f.name}: {sub} -> comms")
+    units_file = eng / "units.py"
+    if units_file.exists():
+        tree = _ast.parse(units_file.read_text(encoding="utf-8"))
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                mods = ([a.name for a in node.names] if isinstance(node, _ast.Import)
+                        else [node.module or ""])
+                for mod in mods:
+                    if "engineering.comms" in mod:
+                        violations.append("units.py: units -> comms")
+    for sub in ("mna", "ac", "lab"):
+        for f in (eng / sub).glob("*.py"):
+            tree = _ast.parse(f.read_text(encoding="utf-8"))
+            for node in _ast.walk(tree):
+                if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                    mods = ([a.name for a in node.names] if isinstance(node, _ast.Import)
+                            else [node.module or ""])
+                    for mod in mods:
+                        if "comms" in mod.split("."):
+                            violations.append(f"{sub}/{f.name}: {sub} -> comms")
+    assert not violations, violations
