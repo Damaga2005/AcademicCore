@@ -196,7 +196,7 @@ F13    OneDrive / Cloud Sync (completo)                 [27º]
 F14    Migración de Sistemes-de-Mesura                  [28º]
 F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
 F8-Q  Motor Digital + Logic Analyzer                 [CERTIFICADA]
-E0     Explainable Execution / Pedagogical Trace        [TRANSVERSAL — DESPUÉS DE F8-Q]
+E0     Explainable Execution / Pedagogical Trace        [CERTIFICADA]
  │
  │  ═══════════ CAPACIDAD PEDAGÓGICA TRANSVERSAL ═══════════
  │
@@ -223,7 +223,7 @@ E0     Explainable Execution / Pedagogical Trace        [TRANSVERSAL — DESPUÉ
 | 14 | D3 | Licencia única | — | El conversor ya usa MIT; fijar antes de fusionar más repos |
 | 15 | F15 | Aplicación Final | D1, D2, D3, toda F8 | Qt/PySide6, dashboard, resolución de ejercicios, simulación |
 | 15a | F8-Q | Motor Digital + Logic Analyzer | F15, F8-N | Motor digital event-driven (LOW/HIGH, tiempo Decimal, zero-delay), gates N-arias, stimuli, probes, `DigitalTrace`, serialización/replay `digital-trace/1`, Logic Analyzer (trigger RISING/FALLING/BOTH, pre/post-trigger) e integración F15 (pestaña Logic Analyzer + renderer de formas de onda) — **CERTIFICADA** (Q.1–Q.7, [`GATE-F8Q-FINAL.md`](../gates/GATE-F8Q-FINAL.md)) |
-| 15b | E0 | Explainable Execution / Pedagogical Trace | F8-Q.7 (F8-Q certificada) | `ExecutionTrace` común, corrección paso a paso, retrofit de resolvers existentes (E0-A…E0-D) — **PLANIFICADA / TRANSVERSAL** (§5.2) |
+| 15b | E0 | Explainable Execution / Pedagogical Trace | F8-Q.7 (F8-Q certificada) | `ExecutionTrace` común (`execution-trace/1`, digest, replay, renderer de 7 preguntas) integrado con el resolver de ecuaciones y con F8-Q; botón «Explicar» en Ejercicios — **CERTIFICADA** ([`GATE-E0-FINAL.md`](../gates/GATE-E0-FINAL.md)); retrofit de otros resolvers (E0-A…E0-D) pendiente |
 | 16 | F3-ext | Integración del conversor HTML→MD/LaTeX | F15 | Motor de `Conversor-HTML-A-MD` (ya desacoplado de Tkinter) |
 | 17 | F4-ext | Fusión de gestión académica | F15, F3-ext | Migra `GestionAcademicaGREELEC.exe` al modelo F4 y al dashboard |
 | 18 | F13-ext | Sync entre 2 PCs personales | F15 | Última edición gana + log (no CRDT) |
