@@ -1,6 +1,17 @@
 """F8-Q digital engine (NEW): public surface (Q.1 core, Q.2/Q.2R/Q.3R components, Q.2 stimuli,
-Q.3R probes + trace, Q.4 digital-trace/1 serialization + replay)."""
+Q.3R probes + trace, Q.4 digital-trace/1 serialization + replay, Q.5 logic analyzer)."""
 
+from academic_core.domain.engineering.digital.analyzer import (
+    MAX_CAPTURE_CHANNELS,
+    MAX_CAPTURE_SAMPLES,
+    CaptureConfig,
+    CaptureResult,
+    CaptureStatus,
+    LogicAnalyzer,
+    TriggerConfig,
+    TriggerEdge,
+    verify_capture,
+)
 from academic_core.domain.engineering.digital.components import (
     ARITY_RANGE,
     GATE_SEMANTICS,
@@ -67,6 +78,8 @@ __all__ = [
     "DIGITAL_TRACE_SCHEMA",
     "DIGITAL_TRACE_VERSION",
     "GATE_SEMANTICS",
+    "MAX_CAPTURE_CHANNELS",
+    "MAX_CAPTURE_SAMPLES",
     "ID_RE",
     "MAX_DELTA_EVENTS",
     "MAX_EVENTS",
@@ -84,6 +97,9 @@ __all__ = [
     "STIMULUS_TYPES",
     "TRACE_CANONICAL_VERSION",
     "TRUTH_TABLES",
+    "CaptureConfig",
+    "CaptureResult",
+    "CaptureStatus",
     "ConstantStimulus",
     "DigitalCircuit",
     "DigitalComponent",
@@ -95,6 +111,7 @@ __all__ = [
     "EventQueue",
     "GateEvaluator",
     "GateKind",
+    "LogicAnalyzer",
     "LogicState",
     "PatternStimulus",
     "Pin",
@@ -103,11 +120,14 @@ __all__ = [
     "ToggleStimulus",
     "TraceChannel",
     "TraceSample",
+    "TriggerConfig",
+    "TriggerEdge",
     "canonical_time",
     "check_id",
     "check_sequence",
     "check_state",
     "check_time",
     "replay_trace",
+    "verify_capture",
     "verify_replay",
 ]

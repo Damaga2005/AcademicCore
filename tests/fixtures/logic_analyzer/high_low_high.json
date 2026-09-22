@@ -1,0 +1,1 @@
+{"channels":[{"initial_state":"LOW","net_id":"Y","no_op_count":0,"probe_id":"y","samples":[{"state":"HIGH","time":"0"},{"state":"LOW","time":"1"},{"state":"HIGH","time":"1"}]}],"schema":"digital-trace","version":1,"window":{"end_time":"2","start_time":"0"}}

@@ -447,6 +447,17 @@ class DigitalSimulator:
             self.step()
         return tuple(self._processed[start:])
 
+    def run_until(self, limit: Decimal) -> tuple[DigitalEvent, ...]:
+        """Process, in canonical order, every event with ``time <= limit``
+        (F8-Q.5). Later events stay queued; the state is known to hold until
+        ``limit``. Returns this call's events."""
+        horizon = check_time(limit)
+        self._start()
+        start = len(self._processed)
+        while not self.queue.empty() and self.queue.peek().time <= horizon:
+            self.step()
+        return tuple(self._processed[start:])
+
     @property
     def processed(self) -> tuple[DigitalEvent, ...]:
         return tuple(self._processed)
