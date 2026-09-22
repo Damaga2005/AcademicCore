@@ -195,6 +195,14 @@ F12    IA / Tutor Socrático con Guardrails               [26º]
 F13    OneDrive / Cloud Sync (completo)                 [27º]
 F14    Migración de Sistemes-de-Mesura                  [28º]
 F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
+F8-Q  Motor Digital + Logic Analyzer                 [EN DESARROLLO]
+E0     Explainable Execution / Pedagogical Trace        [TRANSVERSAL — DESPUÉS DE F8-Q]
+ │
+ │  ═══════════ CAPACIDAD PEDAGÓGICA TRANSVERSAL ═══════════
+ │
+> **E0 es obligatoria para todo resolver nuevo y para la migración progresiva de los resolvers existentes.**
+> No es una feature exclusiva de UI ni una explicación generada retrospectivamente por IA: la explicación debe proceder de una traza estructurada de la ejecución determinista.
+
 ```
 
 | # | Código | Nombre | Depende de | Nota |
@@ -233,6 +241,125 @@ F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
 
 ---
 
+## 5.2 E0 — Explainable Execution / Pedagogical Trace
+
+**Estado:** PLANIFICADA / TRANSVERSAL  
+**Implementación:** después de completar y certificar F8-Q.7  
+**Propósito:** convertir la ejecución real de los resolvers en una solución académica completamente trazable, reproducible y visualizable paso a paso.
+
+### Objetivo obligatorio
+
+AcademicCore no debe limitarse a producir:
+
+entrada → resultado
+
+cuando existe un procedimiento determinista que puede explicarse. Debe poder producir:
+
+datos → procedimiento → pasos → transformaciones → estados intermedios → comprobaciones → resultado.
+
+La explicación debe derivarse de la ejecución real del motor. **No se permite que una IA invente retrospectivamente una explicación que no esté respaldada por la traza del solver.**
+
+### ExecutionTrace común
+
+E0 deberá definir un contrato transversal para una traza estructurada que pueda representar, como mínimo:
+
+- datos iniciales y condiciones;
+- hipótesis y convenciones;
+- pasos ordenados y deterministas;
+- operaciones y transformaciones;
+- fórmulas y sustituciones;
+- valores intermedios y unidades;
+- justificación académica del paso;
+- estados estructurales intermedios;
+- advertencias y condiciones de validez;
+- verificaciones;
+- resultado final.
+
+La traza deberá ser **determinista, serializable, validable y reproducible**.
+
+### Circuitos
+
+Los resolvers de circuitos deberán poder representar el estado del circuito durante la solución. Si se simplifica una red, se sustituyen componentes, se elimina una rama o se crea un equivalente, deberá poder mostrarse:
+
+1. circuito original;
+2. operación/transformación aplicada;
+3. circuito resultante;
+4. cálculo asociado;
+5. siguiente transformación.
+
+El usuario deberá poder seguir visualmente la evolución del circuito como en una corrección de examen.
+
+### Tablas de verdad y lógica
+
+Las soluciones deberán poder mostrar entradas, señales intermedias, operaciones y salidas. No se limitarán a la tabla final si existen expresiones intermedias relevantes.
+
+Las simplificaciones booleanas deberán poder mostrar las transformaciones y la ley/identidad aplicada en cada paso.
+
+### Matemáticas e ingeniería
+
+Los resolvers deberán poder exponer fórmulas, sustituciones, conversiones de unidades, resultados intermedios, redondeos y comprobaciones finales cuando sean académicamente relevantes.
+
+En simulación deberán poder exponerse las condiciones iniciales, parámetros, eventos/estados relevantes y verificaciones sin confundir la traza pedagógica con la traza técnica interna del solver.
+
+### Corrección de ejercicios
+
+E0 deberá preparar el modo de corrección paso a paso. La corrección deberá poder distinguir, cuando el dominio lo permita, entre:
+
+- paso correcto;
+- paso incorrecto;
+- paso incompleto;
+- error algebraico;
+- error de unidades;
+- error conceptual;
+- resultado correcto obtenido mediante procedimiento incorrecto;
+- resultado final incorrecto.
+
+Deberá poder localizarse el primer error verificable y explicar la corrección correspondiente.
+
+### Arquitectura
+
+La separación obligatoria será:
+
+Domain/Application → ExecutionTrace → Renderer
+
+La traza no dependerá de Qt ni de la UI. Los renderers podrán producir texto, fórmulas, tablas, diagramas de circuitos y gráficos.
+
+### Determinismo y replay
+
+Mismo input + misma configuración + misma versión deberá producir una traza equivalente y un digest estable. Los datos puramente runtime no deberán contaminar el digest pedagógico.
+
+La traza deberá integrarse con los mecanismos de serialización y replay existentes, respetando D1 y D2.
+
+### Regla para nuevos resolvers
+
+**Desde la planificación de E0, todo resolver nuevo deberá diseñarse compatible con ExecutionTrace desde el principio.** No se permitirá implementar primero un resolver que solo devuelva el resultado y dejar la explicación para una fase indefinida posterior cuando el procedimiento sea determinista y explicable.
+
+### Retrofit de resolvers existentes
+
+Tras implementar E0 se auditarán los resolvers existentes y se clasificarán como:
+
+- **E0-A — Compatible:** ya conservan información suficiente.
+- **E0-B — Adaptable:** la información existe pero no está expuesta como traza.
+- **E0-C — Requiere modificación:** se pierde información intermedia necesaria.
+- **E0-D — Rediseño:** no existe un procedimiento reproducible suficientemente estructurado.
+
+Los E0-C/E0-D deberán migrarse progresivamente según prioridad.
+
+### Certificación E0
+
+E0 no se certificará hasta demostrar un flujo completo:
+
+Input → Resolver → ExecutionTrace → Serialización → Replay → Renderer → Solución → Verificación
+
+con determinismo y tests. Como mínimo deberá existir un caso de referencia de matemáticas, uno de circuitos, uno de lógica/tabla de verdad y uno de corrección de una respuesta.
+
+### Regla de calidad transversal
+
+> **La explicación paso a paso es parte del contrato de calidad del resolver.**
+>
+> No es una decoración de UI, no es texto inventado por IA y no es opcional cuando existe un procedimiento determinista que pueda exponerse.
+
+---
 ## 6. Familia F8 — Electrónica Avanzada
 
 La familia **F8** constituye el motor de simulación circuital y electrónica de AcademicCore:
