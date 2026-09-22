@@ -247,8 +247,6 @@ def test_q2r_from_pins_connection_model():
           Pin("in1", PinDirection.INPUT, "b")), "INVALID_PIN_DIRECTION"),
         ((Pin("out", PinDirection.OUTPUT, "y"), Pin("in0", PinDirection.INPUT, "a"),
           Pin("in0", PinDirection.INPUT, "b")), "DUPLICATE_PIN"),
-        ((Pin("out", PinDirection.OUTPUT, "y"), Pin("in0", PinDirection.INPUT, "a"),
-          Pin("in1", PinDirection.INPUT, "a")), "DUPLICATE_INPUT"),
         ((Pin("out", PinDirection.OUTPUT, "y"), Pin("in0", PinDirection.INPUT, "a")), "INVALID_ARITY"),
         ([Pin("out", PinDirection.OUTPUT, "y")], "INVALID_INPUTS"),
         (("out", "in0"), "INVALID_INPUTS"),
@@ -256,11 +254,16 @@ def test_q2r_from_pins_connection_model():
     for bad, reason in cases:
         with pytest.raises(ValidationError, match=reason):
             DigitalComponent.from_pins("g", GateKind.AND, bad)
+    # F8-Q.3R: two input pins on one net is legal (was DUPLICATE_INPUT in Q2R).
+    shared = DigitalComponent.from_pins("g", GateKind.AND, (
+        Pin("out", PinDirection.OUTPUT, "y"), Pin("in0", PinDirection.INPUT, "a"),
+        Pin("in1", PinDirection.INPUT, "a")))
+    assert shared.inputs == ("a", "a")
 
 
 def test_q2r_duplicate_input_and_unknown_net():
-    with pytest.raises(ValidationError, match="DUPLICATE_INPUT"):
-        DigitalComponent("g", GateKind.AND, ("a", "b", "a"), "y")
+    # F8-Q.3R: repeated input nets are legal (was DUPLICATE_INPUT in Q2R).
+    assert DigitalComponent("g", GateKind.AND, ("a", "b", "a"), "y").pin_indices("a") == (0, 2)
     c = DigitalCircuit()
     for nid in ("a", "b", "c", "y"):
         c.add_net(nid, L)

@@ -1,9 +1,11 @@
-"""F8-Q digital engine (NEW): public surface (Q.1 core + Q.2/Q.2R components, Q.2 stimuli)."""
+"""F8-Q digital engine (NEW): public surface (Q.1 core, Q.2/Q.2R/Q.3R components, Q.2 stimuli, Q.3R probes + trace)."""
 
 from academic_core.domain.engineering.digital.components import (
     ARITY_RANGE,
+    GATE_SEMANTICS,
     TRUTH_TABLES,
     DigitalComponent,
+    GateEvaluator,
     GateKind,
     Pin,
     PinDirection,
@@ -34,25 +36,39 @@ from academic_core.domain.engineering.digital.stimuli import (
     PulseStimulus,
     ToggleStimulus,
 )
+from academic_core.domain.engineering.digital.trace import (
+    MAX_PROBES,
+    TRACE_CANONICAL_VERSION,
+    DigitalProbe,
+    DigitalTrace,
+    TraceChannel,
+    TraceSample,
+)
 
 __all__ = [
     "ARITY_RANGE",
     "DIGITAL_CORE_VERSION",
+    "GATE_SEMANTICS",
     "ID_RE",
     "MAX_DELTA_EVENTS",
     "MAX_EVENTS",
     "MAX_NETS",
+    "MAX_PROBES",
     "MAX_STIMULUS_EVENTS",
     "MAX_TIME",
     "STIMULUS_TYPES",
+    "TRACE_CANONICAL_VERSION",
     "TRUTH_TABLES",
     "ConstantStimulus",
     "DigitalCircuit",
     "DigitalComponent",
     "DigitalEvent",
     "DigitalNet",
+    "DigitalProbe",
     "DigitalSimulator",
+    "DigitalTrace",
     "EventQueue",
+    "GateEvaluator",
     "GateKind",
     "LogicState",
     "PatternStimulus",
@@ -60,6 +76,8 @@ __all__ = [
     "PinDirection",
     "PulseStimulus",
     "ToggleStimulus",
+    "TraceChannel",
+    "TraceSample",
     "check_id",
     "check_sequence",
     "check_state",

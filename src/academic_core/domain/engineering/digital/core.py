@@ -201,7 +201,9 @@ class DigitalCircuit:
         self._stimuli: dict[str, object] = {}
         self._drivers: dict[str, str] = {}  # net_id -> driver id
         self._fanout: dict[str, tuple[str, ...]] = {}  # net_id -> sorted component ids
-        self.revision = 0  # bumped by add_component/add_stimulus
+        self._probes: dict[str, object] = {}  # observers only, never drivers (Q.3R)
+        self.revision = 0  # bumped by add_component/add_stimulus/add_probe
+        self.state_revision = 0  # bumped by every state-changing apply
 
     def add_net(self, net_id: str, initial: LogicState, name: str | None = None) -> DigitalNet:
         """Register a net. ``initial`` is required (no magic default, DIG-I014)."""
@@ -233,10 +235,30 @@ class DigitalCircuit:
             self.net(net_id)
         self._claim_driver(component.component_id, component.output)
         self._components[component.component_id] = component
-        for net_id in component.inputs:  # distinct by DigitalComponent validation
-            self._fanout[net_id] = tuple(sorted(self._fanout.get(net_id, ()) + (component.component_id,)))
+        for net_id in component.inputs:
+            readers = self._fanout.get(net_id, ())
+            if component.component_id not in readers:  # a net may feed several pins (Q.3R)
+                self._fanout[net_id] = tuple(sorted(readers + (component.component_id,)))
         self.revision += 1
         return component
+
+    def add_probe(self, probe):
+        """Register an observer channel. Never claims a driver, never mutates nets."""
+        from academic_core.domain.engineering.digital.trace import MAX_PROBES, DigitalProbe
+
+        if not isinstance(probe, DigitalProbe):
+            raise _invalid("INVALID_PROBE", f"expected DigitalProbe, got {type(probe).__name__}")
+        if probe.probe_id in self._probes:
+            raise _invalid("DUPLICATE_PROBE", f"probe {probe.probe_id!r} already registered")
+        self.net(probe.net_id)
+        if len(self._probes) >= MAX_PROBES:
+            raise _domain_error("PROBE_LIMIT", f"circuit holds {MAX_PROBES} probes")
+        self._probes[probe.probe_id] = probe
+        self.revision += 1
+        return probe
+
+    def probes(self) -> tuple:
+        return tuple(self._probes[k] for k in sorted(self._probes))
 
     def add_stimulus(self, stimulus):
         """Register a stimulus as the sole driver of its net."""
@@ -287,6 +309,7 @@ class DigitalCircuit:
         if net.state == event.state:
             return False
         self._nets[net.net_id] = net.with_state(event.state)
+        self.state_revision += 1
         return True
 
 
@@ -310,8 +333,20 @@ class DigitalSimulator:
     - More than ``max_delta_events`` events at one timestamp is a
       zero-delay loop, reported as ``DomainError INVALID_CYCLE``
       (design §17). ``EVENT_LIMIT`` still caps the whole run.
-    - Components/stimuli must be registered before the first ``step``.
-      A later registration raises ``CIRCUIT_CHANGED``.
+    - Components/stimuli/probes must be registered before the first
+      ``step``. A later registration raises ``CIRCUIT_CHANGED``.
+
+    F8-Q.3R additions:
+    - Gates are evaluated incrementally through per-run ``GateEvaluator``s,
+      which cost O(pins on the changed net) instead of O(N). Outputs come
+      from the same semantic function as ``DigitalComponent.evaluate``, and
+      ``check_consistency()`` compares the two paths (dev/test oracle, never
+      called on the hot path).
+    - Changing net state behind the simulator's back (``circuit.apply``
+      after start) would desynchronise the evaluators, so it raises
+      ``CIRCUIT_CHANGED``.
+    - Probed nets are captured into a ``DigitalTrace`` (``trace()``); see
+      ``trace.py`` for the capture, no-op and same-timestamp policies.
     """
 
     def __init__(self, circuit: DigitalCircuit, max_events: int = MAX_EVENTS,
@@ -329,7 +364,13 @@ class DigitalSimulator:
         self._processed: list[DigitalEvent] = []
         self._projected: dict[str, LogicState] = {}  # net_id -> last scheduled state
         self._revision: int | None = None  # circuit revision seen at start-up
+        self._state_revision = 0  # circuit.state_revision after our last apply
         self._delta: tuple[Decimal | None, int] = (None, 0)
+        self._evaluators: dict[str, object] = {}  # component_id -> GateEvaluator
+        self._start_time = Decimal(0)
+        self._initial: dict[str, LogicState] = {}  # probed net -> state at start
+        self._captured: dict[str, list[tuple[Decimal, int, LogicState]]] = {}  # probed net -> transitions
+        self._noops: dict[str, int] = {}  # probed net -> no-op event count
 
     def schedule(self, time: Decimal, net_id: str, state: LogicState,
                  stable_id: str | None = None) -> DigitalEvent:
@@ -346,21 +387,30 @@ class DigitalSimulator:
         self._projected[net_id] = event.state
         return event
 
-    def _evaluate(self, component) -> None:
-        out = component.evaluate(tuple(self.circuit.state(n) for n in component.inputs))
+    def _project(self, component, out: LogicState) -> None:
         if out != self._projected.get(component.output, self.circuit.state(component.output)):
             self.schedule(self.now, component.output, out, component.component_id)
 
     def _start(self) -> None:
         if self._revision is None:
             self._revision = self.circuit.revision
+            self._state_revision = self.circuit.state_revision
+            self._start_time = self.now
+            for probe in self.circuit.probes():
+                self._initial[probe.net_id] = self.circuit.state(probe.net_id)
+                self._captured[probe.net_id] = []
+                self._noops[probe.net_id] = 0
             for component in self.circuit.components():
-                self._evaluate(component)
+                ev = component.evaluator(tuple(self.circuit.state(n) for n in component.inputs))
+                self._evaluators[component.component_id] = ev
+                self._project(component, ev.output_state())
             for stimulus in self.circuit.stimuli():
                 for t, state in stimulus.edges():
                     self.schedule(t, stimulus.net_id, state, stimulus.stimulus_id)
         elif self._revision != self.circuit.revision:
-            raise _domain_error("CIRCUIT_CHANGED", "components/stimuli added after simulation start")
+            raise _domain_error("CIRCUIT_CHANGED", "components/stimuli/probes added after simulation start")
+        elif self._state_revision != self.circuit.state_revision:
+            raise _domain_error("CIRCUIT_CHANGED", "net state changed outside the simulator")
 
     def step(self) -> DigitalEvent:
         self._start()
@@ -373,9 +423,19 @@ class DigitalSimulator:
         self._delta = (nxt.time, count)
         event = self.queue.pop()
         self.now = event.time
-        if self.circuit.apply(event):
+        old = self.circuit.state(event.net_id)
+        changed = self.circuit.apply(event)
+        self._state_revision = self.circuit.state_revision
+        if changed:
             for component in self.circuit.fanout(event.net_id):
-                self._evaluate(component)
+                ev = self._evaluators[component.component_id]
+                ev.update_net(event.net_id, old, event.state)
+                self._project(component, ev.output_state())
+        if event.net_id in self._captured:
+            if changed:
+                self._captured[event.net_id].append((event.time, event.sequence, event.state))
+            else:
+                self._noops[event.net_id] += 1
         self._processed.append(event)
         return event
 
@@ -390,3 +450,37 @@ class DigitalSimulator:
     @property
     def processed(self) -> tuple[DigitalEvent, ...]:
         return tuple(self._processed)
+
+    def trace(self):
+        """Immutable ``DigitalTrace`` of all probes, window ``[start, now]``.
+
+        Before the first step it is built from the circuit's current states
+        (no samples). Transitions stored <= processed events <= max_events,
+        once per net, however many probes observe it.
+        """
+        from academic_core.domain.engineering.digital.trace import (
+            DigitalTrace,
+            TraceChannel,
+            TraceSample,
+        )
+
+        channels = []
+        for probe in self.circuit.probes():
+            net_id = probe.net_id
+            channels.append(TraceChannel(
+                probe.probe_id, net_id,
+                self._initial.get(net_id, self.circuit.state(net_id)),
+                tuple(TraceSample(t, seq, s) for t, seq, s in self._captured.get(net_id, ())),
+                self._noops.get(net_id, 0)))
+        return DigitalTrace(self._start_time, self.now, tuple(channels))
+
+    def check_consistency(self) -> None:
+        """Dev/test oracle: incremental gate state must equal full evaluation
+        of the current net states. Raises ``IntegrationError`` on divergence."""
+        from academic_core.errors import IntegrationError
+
+        for cid in sorted(self._evaluators):
+            ev = self._evaluators[cid]
+            current = tuple(self.circuit.state(n) for n in ev.component.inputs)
+            if ev.input_states != current or ev.output_state() is not ev.component.evaluate(current):
+                raise IntegrationError(f"INCONSISTENT_EVALUATOR: {cid}")

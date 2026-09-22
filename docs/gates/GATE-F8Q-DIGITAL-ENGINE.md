@@ -364,3 +364,182 @@ semantics.
 
 F8-Q.2R status: **N-ARY ARCHITECTURE READY** (sub-phase only; F8-Q not
 certified).
+
+## F8-Q.3R — Digital Engine Hardening + DigitalTrace
+
+Baseline `dbc9492`, branch `main`, clean tree. Before this change, Q1/Q2/Q2R
+passed 85/70/40. This phase closes the three Q2R limitations (A/B/C) and adds
+probes and the trace. It supersedes the Q2R "Known limitations" and the
+Q2R `DUPLICATE_INPUT` rule.
+
+### A — NAND / NOR / XNOR
+
+- `GateKind` gains `NAND`, `NOR` and `XNOR`. They use the same
+  `DigitalComponent` class and are N-ary, with arity 2..`MAX_NETS`, like
+  AND/OR/XOR.
+- There is a single semantic source. `GATE_SEMANTICS` is data: for each
+  kind, a reduction (`ALL` / `ANY` / `ODD`) over the number of HIGH pins,
+  plus an inversion flag. `_output(kind, highs, n)` interprets it.
+  - Full evaluation (`DigitalComponent.evaluate`, the oracle) uses it.
+  - The incremental `GateEvaluator` uses it.
+  - The derived `TRUTH_TABLES` view (NOT plus 2-input rows, for Q2
+    compatibility) uses it.
+- No table with 2^N rows is ever built; wide gates are evaluated
+  algebraically.
+
+| Kind | HIGH iff |
+|:---|:---|
+| NAND | not all pins HIGH |
+| NOR | all pins LOW |
+| XNOR | an even number of pins HIGH |
+
+### B — Repeated input nets
+
+- Several input pins of one gate may name the same net. Each pin counts
+  separately: `NAND(A,A) = NOT A`, `XOR(A,A) = LOW`, `XOR(A,A,B) = B`.
+- The Q2R `DUPLICATE_INPUT` error is removed, including from `from_pins`.
+- `DigitalComponent.pin_indices(net)` returns the pins bound to a net.
+- `fanout(net)` lists a component once, however many of its pins the net
+  feeds.
+- Still enforced:
+  - duplicate pin names (`DUPLICATE_PIN`)
+  - the single-driver rule on outputs (`DRIVER_CONFLICT`)
+  - duplicate component ids
+
+### C — Incremental N-ary evaluation
+
+- `GateEvaluator(component, states)` is the per-run state of one gate:
+  - `initialize(states)`: O(N), once at simulation start-up.
+  - `update(index, old, new)`: O(1). Everything is validated before any
+    mutation. A wrong `old` state raises `IntegrationError STALE_INPUT`
+    (AC-INT-001).
+  - `update_net(net, old, new)`: O(k) for the k pins on that net.
+  - `output_state()`: O(1), computed through `_output`.
+- It stores the per-pin states and a HIGH counter. For AND/NAND/OR/NOR the
+  counter is compared with 0 or N; for XOR/XNOR its parity is used.
+- The simulator keeps one evaluator per component, updates only the pins
+  of the net that changed, and never runs the full reduction once started.
+  A test patches the reduction to raise during a 64-input run, so any full
+  evaluation would fail it.
+- The incremental state is not a second source of truth.
+  `DigitalSimulator.check_consistency()` (a dev/test oracle, never on the
+  hot path) re-evaluates every gate from the current net states and raises
+  `IntegrationError INCONSISTENT_EVALUATOR` on divergence. A test replaces
+  the incremental output with full evaluation and checks the whole event
+  log is identical, event for event, so no glitch is added or removed.
+- Changing a net behind the simulator's back (`circuit.apply` after
+  start-up) would desynchronise the evaluators. It is detected through
+  `DigitalCircuit.state_revision` and raises `CIRCUIT_CHANGED`.
+
+### DigitalProbe
+
+- `DigitalProbe(probe_id, net_id)` binds one channel to one net.
+- It is registered with `DigitalCircuit.add_probe` (`probes()` lists them
+  sorted by id).
+- It is observation-only: it never claims a driver, never schedules
+  events, never mutates nets. The event log is identical with and without
+  probes. Several probes may observe the same net.
+- Errors: `INVALID_PROBE`, `DUPLICATE_PROBE`, `UNKNOWN_NET`, and
+  `PROBE_LIMIT` (`MAX_PROBES` = 32 = design `MAX_CHANNELS`).
+- A probe added after the simulation starts raises `CIRCUIT_CHANGED`, so a
+  channel never misses the start of a run.
+
+### DigitalTrace
+
+- `DigitalSimulator.trace()` returns an immutable
+  `DigitalTrace(start, end, channels)`. It can be called at any time. The
+  window is `[start-up time, now]`.
+- Channels are `TraceChannel(probe_id, net_id, initial, samples, noop_count)`,
+  sorted by `probe_id`. Samples are `TraceSample(time, sequence, state)`.
+- Kept vs counted:
+  - Every processed event on a probed net that changes the state is a
+    real transition and is stored as a sample.
+  - An event that doesn't change the state is a no-op: it only increments
+    `noop_count` and is never stored.
+  - `initial` is the net state at start-up. Between samples the state
+    holds (`state_at(t)`, `final`).
+- Validation: samples must be strictly ordered by `(time, sequence)`, each
+  must be a real transition from the previous state, and all must lie
+  inside the window. Channel ids are unique and sorted, and there are at
+  most `MAX_PROBES` channels (`INVALID_TRACE`).
+
+### Same-timestamp semantics
+
+- Q1/Q2 ordering is unchanged: `(time, sequence, stable_id)`, zero-delay,
+  projected output.
+- The trace keeps every real transition, including several on one net at
+  the same time (e.g. the Q2-013 hazard `t=1 HIGH`, `t=1 LOW`). They are
+  kept in ascending `sequence`, never collapsed. `state_at(t)` returns the
+  last one at or before `t`.
+- Showing or merging zero-width pulses is left to the future
+  renderer/analyzer.
+
+### Digest (internal canonical form)
+
+- `DigitalTrace.canonical()` produces this text:
+  - the header `digital-trace-internal/0`
+  - the line `window|start|end`
+  - per channel in `probe_id` order, `channel|probe_id|net_id|initial`,
+    followed by `sample|time|state` lines in stored order
+- Times use `str(Decimal)` (design §10), and states are 0/1.
+- `digest()` is its SHA-256 (stdlib `hashlib`).
+- Excluded: raw `sequence` numbers (order is carried by position; an
+  unrelated gate shifts sequences but not the digest), `noop_count`,
+  memory, `id()`, Python `hash()`, dict/set order and wall clock.
+- This is not the `digital-trace/1` wire schema. Serialization and replay
+  are Q4.
+
+### Limits
+
+- Unchanged: `MAX_NETS` 1024, `MAX_EVENTS` 1 000 000, `MAX_TIME` 3600 s,
+  `MAX_DELTA_EVENTS` 100 000, `MAX_STIMULUS_EVENTS` 100 000.
+- New: `MAX_PROBES` = 32.
+- Stored transitions per probed net are at most the processed events,
+  which are at most `max_events`. Storage is kept once per net, not once
+  per probe. Duration is bounded by `MAX_TIME`.
+- Every limit uses the existing D2 codes (AC-VAL-001 / AC-DOM-001 /
+  AC-INT-001). No `AC-DIG-*`.
+
+### Compatibility
+
+- Q1 and Q2 test files are unchanged and pass (85 / 70).
+- Q2R: its zero-input test is parametrized over `GateKind`, so it now also
+  covers NAND/NOR/XNOR (40 → 43 tests). Two assertions of the removed
+  `DUPLICATE_INPUT` rule became positive assertions that repeated input
+  nets are accepted (brief §5).
+- All other public APIs are unchanged. `DigitalCircuit` gains
+  `add_probe`, `probes` and `state_revision`. `DigitalSimulator` gains
+  `trace` and `check_consistency`.
+
+### Tests — `tests/test_f8q3r_digital_trace.py` (99 tests)
+
+- **Gates:** NAND/NOR/XNOR checked on every input combination for N = 2/3/4
+  (direct evaluation and full simulator); properties for all six N-ary
+  kinds at N = 8/16/32/64; `MAX_NETS` and above.
+- **Repeated inputs:** repeated-net gates over all input combinations.
+- **Incremental:** evaluator vs full evaluation over deterministic random
+  walks (N up to 64, with repeated nets); a hot-path guard; the whole
+  simulation compared incremental vs full; out-of-band state changes.
+- **Same timestamp:** 2/3/8 inputs and repeated nets, for all six N-ary
+  kinds; cascades; loops (`NAND(A,A)→A`) and bounds.
+- **Probes:** a single probe; multiple probes and several on one net;
+  probes never drive; lifecycle; no-ops; validation; limit.
+- **Trace:** empty; one and multiple transitions; same-timestamp glitch
+  kept; digest deterministic and independent of probe order and sequence
+  numbers; value validation; storage bound.
+
+### Known limitations
+
+- No Logic Analyzer, trigger/capture windows, sampling or decimation
+  views, UI, F15 integration, `digital-trace/1` wire format or replay.
+  These are later phases.
+- Each probe observes exactly one net. Buses and multi-net channels are
+  not modelled.
+- `trace()` rebuilds the immutable snapshot each call, which is O(stored
+  transitions). Call it once at the end of long runs.
+- The digest follows the design's `str(Decimal)` rule, so a time written
+  `1.0` and one written `1` produce different digests, though Decimal
+  compares them as equal.
+
+F8-Q.3R status: **DIGITAL HARDENING + DIGITALTRACE READY** (sub-phase only;
+F8-Q not certified).
