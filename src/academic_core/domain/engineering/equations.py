@@ -170,11 +170,42 @@ class _Parser:
         raise EquationError(f"unexpected {val!r}")
 
 
+def _span_text(tokens) -> str:
+    """Readable source text of a token span (data for explanations, never executed)."""
+    out = ""
+    for _kind, val in tokens:
+        call = val == "(" and out[-1:].isalnum()  # function call: "exp(" stays joined
+        if out and not out.endswith("(") and val != ")" and not call:
+            out += " "
+        out += val
+    return out
+
+
 class _Eval:
-    def __init__(self, tokens, env: dict[str, Quantity]):
+    """Recursive-descent evaluator.
+
+    E0 (explainable execution): an optional ``observer`` is told, in real
+    evaluation order, about every value that is read (``leaf``) and every
+    operation that is applied (``operation``). It receives the Quantity the
+    engine actually computed. With ``observer=None`` (the default)
+    behaviour is unchanged. The observer never influences evaluation.
+    """
+
+    def __init__(self, tokens, env: dict[str, Quantity], observer=None):
         self.tokens = tokens
         self.pos = 0
         self.env = env
+        self.observer = observer
+
+    def _leaf(self, kind: str, start: int, value: Quantity) -> Quantity:
+        if self.observer is not None:
+            self.observer.leaf(kind, _span_text(self.tokens[start:self.pos]), value)
+        return value
+
+    def _op(self, op: str, start: int, arity: int, value: Quantity) -> Quantity:
+        if self.observer is not None:
+            self.observer.operation(op, _span_text(self.tokens[start:self.pos]), arity, value)
+        return value
 
     def peek(self):
         return self.tokens[self.pos] if self.pos < len(self.tokens) else (None, None)
@@ -191,39 +222,44 @@ class _Eval:
         return out
 
     def expr(self) -> Quantity:
+        start = self.pos
         out = self.term()
         while self.peek() in (("op", "+"), ("op", "-")):
             op = self.next()[1]
             rhs = self.term()
-            out = out + rhs if op == "+" else out - rhs
+            out = self._op(op, start, 2, out + rhs if op == "+" else out - rhs)
         return out
 
     def term(self) -> Quantity:
+        start = self.pos
         out = self.factor()
         while self.peek() in (("op", "*"), ("op", "/")):
             op = self.next()[1]
             rhs = self.factor()
-            out = out * rhs if op == "*" else out / rhs
+            out = self._op(op, start, 2, out * rhs if op == "*" else out / rhs)
         return out
 
     def factor(self) -> Quantity:
         if self.peek() in (("op", "+"), ("op", "-")):
+            start = self.pos
             neg = self.next()[1] == "-"
             val = self.factor()
-            return -val if neg else val
+            return self._op("neg", start, 1, -val) if neg else val
         return self.power()
 
     def power(self) -> Quantity:
+        start = self.pos
         base = self.primary()
         if self.peek() == ("op", "**"):
             self.next()
             exp = self.primary()
             if exp.dimension != DIMENSIONLESS:
                 raise EquationError("exponent must be dimensionless")
-            return base ** exp.to_base()
+            return self._op("**", start, 2, base ** exp.to_base())
         return base
 
     def primary(self) -> Quantity:
+        start = self.pos
         kind, val = self.next()
         if kind == "num":
             try:
@@ -232,9 +268,9 @@ class _Eval:
                 raise EquationError(f"bad number: {val}")
             if self.peek()[0] == "name":
                 unit = parse_unit(self.next()[1])
-                return Quantity(number, unit)
+                return self._leaf("literal", start, Quantity(number, unit))
             from academic_core.domain.engineering.units import Unit
-            return Quantity(number, Unit("1", "1", "", DIMENSIONLESS, Decimal(1)))
+            return self._leaf("literal", start, Quantity(number, Unit("1", "1", "", DIMENSIONLESS, Decimal(1))))
         if kind == "name":
             if val in ALLOWED_FUNCS:
                 if self.next() != ("op", "("):
@@ -242,18 +278,18 @@ class _Eval:
                 arg = self.expr()
                 if self.next() != ("op", ")"):
                     raise EquationError("missing )")
-                return _apply_func(val, arg)
+                return self._op(val, start, 1, _apply_func(val, arg))
             if val not in self.env:
                 # Standalone unit literal (e.g. `kohm` in `49.4 * kohm`):
                 # env always wins, so real variables shadow unit names.
                 try:
-                    return Quantity(Decimal(1), parse_unit(val))
+                    return self._leaf("unit", start, Quantity(Decimal(1), parse_unit(val)))
                 except UnitError:
                     raise EquationError(f"unknown variable: {val}") from None
             got = self.env[val]
             if not isinstance(got, Quantity):
                 raise EquationError(f"{val} is not a Quantity")
-            return got
+            return self._leaf("variable", start, got)
         if (kind, val) == ("op", "("):
             out = self.expr()
             if self.next() != ("op", ")"):
@@ -336,8 +372,12 @@ def _unit_for(dim: tuple):
     return _unit_for_dim(dim)
 
 
-def evaluate(eq: Equation, env: dict[str, Quantity]) -> Quantity:
+def evaluate(eq: Equation, env: dict[str, Quantity], observer=None) -> Quantity:
     """Evaluate a parsed equation. Unknown names, bad dims, div-by-zero →
-    controlled EquationError/UnitError. Never eval/exec."""
+    controlled EquationError/UnitError. Never eval/exec.
+
+    ``observer`` (E0, optional): receives ``leaf(kind, text, quantity)`` and
+    ``operation(op, text, arity, quantity)`` calls in evaluation order;
+    see ``_Eval``. It does not change the result."""
     rhs = eq.source.partition("=")[2]
-    return _Eval(_tokenize(rhs), env).run()
+    return _Eval(_tokenize(rhs), env, observer).run()

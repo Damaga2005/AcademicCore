@@ -298,6 +298,10 @@ class DigitalAnalysisService:
             raise ValidationError(f"UNKNOWN_DEMO: {str(demo)[:64]!r} is not an available circuit")
         return _DEMOS[demo][1]()
 
+    def new_circuit(self, demo: str) -> DigitalCircuit:
+        """A fresh demo circuit (E0 explanation/replay re-runs from the demo key)."""
+        return self._circuit(demo)
+
     def channels(self, demo: str) -> tuple[ChannelInfo, ...]:
         """Available channels (probes) with their net and start-up state."""
         circuit = self._circuit(demo)

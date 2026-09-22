@@ -53,6 +53,10 @@ class ExercisePanel(QWidget):
         self.btn_run = QPushButton("Solve")
         self.btn_run.setToolTip("Execute the exercise through the application service")
         row.addWidget(self.btn_run)
+        self.btn_explain = QPushButton("&Explicar")
+        self.btn_explain.setToolTip("Run the exercise and explain it step by step from its real "
+                                    "execution trace (E0)")
+        row.addWidget(self.btn_explain)
         self.status = QLabel("IDLE")
         row.addWidget(self.status)
         layout.addLayout(row)
@@ -64,6 +68,7 @@ class ExercisePanel(QWidget):
         self.btn_refresh.clicked.connect(self.refresh_library)
         self.selector.currentTextChanged.connect(self._show_selected)
         self.btn_run.clicked.connect(self._solve)
+        self.btn_explain.clicked.connect(self._explain)
         self.refresh_library()
 
     # -- data (plain values from the service; never domain objects) ----
@@ -96,10 +101,7 @@ class ExercisePanel(QWidget):
         return hints.get(key, "V=5 V; R=1000 ohm")
 
     # -- execution: worker -> service -> UI thread -----------------------
-    def _solve(self) -> None:
-        key = self.selector.currentText()
-        if not key:
-            return
+    def _read_inputs(self) -> dict | None:
         raw = self.inputs.toPlainText()
         try:
             inputs = {k.strip(): v.strip()
@@ -109,12 +111,39 @@ class ExercisePanel(QWidget):
                 raise ValueError("no inputs given (expected VAR=value pairs)")
         except Exception as exc:
             show_ui_error(self, exc, "Inputs")
+            return None
+        return inputs
+
+    def _solve(self) -> None:
+        key = self.selector.currentText()
+        if not key:
+            return
+        inputs = self._read_inputs()
+        if inputs is None:
             return
         self._set_state(UiState.RUNNING, "RUNNING…")
         worker = ServiceWorker(self.svc.solve, key, inputs)
         worker.signals.finished.connect(self._on_result)
         worker.signals.failed.connect(self._on_error)
         self.pool.start(worker)
+
+    def _explain(self) -> None:
+        """E0: show the explanation rendered from the real execution trace."""
+        key = self.selector.currentText()
+        inputs = self._read_inputs() if key else None
+        if inputs is None:
+            return
+        self._set_state(UiState.RUNNING, "RUNNING…")
+        worker = ServiceWorker(self.app.explain.explain_exercise, key, inputs)
+        worker.signals.finished.connect(self._on_explanation)
+        worker.signals.failed.connect(self._on_error)
+        self.pool.start(worker)
+
+    def _on_explanation(self, view) -> None:
+        self.explanation = view
+        self.output.setPlainText(self.app.explain.text(view))
+        self._set_state(UiState.SUCCESS if view.outcome == "SUCCESS" else UiState.WARNING,
+                        f"{view.outcome} · verificación {view.verification}")
 
     def _on_result(self, result) -> None:
         self.output.setPlainText(f"{result.text}\ndigest {result.digest[:16]}")

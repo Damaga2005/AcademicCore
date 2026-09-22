@@ -80,6 +80,9 @@ class AcademicApp:
         # -- F8-Q.6 digital logic analyzer (application boundary, no Qt) --
         from academic_core.application.digital_service import DigitalAnalysisService
         self.digital = DigitalAnalysisService()
+        # -- E0 explainable execution (traces of real runs -> explanations) --
+        from academic_core.application.explain_service import ExplainService
+        self.explain = ExplainService(self.engineering, self.digital)
 
     def ensure_demo(self) -> None:
         """Generic, deletable demo hierarchy (never institution-specific)."""
