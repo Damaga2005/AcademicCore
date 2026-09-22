@@ -1,7 +1,7 @@
-"""F8-Q digital engine (NEW): public surface (Q.1 core + Q.2 components/stimuli)."""
+"""F8-Q digital engine (NEW): public surface (Q.1 core + Q.2/Q.2R components, Q.2 stimuli)."""
 
 from academic_core.domain.engineering.digital.components import (
-    ARITY,
+    ARITY_RANGE,
     TRUTH_TABLES,
     DigitalComponent,
     GateKind,
@@ -36,7 +36,7 @@ from academic_core.domain.engineering.digital.stimuli import (
 )
 
 __all__ = [
-    "ARITY",
+    "ARITY_RANGE",
     "DIGITAL_CORE_VERSION",
     "ID_RE",
     "MAX_DELTA_EVENTS",

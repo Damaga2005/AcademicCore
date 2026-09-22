@@ -117,7 +117,8 @@ def test_q2_gate_identities_exhaustive():
 
 @pytest.mark.parametrize("kind, inputs", [
     (GateKind.NOT, ()), (GateKind.NOT, ("a", "b")),
-    (GateKind.AND, ("a",)), (GateKind.OR, ("a", "b", "c")), (GateKind.XOR, ()),
+    # F8-Q.2R: OR("a","b","c") became valid (N-ary); OR with 1 input is still invalid.
+    (GateKind.AND, ("a",)), (GateKind.OR, ("a",)), (GateKind.XOR, ()),
 ])
 def test_q2_006_invalid_arity(kind, inputs):
     with pytest.raises(ValidationError, match="INVALID_ARITY"):

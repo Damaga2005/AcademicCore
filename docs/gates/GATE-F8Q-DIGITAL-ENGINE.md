@@ -254,3 +254,113 @@ Q1-S01 (AST purity) now also scans `components.py` and `stimuli.py`.
 
 F8-Q.2 status: **DIGITAL COMPONENTS + STIMULI READY** (sub-phase only;
 F8-Q not certified).
+
+## F8-Q.2R — N-ary component architecture correction
+
+Baseline `ed7df78`, branch `main`, clean tree. Before this change,
+Q1 + Q2 passed 155/155. This section supersedes the Q2 `ARITY` /
+`TRUTH_TABLES` rows above.
+
+### Motivation
+
+Q2 fixed AND/OR/XOR at exactly 2 inputs (`in0`, `in1`). AcademicCore must
+be able to represent gates with N inputs using a single abstraction. Kinds
+per arity (`AND3`, `AND4`, …) are ruled out.
+
+### API
+
+- `DigitalComponent(component_id, kind, inputs: tuple[str, ...], output)`
+  is unchanged in shape. `inputs` now has length N.
+  - Input pins `in0..in{N-1}` follow the order of `inputs`; the output
+    pin stays `out`.
+  - New `arity` property.
+  - `evaluate(states)` validates that the number of states equals `arity`
+    and that each one is a `LogicState`, then applies the kind's rule.
+- `DigitalComponent.from_pins(component_id, kind, pins: tuple[Pin, ...])`
+  builds a component from explicit pin bindings given in any order.
+  - Exactly one `out` pin, with direction OUTPUT.
+  - Input pins must be named `in<k>` in canonical form (`in00` is
+    refused) and numbered contiguously from `in0`.
+  - Errors: `UNKNOWN_PIN`, `MISSING_PIN`, `DUPLICATE_PIN`,
+    `INVALID_PIN_DIRECTION`, `INVALID_INPUTS`.
+- `ARITY_RANGE: {kind: (min, max)}` replaces Q2's `ARITY` mapping.
+  `ARITY` was exported one phase earlier and had no users; it is removed
+  because a single integer can't describe N-ary kinds.
+- `DigitalCircuit.add_component`, `fanout` and the simulator have no
+  arity-specific code; one change was needed. Fanout registration now
+  iterates the input tuple instead of a `set` of it. Inputs are now
+  distinct, and the result is sorted as before.
+
+### Minimum arity
+
+| Kind | Inputs |
+|:---|:---|
+| NOT | exactly 1 |
+| AND / OR / XOR | 2 … `MAX_NETS` (1024) |
+
+- Zero inputs are refused for every kind (`INVALID_ARITY`), so no empty
+  AND/OR/XOR semantics are invented.
+- One input to AND/OR/XOR is refused as well: it would just be a wire.
+- The upper bound is the existing core limit, not a new one. Inputs
+  must be distinct nets (`DUPLICATE_INPUT`), so a gate can never read
+  more nets than exist.
+
+### N-ary semantics
+
+These are static reductions in `components._reduce`: no generated code,
+no tables built from executable strings.
+
+- AND is HIGH iff all inputs are HIGH.
+- OR is HIGH iff at least one input is HIGH.
+- XOR is HIGH iff an odd number of inputs are HIGH (parity).
+- NOT inverts its single input.
+
+`TRUTH_TABLES` is kept for Q2 compatibility as a frozen view derived from
+those rules (NOT plus the 2-input tables); it no longer defines the
+semantics.
+
+### Compatibility
+
+- `AND(A, B)`, `OR(A, B)`, `XOR(A, B)` and `NOT(A)` behave and serialize
+  their pins exactly as in Q2.
+- Stimuli are unchanged, and propagation, projected output and
+  same-timestamp ordering are the Q2 code paths.
+- Intended behaviour changes:
+  1. A 3-input OR is now valid. One Q2 parametrized case
+     (`test_q2_006_invalid_arity`, `OR("a","b","c")`) asserted the old
+     2-only rule. It was replaced by `OR("a")`, which is still invalid, so
+     the test is no weaker; the 3-input case is tested positively in Q2R.
+  2. A gate that connects the same net to two inputs (`AND(a, a)`) is now
+     refused (`DUPLICATE_INPUT`). No existing test or code used this.
+- The Q1 test file is unchanged.
+
+### Tests — `tests/test_f8q2r_digital_nary.py`
+
+- Q2R-001…Q2R-020 follow the brief.
+- Every combination for N = 2, 3, 4 is checked against the mathematical
+  definitions, both by direct evaluation and through the full simulator.
+- N = 8 uses deterministic generated vectors: all-low, all-high, one-hot,
+  one-cold, plus an LCG walk. No RNG module is used.
+- N = 16/32/64 check commutativity, absorbing/identity elements and XOR
+  flip sensitivity, plus one simulated run each.
+- An N-ary gate is checked against a left fold of the 2-input gate for
+  N = 3..6.
+- Also covered:
+  - `from_pins` validation matrix
+  - duplicate input
+  - unknown net leaves nothing half-registered
+  - 3-input same-timestamp changes over all 64 start/end combinations
+  - fanout to AND/OR/XOR/NOT
+  - an AND4 → OR5 → XOR8 composition over all 32 inputs
+
+### Known limitations
+
+- NAND/NOR/XNOR are still absent. They would be negated reductions, and
+  can be added as new kinds without changing the architecture.
+- A single net cannot feed two pins of the same gate. Use a separate net
+  if that is ever needed.
+- Very wide gates re-evaluate in O(N) for each input change. There is no
+  incremental counting; N is bounded by `MAX_NETS`.
+
+F8-Q.2R status: **N-ARY ARCHITECTURE READY** (sub-phase only; F8-Q not
+certified).

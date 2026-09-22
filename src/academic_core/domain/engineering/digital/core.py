@@ -233,7 +233,7 @@ class DigitalCircuit:
             self.net(net_id)
         self._claim_driver(component.component_id, component.output)
         self._components[component.component_id] = component
-        for net_id in set(component.inputs):
+        for net_id in component.inputs:  # distinct by DigitalComponent validation
             self._fanout[net_id] = tuple(sorted(self._fanout.get(net_id, ()) + (component.component_id,)))
         self.revision += 1
         return component
