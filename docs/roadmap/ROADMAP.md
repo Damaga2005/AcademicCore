@@ -222,6 +222,8 @@ E0     Explainable Execution / Pedagogical Trace        [TRANSVERSAL — DESPUÉ
 | 13 | D2 | Estándar de logging/errores | — | Sustituye el patrón `except Exception: pass` del conversor |
 | 14 | D3 | Licencia única | — | El conversor ya usa MIT; fijar antes de fusionar más repos |
 | 15 | F15 | Aplicación Final | D1, D2, D3, toda F8 | Qt/PySide6, dashboard, resolución de ejercicios, simulación |
+| 15a | F8-Q | Motor Digital + Logic Analyzer | F15, F8-N | Motor digital event-driven (LOW/HIGH, tiempo Decimal, zero-delay), gates N-arias, stimuli, probes y `DigitalTrace`; pendiente serialización/replay, Logic Analyzer e integración F15 — **EN DESARROLLO** (Q.1–Q.3R implementadas, [`GATE-F8Q-DIGITAL-ENGINE.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8Q-DIGITAL-ENGINE.md)) |
+| 15b | E0 | Explainable Execution / Pedagogical Trace | F8-Q.7 (F8-Q certificada) | `ExecutionTrace` común, corrección paso a paso, retrofit de resolvers existentes (E0-A…E0-D) — **PLANIFICADA / TRANSVERSAL** (§5.2) |
 | 16 | F3-ext | Integración del conversor HTML→MD/LaTeX | F15 | Motor de `Conversor-HTML-A-MD` (ya desacoplado de Tkinter) |
 | 17 | F4-ext | Fusión de gestión académica | F15, F3-ext | Migra `GestionAcademicaGREELEC.exe` al modelo F4 y al dashboard |
 | 18 | F13-ext | Sync entre 2 PCs personales | F15 | Última edición gana + log (no CRDT) |
