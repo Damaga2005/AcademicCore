@@ -38,9 +38,10 @@ from datetime import date, datetime
 import re
 
 from academic_core.domain.identity import slugify, validate
+from academic_core.errors import AcademicCoreError
 
 
-class DomainError(ValueError):
+class DomainError(AcademicCoreError):
     """Broken domain invariant."""
 
 

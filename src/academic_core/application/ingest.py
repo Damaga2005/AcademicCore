@@ -23,10 +23,11 @@ from pathlib import Path
 from academic_core.domain import resources as R
 from academic_core.domain.entities import ResourceReference
 from academic_core.domain.identity import make
+from academic_core.errors import AcademicCoreError
 from academic_core.resources.adapters import UnsupportedType, adapter_for, detect_kind
 
 
-class SecurityError(ValueError):
+class SecurityError(AcademicCoreError):
     pass
 
 

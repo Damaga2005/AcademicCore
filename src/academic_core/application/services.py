@@ -13,12 +13,13 @@ from academic_core.domain import entities as E
 from academic_core.domain import grading as G
 from academic_core.domain import schedule as S
 from academic_core.domain.identity import make, slugify
+from academic_core.errors import AcademicCoreError
 from academic_core.infrastructure.repositories import (
     AcademicRepository, GradingRepository, PlanningRepository, StudyRepository,
 )
 
 
-class ApplicationError(ValueError):
+class ApplicationError(AcademicCoreError):
     pass
 
 
@@ -269,3 +270,17 @@ class ResultsService:
         if pass_ratio is not None:
             kw["pass_ratio"] = Decimal(pass_ratio)
         return _R.compute(grades, **kw)
+
+    # -- F15: UI helper so widgets never import domain.results (AI-001) ----
+    def record_grade(self, subject_id: str, key: str, value: str,
+                     scale: str, weight: str) -> None:
+        """Record a grade from plain UI strings (scales: n10/n100/letters/pf)."""
+        from decimal import Decimal
+
+        from academic_core.domain import results as _R
+        scales = {"n10": _R.N_10, "n100": _R.N_100,
+                  "letters": _R.LETTERS_ES, "pf": _R.PASS_FAIL}
+        if scale not in scales:
+            raise ApplicationError(f"unknown grade scale: {scale}")
+        self.record(subject_id, _R.Grade(key, value, scales[scale],
+                                         Decimal(weight or 0)))

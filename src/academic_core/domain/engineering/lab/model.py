@@ -16,6 +16,7 @@ from decimal import Decimal, localcontext
 from enum import Enum
 
 from academic_core.domain.engineering.math.trig import make_context
+from academic_core.errors import AcademicCoreError
 from academic_core.domain.engineering.units import (
     ADMITTANCE,
     CAPACITANCE,
@@ -105,7 +106,7 @@ VERSION_MISMATCH = "VERSION_MISMATCH"
 SERIALIZATION_TOO_LARGE = "SERIALIZATION_TOO_LARGE"
 
 
-class LabConfigError(ValueError):
+class LabConfigError(AcademicCoreError):
     """Typed lab configuration failure (constructors / closed session)."""
 
     def __init__(self, code, message):
