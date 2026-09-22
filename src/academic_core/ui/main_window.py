@@ -83,6 +83,29 @@ class AcademicMainWindow(QMainWindow):
         from academic_core.ui.engineering import EngineeringPanel
         self.engineering_panel = EngineeringPanel(app)
         self.tabs.addTab(self.engineering_panel, "Engineering")
+        # -- F15 tabs (dashboard first, then vertical slices) ---------------
+        from academic_core.ui.dashboard import DashboardPanel
+        from academic_core.ui.exercises import ExercisePanel
+        from academic_core.ui.simulation import SimulationPanel
+        from academic_core.ui.virtual_lab import VirtualLabPanel
+        self.dashboard_panel = DashboardPanel(app)
+        self.exercise_panel = ExercisePanel(app)
+        self.simulation_panel = SimulationPanel(app)
+        self.virtual_lab_panel = VirtualLabPanel(app)
+        self.tabs.insertTab(0, self.dashboard_panel, "Dashboard")
+        self.tabs.addTab(self.exercise_panel, "Exercises")
+        self.tabs.addTab(self.simulation_panel, "Simulation")
+        self.tabs.addTab(self.virtual_lab_panel, "Virtual Lab")
+        self.dashboard_panel.navigate.connect(self._navigate)
+        config_tab = QWidget()
+        config_layout = QVBoxLayout(config_tab)
+        self.config_label = QLabel()
+        self.config_label.setWordWrap(True)
+        self.config_label.setToolTip("Basic configuration and version/state")
+        config_layout.addWidget(self.config_label)
+        config_layout.addStretch(1)
+        self.tabs.addTab(config_tab, "Settings")
+        self._refresh_config()
 
         actions = QHBoxLayout()
         self.btn_topic = QPushButton("Add topic")
@@ -138,6 +161,37 @@ class AcademicMainWindow(QMainWindow):
         self._refresh_detail()
 
     # -- tree ---------------------------------------------------------------------
+    def _navigate(self, key: str) -> None:
+        """Dashboard navigation to a real tab (F15 §8)."""
+        targets = {
+            "exercises": self.exercise_panel,
+            "simulation": self.simulation_panel,
+            "lab": self.virtual_lab_panel,
+            "resources": None,  # resource browser lives in the Resources tab
+            "settings": None,  # last tab
+        }
+        if key == "resources":
+            for i in range(self.tabs.count()):
+                if self.tabs.tabText(i) == "Resources":
+                    self.tabs.setCurrentIndex(i)
+                    return
+        elif key == "settings":
+            self.tabs.setCurrentIndex(self.tabs.count() - 1)
+            return
+        panel = targets.get(key)
+        if panel is not None:
+            self.tabs.setCurrentWidget(panel)
+
+    def _refresh_config(self) -> None:
+        from academic_core import __version__ as _v
+        settings = self.app.settings
+        self.config_label.setText(
+            f"Academic Core v{_v}\n"
+            f"storage: {settings.storage.location}\n"
+            f"license: MIT (LICENSE)\n"
+            f"lab schema: f8n-lab/1\n"
+            f"GREELEC: no integration (UNKNOWN / REQUIRES INPUT)")
+
     def _refresh_tree(self) -> None:
         self.tree.clear()
         self._index: dict[int, tuple[str, str]] = {}
@@ -313,13 +367,8 @@ class AcademicMainWindow(QMainWindow):
         if not v:
             return
         try:
-            from decimal import Decimal
-            from academic_core.domain import results as R
-            scales = {"n10": R.N_10, "n100": R.N_100,
-                      "letters": R.LETTERS_ES, "pf": R.PASS_FAIL}
-            self.app.results.record(sid, R.Grade(v["key"], v["value"],
-                                                 scales[v["scale"]],
-                                                 Decimal(v["weight"] or 0)))
+            self.app.results.record_grade(
+                sid, v["key"], v["value"], v["scale"], v["weight"])
         except Exception as e:
             QMessageBox.warning(self, "Grade", f"{type(e).__name__}: {e}")
         self._refresh_detail()
@@ -473,13 +522,12 @@ class AcademicMainWindow(QMainWindow):
             QMessageBox.warning(self, "Export", "Build a document first")
             return
         row = rows[0]
-        doc = self.app.documents.get(sid, row["resource_version"], row["parser"])
         if fmt == "md":
-            from academic_core.documents import render_markdown as RM
-            out, filtr = RM.render(doc), "Markdown (*.md)"
+            out, filtr = self.app.documents.render_markdown(
+                sid, row["resource_version"], row["parser"]), "Markdown (*.md)"
         else:
-            from academic_core.documents import render_html as RH
-            out, filtr = RH.render(doc), "HTML (*.html)"
+            out, filtr = self.app.documents.render_html(
+                sid, row["resource_version"], row["parser"]), "HTML (*.html)"
         path, _ = QFileDialog.getSaveFileName(self, f"Export {fmt.upper()}", "", filtr)
         if path:
             Path(path).write_text(out, encoding="utf-8")

@@ -15,10 +15,6 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from academic_core.documents import ast as A
-from academic_core.documents import render_markdown as RM
-from academic_core.documents.markdown_parser import parse_markdown
-from academic_core.domain import authoring as AU
 from academic_core.ui.dialogs import prompt_form
 
 
@@ -27,7 +23,9 @@ class AuthoringPanel(QWidget):
         super().__init__(parent)
         self.app = app  # AcademicApp facade
         self.sid: str | None = None
-        self.state: AU.AuthoringDocument | None = None
+        # Opaque working document owned by AuthoringService (D1 AI-001:
+        # this panel never imports domain.authoring / documents.*).
+        self.state: object | None = None
 
         layout = QHBoxLayout(self)
         # -- browser ----------------------------------------------------------
@@ -137,8 +135,7 @@ class AuthoringPanel(QWidget):
                 f"{res.title or sid} [{self.app.authoring_store.lifecycle_of(sid)}]"))
 
     def _new(self) -> None:
-        from academic_core.documents import templates as T
-        names = [(n, n) for n in T.TEMPLATES]
+        names = [(n, n) for n in self.app.authoring.template_names()]
         v = prompt_form(self, "New document", [("t", "Template", names, "combo")])
         if not v:
             return
@@ -167,42 +164,27 @@ class AuthoringPanel(QWidget):
         self.sid = sid
         self.refresh_all()
 
-    # -- outline + block editors --------------------------------------------------------------
+    # -- outline + block editors (via AuthoringService only, D1 AI-001) ----
     @staticmethod
     def _label(node) -> str:
-        if node.kind == "heading":
-            kids = "".join(c.attrs.get("value", "") for c in node.children
-                            if c.kind == "text")
-            return f"H{node.attrs.get('level', '?')} {kids[:40]}"
-        if node.kind == "paragraph":
-            kids = "".join(c.attrs.get("value", "") for c in node.children
-                            if c.kind == "text")
-            return f"¶ {kids[:40]}"
-        if node.kind == "equation":
-            return f"= {node.attrs.get('source', '')[:40]}"
-        if node.kind == "code_block":
-            return f"<> {node.attrs.get('language', '')}"
-        if node.kind == "table":
-            return f"▦ {len(node.children)} rows"
-        if node.kind == "image":
-            return f"🖼 {node.attrs.get('alt', '')[:30]}"
-        return node.kind
+        return str(node)
 
     def refresh_all(self) -> None:
         if self.state is None or self.sid is None:
             return
         res = self.app.records.get(self.sid)
         life = self.app.authoring_store.lifecycle_of(self.sid)
+        revision, dirty, _n = self.app.authoring.doc_status(self.state)
         self.status.setText(
-            f"{self.sid} · v{res.current_version} · rev {self.state.revision} · "
-            f"{life} · {'dirty' if self.state.dirty else 'clean'}")
+            f"{self.sid} · v{res.current_version} · rev {revision} · "
+            f"{life} · {'dirty' if dirty else 'clean'}")
         self.outline.clear()
         self._paths: dict[int, tuple] = {}
-        for i, block in enumerate(self.state.doc.children):
-            item = QTreeWidgetItem([self._label(block)])
+        for i, label in enumerate(self.app.authoring.top_block_labels(self.state)):
+            item = QTreeWidgetItem([label])
             self._paths[id(item)] = (i,)
             self.outline.addTopLevelItem(item)
-        self.meta_title.setText(self.state.doc.meta.title)
+        self.meta_title.setText(self.app.authoring.doc_title(self.state))
 
     def _current_path(self):
         items = self.outline.selectedItems()
@@ -216,18 +198,10 @@ class AuthoringPanel(QWidget):
         path = self._paths.get(id(item))
         if path is None:
             return
-        from academic_core.domain.authoring import _get
-        node = _get(self.state.doc, path)
-        self.block_kind.setText(f"{node.kind} {path}")
-        if node.kind == "equation":
-            self.block_edit.setPlainText(node.attrs.get("source", ""))
-            self.eq_display.setChecked(bool(node.attrs.get("display")))
-        elif node.kind == "code_block":
-            self.block_edit.setPlainText(node.attrs.get("code", ""))
-        else:
-            self.block_edit.setPlainText(
-                RM.render(A.Document(A.Metadata(), (), (node,))).strip())
-            self.eq_display.setChecked(False)
+        kind, text, display = self.app.authoring.block_editor_text(self.state, path)
+        self.block_kind.setText(f"{kind} {path}")
+        self.block_edit.setPlainText(text)
+        self.eq_display.setChecked(display)
 
     def _apply_block(self) -> None:
         if self.state is None:
@@ -236,25 +210,18 @@ class AuthoringPanel(QWidget):
         if path is None:
             QMessageBox.warning(self, "Block", "Select a block in the outline")
             return
-        from academic_core.domain.authoring import _get
-        node = _get(self.state.doc, path)
+        kind, _text, _display = self.app.authoring.block_editor_text(self.state, path)
         try:
-            if node.kind == "equation":
-                new = A.equation(self.block_edit.toPlainText(),
-                                 "latex", self.eq_display.isChecked())
-                self.state.execute(AU.ReplaceNode(path, new))
-            elif node.kind == "code_block":
-                new = A.code_block(self.block_edit.toPlainText(),
-                                   node.attrs.get("language", ""))
-                self.state.execute(AU.ReplaceNode(path, new))
+            if kind == "equation":
+                self.app.authoring.apply_equation(
+                    self.state, path, self.block_edit.toPlainText(),
+                    self.eq_display.isChecked())
+            elif kind == "code_block":
+                self.app.authoring.apply_code(
+                    self.state, path, self.block_edit.toPlainText())
             else:
-                parsed = parse_markdown(self.block_edit.toPlainText())
-                if len(parsed.children) != 1:
-                    QMessageBox.warning(
-                        self, "Block",
-                        f"expected 1 block, got {len(parsed.children)} (nothing applied)")
-                    return
-                self.state.execute(AU.ReplaceNode(path, parsed.children[0]))
+                self.app.authoring.apply_markdown(
+                    self.state, path, self.block_edit.toPlainText())
         except Exception as e:
             QMessageBox.warning(self, "Block", f"{type(e).__name__}: {e}")
             return
@@ -267,7 +234,7 @@ class AuthoringPanel(QWidget):
         if path is None:
             return
         try:
-            self.state.execute(AU.DeleteNode(path))
+            self.app.authoring.delete_block(self.state, path)
         except Exception as e:
             QMessageBox.warning(self, "Block", str(e))
         self.refresh_all()
@@ -276,9 +243,11 @@ class AuthoringPanel(QWidget):
         if self.state is None:
             return
         path = self._current_path()
-        anchor = path[0] + 1 if path else len(self.state.doc.children)
+        svc = self.app.authoring
+        _rev, _dirty, n = svc.doc_status(self.state)
+        anchor = path[0] + 1 if path else n
         try:
-            self.state.execute(AU.InsertNode((anchor,), A.paragraph([A.text("…")])))
+            svc.insert_paragraph(self.state, anchor)
         except Exception as e:
             QMessageBox.warning(self, "Block", str(e))
         self.refresh_all()
@@ -286,10 +255,7 @@ class AuthoringPanel(QWidget):
     def _set_title(self) -> None:
         if self.state is None:
             return
-        from academic_core.documents import ast as _A
-        meta = _A.Metadata(**{**self.state.doc.meta.to_dict(),
-                              "title": self.meta_title.text()})
-        self.state.execute(AU.UpdateMetadata(meta))
+        self.app.authoring.set_title(self.state, self.meta_title.text())
         self.refresh_all()
 
     # -- history / persistence ----------------------------------------------------------------------
@@ -363,11 +329,9 @@ class AuthoringPanel(QWidget):
         from PySide6.QtWidgets import QFileDialog
         from pathlib import Path as _P
         if fmt == "md":
-            from academic_core.documents import render_markdown as _RM
-            out, filtr = _RM.render(self.state.doc), "Markdown (*.md)"
+            out, filtr = self.app.authoring.export_markdown(self.state), "Markdown (*.md)"
         else:
-            from academic_core.documents import render_html as _RH
-            out, filtr = _RH.render(self.state.doc), "HTML (*.html)"
+            out, filtr = self.app.authoring.export_html(self.state), "HTML (*.html)"
         path, _ = QFileDialog.getSaveFileName(self, f"Export {fmt.upper()}", "", filtr)
         if path:
             _P(path).write_text(out, encoding="utf-8")

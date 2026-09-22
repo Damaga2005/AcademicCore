@@ -133,9 +133,8 @@ class EngineeringPanel(QWidget):
         v = prompt_form(self, "Circuit", [("name", "Name", "", "text")])
         if not v:
             return
-        from academic_core.domain.engineering.circuit import Circuit
         try:
-            self.eng.save_circuit(self.project, Circuit(v["name"]))
+            self.eng.save_circuit(self.project, self.eng.new_circuit(v["name"]))
         except Exception as e:
             QMessageBox.warning(self, "Circuit", f"{type(e).__name__}: {e}")
             return
@@ -153,12 +152,13 @@ class EngineeringPanel(QWidget):
                          ("pins", "Pins net1,net2", "", "text")])
         if not v:
             return
-        from academic_core.domain.engineering.circuit import COMPONENT_PINS
-        want = COMPONENT_PINS[v["type"]]
+        from academic_core.errors import to_ui_error
+        from academic_core.ui.errors import show_ui_error
+        want = self.eng.component_pins(v["type"])
         nets = [n.strip() for n in v["pins"].split(",")]
         if len(nets) != len(want):
-            QMessageBox.warning(self, "Component",
-                                f"{v['type']} needs pins {list(want)}")
+            show_ui_error(self, to_ui_error(
+                ValueError(f"{v['type']} needs pins {list(want)}")))
             return
         try:
             self.eng.add_component(self.project, self.circuit_name, v["type"],
@@ -180,14 +180,16 @@ class EngineeringPanel(QWidget):
             self.status.setText(self.project or "No project")
             return
         circuit = self.eng.repo.load_circuit(self.project, self.circuit_name)
-        warnings = circuit.validate()
+        warnings = self.eng.circuit_warnings(circuit)
         structural_line = ""
         try:
             plan = self.eng.analyze_circuit(circuit)
             topos = [t.topology.value for t in plan.recognized_topologies]
             structural_line = f"structural: {plan.classification} [{', '.join(topos) or 'none'}] (primary: {plan.primary_analysis.value if plan.primary_analysis else 'none'})"
-        except Exception:
-            pass
+        except Exception as e:
+            from academic_core.errors import to_ui_error
+            from academic_core.ui.errors import show_ui_error  # noqa: F401
+            structural_line = f"structural: unavailable ({to_ui_error(e).error_code})"
         calcs = self.eng.repo.calculations_of(self.project)
         lines = [f"circuit: {self.circuit_name}",
                  f"components: {len(circuit.components)}",
@@ -225,13 +227,5 @@ class EngineeringPanel(QWidget):
         self._refresh_detail()
 
     def _backend_status(self) -> None:
-        backends = []
-        try:
-            from academic_core.domain.engineering import simulation as S
-            null = S.NullSimulationBackend()
-            backends.append(f"null: detected={null.detect()} (NOT IMPLEMENTED, F7)")
-            if isinstance(self.eng.backend, S.MockSimulationBackend):
-                backends.append("mock: active (prefixed results, tests only)")
-        except Exception as e:  # pragma: no cover
-            backends.append(str(e))
-        QMessageBox.information(self, "Simulation backends", "\n".join(backends))
+        QMessageBox.information(self, "Simulation backends",
+                                "\n".join(self.eng.backend_status_lines()))
