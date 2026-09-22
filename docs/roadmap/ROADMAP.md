@@ -2,7 +2,7 @@
 
 > **Proyecto**: AcademicCore  
 > **Documento**: Roadmap Maestro y Visión Funcional  
-> **Estado**: En Desarrollo Activo (Fases F0 a F8-P4 **CERTIFICADAS**)
+> **Estado**: En Desarrollo Activo (Fases F0 a F8-P5 **CERTIFICADAS**)
 > **Objetivo**: Plataforma académica técnica con conocimiento estructurado, evaluación, aprendizaje adaptativo, ingeniería/simulación e IA asistiva gobernada por guardrails deterministas.
 
 ---
@@ -170,7 +170,7 @@ F8-P1  Sistemas y Control                               [7º] CERTIFICADO
 F8-P2  DSP                                              [8º] CERTIFICADO
 F8-P3  RF y Líneas de Transmisión                       [9º] CERTIFICADO
 F8-P4  Comunicaciones Digitales                         [10º] CERTIFICADO
-F8-P5  Síntesis Satcom                                  [11º]
+F8-P5  Síntesis Satcom                                  [11º] CERTIFICADO
  │
  │  ═══════════ CIERRE DE F8. EMPIEZA CONSTRUCCIÓN DE APP ═══════════
  │
@@ -209,7 +209,7 @@ F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
 | 8 | F8-P2 | DSP | F8-P1 | FFT/DFT, transformada Z, FIR/IIR, muestreo, aliasing — **CERTIFICADO** |
 | 9 | F8-P3 | RF y Líneas de Transmisión | F8-D1/D2, F8-P2 | Carta de Smith, parámetros S, líneas de transmisión, matching — **CERTIFICADO** (antenas/link budget diferidos a F8-P5, roadmap:212) |
 | 10 | F8-P4 | Comunicaciones Digitales | F8-P2, F8-P3 | Modulaciones, constelaciones, BER/SNR, Shannon — **CERTIFICADO** |
-| 11 | F8-P5 | Síntesis Satcom | F8-P1..P4 | Módulo integrador: link budget + modulación + ruido + antenas |
+| 11 | F8-P5 | Síntesis Satcom | F8-P1..P4 | Módulo integrador: link budget + modulación + ruido + antenas — **CERTIFICADO** |
 | 12 | D1 | Arquitectura de módulos/plugins | — | Manifiesto común antes de fusionar `GestionAcademicaGREELEC.exe`, el conversor y AcademicCore |
 | 13 | D2 | Estándar de logging/errores | — | Sustituye el patrón `except Exception: pass` del conversor |
 | 14 | D3 | Licencia única | — | El conversor ya usa MIT; fijar antes de fusionar más repos |
@@ -237,7 +237,7 @@ F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
 
 La familia **F8** constituye el motor de simulación circuital y electrónica de AcademicCore:
 
-### 6.1 Fases Certificadas (F8-A a F8-P4)
+### 6.1 Fases Certificadas (F8-A a F8-P5)
 
 | Fase | Denominación | Capacidades Principales | Estado | Gate |
 |:---:|:---|:---|:---:|:---:|
@@ -267,11 +267,12 @@ La familia **F8** constituye el motor de simulación circuital y electrónica de
 | **F8-P2** | DSP (tiempo discreto) | FFT/DFT, Z unilateral causal, FIR/IIR, bilineal desde P1, muestreo/Nyquist/aliasing, márgenes discretos, serialización F8-P2. | **CERTIFICADO** | [GATE-F8P2.md](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8P2.md) |
 | **F8-P3** | RF y Líneas de Transmisión | Primitivas RF, líneas de transmisión (RLGC/lossless), reflexión/VSWR/RL, redes dos-puertos Z/Y/ABCD, parámetros S (Kurokawa), cascada ABCD, Carta de Smith (matemática), matching de impedancias en forma cerrada (conjugado/λ4/stub/LC), márgenes RF (VSWR/RL/IL/ML/GT/K-μ), serialización `f8p3-rf/1`. | **CERTIFICADO** | [GATE-F8P3.md](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8P3.md) |
 | **F8-P4** | Comunicaciones Digitales | Bits/símbolos/alfabetos, constelaciones Gray deterministas (BPSK/QPSK/M-PSK/M-QAM/ASK/OOK), FSK coherente, pulsos RC/RRC, canal AWGN, detección coherente, BER/SER/SNR/EbN0/EsN0, capacidad Shannon, simulación seeded, serialización `f8p4-comms/1`. | **CERTIFICADO** | [GATE-F8P4.md](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8P4.md) |
+| **F8-P5** | Síntesis Satcom | Constantes SI exactas, EIRP, FSPL, Friis, antenas (ganancia/apertura), ruido kTB, G/T, C/N0, C/N, Eb/N0, margen de enlace, 1–2 legs, transponder lineal, síntesis inversa cerrada, integración P4, serialización `f8p5-satcom/1`. | **CERTIFICADO** | [GATE-F8P5.md](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8P5.md) |
 
 ### 6.2 Fases Futuras de la Familia F8
 
 > [!NOTE]
-> *Nota normativa:* F8-P3 y F8-P4 ya están certificadas y figuran en §6.1. La siguiente fase de la familia F8 es **F8-P5 (NEXT)**, de acuerdo con el orden normativo de §5.1.
+> *Nota normativa:* F8-P4 y F8-P5 ya están certificadas y figuran en §6.1. La familia F8 queda cerrada; el siguiente paso son las decisiones D1/D2/D3, de acuerdo con el orden normativo de §5.1.
 
 - **F8-O — Metrología e Incertidumbre**: **CERTIFICADA** ([`GATE-F8O.md`](file:///c:/Users/dmart/Documents/AcademicCore/docs/gates/GATE-F8O.md)). Expresión de incertidumbre según la guía GUM (tipo A, tipo B, combinada y expandida), propagación analítica y Monte Carlo, cifras significativas y trazabilidad metrológica.
 
