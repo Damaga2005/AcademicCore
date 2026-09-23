@@ -155,12 +155,17 @@ class SimReport:
             raise _fail(ControlStatus.INVALID, "MC error count inconsistent")
 
 
-def simulate_bpsk(eb_n0_db: Decimal, nbits: int, seed: int) -> SimReport:
+def simulate_bpsk(eb_n0_db: Decimal, nbits: int, seed: int, observer=None) -> SimReport:
     """Seeded BPSK-over-AWGN run (Es = Eb = 1, real noise N0/2 per dim).
 
     Bits come from uniform_stream threshold 1/2 (seeded); noise from
     gaussian_stream under the same seed. Analytic BER is the verdict
     oracle; the 5-sigma bound is the documented comparison criterion.
+
+    E0.4: an optional ``observer`` receives ``bpsk_setup(eb_n0_lin, n0,
+    sigma, seed)`` and ``bpsk_bit(index, uniform, bit, symbol, noise,
+    sample, decided)`` for every simulated bit (immutable snapshots).
+    ``None`` keeps the simulation byte-identical.
     """
     snr_db = _check_db(eb_n0_db)
     total = _check_count(nbits, MAX_MC_BITS, "MC bits")
@@ -174,13 +179,18 @@ def simulate_bpsk(eb_n0_db: Decimal, nbits: int, seed: int) -> SimReport:
     uniforms = uniform_stream(tag, total, 0)
     noise = gaussian_stream(tag, total, total)
     constellation: Constellation = bpsk_constellation()
+    if observer is not None:
+        observer.bpsk_setup(eb_n0_lin, n0, sigma, tag)
     errors = 0
     for i in range(total):
         bit = 0 if uniforms[i] < Decimal("0.5") else 1
         symbol = constellation.coordinate_of(bit)
         sample = DecimalComplex(ctx.add(symbol.re, ctx.multiply(sigma, noise[i])),
                                 symbol.im)
-        if bpsk_demodulate((sample,))[0] != bit:
+        decided = bpsk_demodulate((sample,))[0]
+        if observer is not None:
+            observer.bpsk_bit(i, uniforms[i], bit, symbol, noise[i], sample, decided)
+        if decided != bit:
             errors += 1
     ber_sim = ctx.divide(Decimal(errors), Decimal(total))
     analytic = ber_bpsk(eb_n0_lin).value

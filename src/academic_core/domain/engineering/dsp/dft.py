@@ -154,22 +154,35 @@ def _check_fft_size(size: int) -> None:
         raise ControlError(ControlStatus.INVALID, "FFT budget exceeded")
 
 
-def fft(values: object) -> tuple:
-    """Iterative radix-2 DIT FFT (deterministic bit-reversal + stages)."""
+def fft(values: object, observer=None) -> tuple:
+    """Iterative radix-2 DIT FFT (deterministic bit-reversal + stages).
+
+    E0.4: an optional ``observer`` receives ``fft_input(samples,
+    bit_reversed)`` and, after every stage, ``fft_stage(length, twiddles,
+    data)`` with the twiddles that stage used and the vector it produced
+    (immutable snapshots). ``None`` keeps the transform byte-identical.
+    """
     raw = _as_samples(values)
     size = len(raw)
     _check_fft_size(size)
     data = _bit_reversed([_promote(v) for v in raw])
+    if observer is not None:
+        observer.fft_input(tuple(_promote(v) for v in raw), tuple(data))
     length = 2
     while length <= size:
         half = length // 2
+        used: list | None = [] if observer is not None else None
         for start in range(0, size, length):
             for j in range(half):
                 factor = twiddle(j, length, False)
+                if used is not None and start == 0:
+                    used.append(factor)
                 left = data[start + j]
                 right = data[start + j + half] * factor
                 data[start + j] = left + right
                 data[start + j + half] = left - right
+        if observer is not None:
+            observer.fft_stage(length, tuple(used), tuple(data))
         length *= 2
     return tuple(data)
 

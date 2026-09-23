@@ -51,6 +51,7 @@ from academic_core.domain.engineering import digital_circuit
 from academic_core.domain.execution import EventKind, ExecutionTrace, compare
 from academic_core.domain.execution import analog as analog_trace
 from academic_core.domain.execution import analog_detail as detail_trace
+from academic_core.domain.execution import engineering_deep as deep_trace
 from academic_core.domain.execution import control as control_trace
 from academic_core.domain.execution import digital as digital_trace
 from academic_core.domain.execution import equation as equation_trace
@@ -217,6 +218,56 @@ class ExplainService:
     def explain_detail(self, kind: str, *args, **kwargs) -> ExplanationView:
         return build_view(self.detail_trace(kind, *args, **kwargs))
 
+    # -- E0.4 deep observability & resolver retrofit -------------------------------------
+    # Fixed registry: kind -> (operation id, trace builder). Input: text arguments (circuit netlist + analysis
+    # fields); renderer: explain_render (lessons); verification: labelled CHECKs of each trace; replay: from the
+    # recorded inputs (deep_trace.replay_deep); support: only the capabilities listed here.
+    DEEP_KINDS = ("transient-newton", "ac-sweep-mna", "param-sweep", "worst-case", "dc-sensitivity", "monte-carlo",
+                  "routh", "fft", "sampling", "reflection", "bpsk", "link-budget")
+
+    def deep_trace(self, kind: str, *args, **kwargs) -> ExecutionTrace:
+        """Fixed dispatch of the E0.4 operations (no dynamic lookup)."""
+        if kind == "transient-newton":
+            return deep_trace.explain_transient_newton(*args, **kwargs)
+        if kind == "ac-sweep-mna":
+            return deep_trace.explain_ac_sweep_mna(*args, **kwargs)
+        if kind == "param-sweep":
+            return deep_trace.explain_param_sweep(*args, **kwargs)
+        if kind == "worst-case":
+            return deep_trace.explain_worst_case(*args, **kwargs)
+        if kind == "dc-sensitivity":
+            return deep_trace.explain_dc_sensitivity(*args, **kwargs)
+        if kind == "monte-carlo":
+            return deep_trace.explain_monte_carlo(*args, **kwargs)
+        if kind == "routh":
+            return deep_trace.explain_routh(*args, **kwargs)
+        if kind == "fft":
+            return deep_trace.explain_fft(*args, **kwargs)
+        if kind == "sampling":
+            return deep_trace.explain_sampling(*args, **kwargs)
+        if kind == "reflection":
+            return deep_trace.explain_reflection(*args, **kwargs)
+        if kind == "bpsk":
+            return deep_trace.explain_bpsk(*args, **kwargs)
+        if kind == "link-budget":
+            return deep_trace.explain_link_budget(*args, **kwargs)
+        raise ValidationError("UNSUPPORTED_OPERATION: deep kind must be one of " + ", ".join(self.DEEP_KINDS))
+
+    def explain_deep(self, kind: str, *args, **kwargs) -> ExplanationView:
+        return build_view(self.deep_trace(kind, *args, **kwargs))
+
+    def lab_run_analysis_trace(self, session, run_id: str) -> ExecutionTrace:
+        """F8-M lab runs (PARAM_SWEEP, CORNERS, SENS_DC, MONTE_CARLO) re-observed (CHECK: same result)."""
+        session_records(session)
+        return deep_trace.explain_lab_run_analysis(session, run_id)
+
+    def explain_lab_run_analysis(self, session, run_id: str) -> ExplanationView:
+        cid = new_correlation_id()
+        view = build_view(self.lab_run_analysis_trace(session, run_id))
+        log_event(logger, logging.INFO, "AC-OK-001", "application.explain", "explain_lab_run_analysis",
+                  f"{view.outcome}/{view.verification} [cid={cid}]")
+        return view
+
     def lab_run_detail_trace(self, session, run_id: str) -> ExecutionTrace:
         """The run re-observed on its own working circuit, engine observer attached (CHECK: same result)."""
         session_records(session)  # typed session check (INVALID_INPUT otherwise)
@@ -312,7 +363,9 @@ class ExplainService:
             return analog_trace.replay_analog
         if operation in detail_trace.OPERATIONS:
             return detail_trace.replay_detail
-        if operation in (analog_trace.LAB_RUN, detail_trace.LAB_DETAIL):
+        if operation in deep_trace.OPERATIONS:
+            return deep_trace.replay_deep
+        if operation in (analog_trace.LAB_RUN, detail_trace.LAB_DETAIL, deep_trace.LAB_ANALYSIS):
             raise ValidationError("UNSUPPORTED_OPERATION: a Virtual Lab run is replayed by the lab itself "
                                   "(LabService.replay compares result digests); its explanation is rebuilt from that run")
         raise ValidationError(f"UNSUPPORTED_OPERATION: no replayer for {operation[:64]!r}")

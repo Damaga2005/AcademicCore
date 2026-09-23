@@ -278,7 +278,8 @@ def extract_diode_variant_params(comp: Component) -> DiodeVariantParams:
                               Vz=vz_v, nz=nz_v, Iz=iz_v, Iph=iph_v)
 
 
-def variant_current(vd: Decimal, p: DiodeVariantParams, ctx) -> Decimal:
+def variant_current(vd: Decimal, p: DiodeVariantParams, ctx,
+                    trace: list | None = None) -> Decimal:
     """Diode-kind current (ampere).
 
     * RECT / LED / SCHOTTKY: pure Shockley.
@@ -287,11 +288,18 @@ def variant_current(vd: Decimal, p: DiodeVariantParams, ctx) -> Decimal:
     * PHOTO: Shockley minus ``Iph`` (``Iph = 0`` is exact darkness).
 
     May return non-finite ``Decimal`` on exp overflow; caller MUST check.
+
+    E0.4: when ``trace`` is a list, the branch this call takes is appended
+    (``"shockley"``, ``"photo"``, ``"zener-forward"``, ``"zener-breakdown"``).
     """
     if p.kind in (KIND_RECT, KIND_LED, KIND_SCHOTTKY):
+        if trace is not None:
+            trace.append("shockley")
         return shockley_current(vd, p.as_shockley(), ctx)
     if p.kind == KIND_PHOTO:
         assert p.Iph is not None
+        if trace is not None:
+            trace.append("photo")
         try:
             base = shockley_current(vd, p.as_shockley(), ctx)
             return ctx.subtract(base, p.Iph)
@@ -302,7 +310,11 @@ def variant_current(vd: Decimal, p: DiodeVariantParams, ctx) -> Decimal:
         try:
             fwd = shockley_current(vd, p.as_shockley(), ctx)
             if vd >= 0:
+                if trace is not None:
+                    trace.append("zener-forward")
                 return fwd
+            if trace is not None:
+                trace.append("zener-breakdown")
             nzv = ctx.multiply(p.nz, p.Vt)
             arg_now = ctx.divide(ctx.minus(ctx.add(vd, p.Vz)), nzv)
             arg_ref = ctx.divide(ctx.minus(p.Vz), nzv)
@@ -339,7 +351,8 @@ def variant_conductance(vd: Decimal, p: DiodeVariantParams, ctx) -> Decimal:
     raise InvalidCircuitError(f"unknown diode kind: {p.kind!r}")
 
 
-def variant_companion(vd: Decimal, p: DiodeVariantParams, ctx
+def variant_companion(vd: Decimal, p: DiodeVariantParams, ctx,
+                      trace: list | None = None
                       ) -> tuple[Decimal, Decimal, Decimal]:
     """Linearized companion model ``I ~= g*Vd + Ieq`` for a diode kind.
 
@@ -347,7 +360,7 @@ def variant_companion(vd: Decimal, p: DiodeVariantParams, ctx
     non-finite on exp overflow; the caller MUST check all three with
     ``is_finite()`` before stamping.
     """
-    i_val = variant_current(vd, p, ctx)
+    i_val = variant_current(vd, p, ctx, trace)
     g_val = variant_conductance(vd, p, ctx)
     if not (i_val.is_finite() and g_val.is_finite()):
         inf = Decimal("Infinity")

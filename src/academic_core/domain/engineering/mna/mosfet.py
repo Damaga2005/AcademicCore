@@ -189,7 +189,7 @@ def _threshold(vsb: Decimal, p: MOSParams, ctx):
 
 def mos_operating_point(
     vd: Decimal, vg: Decimal, vs: Decimal, vb: Decimal,
-    p: MOSParams, ctx,
+    p: MOSParams, ctx, trace: list | None = None,
 ) -> tuple[str, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal] | None:
     """Region, overdrive, Vth and small-signal trio at a bias point.
 
@@ -198,6 +198,9 @@ def mos_operating_point(
     ``gds_mag = dIDM/dVDS`` and ``gmb_num = dIDM/dVth * dVth/dVSB`` is the
     (negative) body-path numerator such that ``dId/dvb = -gmb_num``.
     ``None`` if any term is non-finite.
+
+    E0.4: when ``trace`` is a list, ``(VGS, VDS, VSB, result)`` exactly as
+    computed here is appended to it (observation only; ``None`` = inert).
     """
     try:
         s = _sign(p.polarity)
@@ -210,7 +213,10 @@ def mos_operating_point(
         vov = ctx.subtract(vgs, vth)
         if vov <= 0:
             zero = Decimal(0)
-            return (REGION_CUTOFF, zero, zero, zero, zero, vth, vov)
+            out = (REGION_CUTOFF, zero, zero, zero, zero, vth, vov)
+            if trace is not None:
+                trace.append((vgs, vds, vsb, out))
+            return out
         lam_vds = ctx.multiply(p.Lambda, vds)
         grow = ctx.add(Decimal(1), lam_vds)
         if vds < vov:
@@ -233,21 +239,24 @@ def mos_operating_point(
         gmb_n = ctx.multiply(ctx.minus(gm_m), dth)
         if not all(v.is_finite() for v in (idm, gm_m, gds_m, gmb_n, vth, vov)):
             return None
-        return (region, idm, gm_m, gds_m, gmb_n, vth, vov)
+        out = (region, idm, gm_m, gds_m, gmb_n, vth, vov)
+        if trace is not None:
+            trace.append((vgs, vds, vsb, out))
+        return out
     except (Overflow, InvalidOperation):
         return None
 
 
 def mos_terminal_currents(
     vd: Decimal, vg: Decimal, vs: Decimal, vb: Decimal,
-    p: MOSParams, ctx,
+    p: MOSParams, ctx, trace: list | None = None,
 ) -> tuple[Decimal, Decimal, Decimal, Decimal]:
     """Terminal currents entering the device ``(ID, IG, IS, IB)``.
 
     Gate and bulk draw no DC current. Non-finite evaluation yields
     ``Decimal('Infinity')`` entries (caller MUST check finiteness).
     """
-    op = mos_operating_point(vd, vg, vs, vb, p, ctx)
+    op = mos_operating_point(vd, vg, vs, vb, p, ctx, trace)
     if op is None:
         inf = Decimal("Infinity")
         return inf, inf, inf, inf
@@ -286,7 +295,7 @@ def mos_conductances(
 
 def mos_jacobian(
     vd: Decimal, vg: Decimal, vs: Decimal, vb: Decimal,
-    p: MOSParams, ctx,
+    p: MOSParams, ctx, trace: list | None = None,
 ) -> tuple[tuple[Decimal, Decimal, Decimal, Decimal], ...] | None:
     """Analytic 4x4 Jacobian for ``(ID, IG, IS, IB)`` w.r.t. ``(VD, VG, VS, VB)``.
 
@@ -294,7 +303,7 @@ def mos_jacobian(
     gate/bulk current). Source row = -(drain row) by KCL. ``None`` when
     non-finite.
     """
-    op = mos_operating_point(vd, vg, vs, vb, p, ctx)
+    op = mos_operating_point(vd, vg, vs, vb, p, ctx, trace)
     if op is None:
         return None
     try:

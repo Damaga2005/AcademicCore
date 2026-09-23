@@ -211,8 +211,12 @@ def evaluate_budget(
     correlation: CorrelationMatrix | None = None,
     coverage_probability: float = DEFAULT_COVERAGE_PROBABILITY,
     explicit_k: Decimal | int | str | None = None,
+    observer=None,
 ) -> GUMResult:
     """Analytic GUM budget ``u_c -> nu_eff -> k -> U`` (WRAP ``gum.evaluate_gum``).
+
+    ``observer`` (E0.4, optional) is handed to ``gum.evaluate_gum`` unchanged
+    (its E0.1 ``sensitivity`` contract); ``None`` keeps the call identical.
 
     Ingress validated here (``1 <= N <= 64``, ``p in (0,1)``, finite
     ``explicit_k > 0``); the statistics themselves are the certified
@@ -257,6 +261,7 @@ def evaluate_budget(
             correlation=corr,
             coverage_probability=pf,
             explicit_k=explicit_k,
+            observer=observer,
         )
     except MetrologyError:
         raise

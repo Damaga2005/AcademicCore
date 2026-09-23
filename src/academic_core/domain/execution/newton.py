@@ -74,7 +74,38 @@ _PARAM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,15}\Z")
 MAX_NODES_SHOWN = 32
 
 
-POLARITIES = ("NPN", "PNP")  # E0.3: the only text parameter (Ebers-Moll BJT polarity, F8-I)
+# Text (non-quantity) parameters: closed enumerations only. E0.3: BJT polarity (F8-I); E0.4: MOSFET / JFET
+# polarity and the diode kind (F8-K). Anything else that is not a quantity is still refused.
+POLARITIES = ("NPN", "PNP", "NMOS", "PMOS", "NCHAN", "PCHAN")
+DIODE_KINDS = ("RECT", "ZENER", "LED", "SCHOTTKY", "PHOTO")
+TEXT_PARAMETERS = {"polarity": POLARITIES, "kind": DIODE_KINDS}
+# E0.4: the two F8-K dimensions the unit registry has no symbol for, as closed text suffixes (MOSFET Kp in A/V²,
+# channel-length modulation λ in 1/V). The engine still validates every dimension.
+DERIVED_SUFFIXES = (("A/V2", (-2, -4, 6, 3, 0, 0, 0)), ("/V", (-1, -2, 3, 1, 0, 0, 0)))
+
+
+def _derived_quantity(text: str) -> Quantity | None:
+    from decimal import InvalidOperation
+
+    from academic_core.domain.engineering.units import Unit
+    for suffix, dim in DERIVED_SUFFIXES:
+        if text.endswith(suffix) and len(text) > len(suffix):
+            try:
+                number = Decimal(text[:-len(suffix)])
+            except InvalidOperation:
+                return None
+            if not number.is_finite():
+                return None
+            return Quantity(number, Unit(suffix, suffix, "", dim, Decimal(1)))
+    return None
+
+
+def _derived_text(q: Quantity) -> str | None:
+    for suffix, dim in DERIVED_SUFFIXES:
+        if tuple(q.unit.dimension) == dim and q.unit.factor == 1 and not q.unit.prefix:
+            s = format(q.value.normalize(), "f")
+            return (s.rstrip("0").rstrip(".") if "." in s else s) + suffix
+    return None
 
 
 def circuit_spec(circuit: Circuit) -> str:
@@ -86,12 +117,12 @@ def circuit_spec(circuit: Circuit) -> str:
         parts = []
         for name in sorted(c.parameters):
             q = c.parameters[name]
-            if name == "polarity" and isinstance(q, str) and q.upper() in POLARITIES:
-                parts.append(f"polarity={q.upper()}")
+            if name in TEXT_PARAMETERS and isinstance(q, str) and q.upper() in TEXT_PARAMETERS[name]:
+                parts.append(f"{name}={q.upper()}")
                 continue
             if not isinstance(q, Quantity):
                 raise _invalid("UNSUPPORTED_PARAMETER", f"{c.ref}.{name} is not a quantity; it cannot be written as text")
-            parts.append(f"{name}={q.compact()}")
+            parts.append(f"{name}={_derived_text(q) or q.compact()}")
         lines.append(f".param {c.ref.upper()} " + " ".join(parts))
     lines.append(".end")
     return "\n".join(lines) + "\n"
@@ -114,15 +145,19 @@ def parse_circuit_spec(spec: str, max_total_chars: int = MAX_SPEC) -> Circuit:
                 name, sep, val = item.partition("=")
                 if not sep or not _PARAM_RE.fullmatch(name) or name in values:
                     raise _invalid("INVALID_INPUT", f"bad parameter {item[:32]!r}")
-                if name == "polarity":
-                    if val.upper() not in POLARITIES:
-                        raise _invalid("INVALID_INPUT", f"polarity must be NPN or PNP, got {val[:16]!r}")
+                if name in TEXT_PARAMETERS:
+                    if val.upper() not in TEXT_PARAMETERS[name]:
+                        raise _invalid("INVALID_INPUT", f"{name} must be one of {', '.join(TEXT_PARAMETERS[name])}, "
+                                                        f"got {val[:16]!r}")
                     values[name] = val.upper()
                     continue
                 try:
                     values[name] = parse_quantity(val)
                 except UnitError:
-                    raise _invalid("INVALID_INPUT", f"bad parameter value {item[:32]!r}") from None
+                    derived = _derived_quantity(val)
+                    if derived is None:
+                        raise _invalid("INVALID_INPUT", f"bad parameter value {item[:32]!r}") from None
+                    values[name] = derived
             params[ref] = values
         else:
             netlist.append(line)
@@ -151,27 +186,31 @@ class _Observer:
         self.diode_parameters: tuple = ()
         self.bjt_parameters: tuple = ()
         self.start_bjts: tuple = ()
+        self.fk_parameters: tuple = ()
         self.iterations: list = []
         self.failure = None
 
     def newton_start(self, nodes, x, kcl, aux, scale, *, unknowns=(), residual=(), devices=(),
-                     diode_parameters=(), bjt_parameters=(), bjt_devices=()):
+                     diode_parameters=(), bjt_parameters=(), bjt_devices=(), fk_parameters=(), fk_devices=()):
         # node columns keep their plain net name (E0.1-R+ value names); auxiliary currents keep I(key)
         self.nodes = tuple(nodes)
         self.unknowns = tuple(u[2:-1] if u.startswith("V(") and u.endswith(")") else u for u in unknowns)
         self.start = (tuple(x), kcl, aux, scale, tuple(residual))
         self.start_devices, self.diode_parameters = tuple(devices), tuple(diode_parameters)
         self.bjt_parameters, self.start_bjts = tuple(bjt_parameters), tuple(bjt_devices)
+        self.fk_parameters = tuple(fk_parameters)
 
     def newton_iteration(self, it, alpha, halvings, step_peak, x, kcl, aux, scale, res_ok, step_ok, *,
                          x_prev=(), residual_prev=(), jacobian=(), dx=(), residual=(), trials=(), reference=None,
-                         devices=(), device_conductances=(), bjt_devices=(), bjt_jacobians=()):
+                         devices=(), device_conductances=(), bjt_devices=(), bjt_jacobians=(), fk_devices=(),
+                         fk_jacobians=()):
         self.iterations.append(dict(it=it, alpha=alpha, halvings=halvings, peak=step_peak, x=tuple(x), kcl=kcl,
                                     aux=aux, scale=scale, res_ok=res_ok, step_ok=step_ok, x_prev=tuple(x_prev),
                                     f_prev=tuple(residual_prev), jac=tuple(jacobian), dx=tuple(dx),
                                     f=tuple(residual), trials=tuple(trials), reference=reference,
                                     devices=tuple(devices), conductances=tuple(device_conductances),
-                                    bjts=tuple(bjt_devices), bjt_jacobians=tuple(bjt_jacobians)))
+                                    bjts=tuple(bjt_devices), bjt_jacobians=tuple(bjt_jacobians),
+                                    fk=tuple(fk_devices), fk_jacobians=tuple(fk_jacobians)))
 
     def newton_failed(self, it, reason, trials):
         self.failure = (it, reason, tuple(trials))
@@ -191,7 +230,8 @@ def _shockley_models(rec: TraceRecorder, obs, circuit: Circuit, read: str) -> tu
             why="Parámetros que el solver usa para este diodo (DiodeParams del motor F8-H).",
             values=(("Is", TraceValue.of_number(is_, "A")), ("n", TraceValue.of_number(n)),
                     ("Vt", TraceValue.of_number(vt, "V")))))
-    observed = {ref for ref, *_ in obs.diode_parameters} | {ref for ref, *_ in obs.bjt_parameters}
+    observed = {ref for ref, *_ in obs.diode_parameters} | {ref for ref, *_ in obs.bjt_parameters} | \
+        {row[1] for row in obs.fk_parameters}
     others = sorted(c.ref.upper() for c in circuit.components
                     if c.type.upper() in ("D", "Q", "M", "J") and c.ref.upper() not in observed)
     if others:
@@ -255,6 +295,83 @@ def _ebers_moll_events(rec: TraceRecorder, it: int, f: dict, prev: str, model_id
             why=("Valores capturados dentro de bjt_jacobian (entra en J) y de bjt_terminal_currents (entra en F) "
                  "durante esta iteración del solver."),
             values=tuple(values))
+    return prev
+
+
+_FK_FORMULA = {
+    "D": {"shockley": "I = Is·(exp(Vd/(n·Vt)) − 1)",
+          "photo": "I = Is·(exp(Vd/(n·Vt)) − 1) − Iph",
+          "zener-forward": "Vd ≥ 0: I = Is·(exp(Vd/(n·Vt)) − 1)",
+          "zener-breakdown": "Vd < 0: I = Is·(exp(Vd/(n·Vt)) − 1) − Iz·(exp(−(Vd+Vz)/(nz·Vt)) − exp(−Vz/(nz·Vt)))"},
+    "M": ("Nivel 1: VGS = s(VG−VS), VDS = s(VD−VS), VSB = s(VS−VB); Vth = Vto + γ(√(Φ+VSB) − √Φ); Vov = VGS − Vth; "
+          "corte Vov ≤ 0: ID = 0; triodo VDS < Vov: ID = Kp(Vov·VDS − VDS²/2)(1+λVDS); saturación: "
+          "ID = (Kp/2)Vov²(1+λVDS)"),
+    "J": ("VGS = s(VG−VS), VDS = s(VD−VS); corte VGS ≤ −Vp: ID = 0; triodo VDS < VGS+Vp: "
+          "ID = Idss(2(1+VGS/Vp)(VDS/Vp) − (VDS/Vp)²)(1+λVDS); saturación: ID = Idss(1+VGS/Vp)²(1+λVDS)"),
+}
+_FK_NAMES = {"D": "Diodo", "M": "MOSFET", "J": "JFET"}
+
+
+def _fk_models(rec: TraceRecorder, obs, read: str) -> tuple:
+    """E0.4: one STEP per F8-K device with the parameters the solver used (DiodeVariantParams / MOSParams /
+    JFETParams)."""
+    ids = []
+    names = {"D": ("kind", "Is", "n", "Vt", "Vz", "nz", "Iz", "Iph"), "M": ("polarity", "Kp", "Vto", "Lambda", "Phi",
+                                                                          "Gamma"),
+             "J": ("polarity", "Idss", "Vp", "Lambda")}
+    for row in obs.fk_parameters[:MAX_DEVICES]:
+        kind, ref, rest = row[0], row[1], row[2:]
+        values = [(n, TraceValue.of_text(v) if isinstance(v, str) else TraceValue.of_number(v))
+                  for n, v in zip(names[kind], rest) if v is not None]
+        formula = _FK_FORMULA[kind] if kind != "D" else "; ".join(sorted(set(_FK_FORMULA["D"].values())))[:512]
+        ids.append(rec.event(EventKind.STEP, f"Modelo {_FK_NAMES[kind]}: {ref} ({rest[0]})", refs=(read,),
+                             formula=formula[:512],
+                             why="Parámetros que el solver usa para este dispositivo (motor F8-K).",
+                             values=tuple(values)))
+    return tuple(ids)
+
+
+def _fk_events(rec: TraceRecorder, it: int, f: dict, prev: str, model_ids: tuple) -> str:
+    """E0.4: per F8-K device, the evaluations the solver computed in this iteration (never recomputed)."""
+    at_k = {row[1]: row for row in f["fk_jacobians"]}
+    at_next = {row[1]: row for row in f["fk"]}
+    for ref in sorted(set(at_k) | set(at_next))[:MAX_DEVICES]:
+        values, kind = [], (at_k.get(ref) or at_next.get(ref))[0]
+        if ref in at_k:
+            row = at_k[ref]
+            if kind == "D":
+                values += [("branch_k", TraceValue.of_text(row[3])), ("Vd_k", TraceValue.of_number(row[4], "V")),
+                           ("g_k", TraceValue.of_number(row[5], "S"))]
+            else:
+                pins = ("D", "G", "S", "B") if kind == "M" else ("D", "G", "S")
+                values += [("region_k", TraceValue.of_text(row[3]))]
+                values += [(f"J.{pins[i]}.{pins[j]}", TraceValue.of_number(row[4][i][j], "S"))
+                           for i in range(len(pins)) for j in range(len(pins))]
+        if ref in at_next:
+            row = at_next[ref]
+            if kind == "D":
+                values += [("branch", TraceValue.of_text(row[3])), ("Vd", TraceValue.of_number(row[4], "V")),
+                           ("I", TraceValue.of_number(row[5], "A"))]
+            elif kind == "M":
+                (_k, _r, _p, vd, vg, vs, vb, vgs, vds, vsb, region, idm, gm, gds, gmb, vth, vov, i_d, i_s) = row
+                values += [("VGS", TraceValue.of_number(vgs, "V")), ("VDS", TraceValue.of_number(vds, "V")),
+                           ("VSB", TraceValue.of_number(vsb, "V")), ("Vth", TraceValue.of_number(vth, "V")),
+                           ("Vov", TraceValue.of_number(vov, "V")), ("region", TraceValue.of_text(region)),
+                           ("ID", TraceValue.of_number(i_d, "A")), ("IS", TraceValue.of_number(i_s, "A")),
+                           ("gm", TraceValue.of_number(gm, "S")), ("gds", TraceValue.of_number(gds, "S")),
+                           ("gmb_num", TraceValue.of_number(gmb, "S"))]
+            else:
+                (_k, _r, _p, vd, vg, vs, vgs, vds, region, idm, gm, gds, i_d, i_s) = row
+                values += [("VGS", TraceValue.of_number(vgs, "V")), ("VDS", TraceValue.of_number(vds, "V")),
+                           ("region", TraceValue.of_text(region)), ("ID", TraceValue.of_number(i_d, "A")),
+                           ("IS", TraceValue.of_number(i_s, "A")), ("gm", TraceValue.of_number(gm, "S")),
+                           ("gds", TraceValue.of_number(gds, "S"))]
+        prev = rec.event(
+            EventKind.STEP, f"Evaluación {_FK_NAMES[kind]}: {ref} (iteración {it})", refs=(prev, *model_ids[-16:]),
+            formula="en x_k: la derivada (entra en J);  en x_(k+1): corrientes, región y parámetros (entran en F)",
+            why=("Valores capturados dentro del modelo F8-K (variant_current, mos_operating_point, "
+                 "jfet_operating_point) durante esta iteración del solver."),
+            values=tuple(values[:64]))
     return prev
 
 
@@ -367,10 +484,11 @@ def _newton_events(rec: TraceRecorder, circuit: Circuit, read: str, result, obs:
     """Every event after the solve, from the observed facts (shared by the F8-H trace and the lab OP detail)."""
     model_ids = _shockley_models(rec, obs, circuit, read)
     em_ids = _ebers_moll_models(rec, obs, read)
+    fk_ids = _fk_models(rec, obs, read)
     prev = read
     if obs.start is not None:
         x0, kcl, aux, scale, _f0 = obs.start
-        prev = rec.event(EventKind.STEP, "Punto de partida", refs=(read, *model_ids, *em_ids)[:64],
+        prev = rec.event(EventKind.STEP, "Punto de partida", refs=(read, *model_ids, *em_ids, *fk_ids)[:64],
                          formula="x₀ = 0 (vector nulo determinista)",
                          why="El solver parte del vector nulo y mide el residuo inicial F(x₀) por bloques.",
                          values=(("kcl_residual", TraceValue.of_number(kcl, "A")),
@@ -403,6 +521,8 @@ def _newton_events(rec: TraceRecorder, circuit: Circuit, read: str, result, obs:
                 values=_device_values(f["conductances"], f["devices"]))
         if f["bjts"] or f["bjt_jacobians"]:
             prev = _ebers_moll_events(rec, f["it"], f, prev, em_ids)
+        if f["fk"] or f["fk_jacobians"]:
+            prev = _fk_events(rec, f["it"], f, prev, fk_ids)
     if obs.failure is not None:
         it, reason, trials = obs.failure
         prev = _trials(rec, it + 1, trials, None, prev, failed=True)

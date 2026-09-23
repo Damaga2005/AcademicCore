@@ -150,13 +150,23 @@ def extract_jfet_params(comp: Component) -> JFETParams:
 
 def jfet_operating_point(
     vd: Decimal, vg: Decimal, vs: Decimal,
-    p: JFETParams, ctx,
+    p: JFETParams, ctx, trace: list | None = None,
 ) -> tuple[str, Decimal, Decimal, Decimal] | None:
     """Region, unsigned channel current and small-signal pair at a bias point.
 
     Returns ``(region, IDM, gm_mag, gds_mag)`` with ``gm_mag = dIDM/dVGS``
     and ``gds_mag = dIDM/dVDS``. ``None`` if any term is non-finite.
+
+    E0.4: when ``trace`` is a list, ``(VGS, VDS, result)`` exactly as
+    computed here is appended to it (observation only; ``None`` = inert).
     """
+    op = _jfet_operating_point(vd, vg, vs, p, ctx)
+    if op is not None and trace is not None:
+        trace.append(op)
+    return None if op is None else op[2]
+
+
+def _jfet_operating_point(vd, vg, vs, p: JFETParams, ctx):
     try:
         s = _sign(p.polarity)
         vgs = ctx.multiply(s, ctx.subtract(vg, vs))
@@ -164,7 +174,7 @@ def jfet_operating_point(
         neg_vp = ctx.minus(p.Vp)
         if vgs <= neg_vp:
             zero = Decimal(0)
-            return (REGION_CUTOFF, zero, zero, zero)
+            return (vgs, vds, (REGION_CUTOFF, zero, zero, zero))
         a = ctx.add(Decimal(1), ctx.divide(vgs, p.Vp))
         grow = ctx.add(Decimal(1), ctx.multiply(p.Lambda, vds))
         edge = ctx.add(vgs, p.Vp)
@@ -196,21 +206,21 @@ def jfet_operating_point(
             gds_m = ctx.multiply(ctx.multiply(p.Idss, a2), p.Lambda)
         if not all(v.is_finite() for v in (idm, gm_m, gds_m)):
             return None
-        return (region, idm, gm_m, gds_m)
+        return (vgs, vds, (region, idm, gm_m, gds_m))
     except (Overflow, InvalidOperation):
         return None
 
 
 def jfet_terminal_currents(
     vd: Decimal, vg: Decimal, vs: Decimal,
-    p: JFETParams, ctx,
+    p: JFETParams, ctx, trace: list | None = None,
 ) -> tuple[Decimal, Decimal, Decimal]:
     """Terminal currents entering the device ``(ID, IG, IS)``.
 
     The gate draws no DC current. Non-finite evaluation yields
     ``Decimal('Infinity')`` entries (caller MUST check finiteness).
     """
-    op = jfet_operating_point(vd, vg, vs, p, ctx)
+    op = jfet_operating_point(vd, vg, vs, p, ctx, trace)
     if op is None:
         inf = Decimal("Infinity")
         return inf, inf, inf
@@ -245,14 +255,14 @@ def jfet_conductances(
 
 def jfet_jacobian(
     vd: Decimal, vg: Decimal, vs: Decimal,
-    p: JFETParams, ctx,
+    p: JFETParams, ctx, trace: list | None = None,
 ) -> tuple[tuple[Decimal, Decimal, Decimal], ...] | None:
     """Analytic 3x3 Jacobian for ``(ID, IG, IS)`` w.r.t. ``(VD, VG, VS)``.
 
     Row order (D, G, S); the gate row is identically zero; the source row
     is -(drain row) by KCL. ``None`` when non-finite.
     """
-    op = jfet_operating_point(vd, vg, vs, p, ctx)
+    op = jfet_operating_point(vd, vg, vs, p, ctx, trace)
     if op is None:
         return None
     try:

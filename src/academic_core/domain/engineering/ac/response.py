@@ -394,7 +394,7 @@ def _normalize_frequencies(frequencies) -> list:
 
 
 def frequency_response(circuit, definition: ResponseDefinition,
-                       frequencies) -> SweepResult:
+                       frequencies, observer=None) -> SweepResult:
     """Deterministic sweep: each frequency is an independent analysis.
 
     Per point: fresh operating point -> D3 solve -> D5 quantity. No MNA
@@ -403,6 +403,11 @@ def frequency_response(circuit, definition: ResponseDefinition,
     the sweep: all-SOLVED yields ``completed``, else
     ``completed_with_point_failures``. Order, values and digest are
     fully determined by (circuit, definition, frequency list).
+
+    E0.4: an optional ``observer`` is told ``sweep_frequency(index,
+    frequency_hz)`` before each point and is then handed to that point's
+    ``solve_ac`` (its ``ac_system`` / ``ac_outcome`` contract: the complex
+    system exactly as solved). ``None`` keeps the sweep byte-identical.
     """
     import hashlib
     import json
@@ -425,15 +430,17 @@ def frequency_response(circuit, definition: ResponseDefinition,
     ground = reference_net(circuit.nets)
     points: list[SweepPoint] = []
     failures = 0
-    for freq in freqs:
+    for index, freq in enumerate(freqs):
         op = None
+        if observer is not None:
+            observer.sweep_frequency(index, freq.to_base())
         try:
             from academic_core.domain.engineering.ac.operating_point import (
                 ACOperatingPoint,
             )
             op = ACOperatingPoint.from_frequency(freq, ground)
             problem = build_ac_problem(circuit, op, NumericMode.AUTO)
-            sol = solve_ac(circuit, freq, NumericMode.AUTO)
+            sol = solve_ac(circuit, freq, NumericMode.AUTO, observer)
         except Exception as exc:  # validation failures become point data
             points.append(SweepPoint(freq, _status_of(exc), None, str(exc), None))
             failures += 1

@@ -127,7 +127,12 @@ LESSON_OPERATIONS = ("math.derivative", "math.integral", "math.linear-equation",
                      "control.tf-point", "lab.run",
                      # E0.3 engine internals
                      "engineering.ac-mna", "engineering.ac-sweep", "engineering.dc-sweep-detail",
-                     "engineering.transient-detail", "control.tf-analysis", "lab.run-detail")
+                     "engineering.transient-detail", "control.tf-analysis", "lab.run-detail",
+                     # E0.4 deep observability & resolver retrofit
+                     "engineering.transient-newton", "engineering.ac-sweep-mna", "engineering.param-sweep",
+                     "engineering.worst-case", "engineering.dc-sensitivity", "engineering.monte-carlo",
+                     "control.routh", "dsp.fft", "dsp.sampling", "rf.reflection", "comms.bpsk",
+                     "satcom.link-budget", "lab.run-analysis")
 LESSON_FIELDS = ("Paso", "Tipo", "Regla", "Entrada", "Transformación", "Salida", "Explicación", "Verificación")
 MAX_LESSON_TEXT = 400
 

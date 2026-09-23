@@ -969,8 +969,14 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
     cause is the LTE; retry h ``None`` = the attempt that stops the
     integrator) and ``transient_accept`` for every committed step
     (index of t_(n+1) in ``times``, t_n, h, t_(n+1), x_n, predictor,
-    x_(n+1), Newton iterations, LTE per dynamic state, methods used, next h). ``None`` (default) records
-    nothing and keeps the solve byte-identical.
+    x_(n+1), Newton iterations, LTE per dynamic state, methods used, next h).
+    ``newton`` rows are ``(k, α, ‖αΔx‖∞, ‖F_KCL‖, ‖F_aux‖, res_ok, step_ok,
+    x_k, F(x_k), J(x_k), Δx, trials)`` (E0.4 appended the last five: the
+    vectors and the Jacobian the inner Newton really used, and every
+    backtracking trial ``(α, trial norm | None, accepted)``); the rejects
+    also carry ``newton_failure = (reason | None, (k, x_k, F, J, Δx | None,
+    trials) | None)`` for an inner Newton that stopped without converging.
+    ``None`` (default) records nothing and keeps the solve byte-identical.
     """
     if not isinstance(config, TransientConfig):
         return TransientResult(
@@ -1341,10 +1347,14 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
         diverged = False
         singular = False
         newton_log: list | None = [] if observer is not None else None
+        # E0.4 (observer only): why the inner Newton stopped without converging.
+        newton_failure: str | None = None
+        failed_iteration: tuple | None = None
         while not newton_ok and it < MAX_ITER:
             jac = system.jacobian(x, comps, ctx)
             if jac is None:
                 diverged = True
+                newton_failure = "Jacobian evaluation non-finite"
                 break
             try:
                 lin = linsolve(
@@ -1353,19 +1363,26 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                     NumericMode.HIGH_PRECISION)
             except Exception:
                 diverged = True
+                newton_failure = "linear-solve entry refused"
                 break
             if lin.status in (LinearStatus.SINGULAR,
                               LinearStatus.INCONSISTENT):
                 singular = True
+                newton_failure = f"Jacobian {lin.status.value}"
+                if newton_log is not None:
+                    failed_iteration = (it + 1, tuple(x), tuple(final_f),
+                                        tuple(tuple(r) for r in jac), None, ())
                 break
             if lin.status != LinearStatus.SOLVED or lin.solution is None:
                 diverged = True
+                newton_failure = f"Newton step not certified ({lin.status.value})"
                 break
             dx = tuple(entry.re for entry in lin.solution)
             cur = max(final_pair)
             alpha = Decimal(1)
             accepted = None
             accepted_f = None
+            trials: list | None = [] if observer is not None else None
             for _ in range(MAX_BACKTRACK + 1):
                 trial = tuple(ctx.add(xv, ctx.multiply(alpha, dv))
                               for xv, dv in zip(x, dx))
@@ -1374,17 +1391,28 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                     kt, at = system.block_norms(ft)
                     if max(kt, at) < cur:
                         accepted, accepted_f = trial, ft
+                        if trials is not None:
+                            trials.append((alpha, max(kt, at), True))
                         break
                     scale_t = system.scale_of(trial)
                     if max(kt, at) <= cur and \
                             _block_ok(list(ft[:system.n_nodes]), scale_t) and \
                             _block_ok(list(ft[system.n_nodes:]), scale_t):
                         accepted, accepted_f = trial, ft
+                        if trials is not None:
+                            trials.append((alpha, max(kt, at), True))
                         break
+                if trials is not None:
+                    trials.append((alpha, None if ft is None else max(system.block_norms(ft)), False))
                 alpha = ctx.divide(alpha, Decimal(2))
             if accepted is None or accepted_f is None:
                 diverged = True
+                newton_failure = "backtracking exhausted"
+                if newton_log is not None:
+                    failed_iteration = (it + 1, tuple(x), tuple(final_f),
+                                        tuple(tuple(r) for r in jac), dx, tuple(trials))
                 break
+            x_prev, f_prev = x, final_f
             step_peak = max([abs(ctx.multiply(alpha, dv)) for dv in dx]
                             or [Decimal(0)])
             x = accepted
@@ -1397,15 +1425,21 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
             step_ok = step_peak <= STOL + RTOL * scale
             newton_ok = res_ok and step_ok
             if newton_log is not None:
+                # E0.3 fields first (index-stable), then the E0.4 deep data:
+                # x_k, F(x_k), J(x_k), Δx and every backtracking trial.
                 newton_log.append((it, alpha, step_peak, final_pair[0], final_pair[1],
-                                   res_ok, step_ok))
+                                   res_ok, step_ok, tuple(x_prev), tuple(f_prev),
+                                   tuple(tuple(r) for r in jac), dx, tuple(trials)))
         stats["newton_total"] += it
+        if newton_log is not None and newton_failure is None and not newton_ok:
+            newton_failure = f"iteration budget exhausted ({MAX_ITER})"
 
         def _abort(cause, e=None, lte=()):
             # E0.3: the attempt that stops the integrator (retry h = None).
             if observer is not None:
                 observer.transient_reject(cause, t_n, h, t_next, None, e, tuple(lte), it,
-                                          newton=tuple(newton_log))
+                                          newton=tuple(newton_log),
+                                          newton_failure=(newton_failure, failed_iteration))
         if singular:
             _abort("singular_jacobian")
             return _fail(
@@ -1456,7 +1490,8 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                 f"(rejected={total_reject})")
             if observer is not None:
                 observer.transient_reject("newton_failed", t_n, h_tried, t_next, h, None, (), it,
-                                          newton=tuple(newton_log))
+                                          newton=tuple(newton_log),
+                                          newton_failure=(newton_failure, failed_iteration))
             continue
 
         # LTE estimate on dynamic states (predictor vs corrector).
@@ -1516,7 +1551,8 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                 stats["rejected"] += 1
                 if observer is not None:
                     observer.transient_reject("lte_nonfinite", t_n, h_tried, t_next, h, None,
-                                              tuple(lte_log), it, newton=tuple(newton_log))
+                                              tuple(lte_log), it, newton=tuple(newton_log),
+                                              newton_failure=(newton_failure, failed_iteration))
                 continue
 
         if e_max is None or e_max <= 1 or fixed or \
@@ -1605,7 +1641,8 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                 f"(history intact at t={t_n})")
             if observer is not None:
                 observer.transient_reject("lte", t_n, h_tried, t_next, h, e_max, tuple(lte_log), it,
-                                          newton=tuple(newton_log))
+                                          newton=tuple(newton_log),
+                                          newton_failure=(newton_failure, failed_iteration))
 
     # -- assemble committed trajectories --------------------------------------
     node_trajs: dict[str, list[Decimal]] = {

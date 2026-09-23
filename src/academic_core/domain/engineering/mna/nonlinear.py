@@ -324,6 +324,15 @@ class _NewtonSystem:
         # V_F, V_R, gF, gR, J3x3) from inside bjt_jacobian. None = inert.
         self.bjt_log = None
         self.bjt_jac_log = None
+        # E0.4: same contract for the F8-K devices (diode kinds, MOSFET L1,
+        # JFET), captured inside variant_current / mos_operating_point /
+        # jfet_operating_point. fk_log: ("D", ref, kind, branch, Vd, I) |
+        # ("M", ref, pol, VD, VG, VS, VB, VGS, VDS, VSB, region, IDM, gm, gds,
+        # gmb_num, Vth, Vov, ID, IS) | ("J", ref, pol, VD, VG, VS, VGS, VDS,
+        # region, IDM, gm, gds, ID, IS). fk_jac_log: ("D", ref, kind, branch,
+        # Vd, g) | ("M"|"J", ref, pol, region, J block). None = inert.
+        self.fk_log = None
+        self.fk_jac_log = None
         self.models = {c.ref.upper(): diodes[c.ref.upper()]
                        for c in self.diode_list}
         self.a_index = {c.ref.upper(): problem.node_index.get(c.pins["A"])
@@ -410,6 +419,8 @@ class _NewtonSystem:
                 self.device_log = []
             if self.bjt_log is not None:
                 self.bjt_log = []
+            if self.fk_log is not None:
+                self.fk_log = []
             for ref in self.models:
                 p = self.models[ref]
                 vd = ctx.subtract(self._x_of(x, self.a_index[ref]),
@@ -428,9 +439,12 @@ class _NewtonSystem:
                 p = self.variant_models[ref]
                 vd = ctx.subtract(self._x_of(x, self.va_index[ref]),
                                   self._x_of(x, self.vk_index[ref]))
-                ival, _, _ = variant_companion(vd, p, ctx)
+                probe = [] if self.fk_log is not None else None
+                ival, _, _ = variant_companion(vd, p, ctx, probe)
                 if not ival.is_finite():
                     return None
+                if probe:
+                    self.fk_log.append(("D", ref, p.kind, probe[0], vd, ival))
                 ia, ik = self.va_index[ref], self.vk_index[ref]
                 if ia is not None:
                     acc[ia] = ctx.add(acc[ia], ival)
@@ -462,10 +476,15 @@ class _NewtonSystem:
                 vg = self._x_of(x, self.mg_index[ref])
                 vs = self._x_of(x, self.ms_index[ref])
                 vb = self._x_of(x, self.mb_index[ref])
+                probe = [] if self.fk_log is not None else None
                 idc, ig, isc, ib = mos_terminal_currents(
-                    vd, vg, vs, vb, mp, ctx)
+                    vd, vg, vs, vb, mp, ctx, probe)
                 if not all(v.is_finite() for v in (idc, ig, isc, ib)):
                     return None
+                if probe:
+                    vgs, vds, vsb, op = probe[0]
+                    self.fk_log.append(("M", ref, mp.polarity, vd, vg, vs, vb, vgs, vds, vsb,
+                                        *op, idc, isc))
                 for idx, cur in ((self.md_index[ref], idc),
                                  (self.mg_index[ref], ig),
                                  (self.ms_index[ref], isc),
@@ -477,9 +496,13 @@ class _NewtonSystem:
                 vd = self._x_of(x, self.jd_index[ref])
                 vg = self._x_of(x, self.jg_index[ref])
                 vs = self._x_of(x, self.js_index[ref])
-                idc, ig, isc = jfet_terminal_currents(vd, vg, vs, jp, ctx)
+                probe = [] if self.fk_log is not None else None
+                idc, ig, isc = jfet_terminal_currents(vd, vg, vs, jp, ctx, probe)
                 if not all(v.is_finite() for v in (idc, ig, isc)):
                     return None
+                if probe:
+                    vgs, vds, op = probe[0]
+                    self.fk_log.append(("J", ref, jp.polarity, vd, vg, vs, vgs, vds, *op, idc, isc))
                 for idx, cur in ((self.jd_index[ref], idc),
                                  (self.jg_index[ref], ig),
                                  (self.js_index[ref], isc)):
@@ -501,6 +524,8 @@ class _NewtonSystem:
                 self.jac_log = []
             if self.bjt_jac_log is not None:
                 self.bjt_jac_log = []
+            if self.fk_jac_log is not None:
+                self.fk_jac_log = []
             for ref in self.models:
                 p = self.models[ref]
                 vd = ctx.subtract(self._x_of(x, self.a_index[ref]),
@@ -522,9 +547,12 @@ class _NewtonSystem:
                 p = self.variant_models[ref]
                 vd = ctx.subtract(self._x_of(x, self.va_index[ref]),
                                   self._x_of(x, self.vk_index[ref]))
-                _, gval, _ = variant_companion(vd, p, ctx)
+                probe = [] if self.fk_jac_log is not None else None
+                _, gval, _ = variant_companion(vd, p, ctx, probe)
                 if not gval.is_finite():
                     return None
+                if probe:
+                    self.fk_jac_log.append(("D", ref, p.kind, probe[0], vd, gval))
                 ia, ik = self.va_index[ref], self.vk_index[ref]
                 if ia is not None:
                     rows[ia][ia] = ctx.add(rows[ia][ia], gval)
@@ -563,9 +591,12 @@ class _NewtonSystem:
                 vg = self._x_of(x, self.mg_index[ref])
                 vs = self._x_of(x, self.ms_index[ref])
                 vb = self._x_of(x, self.mb_index[ref])
-                mos_j = mos_jacobian(vd, vg, vs, vb, mp, ctx)
+                probe = [] if self.fk_jac_log is not None else None
+                mos_j = mos_jacobian(vd, vg, vs, vb, mp, ctx, probe)
                 if mos_j is None:
                     return None
+                if probe:
+                    self.fk_jac_log.append(("M", ref, mp.polarity, probe[0][3][0], mos_j))
                 mos_nodes = (self.md_index[ref], self.mg_index[ref],
                              self.ms_index[ref], self.mb_index[ref])
                 for r_i in range(4):
@@ -583,9 +614,12 @@ class _NewtonSystem:
                 vd = self._x_of(x, self.jd_index[ref])
                 vg = self._x_of(x, self.jg_index[ref])
                 vs = self._x_of(x, self.js_index[ref])
-                jfet_j = jfet_jacobian(vd, vg, vs, jp, ctx)
+                probe = [] if self.fk_jac_log is not None else None
+                jfet_j = jfet_jacobian(vd, vg, vs, jp, ctx, probe)
                 if jfet_j is None:
                     return None
+                if probe:
+                    self.fk_jac_log.append(("J", ref, jp.polarity, probe[0][2][0], jfet_j))
                 jfet_nodes = (self.jd_index[ref], self.jg_index[ref],
                               self.js_index[ref])
                 for r_i in range(3):
@@ -633,6 +667,17 @@ class NewtonState:
     x: tuple[Decimal, ...]
 
 
+def _fk_parameters(system) -> tuple:
+    """E0.4: the F8-K model parameters the solver uses (immutable snapshot)."""
+    out = [("D", ref, p.kind, p.Is, p.n, p.Vt, p.Vz, p.nz, p.Iz, p.Iph)
+           for ref, p in system.variant_models.items()]
+    out += [("M", ref, p.polarity, p.Kp, p.Vto, p.Lambda, p.Phi, p.Gamma)
+            for ref, p in system.mos_models.items()]
+    out += [("J", ref, p.polarity, p.Idss, p.Vp, p.Lambda)
+            for ref, p in system.jfet_models.items()]
+    return tuple(out)
+
+
 def solve_nonlinear_dc(circuit: Circuit, *,
                         max_iter: int = MAX_ITER,
                         x_init: "tuple[Decimal, ...] | None" = None,
@@ -665,7 +710,9 @@ def solve_nonlinear_dc(circuit: Circuit, *,
     receives ``bjt_parameters`` (ref, polarity, Is, Bf, Br, Nf, Nr, Vt,
     alphaF, alphaR) and ``bjt_devices``; ``newton_iteration`` receives
     ``bjt_devices`` (Ebers-Moll evaluation at x_(k+1)) and ``bjt_jacobians``
-    (gF, gR and the 3x3 block at x_k). Every argument is an immutable
+    (gF, gR and the 3x3 block at x_k). E0.4: likewise ``fk_parameters`` /
+    ``fk_devices`` (start, x_(k+1)) and ``fk_jacobians`` (x_k) for the F8-K
+    devices (see ``_NewtonSystem.fk_log``). Every argument is an immutable
     snapshot (tuples of Decimal), built only when an observer is present.
     It never alters the solve.
     """
@@ -760,6 +807,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
     if observer is not None:
         system.device_log, system.jac_log = [], []
         system.bjt_log, system.bjt_jac_log = [], []
+        system.fk_log, system.fk_jac_log = [], []
 
     def _failed(reason: str, trials=()) -> None:
         if observer is not None:
@@ -791,7 +839,9 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                               bjt_parameters=tuple((ref, b.polarity, b.Is, b.Bf, b.Br, b.Nf, b.Nr, b.Vt,
                                                     b.alphaF, b.alphaR)
                                                    for ref, b in system.bjt_models.items()),
-                              bjt_devices=tuple(system.bjt_log))
+                              bjt_devices=tuple(system.bjt_log),
+                              fk_parameters=_fk_parameters(system),
+                              fk_devices=tuple(system.fk_log))
     if _block_ok(list(f0[:system.n_nodes]), scale) and \
             _block_ok(list(f0[system.n_nodes:]), scale):
         if capture is not None:
@@ -808,6 +858,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
         jac = system.jacobian(x)
         jac_devices = tuple(system.jac_log) if observer is not None and jac is not None else ()
         jac_bjts = tuple(system.bjt_jac_log) if observer is not None and jac is not None else ()
+        jac_fk = tuple(system.fk_jac_log) if observer is not None and jac is not None else ()
         if jac is None:
             _failed("DIVERGED: Jacobian evaluation non-finite")
             return NonlinearResult(
@@ -874,6 +925,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
         trials: list = []  # E0.2: (alpha, trial residual norm or None, accepted), filled only with an observer
         devices_next: tuple = ()
         bjts_next: tuple = ()
+        fk_next: tuple = ()
         for halvings in range(MAX_BACKTRACK + 1):
             trial = tuple(
                 ctx.add(xv, ctx.multiply(alpha, dv))
@@ -887,6 +939,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                         trials.append((alpha, max(kt, at), True))
                         devices_next = tuple(system.device_log)
                         bjts_next = tuple(system.bjt_log)
+                        fk_next = tuple(system.fk_log)
                     break
                 # SOLVER-EXT-01 (F8-K): exact-flat-region standstill.
                 # Piecewise devices (MOSFET/JFET cutoff, diode-kind
@@ -910,6 +963,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                         trials.append((alpha, max(kt, at), True))
                         devices_next = tuple(system.device_log)
                         bjts_next = tuple(system.bjt_log)
+                        fk_next = tuple(system.fk_log)
                     break
             if observer is not None:
                 trials.append((alpha, None if ft is None else max(system.block_norms(ft)), False))
@@ -948,7 +1002,8 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                                       jacobian=tuple(tuple(r) for r in jac), dx=tuple(dx),
                                       residual=tuple(final_f), trials=tuple(trials), reference=cur,
                                       devices=devices_next, device_conductances=jac_devices,
-                                      bjt_devices=bjts_next, bjt_jacobians=jac_bjts)
+                                      bjt_devices=bjts_next, bjt_jacobians=jac_bjts,
+                                      fk_devices=fk_next, fk_jacobians=jac_fk)
         if res_ok and step_ok:
             if capture is not None:
                 capture.update(problem=problem, system=system, x=x)
@@ -1352,8 +1407,11 @@ def _converged_result(problem: MNAProblem, system: _NewtonSystem,
         element_powers.append(ElementPower(
             ref=c.ref, power=Quantity(pw, _WATT), absorbed=pw >= 0))
 
+    # Sorted (E0.4): nets is a set; with hash order, max() below picked the
+    # first of numerically equal zeros (e.g. 0E-51 vs 0E-52) by PYTHONHASHSEED.
+    # Values are unchanged; only the reported representative is deterministic.
     net_kcl: dict[str, Decimal] = {net: Decimal(0)
-                                   for net in problem.circuit.nets}
+                                   for net in sorted(problem.circuit.nets)}
     for c in problem.circuit.components:
         t = c.type.upper()
         if t == "T":

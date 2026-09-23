@@ -401,14 +401,20 @@ def _sweep_detail(rec: TraceRecorder, circuit, config, read: str, budget: _Budge
                              ("warm_start", TraceValue.of_text("sí" if config.warm_start else "no"))))
     obs = _SweepObserver()
     result = solve_dc_sweep(circuit, config, observer=obs)
-    prev, points = grid, []
+    points, prev, facts = _render_points(rec, result.points, obs, grid, budget)
+    return result, points, prev, facts
+
+
+def _render_points(rec: TraceRecorder, sweep_points, obs: _SweepObserver, prev: str, budget: _Budget):
+    """Every point of a sweep-driver run (DC sweep, parameter sweep, corners) from the observed attempts."""
+    points = []
     by_index: dict = {}
     for a in obs.attempts:
         by_index.setdefault(a["index"], []).append(a)
     previous_final = None
     warm_ok = True
     iters_ok = True
-    for p in result.points:
+    for p in sweep_points:
         attempts = by_index.get(p.index, [])
         for a in attempts:
             warm = a["x_init"] is not None
@@ -456,13 +462,13 @@ def _sweep_detail(rec: TraceRecorder, circuit, config, read: str, budget: _Budge
         points.append(prev)
         previous_final = final["end"][2] if final is not None and final["end"] is not None and p.ok else None
     prev = budget.close(rec, prev)
-    return result, points, prev, dict(warm_ok=warm_ok, iters_ok=iters_ok, attempts=obs.attempts)
+    return points, prev, dict(warm_ok=warm_ok, iters_ok=iters_ok, attempts=obs.attempts)
 
 
-def _sweep_checks(rec: TraceRecorder, result, facts: dict, res: str) -> None:
-    rec.check("puntos en la traza = puntos del motor", TraceValue.of_number(len(result.points)),
+def _sweep_checks(rec: TraceRecorder, sweep_points, facts: dict, res: str) -> None:
+    rec.check("puntos en la traza = puntos del motor", TraceValue.of_number(len(sweep_points)),
               TraceValue.of_number(len({a["index"] for a in facts["attempts"]}) if facts["attempts"] else 0),
-              len(result.points) == len({a["index"] for a in facts["attempts"]}), refs=(res,),
+              len(sweep_points) == len({a["index"] for a in facts["attempts"]}), refs=(res,),
               detail=labelled("todos los puntos se conservan (conteo exacto)", SYMBOLIC),
               title="Comprobación: todos los puntos")
     warm = [a for a in facts["attempts"] if a["x_init"] is not None]
@@ -475,9 +481,9 @@ def _sweep_checks(rec: TraceRecorder, result, facts: dict, res: str) -> None:
               TraceValue.of_text("sí" if facts["iters_ok"] else "no"), TraceValue.of_text("sí"), facts["iters_ok"],
               refs=(res,), detail=labelled("igualdad exacta de enteros por punto", SYMBOLIC),
               title="Comprobación: iteraciones por punto")
-    ok = all(p.ok for p in result.points)
-    rec.check("todos los puntos convergieron", TraceValue.of_number(sum(1 for p in result.points if p.ok)),
-              TraceValue.of_number(len(result.points)), ok, refs=(res,),
+    ok = all(p.ok for p in sweep_points)
+    rec.check("todos los puntos convergieron", TraceValue.of_number(sum(1 for p in sweep_points if p.ok)),
+              TraceValue.of_number(len(sweep_points)), ok, refs=(res,),
               detail=labelled("estado de cada punto informado por el motor", SYMBOLIC), title="Comprobación: puntos")
 
 
@@ -506,7 +512,7 @@ def explain_dc_sweep_detail(spec: str, source: str, start: str, stop: str, step:
                         values=(("points", TraceValue.of_number(len(result.points))),
                                 ("digest", TraceValue.of_text(result.digest or "-"))),
                         result=TraceValue.of_text(f"{result.status.value}: {len(result.points)} puntos"))
-        _sweep_checks(rec, result, facts, res)
+        _sweep_checks(rec, result.points, facts, res)
     except (ValueError, ArithmeticError) as exc:
         ana._fail(rec, exc)
     return rec.finish()
@@ -525,9 +531,11 @@ class _TransientObserver:
                           x0=tuple(x0), dynamic=tuple(dynamic), tstop=tstop, h_init=h_init, h_min=h_min,
                           h_max=h_max, reltol=reltol, abstol=abstol)
 
-    def transient_reject(self, cause, t_n, h, t_next, retry_h, e_max, lte, iterations, newton=()):
+    def transient_reject(self, cause, t_n, h, t_next, retry_h, e_max, lte, iterations, newton=(),
+                         newton_failure=None):
         self.attempts.append(("reject", dict(cause=cause, t_n=t_n, h=h, t_next=t_next, retry_h=retry_h, e_max=e_max,
-                                             lte=tuple(lte), iterations=iterations, newton=tuple(newton))))
+                                             lte=tuple(lte), iterations=iterations, newton=tuple(newton),
+                                             newton_failure=newton_failure)))
 
     def transient_accept(self, index, t_n, h, t_next, x_n, predictor, x_next, iterations, kcl, aux, e_max, lte,
                          methods, next_h, forced, dynamic, newton=()):
@@ -969,7 +977,7 @@ def explain_lab_run_detail(session, run_id: str) -> ExecutionTrace:
             res = rec.event(EventKind.RESULT, "Barrido del run", refs=(last,),
                             values=(("points", TraceValue.of_number(len(observed.points))),),
                             result=TraceValue.of_text(f"{observed.status.value}: {len(observed.points)} puntos"))
-            _sweep_checks(rec, observed, facts, res)
+            _sweep_checks(rec, observed.points, facts, res)
         elif kind == "AC_POINT":
             observed, _res = _ac_detail(rec, working, analysis.frequency, "small-signal", read)
         else:

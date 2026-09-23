@@ -963,9 +963,11 @@ def _norm_corner_entries(circuit, entries) -> tuple:
     return tuple(out)
 
 
-def solve_param_sweep(circuit: Circuit, config: ParamSweepConfig
-                      ) -> SweepResult:
-    """M2: parameter sweep over the closed :data:`PARAM_REGISTRY`."""
+def solve_param_sweep(circuit: Circuit, config: ParamSweepConfig,
+                      observer=None) -> SweepResult:
+    """M2: parameter sweep over the closed :data:`PARAM_REGISTRY`.
+
+    ``observer`` (E0.4, optional): the :func:`_drive_points` contract."""
     try:
         if not isinstance(config, ParamSweepConfig):
             raise InvalidCircuitError("config must be a ParamSweepConfig")
@@ -1026,7 +1028,7 @@ def solve_param_sweep(circuit: Circuit, config: ParamSweepConfig
     doc["warm_start"] = config.warm_start
     return _finish_sweep(f"param-sweep/{config.mode}", doc, circuit, plan,
                          observables, config.warm_start,
-                         {"grid_digest": _sha(doc)})
+                         {"grid_digest": _sha(doc)}, observer)
 
 
 # ---------------------------------------------------------------------------
@@ -1069,14 +1071,15 @@ def _wc_fail(status: WorstCaseStatus, msg: str) -> WorstCaseResult:
                            provenance={"engine": ENGINE_VERSION})
 
 
-def solve_worst_case(circuit: Circuit, config: WorstCaseConfig
-                     ) -> WorstCaseResult:
+def solve_worst_case(circuit: Circuit, config: WorstCaseConfig,
+                     observer=None) -> WorstCaseResult:
     """M3: enumerate all ``2^k`` corners, solve each, reduce per observable.
 
     Enumeration order: addresses sorted by key, first address most
     significant, ``low`` before ``high``. Ties: first corner in that order
     wins (all tied corner indices are listed). The extremum is a *corner*
-    extremum, never claimed global.
+    extremum, never claimed global. ``observer`` (E0.4, optional): the
+    :func:`_drive_points` contract.
     """
     try:
         if not isinstance(config, WorstCaseConfig):
@@ -1104,7 +1107,8 @@ def solve_worst_case(circuit: Circuit, config: WorstCaseConfig
         label = "|".join(f"{a.key}={'high' if b else 'low'}"
                          for (a, _, _), b in zip(ent, bits))
         plan.append((label, assign))
-    points = _drive_points(circuit, plan, observables, config.warm_start)
+    points = _drive_points(circuit, plan, observables, config.warm_start,
+                           observer)
     extrema: dict = {}
     for spec in observables:
         ok = [p for p in points if spec.key in p.observables]

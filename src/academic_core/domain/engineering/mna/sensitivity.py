@@ -682,9 +682,15 @@ def _solve_real(jac, rhs):
                     NumericMode.HIGH_PRECISION)
 
 
-def solve_dc_sensitivity(circuit: Circuit, config: SensitivityConfig
-                         ) -> SensitivityResult:
-    """M4: ``dx/dp = -J^-1 dF/dp`` (+ observables, normalized form)."""
+def solve_dc_sensitivity(circuit: Circuit, config: SensitivityConfig,
+                         observer=None) -> SensitivityResult:
+    """M4: ``dx/dp = -J^-1 dF/dp`` (+ observables, normalized form).
+
+    E0.4: an optional ``observer`` receives ``sensitivity_system(unknowns,
+    x, J)`` (the converged point and the certified Jacobian used for every
+    solve) and ``sensitivity_parameter(key, dF_dp, dx_dp)`` per parameter,
+    as immutable snapshots. ``None`` keeps the solve byte-identical.
+    """
     try:
         if not isinstance(config, SensitivityConfig):
             raise InvalidCircuitError("config must be a SensitivityConfig")
@@ -729,6 +735,9 @@ def solve_dc_sensitivity(circuit: Circuit, config: SensitivityConfig
     dc = pb.circuit
     lin = _LinDeriv(dc, pb.node_index, pb.vsource_index, None)
     unknowns = _unknown_names(state)
+    if observer is not None:
+        observer.sensitivity_system(tuple(nm for nm, _ in unknowns), tuple(x),
+                                    tuple(tuple(r) for r in jac))
     state_out: dict = {}
     dx_of: dict = {}
     try:
@@ -754,6 +763,8 @@ def solve_dc_sensitivity(circuit: Circuit, config: SensitivityConfig
                     f"linear solve for {a.key}: {sol.status.value}",
                     result.status.value)
             s = tuple(e.re for e in sol.solution)
+            if observer is not None:
+                observer.sensitivity_parameter(a.key, tuple(dF), s)
             dx_of[a.key] = s
             state_out[a.key] = {
                 "parameter_dimension": rp.dimension,
