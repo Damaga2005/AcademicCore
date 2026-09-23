@@ -121,7 +121,10 @@ class ExplanationView:
 
 
 LESSON_OPERATIONS = ("math.derivative", "math.integral", "math.linear-equation", "math.simplify",
-                     "engineering.gum", "engineering.nonlinear-dc", "control.margins")
+                     "engineering.gum", "engineering.nonlinear-dc", "control.margins",
+                     # E0.2 analog engineering
+                     "engineering.linear-dc", "engineering.dc-sweep", "engineering.ac", "engineering.transient",
+                     "control.tf-point", "lab.run")
 LESSON_FIELDS = ("Paso", "Tipo", "Regla", "Entrada", "Transformación", "Salida", "Explicación", "Verificación")
 MAX_LESSON_TEXT = 400
 

@@ -313,6 +313,11 @@ class _NewtonSystem:
               c.ref.upper() not in (variants or {})),
             key=lambda c: c.ref.upper(),
         )
+        # E0.2 observation logs: None (default) = inert; set to [] only when an
+        # observer is attached. They record (ref, Vd, I) of each Shockley diode
+        # evaluation in residual() and (ref, Vd, g) in jacobian(), never alter them.
+        self.device_log = None
+        self.jac_log = None
         self.models = {c.ref.upper(): diodes[c.ref.upper()]
                        for c in self.diode_list}
         self.a_index = {c.ref.upper(): problem.node_index.get(c.pins["A"])
@@ -395,6 +400,8 @@ class _NewtonSystem:
                 for j in range(self.n):
                     total = ctx.add(total, ctx.multiply(row[j], x[j]))
                 acc.append(ctx.subtract(total, self.b0[i]))
+            if self.device_log is not None:
+                self.device_log = []
             for ref in self.models:
                 p = self.models[ref]
                 vd = ctx.subtract(self._x_of(x, self.a_index[ref]),
@@ -402,6 +409,8 @@ class _NewtonSystem:
                 ival, _, _ = companion(vd, p, ctx)
                 if not ival.is_finite():
                     return None
+                if self.device_log is not None:
+                    self.device_log.append((ref, vd, ival))
                 ia, ik = self.a_index[ref], self.k_index[ref]
                 if ia is not None:
                     acc[ia] = ctx.add(acc[ia], ival)
@@ -477,6 +486,8 @@ class _NewtonSystem:
         ctx = self.ctx
         try:
             rows = [list(r) for r in self.a0]
+            if self.jac_log is not None:
+                self.jac_log = []
             for ref in self.models:
                 p = self.models[ref]
                 vd = ctx.subtract(self._x_of(x, self.a_index[ref]),
@@ -484,6 +495,8 @@ class _NewtonSystem:
                 _, gval, _ = companion(vd, p, ctx)
                 if not gval.is_finite():
                     return None
+                if self.jac_log is not None:
+                    self.jac_log.append((ref, vd, gval))
                 ia, ik = self.a_index[ref], self.k_index[ref]
                 if ia is not None:
                     rows[ia][ia] = ctx.add(rows[ia][ia], gval)
@@ -625,8 +638,14 @@ def solve_nonlinear_dc(circuit: Circuit, *,
     real iteration: ``newton_start(nodes, x, kcl, aux, scale, *, unknowns,
     residual)`` once and ``newton_iteration(it, alpha, halvings, step_peak,
     x, kcl, aux, scale, res_ok, step_ok, *, x_prev, residual_prev,
-    jacobian, dx, residual)`` after every accepted step (E0.1-R+: full
-    vectors and the Jacobian actually used). Every argument is an immutable
+    jacobian, dx, residual, trials, reference, devices,
+    device_conductances)`` after every accepted step (E0.1-R+: full
+    vectors and the Jacobian actually used; E0.2: every backtracking trial
+    as (α, trial residual norm or None, accepted), the norm to beat, and
+    the Shockley evaluations (ref, Vd, I) at x_(k+1) and (ref, Vd, g) at
+    x_k). ``newton_start`` also receives ``devices`` and
+    ``diode_parameters`` (ref, Is, n, Vt); ``newton_failed(it, reason,
+    trials)`` reports an in-loop failure. Every argument is an immutable
     snapshot (tuples of Decimal), built only when an observer is present.
     It never alters the solve.
     """
@@ -716,6 +735,12 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
     ]
     warnings: list[str] = []
     backtrack_uses = 0
+    if observer is not None:
+        system.device_log, system.jac_log = [], []
+
+    def _failed(reason: str, trials=()) -> None:
+        if observer is not None:
+            observer.newton_failed(it, reason, tuple(trials))
 
     f0 = system.residual(x)
     if f0 is None:
@@ -734,11 +759,12 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
     k0, a0n = system.block_norms(f0)
     scale = system.scale_of(x)
     if observer is not None:
-        unknowns = (tuple(problem.nodes) + tuple(f"I({r})" for r in problem.vsource_refs)
-                    + tuple(f"I({r}):{k}" for r in problem.tx_leg_refs for k in (1, 2))
-                    + tuple(f"I({r})" for r in problem.l_aux_refs))
+        from academic_core.domain.engineering.mna.problem import unknown_labels
         observer.newton_start(problem.nodes, x[:system.n_nodes], k0, a0n, scale,
-                              unknowns=unknowns[:n], residual=tuple(f0))
+                              unknowns=unknown_labels(problem), residual=tuple(f0),
+                              devices=tuple(system.device_log),
+                              diode_parameters=tuple((ref, system.models[ref].Is, system.models[ref].n,
+                                                      system.models[ref].Vt) for ref in system.models))
     if _block_ok(list(f0[:system.n_nodes]), scale) and \
             _block_ok(list(f0[system.n_nodes:]), scale):
         if capture is not None:
@@ -753,7 +779,9 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
     final_pair = (k0, a0n)
     while it < max_iter:
         jac = system.jacobian(x)
+        jac_devices = tuple(system.jac_log) if observer is not None and jac is not None else ()
         if jac is None:
+            _failed("DIVERGED: Jacobian evaluation non-finite")
             return NonlinearResult(
                 status=NonlinearStatus.DIVERGED,
                 system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
@@ -772,6 +800,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                 NumericMode.HIGH_PRECISION,
             )
         except Exception as exc:
+            _failed("DIVERGED: linear-solve entry refused")
             return NonlinearResult(
                 status=NonlinearStatus.DIVERGED,
                 system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
@@ -783,6 +812,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                 ]),
             )
         if lin.status in (LinearStatus.SINGULAR, LinearStatus.INCONSISTENT):
+            _failed(f"SINGULAR_JACOBIAN: {lin.status.value}")
             return NonlinearResult(
                 status=NonlinearStatus.SINGULAR_JACOBIAN,
                 system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
@@ -795,6 +825,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                 ]),
             )
         if lin.status != LinearStatus.SOLVED or lin.solution is None:
+            _failed("DIVERGED: Newton step not certified")
             return NonlinearResult(
                 status=NonlinearStatus.DIVERGED,
                 system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
@@ -812,6 +843,8 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
         halvings = 0
         accepted: tuple[Decimal, ...] | None = None
         accepted_f: tuple[Decimal, ...] | None = None
+        trials: list = []  # E0.2: (alpha, trial residual norm or None, accepted), filled only with an observer
+        devices_next: tuple = ()
         for halvings in range(MAX_BACKTRACK + 1):
             trial = tuple(
                 ctx.add(xv, ctx.multiply(alpha, dv))
@@ -821,6 +854,9 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                 kt, at = system.block_norms(ft)
                 if max(kt, at) < cur:
                     accepted, accepted_f = trial, ft
+                    if observer is not None:
+                        trials.append((alpha, max(kt, at), True))
+                        devices_next = tuple(system.device_log)
                     break
                 # SOLVER-EXT-01 (F8-K): exact-flat-region standstill.
                 # Piecewise devices (MOSFET/JFET cutoff, diode-kind
@@ -840,9 +876,15 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                         _block_ok(list(ft[:system.n_nodes]), scale_t) and \
                         _block_ok(list(ft[system.n_nodes:]), scale_t):
                     accepted, accepted_f = trial, ft
+                    if observer is not None:
+                        trials.append((alpha, max(kt, at), True))
+                        devices_next = tuple(system.device_log)
                     break
+            if observer is not None:
+                trials.append((alpha, None if ft is None else max(system.block_norms(ft)), False))
             alpha = ctx.divide(alpha, Decimal(2))
         if accepted is None or accepted_f is None:
+            _failed("DIVERGED: backtracking exhausted", trials)
             return NonlinearResult(
                 status=NonlinearStatus.DIVERGED,
                 system_summary=_summary(problem, diodes, bjts, mosfets, jfets, variants, it),
@@ -873,7 +915,8 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                                       final_pair[1], scale, res_ok, step_ok,
                                       x_prev=tuple(x_prev), residual_prev=tuple(f_prev),
                                       jacobian=tuple(tuple(r) for r in jac), dx=tuple(dx),
-                                      residual=tuple(final_f))
+                                      residual=tuple(final_f), trials=tuple(trials), reference=cur,
+                                      devices=devices_next, device_conductances=jac_devices)
         if res_ok and step_ok:
             if capture is not None:
                 capture.update(problem=problem, system=system, x=x)

@@ -331,6 +331,20 @@ class MNAProblem:
                 + len(self.tx_leg_refs) + len(self.l_aux_refs))
 
 
+def unknown_labels(problem: "MNAProblem") -> tuple[str, ...]:
+    """E0.2: the label of every MNA unknown, from the problem's own index maps.
+
+    ``V(net)`` for each node column and ``I(key)`` for each auxiliary
+    current column (voltage-type sources, transformer legs ``T1:1``/``T1:2``,
+    inductors). Pure read of the certified layout; nothing is computed."""
+    labels = [f"x{k}" for k in range(problem.size)]
+    for net, k in problem.node_index.items():
+        labels[k] = f"V({net})"
+    for key, k in problem.vsource_index.items():
+        labels[k] = f"I({key})"
+    return tuple(labels)
+
+
 def build_mna_problem(circuit: Circuit, *, allow_diodes: bool = False,
                        allow_bjts: bool = False,
                        allow_mosfets: bool = False,

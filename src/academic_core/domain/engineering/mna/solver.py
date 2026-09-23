@@ -195,12 +195,17 @@ def _fundamental_cycle_kvl_residual(problem: MNAProblem, solution: tuple) -> Fra
     return max_residual
 
 
-def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
+def solve_linear_dc(circuit: Circuit, observer=None) -> AnalysisResult:
     """Solve a DC linear resistive `Circuit` (R, ideal V, ideal I) via MNA.
 
     Returns a structured `AnalysisResult`; never raises for a circuit that
     is merely outside F8-B's domain or ill-posed (INVALID/UNSUPPORTED), and
     never fabricates a `SOLVED` result for a singular/inconsistent system.
+
+    ``observer`` (E0.2, optional, default None) is told the exact system the
+    solver solves, ``mna_system(unknowns, matrix, rhs)`` (tuples of
+    ``Fraction``, immutable snapshots), and its outcome,
+    ``linear_outcome(status, rank, solution)``. It never alters the solve.
     """
     try:
         problem = build_mna_problem(circuit)
@@ -220,7 +225,13 @@ def solve_linear_dc(circuit: Circuit) -> AnalysisResult:
                          "solver",),
         )
 
+    if observer is not None:
+        from academic_core.domain.engineering.mna.problem import unknown_labels
+        observer.mna_system(unknown_labels(problem), tuple(tuple(row) for row in problem.matrix),
+                            tuple(problem.rhs))
     outcome = solve_exact([list(row) for row in problem.matrix], list(problem.rhs))
+    if observer is not None:
+        observer.linear_outcome(outcome.status.value, outcome.rank, outcome.solution)
 
     system_summary = {
         "n_nodes": len(problem.nodes),

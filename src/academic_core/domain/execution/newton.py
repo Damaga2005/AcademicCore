@@ -39,11 +39,13 @@ Input limits are configurable (``max_lines``, ``max_line_length``,
 from __future__ import annotations
 
 import re
+from decimal import Decimal, localcontext
 
 from academic_core.domain.engineering.circuit import Circuit, CircuitError, Component
 from academic_core.domain.engineering.mna.nonlinear import NonlinearStatus, solve_nonlinear_dc
 from academic_core.domain.engineering.units import Quantity, UnitError, parse_quantity
 from academic_core.domain.execution.model import EventKind, ExecutionTrace, TraceRecorder, TraceValue, _invalid
+from academic_core.domain.execution.verification import NONE, NUMERIC, SYMBOLIC, labelled
 from academic_core.errors import UnsupportedError, ValidationError
 
 OPERATION = "engineering.nonlinear-dc"
@@ -57,6 +59,8 @@ CEILING_LINES = 250  # MAX_INPUTS (256) minus headroom
 CEILING_LINE = 512  # MAX_STRING of execution-trace/1
 CEILING_TOTAL = CEILING_LINES * (CEILING_LINE + 1)
 MAX_VECTOR_SHOWN = 4  # x_k, F, Δx and J are listed value by value up to 4 unknowns
+MAX_DEVICES = 16  # Shockley evaluations listed per event (4 values each)
+LINEAR_TOL = Decimal("1e-40")  # the solver works at 50 digits
 _PARAM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,15}\Z")
 MAX_NODES_SHOWN = 32
 
@@ -123,18 +127,108 @@ class _Observer:
         self.nodes: tuple = ()
         self.unknowns: tuple = ()
         self.start = None
+        self.start_devices: tuple = ()
+        self.diode_parameters: tuple = ()
         self.iterations: list = []
+        self.failure = None
 
-    def newton_start(self, nodes, x, kcl, aux, scale, *, unknowns=(), residual=()):
-        self.nodes, self.unknowns = tuple(nodes), tuple(unknowns)
+    def newton_start(self, nodes, x, kcl, aux, scale, *, unknowns=(), residual=(), devices=(),
+                     diode_parameters=()):
+        # node columns keep their plain net name (E0.1-R+ value names); auxiliary currents keep I(key)
+        self.nodes = tuple(nodes)
+        self.unknowns = tuple(u[2:-1] if u.startswith("V(") and u.endswith(")") else u for u in unknowns)
         self.start = (tuple(x), kcl, aux, scale, tuple(residual))
+        self.start_devices, self.diode_parameters = tuple(devices), tuple(diode_parameters)
 
     def newton_iteration(self, it, alpha, halvings, step_peak, x, kcl, aux, scale, res_ok, step_ok, *,
-                         x_prev=(), residual_prev=(), jacobian=(), dx=(), residual=()):
+                         x_prev=(), residual_prev=(), jacobian=(), dx=(), residual=(), trials=(), reference=None,
+                         devices=(), device_conductances=()):
         self.iterations.append(dict(it=it, alpha=alpha, halvings=halvings, peak=step_peak, x=tuple(x), kcl=kcl,
                                     aux=aux, scale=scale, res_ok=res_ok, step_ok=step_ok, x_prev=tuple(x_prev),
                                     f_prev=tuple(residual_prev), jac=tuple(jacobian), dx=tuple(dx),
-                                    f=tuple(residual)))
+                                    f=tuple(residual), trials=tuple(trials), reference=reference,
+                                    devices=tuple(devices), conductances=tuple(device_conductances)))
+
+    def newton_failed(self, it, reason, trials):
+        self.failure = (it, reason, tuple(trials))
+
+
+def _label(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_:\-]", "_", text).strip("_") or "u"
+
+
+def _shockley_models(rec: TraceRecorder, obs, circuit: Circuit, read: str) -> tuple:
+    """One STEP per Shockley diode with the parameters the solver actually used; other devices declared."""
+    ids = []
+    for ref, is_, n, vt in obs.diode_parameters:
+        ids.append(rec.event(
+            EventKind.STEP, f"Modelo de Shockley: {ref}", refs=(read,),
+            formula="I = Is·(exp(Vd/(n·Vt)) − 1)",
+            why="Parámetros que el solver usa para este diodo (DiodeParams del motor F8-H).",
+            values=(("Is", TraceValue.of_number(is_, "A")), ("n", TraceValue.of_number(n)),
+                    ("Vt", TraceValue.of_number(vt, "V")))))
+    shockley = {ref for ref, *_ in obs.diode_parameters}
+    others = sorted(c.ref.upper() for c in circuit.components
+                    if c.type.upper() in ("D", "Q", "M", "J") and c.ref.upper() not in shockley)
+    if others:
+        ids.append(rec.event(
+            EventKind.WARNING, "Detalle de dispositivo no expuesto", refs=(read,),
+            why=(f"El solver no expone la evaluación interna de {', '.join(others)[:300]} (variantes de diodo, BJT, "
+                 "MOSFET, JFET); sus corrientes solo intervienen a través de F y J."),
+            values=(("devices", TraceValue.of_text(", ".join(others)[:512])),)))
+    return tuple(ids)
+
+
+def _devices(devices: tuple, suffix: str) -> tuple:
+    out = []
+    for ref, vd, i in devices[:MAX_DEVICES]:
+        out += [(f"Vd.{ref}{suffix}", TraceValue.of_number(vd, "V")), (f"I.{ref}{suffix}", TraceValue.of_number(i, "A"))]
+    return tuple(out)
+
+
+def _device_values(conductances: tuple, devices: tuple) -> tuple:
+    out = []
+    for ref, vd, g in conductances[:MAX_DEVICES]:
+        out += [(f"Vd_k.{ref}", TraceValue.of_number(vd, "V")), (f"g_k.{ref}", TraceValue.of_number(g, "S"))]
+    for ref, vd, i in devices[:MAX_DEVICES]:
+        out += [(f"Vd_next.{ref}", TraceValue.of_number(vd, "V")), (f"I_next.{ref}", TraceValue.of_number(i, "A"))]
+    if max(len(conductances), len(devices)) > MAX_DEVICES:
+        out.append(("omitted", TraceValue.of_text(f"solo se listan {MAX_DEVICES} diodos")))
+    return tuple(out)
+
+
+def _trials(rec: TraceRecorder, it: int, trials: tuple, reference, prev: str, failed: bool = False) -> str:
+    """Backtracking trials exactly as the solver ran them (shown when there was more than one)."""
+    if len(trials) <= 1 and not failed:
+        return prev
+    for k, (alpha, norm, accepted) in enumerate(trials, start=1):
+        values = [("alpha", TraceValue.of_number(alpha)),
+                  ("trial_residual", TraceValue.of_number(norm) if norm is not None else TraceValue.of_text("no finito")),
+                  ("decision", TraceValue.of_text("aceptado" if accepted else "rechazado"))]
+        if reference is not None:
+            values.append(("residual_to_beat", TraceValue.of_number(reference)))
+        prev = rec.event(
+            EventKind.STEP, f"Backtracking (iteración {it}): prueba {k} con α = {alpha}", refs=(prev,),
+            formula="x_prueba = x_k + α·Δx;  aceptar si ‖F(x_prueba)‖ < ‖F(x_k)‖",
+            why=("Backtracking real del solver: " + ("se acepta el paso." if accepted else "no reduce el residuo; "
+                 "α se divide entre 2.")),
+            values=tuple(values))
+    return prev
+
+
+def _linear_solve_residual(iterations: list) -> Decimal:
+    worst = Decimal(0)
+    with localcontext() as ctx:
+        ctx.prec = 80
+        for f in iterations:
+            jac, dx, fk = f["jac"], f["dx"], f["f_prev"]
+            for i, row in enumerate(jac):
+                lhs = sum((row[j] * dx[j] for j in range(len(dx))), Decimal(0)) + fk[i]
+                scale = max([Decimal(1)] + [abs(v) for v in row] + [abs(v) for v in dx])
+                worst = max(worst, abs(lhs) / scale)
+    with localcontext() as ctx:
+        ctx.prec = 6
+        return +worst
 
 
 def _voltages(nodes, x) -> tuple:
@@ -184,27 +278,46 @@ def explain_nonlinear_dc(spec: str, *, max_lines: int = MAX_LINES, max_line_leng
                                  ("nets", TraceValue.of_text(", ".join(sorted(circuit.nets))[:512]))))
         obs = _Observer()
         result = solve_nonlinear_dc(circuit, observer=obs)
+        model_ids = _shockley_models(rec, obs, circuit, read)
         prev = read
         if obs.start is not None:
             x0, kcl, aux, scale, _f0 = obs.start
-            prev = rec.event(EventKind.STEP, "Punto de partida", refs=(read,), formula="x₀ = 0 (vector nulo determinista)",
+            prev = rec.event(EventKind.STEP, "Punto de partida", refs=(read, *model_ids),
+                             formula="x₀ = 0 (vector nulo determinista)",
                              why="El solver parte del vector nulo y mide el residuo inicial F(x₀) por bloques.",
                              values=(("kcl_residual", TraceValue.of_number(kcl, "A")),
                                      ("aux_residual", TraceValue.of_number(aux, "V")),
-                                     ("scale", TraceValue.of_number(scale)), *_voltages(obs.nodes, x0)))
+                                     ("scale", TraceValue.of_number(scale)), *_voltages(obs.nodes, x0),
+                                     *_devices(obs.start_devices, "")))
         for f in obs.iterations:
+            prev = _trials(rec, f["it"], f["trials"], f["reference"], prev)
+            values = (("alpha", TraceValue.of_number(f["alpha"])), ("halvings", TraceValue.of_number(f["halvings"])),
+                      ("step_peak", TraceValue.of_number(f["peak"])), ("kcl_residual", TraceValue.of_number(f["kcl"], "A")),
+                      ("aux_residual", TraceValue.of_number(f["aux"], "V")), ("scale", TraceValue.of_number(f["scale"])),
+                      ("res_ok", TraceValue.of_text("sí" if f["res_ok"] else "no")),
+                      ("step_ok", TraceValue.of_text("sí" if f["step_ok"] else "no")), *_voltages(obs.nodes, f["x"]))
+            vectors = _vectors(obs.unknowns, f)
+            if len(values) + len(vectors) > 64:
+                vectors = (("jacobian", TraceValue.of_text("detalle omitido: no cabe en un evento (64 valores)")),)
             prev = rec.event(
                 EventKind.STEP, f"Iteración {f['it']} de Newton", refs=(prev,),
                 formula="x_k, F(x_k), J(x_k) → resolver J·Δx = −F → x_(k+1) = x_k + α·Δx",
                 why=("Newton amortiguado: se resuelve el sistema lineal con el jacobiano real y se reduce α a la mitad "
                      "hasta que el residuo disminuye (backtracking). ‖F‖ son las normas por bloques (KCL, auxiliar) "
                      "en x_(k+1); ‖αΔx‖∞ es step_peak. Parada: res_ok y step_ok."),
-                values=(("alpha", TraceValue.of_number(f["alpha"])), ("halvings", TraceValue.of_number(f["halvings"])),
-                        ("step_peak", TraceValue.of_number(f["peak"])), ("kcl_residual", TraceValue.of_number(f["kcl"], "A")),
-                        ("aux_residual", TraceValue.of_number(f["aux"], "V")), ("scale", TraceValue.of_number(f["scale"])),
-                        ("res_ok", TraceValue.of_text("sí" if f["res_ok"] else "no")),
-                        ("step_ok", TraceValue.of_text("sí" if f["step_ok"] else "no")), *_voltages(obs.nodes, f["x"]),
-                        *_vectors(obs.unknowns, f))[:64])
+                values=values + vectors)
+            if f["devices"] or f["conductances"]:
+                prev = rec.event(
+                    EventKind.STEP, f"Evaluación de Shockley (iteración {f['it']})", refs=(prev, *model_ids),
+                    formula="I = Is·(exp(Vd/(n·Vt)) − 1);  g = Is/(n·Vt)·exp(Vd/(n·Vt))",
+                    why=("Valores que el solver calculó: g en x_k (entra en el jacobiano) e I en x_(k+1) "
+                         "(entra en el residuo)."),
+                    values=_device_values(f["conductances"], f["devices"]))
+        if obs.failure is not None:
+            it, reason, trials = obs.failure
+            prev = _trials(rec, it + 1, trials, None, prev, failed=True)
+            prev = rec.event(EventKind.WARNING, f"Iteración {it + 1} fallida", refs=(prev,),
+                             why=f"El solver informa: {reason}.", values=(("reason", TraceValue.of_text(reason[:512])),))
         converged = result.status is NonlinearStatus.CONVERGED
         decision = rec.event(
             EventKind.DECISION, "Criterio de parada", refs=(prev,),
@@ -220,20 +333,47 @@ def explain_nonlinear_dc(spec: str, *, max_lines: int = MAX_LINES, max_line_leng
                         values=tuple((f"V.{nv.node}", TraceValue.of_quantity(nv.voltage))
                                      for nv in result.node_voltages[:MAX_NODES_SHOWN]),
                         result=TraceValue.of_text(f"CONVERGED en {len(obs.iterations)} iteraciones"))
+        if obs.iterations:
+            last = obs.iterations[-1]["f"]
+            rows = [(f"KCL.{_label(lab)}", TraceValue.of_number(v, "A")) for lab, v in
+                    zip(obs.nodes, last[:len(obs.nodes)])]
+            rows += [(f"aux.{_label(lab)}", TraceValue.of_number(v, "V")) for lab, v in
+                     zip(obs.unknowns[len(obs.nodes):], last[len(obs.nodes):])]
+            res_kcl = rec.event(
+                EventKind.STEP, "KCL por nodo en la solución", refs=(res,),
+                formula="F(x*) por filas: una ecuación KCL por nodo y una restricción por fuente de tensión",
+                why=("El solver expone el residuo de cada fila de F en la solución. La descomposición en "
+                     "corrientes de cada elemento no se expone, así que no se muestra."),
+                values=tuple(rows[:64]) if len(rows) <= 64 else tuple(rows[:63]) + (
+                    ("omitted", TraceValue.of_text(f"{len(rows) - 63} filas más no caben en el evento")),))
         cc = result.conservation_checks
         if cc is not None:
             rec.check("conservación (KCL, KVL, balance de potencia) del solver", TraceValue.of_text(
                 f"kcl={cc.kcl_max_residual}; kvl={cc.kvl_max_residual}; power={cc.power_balance_residual}"[:512]),
                 TraceValue.of_text(f"≤ {cc.tolerance}"), cc.passed, refs=(res,),
-                tolerance=TraceValue.of_text(cc.tolerance), title="Comprobación: leyes de Kirchhoff")
+                tolerance=TraceValue.of_text(cc.tolerance),
+                detail=labelled("residuos calculados por el solver frente a su tolerancia", NUMERIC),
+                title="Comprobación: leyes de Kirchhoff")
         reported = result.provenance.get("iterations")
         rec.check("iteraciones en la procedencia = iteraciones observadas",
                   TraceValue.of_number(len(obs.iterations)), TraceValue.of_text(str(reported)),
-                  reported == len(obs.iterations), refs=(res,), title="Comprobación: iteraciones completas")
+                  reported == len(obs.iterations), refs=(res,),
+                  detail=labelled("igualdad exacta de enteros", SYMBOLIC), title="Comprobación: iteraciones completas")
         chained = all(a["x"] == b["x_prev"][:len(a["x"])] for a, b in zip(obs.iterations, obs.iterations[1:]))
         rec.check("x_(k+1) de cada iteración = x_k de la siguiente", TraceValue.of_text("sí" if chained else "no"),
                   TraceValue.of_text("sí"), chained if len(obs.iterations) > 1 else None, refs=(res,),
-                  title="Comprobación: continuidad de las iteraciones")
+                  detail=labelled("igualdad exacta de los vectores observados", SYMBOLIC if len(obs.iterations) > 1
+                                  else NONE), title="Comprobación: continuidad de las iteraciones")
+        worst = _linear_solve_residual(obs.iterations)
+        bound = worst != 0 and worst.adjusted() < -150
+        shown = Decimal("1E-150") if bound else +worst  # traced numbers are bounded to 200 digits
+        rec.check("J·Δx + F = 0 con los datos observados" + (" (cota superior)" if bound else ""),
+                  TraceValue.of_number(shown), TraceValue.of_number(Decimal(0)),
+                  worst <= LINEAR_TOL if obs.iterations else None, refs=(res,),
+                  tolerance=TraceValue.of_number(LINEAR_TOL),
+                  detail=labelled("máximo relativo sobre todas las iteraciones (J, Δx y F tal como los usó el solver)",
+                                  NUMERIC if obs.iterations else NONE),
+                  title="Comprobación: el sistema lineal de Newton")
     except (ValueError, ArithmeticError) as exc:
         rec.fail(exc, "La ejecución se detuvo", refs=tuple(r for r in (rec.last,) if r))
     return rec.finish()

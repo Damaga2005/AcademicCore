@@ -88,6 +88,9 @@ class VirtualLabPanel(QWidget):
         self.btn_replay = QPushButton("Replay last")
         self.btn_replay.setToolTip("Deterministic replay + digest compare")
         erow.addWidget(self.btn_replay)
+        self.btn_explain = QPushButton("Explicar último")
+        self.btn_explain.setToolTip("Explicación paso a paso del último run, desde el resultado certificado (E0.2)")
+        erow.addWidget(self.btn_explain)
         self.status = QLabel("IDLE")
         erow.addWidget(self.status)
         layout.addLayout(erow)
@@ -97,6 +100,7 @@ class VirtualLabPanel(QWidget):
         layout.addWidget(self.output)
 
         self.btn_new.clicked.connect(self._new_session)
+        self.btn_explain.clicked.connect(self._explain)
         self.btn_save.clicked.connect(self._save)
         self.btn_load.clicked.connect(self._load)
         self.btn_run.clicked.connect(self._add_run)
@@ -298,6 +302,24 @@ class VirtualLabPanel(QWidget):
         ui = show_ui_error(self, exc, "Run")
         self._render(f"{ui.error_code}: {ui.safe_message}")
         self._set_state(UiState.ERROR, f"ERROR {ui.error_code}")
+
+    # -- E0.2 explanation ----------------------------------------------------
+    def _explain(self) -> None:
+        """Render the ExecutionTrace explanation of the last run (built by the application service)."""
+        if self.session is None or self.last_run_id is None:
+            show_ui_error(self, ValueError("nothing to explain yet"), "Explicar")
+            return
+        self._set_state(UiState.RUNNING, "RUNNING…")
+        worker = ServiceWorker(self.app.explain.explain_lab_run, self.session, self.last_run_id)
+        worker.signals.finished.connect(self._on_explanation)
+        worker.signals.failed.connect(self._on_error)
+        self.pool.start(worker)
+
+    def _on_explanation(self, view) -> None:
+        self.explanation = view
+        self._render(self.app.explain.text(view))
+        self._set_state(UiState.SUCCESS if view.outcome == "SUCCESS" else UiState.WARNING,
+                        f"{view.outcome} · verificación {view.verification}")
 
     # -- replay -------------------------------------------------------------
     def _replay(self) -> None:

@@ -24,6 +24,10 @@ dynamic discovery:
   equal the recorded ``circuit_digest``
 - E0.1: ``math.*``, ``engineering.gum``, ``engineering.nonlinear-dc`` and
   ``control.margins``: domain replay from the recorded inputs
+- E0.2: ``engineering.linear-dc``, ``engineering.dc-sweep``,
+  ``engineering.ac``, ``engineering.transient`` and ``control.tf-point``:
+  domain replay from the recorded inputs. A ``lab.run`` explanation is
+  refused here: the Virtual Lab replays its runs itself (result digest)
 
 An unknown operation is refused (``UNSUPPORTED_OPERATION``).
 
@@ -45,6 +49,7 @@ from academic_core.application.digital_service import AnalyzerRequest, DigitalAn
 from academic_core.application.explain_render import ExplanationView, build_view, render_markdown, render_text
 from academic_core.domain.engineering import digital_circuit
 from academic_core.domain.execution import EventKind, ExecutionTrace, compare
+from academic_core.domain.execution import analog as analog_trace
 from academic_core.domain.execution import control as control_trace
 from academic_core.domain.execution import digital as digital_trace
 from academic_core.domain.execution import equation as equation_trace
@@ -85,6 +90,15 @@ class ExplainReplayView:
     first_difference: str
     original_digest: str
     replayed_digest: str
+
+
+def session_records(session) -> tuple:
+    """The records of a lab session (typed access, no reflection)."""
+    from academic_core.domain.engineering.lab.model import LaboratorySession
+
+    if not isinstance(session, LaboratorySession):
+        raise ValidationError("INVALID_INPUT: expected a Virtual Lab session")
+    return tuple(session.records)
 
 
 class ExplainService:
@@ -144,6 +158,40 @@ class ExplainService:
 
     def margins_trace(self, numerator: str, denominator: str) -> ExecutionTrace:
         return control_trace.explain_margins(numerator, denominator)
+
+    # -- E0.2 analog engineering --------------------------------------------------------
+    def analog_trace(self, kind: str, *args, **kwargs) -> ExecutionTrace:
+        """Fixed dispatch: linear-dc, dc-sweep, ac, transient, tf-point (no dynamic lookup)."""
+        if kind == "linear-dc":
+            return analog_trace.explain_linear_dc(*args, **kwargs)
+        if kind == "dc-sweep":
+            return analog_trace.explain_dc_sweep(*args, **kwargs)
+        if kind == "ac":
+            return analog_trace.explain_ac(*args, **kwargs)
+        if kind == "transient":
+            return analog_trace.explain_transient(*args, **kwargs)
+        if kind == "tf-point":
+            return analog_trace.explain_tf_point(*args, **kwargs)
+        raise ValidationError("UNSUPPORTED_OPERATION: analog kind must be one of "
+                              "linear-dc, dc-sweep, ac, transient, tf-point")
+
+    def explain_analog(self, kind: str, *args, **kwargs) -> ExplanationView:
+        return build_view(self.analog_trace(kind, *args, **kwargs))
+
+    def lab_run_trace(self, session, run_id: str) -> ExecutionTrace:
+        """Trace of a Virtual Lab run, from the certified Run it holds (nothing is re-run)."""
+        for record in session_records(session):
+            for run in record.runs:
+                if run.run_id == run_id:
+                    return analog_trace.explain_lab_run(run)
+        raise ValidationError(f"UNKNOWN_RUN: {str(run_id)[:64]!r}")
+
+    def explain_lab_run(self, session, run_id: str) -> ExplanationView:
+        cid = new_correlation_id()
+        view = build_view(self.lab_run_trace(session, run_id))
+        log_event(logger, logging.INFO, "AC-OK-001", "application.explain", "explain_lab_run",
+                  f"{view.outcome}/{view.verification} [cid={cid}]")
+        return view
 
     # -- views --------------------------------------------------------------------
     def explain_exercise(self, key: str, inputs: dict[str, str], pedagogical: bool = False) -> ExplanationView:
@@ -224,6 +272,11 @@ class ExplainService:
             return newton_trace.replay_nonlinear_dc
         if operation == control_trace.OPERATION:
             return control_trace.replay_margins
+        if operation in analog_trace.OPERATIONS:
+            return analog_trace.replay_analog
+        if operation == analog_trace.LAB_RUN:
+            raise ValidationError("UNSUPPORTED_OPERATION: a Virtual Lab run is replayed by the lab itself "
+                                  "(LabService.replay compares result digests); its explanation is rebuilt from that run")
         raise ValidationError(f"UNSUPPORTED_OPERATION: no replayer for {operation[:64]!r}")
 
     def replay(self, text: object, circuit_document: object = None) -> ExplainReplayView:
