@@ -199,6 +199,7 @@ F8-Q  Motor Digital + Logic Analyzer                 [CERTIFICADA]
 E0     Explainable Execution / Pedagogical Trace        [CERTIFICADA]
 E0.1   Explainable Execution Expansion (pasos reales)  [CERTIFICADA]
 E0.1-R+ Hardening + cierre de limitaciones           [CERTIFICADA]
+E0.2   Explainable Engineering Expansion (analógico)  [CERTIFICADA]
  │
  │  ═══════════ CAPACIDAD PEDAGÓGICA TRANSVERSAL ═══════════
  │
@@ -228,6 +229,7 @@ E0.1-R+ Hardening + cierre de limitaciones           [CERTIFICADA]
 | 15b | E0 | Explainable Execution / Pedagogical Trace | F8-Q.7 (F8-Q certificada) | `ExecutionTrace` común (`execution-trace/1`, digest, replay, renderer de 7 preguntas) integrado con el resolver de ecuaciones y con F8-Q; botón «Explicar» en Ejercicios — **CERTIFICADA** ([`GATE-E0-FINAL.md`](../gates/GATE-E0-FINAL.md)); retrofit de otros resolvers (E0-A…E0-D) pendiente |
 | 15c | E0.1 | Explainable Execution Expansion | E0 | Motor simbólico acotado con pasos reales (derivadas, integrales, ecuaciones lineales, simplificación), iteraciones reales de F8-N (Newton) y F8-P (bisección), presupuesto GUM paso a paso, causalidad F8-Q, `digital-circuit/1`, lecciones «Paso N / Tipo / Regla / …» en Ejercicios y Logic Analyzer — **CERTIFICADA** ([`GATE-E0.1-FINAL.md`](../gates/GATE-E0.1-FINAL.md)) |
 | 15d | E0.1-R+ | Hardening + limitaciones justificadas | E0.1 | Equivalencia observer/no-observer (GUM, F8-N, F8-P), etiquetas SYMBOLIC/NUMERIC/NONE, causalidad F8-Q delta a delta sin tocar el paquete digital, GUM declarativo (callables UNSUPPORTED), auditoría Decimal de √/ν_eff (se conserva el motor certificado), límites F8-N configurables — **CERTIFICADA** ([`GATE-E0.1-R-FINAL.md`](../gates/GATE-E0.1-R-FINAL.md)) |
+| 15e | E0.2 | Explainable Engineering Expansion (analógico) | E0.1-R+ | F8-H con Shockley real, Newton, Jacobiano, backtracking y KCL por nodo observados; MNA lineal con A, b y x exactos; barrido DC, AC, transitorio y TF a nivel de resultado con lo no observable declarado; «Explicar último» en el Laboratorio Virtual — **CERTIFICADA** ([`GATE-E0.2-FINAL.md`](../gates/GATE-E0.2-FINAL.md)) |
 | 16 | F3-ext | Integración del conversor HTML→MD/LaTeX | F15 | Motor de `Conversor-HTML-A-MD` (ya desacoplado de Tkinter) |
 | 17 | F4-ext | Fusión de gestión académica | F15, F3-ext | Migra `GestionAcademicaGREELEC.exe` al modelo F4 y al dashboard |
 | 18 | F13-ext | Sync entre 2 PCs personales | F15 | Última edición gana + log (no CRDT) |
