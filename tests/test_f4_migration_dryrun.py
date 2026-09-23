@@ -217,7 +217,10 @@ def test_calendar_spaces_and_personal(migrated):
     assert tasks["Entrega SS"].end == "23:59" and tasks["Entrega SS"].start == ""
     assert tasks["Inicio sin fin"].start == "" and tasks["Inicio sin fin"].state == "hecha"
     raw = core.migration.legacy.payloads("gestion-academica", "tarea_evento#raw")
-    assert [p["source_id"] for p in raw] == ["4"]  # dropped start kept verbatim
+    # dropped start (4) and link to a non-migrated document (5) kept verbatim
+    assert [(p["source_id"], p["payload"].get("documento_id")) for p in raw] == [
+        ("4", None), ("5", 5)]
+    assert tasks["Repasar hoja perdida"].document_id == ""
     parcial = tasks["Parcial DD"]
     assert (parcial.room, parcial.location, parcial.start, parcial.end) == (
         "A1", "Campus Nord", "09:00", "11:00")
@@ -250,6 +253,7 @@ def test_rerun_is_idempotent(migrated):
     assert _db_digest(core) != before  # only bookkeeping (migration_runs) grew
     cx = sqlite3.connect(core.db.path)
     n_subjects = cx.execute("SELECT COUNT(*) FROM subjects").fetchone()[0]
+    assert cx.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 5
     n_resources = cx.execute("SELECT COUNT(*) FROM resources").fetchone()[0]
     assert (n_subjects, n_resources) == (6, 3)
 
@@ -363,3 +367,16 @@ def test_migration_is_stable_across_hash_seeds(tmp_path, legacy):
                            text=True, timeout=300, check=True)
         outs.append(json.loads(r.stdout.strip().splitlines()[-1]))
     assert all(o == outs[0] for o in outs)
+
+
+def test_snapshot_failure_is_d2_and_writes_nothing(tmp_path, legacy, monkeypatch):
+    db, root = legacy
+    core = _app(tmp_path)
+    before = _db_digest(core)
+
+    def boom(dest):
+        raise OSError("disk full")
+    monkeypatch.setattr(core.migration.backup, "backup", boom)
+    with pytest.raises(MigrationError) as e:
+        core.migration.apply(db, _opts(root), snapshot_dir=tmp_path / "s")
+    assert e.value.code == "AC-MIG-004" and _db_digest(core) == before

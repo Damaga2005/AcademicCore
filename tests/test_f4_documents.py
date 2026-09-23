@@ -201,6 +201,10 @@ def test_zip_member_limits_and_tamper(core, tmp_path):
             dst.writestr(info.filename, data)
     with pytest.raises(ArchiveRejected):
         BackupService.verify_zip(tampered)
+    bad_manifest = _zip(tmp_path / "m.zip", {"manifest.json": "{not json",
+                                             "academic.db": "x"})
+    with pytest.raises(ArchiveRejected):
+        BackupService.verify_zip(bad_manifest)
     (tmp_path / "junk.zip").write_bytes(b"not a zip")
     with pytest.raises(ArchiveRejected):
         BackupService.verify_zip(tmp_path / "junk.zip")

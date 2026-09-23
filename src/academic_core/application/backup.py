@@ -30,6 +30,7 @@ MAX_MEMBERS = 200_000
 MAX_MEMBER_BYTES = 2 * 1024 ** 3
 MAX_TOTAL_BYTES = 5 * 1024 ** 3
 MAX_RATIO = 100
+MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 ARCHIVE_SCHEMA = "academiccore-backup/1"
 
 
@@ -146,7 +147,12 @@ class BackupService:
                 names.add(info.filename)
             if "manifest.json" not in names or "academic.db" not in names:
                 raise ArchiveRejected("manifest.json/academic.db missing")
-            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            if zf.getinfo("manifest.json").file_size > MAX_MANIFEST_BYTES:
+                raise ArchiveRejected("manifest too large")
+            try:
+                manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            except (UnicodeDecodeError, ValueError) as e:
+                raise ArchiveRejected("manifest is not valid JSON") from e
             if manifest.get("schema") != ARCHIVE_SCHEMA:
                 raise ArchiveRejected("unknown archive schema")
             with tempfile.TemporaryDirectory() as tmp:

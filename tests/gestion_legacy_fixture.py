@@ -126,6 +126,9 @@ def build(tmp: Path, *, docs: bool = True) -> tuple[Path, Path]:
          tipo="entrega", completada=0, prioridad="media", hora_fin="23:59:00.000000")
     _ins(cx, "tarea_evento", id=4, asignatura_id=3, titulo="Inicio sin fin", fecha="2026-11-01",
          tipo="tarea_general", completada=1, prioridad="baja", hora_inicio="10:00:00.000000")
+    _ins(cx, "tarea_evento", id=5, asignatura_id=2, titulo="Repasar hoja perdida",
+         fecha="2026-11-02", tipo="tarea_general", completada=0, prioridad="media",
+         documento_id=5)  # linked document whose file is missing
     _ins(cx, "espacio_estudio", id=1, tarea_evento_id=1, nombre="Parcial DD",
          created_at="2026-09-01 00:00:00", updated_at="2026-09-01 00:00:00")
     _ins(cx, "espacio_estudio_documento", id=1, espacio_estudio_id=1, documento_id=1,
@@ -178,7 +181,7 @@ TOTAL_ROWS = {
     "anio": 2, "cuatrimestre": 3, "asignatura": 6, "asignatura_prerrequisito": 1, "profesor": 4,
     "esquema_evaluacion": 3, "bloque_evaluacion": 1, "componente_evaluacion": 7,
     "recurso_externo": 2, "apartado": 1, "grupo_documento": 1, "documento": 7,
-    "pagina_texto": 3, "marcador": 1, "anotacion_pdf": 1, "tarea_evento": 4,
+    "pagina_texto": 3, "marcador": 1, "anotacion_pdf": 1, "tarea_evento": 5,
     "espacio_estudio": 1, "espacio_estudio_documento": 2, "objetivo_espacio": 2,
     "horario_clase": 2, "hito": 1, "nota_rapida": 1, "concepto": 1, "sesion_estudio": 2,
     "dia_actividad": 2, "configuracion_app": 1, "aviso_descartado": 1, "busqueda_favorito": 1,

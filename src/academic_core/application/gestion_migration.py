@@ -637,6 +637,9 @@ class _Planner:
                 self._preserve_payload_only("tarea_evento", r, "non-http link dropped")
                 link = ""
             doc = self.target("documento", r["documento_id"]) if r.get("documento_id") else ""
+            if r.get("documento_id") and not doc:
+                self._preserve_payload_only("tarea_evento", r,
+                                            "linked document not migrated: link kept here")
             tid = self._new("task", subj)
             try:
                 t = Task(tid, subj, r["titulo"].strip(), r.get("tipo") or "tarea_general",
@@ -873,7 +876,11 @@ class GestionMigrationService:
             report.finished = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
             return report
         # -- apply --------------------------------------------------------
-        snapshot = self.backup.backup(snapshot_dir)
+        try:
+            snapshot = self.backup.backup(snapshot_dir)
+        except Exception as e:  # no snapshot -> no writes at all
+            raise MigrationError(f"snapshot failed, nothing migrated: {type(e).__name__}",
+                                 code="AC-MIG-004") from e
         report.snapshot = {"path": snapshot.path, "sha256": snapshot.sha256}
         try:
             fts_rows = self._write(planner, opts, tick, cancel)
