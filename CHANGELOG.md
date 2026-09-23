@@ -5,7 +5,7 @@
 - Evaluación esquema/bloque/componente/nota mínima en Decimal (golden 400 casos vs Gestion real).
 - Documentos en contexto de asignatura sobre CAS+FTS, espacios de estudio, recursos externos solo-URL, ICS, guía docente sobre F3/F3.1.
 - Migración Gestion → AcademicCore: dry-run, snapshot, transacción única, idempotente, sin pérdidas, determinista.
-- Gate: F4.1 NOT CERTIFIED (falta migrar datos reales del usuario; fallo F3 golden preexistente). Ver `docs/gates/GATE-F4.1-CERTIFICATION.md`.
+- Cierre: profesores sin fusión por nombre, restore de backup verificado, arnés de certificación real. Gate: F4.1 NOT CERTIFIED hasta ejecutar el arnés sobre la instalación real (fallo F3 golden preexistente por libxml2). Ver `docs/gates/GATE-F4.1-CERTIFICATION.md`.
 
 ## 0.18.0 — Fase F8-I: BJT Ebers-Moll Nonlinear DC Operating Point (2026-09-16)
 - Bipolar Junction Transistor (BJT) model under classic Ebers-Moll equations for NPN and PNP polarities.
