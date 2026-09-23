@@ -18,6 +18,14 @@ this:
 It contains no gate evaluation, no edge detection, no windowing, no
 serialization and no domain imports. Unsupported features (pattern
 triggers, sampling, X/Z) have no controls.
+
+E0.1: selecting a transition row shows its explanation: time, channel,
+previous and new state, driver, why it changed, and the checks. The text
+comes from ONE pedagogical capture trace per capture
+(``app.explain.capture_trace(request, pedagogical=True)``, run on a
+worker and cached). ``explain_service.transition_explanation`` extracts
+the recorded events. A loaded trace file has no circuit, so no cause is
+shown for it.
 """
 
 from __future__ import annotations
@@ -25,10 +33,11 @@ from __future__ import annotations
 from PySide6.QtCore import QThreadPool, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QListWidget, QListWidgetItem, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from academic_core.application.digital_service import EDGES, MAX_TRACE_FILE_BYTES, AnalyzerRequest
+from academic_core.application.explain_service import transition_explanation
 from academic_core.ui.errors import show_ui_error, show_value
 from academic_core.ui.state import UiState
 from academic_core.ui.waveform import WaveformWidget
@@ -131,12 +140,23 @@ class LogicAnalyzerPanel(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.table, 1)
 
+        self.explanation = QTextEdit(readOnly=True)
+        self.explanation.setAccessibleName("Transition explanation")
+        self.explanation.setToolTip("Por qué cambió la transición seleccionada (de la traza de ejecución real)")
+        self.explanation.setMaximumHeight(170)
+        self.explanation.setPlaceholderText("Selecciona una transición para ver por qué cambió.")
+        layout.addWidget(self.explanation)
+        self._request = None  # request of the shown capture (None for a loaded file)
+        self._trace = None  # cached pedagogical ExecutionTrace of that capture
+        self._pending_row = None
+
         self.demo.currentIndexChanged.connect(self._refresh_channels)
         self.btn_run.clicked.connect(self.start_capture)
         self.btn_verify.clicked.connect(self.verify)
         self.btn_save.clicked.connect(self._save)
         self.btn_load.clicked.connect(self._load)
         self.btn_replay.clicked.connect(self.replay)
+        self.table.itemSelectionChanged.connect(self._on_selection)
         self._refresh_channels()
 
     # -- channels ---------------------------------------------------------------
@@ -195,6 +215,7 @@ class LogicAnalyzerPanel(QWidget):
             return
         self._set_state(UiState.RUNNING, "RUNNING — capturing…")
         self.btn_run.setEnabled(False)
+        self._request, self._trace = request, None
         worker = ServiceWorker(self.digital.capture, request)
         worker.signals.finished.connect(self.show_view)
         worker.signals.failed.connect(self._on_error)
@@ -203,6 +224,7 @@ class LogicAnalyzerPanel(QWidget):
     def show_view(self, view) -> None:
         """Render a ``CaptureView`` (runs on the UI thread)."""
         self.view = view
+        self.explanation.clear()
         self.btn_run.setEnabled(True)
         self.waveform.set_view(view)
         self._fill_table(view)
@@ -267,7 +289,50 @@ class LogicAnalyzerPanel(QWidget):
         except Exception as exc:
             self._on_error(exc)
             return
+        self._request, self._trace = None, None
         self.show_view(view)
+
+    # -- E0.1 transition explanation -------------------------------------------------
+    def _on_selection(self) -> None:
+        rows = sorted({i.row() for i in self.table.selectedIndexes()})
+        if rows and self.view is not None:
+            self.explain_row(rows[0])
+
+    def explain_row(self, row: int) -> None:
+        """Explain one table row from the pedagogical trace of the shown capture."""
+        if self.view is None or not 0 <= row < len(self.view.transitions):
+            return
+        if self._request is None:
+            self.explanation.setPlainText("Traza cargada desde archivo: no hay circuito asociado, así que la causa "
+                                          "de la transición no se puede explicar sin inventarla.")
+            return
+        if self._trace is None:
+            self._pending_row = row
+            self.explanation.setPlainText("Explicando… (ejecutando la captura en modo pedagógico)")
+            worker = ServiceWorker(self.app.explain.capture_trace, self._request, True)
+            worker.signals.finished.connect(self._on_trace)
+            worker.signals.failed.connect(self._on_error)
+            self.pool.start(worker)
+            return
+        t = self.view.transitions[row]
+        self.explanation.setPlainText(self.transition_text(transition_explanation(self._trace, t.channel_id, t.index)))
+
+    def _on_trace(self, trace) -> None:
+        self._trace = trace
+        if self._pending_row is not None:
+            row, self._pending_row = self._pending_row, None
+            self.explain_row(row)
+
+    @staticmethod
+    def transition_text(x) -> str:
+        lines = [f"Tiempo: {x.time or '—'} s", f"Canal: {x.channel} (transición #{x.index})",
+                 f"Anterior: {x.previous or '—'}", f"Nuevo: {x.new or '—'}", f"Driver: {x.driver or '—'}",
+                 f"Por qué cambió: {x.why}"]
+        if x.cause:
+            lines.append(f"Causa registrada: {x.cause}")
+        lines.append("Comprobaciones: " + ("; ".join(x.checks) if x.checks else "—"))
+        lines.append(f"Eventos de la traza: {', '.join(x.event_ids) or '—'}")
+        return "\n".join(lines)
 
     def replay(self) -> None:
         text = self.trace_text()

@@ -3,13 +3,20 @@
 
 Flow: selector (real library keys) -> inputs -> execute (worker ->
 ``ExerciseService``) -> result / UI-safe error. No math in widgets.
+
+E0.1: "Paso a paso" asks for the pedagogical trace (datos → fórmula →
+sustitución → cálculo → resultado → verificación). "Explicar" keeps the
+certified E0 behaviour unchanged. The math row
+(Derivar / Integrar / Resolver ecuación / Simplificar) sends the text to
+``AcademicApp.explain.explain_math`` and shows the rendered steps. The
+widget never differentiates, integrates or solves anything itself.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout,
+    QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QVBoxLayout,
     QWidget,
 )
 
@@ -57,9 +64,46 @@ class ExercisePanel(QWidget):
         self.btn_explain.setToolTip("Run the exercise and explain it step by step from its real "
                                     "execution trace (E0)")
         row.addWidget(self.btn_explain)
+        self.btn_steps = QPushButton("&Paso a paso")
+        self.btn_steps.setToolTip("Datos → fórmula → sustitución → cálculo → resultado → verificación, "
+                                  "desde la traza pedagógica real (E0.1)")
+        row.addWidget(self.btn_steps)
         self.status = QLabel("IDLE")
         row.addWidget(self.status)
         layout.addLayout(row)
+
+        math = QHBoxLayout()
+        math.addWidget(QLabel("Matemáticas"))
+        self.math_expr = QLineEdit()
+        self.math_expr.setPlaceholderText("x^2*sin(x)   ·   3*x + 2 = x - 4")
+        self.math_expr.setToolTip("Expresión (derivar, integrar, simplificar) o ecuación lineal con '='. "
+                                  "Productos explícitos: 2*x. Funciones: sin, cos, tan, exp, log, sqrt, abs.")
+        math.addWidget(self.math_expr, 3)
+        self.math_var = QLineEdit("x")
+        self.math_var.setToolTip("Variable")
+        self.math_var.setMaximumWidth(48)
+        math.addWidget(self.math_var)
+        self.math_lower = QLineEdit()
+        self.math_lower.setPlaceholderText("a")
+        self.math_lower.setToolTip("Límite inferior (integral definida; vacío = indefinida)")
+        self.math_lower.setMaximumWidth(56)
+        math.addWidget(self.math_lower)
+        self.math_upper = QLineEdit()
+        self.math_upper.setPlaceholderText("b")
+        self.math_upper.setToolTip("Límite superior (integral definida; vacío = indefinida)")
+        self.math_upper.setMaximumWidth(56)
+        math.addWidget(self.math_upper)
+        self.btn_derive = QPushButton("Derivar")
+        self.btn_integrate = QPushButton("Integrar")
+        self.btn_solve_eq = QPushButton("Resolver ecuación")
+        self.btn_simplify = QPushButton("Simplificar")
+        for b, tip in ((self.btn_derive, "Derivada paso a paso (reglas reales aplicadas)"),
+                       (self.btn_integrate, "Integral paso a paso; con límites a y b, integral definida"),
+                       (self.btn_solve_eq, "Ecuación lineal: despeje paso a paso y verificación"),
+                       (self.btn_simplify, "Simplificación: antes → regla → después")):
+            b.setToolTip(tip)
+            math.addWidget(b)
+        layout.addLayout(math)
 
         self.output = QTextEdit(readOnly=True)
         self.output.setToolTip("Result or UI-safe error")
@@ -68,7 +112,12 @@ class ExercisePanel(QWidget):
         self.btn_refresh.clicked.connect(self.refresh_library)
         self.selector.currentTextChanged.connect(self._show_selected)
         self.btn_run.clicked.connect(self._solve)
-        self.btn_explain.clicked.connect(self._explain)
+        self.btn_explain.clicked.connect(lambda: self._explain())
+        self.btn_steps.clicked.connect(lambda: self._explain(pedagogical=True))
+        self.btn_derive.clicked.connect(lambda: self._math("derivative"))
+        self.btn_integrate.clicked.connect(lambda: self._math("integral"))
+        self.btn_solve_eq.clicked.connect(lambda: self._math("linear-equation"))
+        self.btn_simplify.clicked.connect(lambda: self._math("simplify"))
         self.refresh_library()
 
     # -- data (plain values from the service; never domain objects) ----
@@ -127,14 +176,29 @@ class ExercisePanel(QWidget):
         worker.signals.failed.connect(self._on_error)
         self.pool.start(worker)
 
-    def _explain(self) -> None:
-        """E0: show the explanation rendered from the real execution trace."""
+    def _explain(self, pedagogical: bool = False) -> None:
+        """E0: show the explanation rendered from the real execution trace (E0.1: optionally pedagogical)."""
         key = self.selector.currentText()
         inputs = self._read_inputs() if key else None
         if inputs is None:
             return
         self._set_state(UiState.RUNNING, "RUNNING…")
-        worker = ServiceWorker(self.app.explain.explain_exercise, key, inputs)
+        worker = ServiceWorker(self.app.explain.explain_exercise, key, inputs, pedagogical)
+        worker.signals.finished.connect(self._on_explanation)
+        worker.signals.failed.connect(self._on_error)
+        self.pool.start(worker)
+
+    def _math(self, kind: str) -> None:
+        """E0.1: step-by-step mathematics from the engine's recorded rules."""
+        expression = self.math_expr.text().strip()
+        if not expression:
+            show_ui_error(self, ValueError("escribe una expresión o una ecuación"), "Matemáticas")
+            return
+        lower = self.math_lower.text().strip() or None
+        upper = self.math_upper.text().strip() or None
+        self._set_state(UiState.RUNNING, "RUNNING…")
+        worker = ServiceWorker(self.app.explain.explain_math, kind, expression,
+                               self.math_var.text().strip() or "x", lower, upper)
         worker.signals.finished.connect(self._on_explanation)
         worker.signals.failed.connect(self._on_error)
         self.pool.start(worker)
