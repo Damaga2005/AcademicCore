@@ -160,12 +160,17 @@ def test_hierarchy_statuses_and_home(migrated):
 def test_people_evaluation_and_relations(migrated):
     core, rep, *_ = migrated
     staff = core.academic.staff_of("subject:dd")
+    # same name + same e-mail = evidence -> one identity in two subjects;
+    # same name without e-mail -> NOT merged (two identities, both linked)
     assert [(p.stable_id, l.role, l.order) for p, l in staff] == [
-        ("professor:ana-perez", "Responsable", 0), ("professor:luis-gil", "docente", 1)]
+        ("professor:ana-perez", "Responsable", 0), ("professor:luis-gil", "docente", 1),
+        ("professor:luis-gil-g4", "Lab", 2)]
     assert [p.stable_id for p, _ in core.academic.staff_of("subject:ss")] == [
-        "professor:ana-perez"]  # homonym = one identity, two links
-    kept = core.migration.legacy.payloads("gestion-academica", "profesor")
-    assert [p["source_id"] for p in kept] == ["4"]  # duplicate link preserved verbatim
+        "professor:ana-perez"]
+    assert core.migration.legacy.payloads("gestion-academica", "profesor") == []
+    assert rep.professor_identity == {
+        "source_rows": 4, "identities": 3, "merged_by_email_evidence": 1,
+        "homonym_rows_kept_separate": 1, "names_with_several_identities": 1}
     detail = core.career.course("subject:dd")
     assert [s.name for s in detail.schemes] == ["Continua", "Solo final"]
     lab = detail.schemes[0].blocks[0]
@@ -237,6 +242,8 @@ def test_calendar_spaces_and_personal(migrated):
     assert core.personal.concepts("subject:dd")[0].state == "flojo"
     assert core.personal.activity_days() == [date(2026, 9, 10), date(2026, 9, 11)]
     assert core.personal.setting("gestion.tema") == "oscuro"
+    assert {p["migration_version"] for p in core.migration.legacy.payloads(
+        "gestion-academica")} == {"gestion-migration/2"}
     deferred = {p["source_table"]: p["deferred_to"]
                 for p in core.migration.legacy.payloads("gestion-academica")}
     assert deferred["marcador"] == deferred["anotacion_pdf"] == "F14"

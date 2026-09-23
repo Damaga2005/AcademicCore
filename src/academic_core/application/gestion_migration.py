@@ -58,6 +58,8 @@ from academic_core.resources.adapters import UnsupportedType, adapter_for, detec
 
 SETTING_TARGET_AVERAGE = "grades.target_average"
 REPORT_SCHEMA = "gestion-migration-report/1"
+# /2: F4.1 closure — professor identity by evidence (never by name alone)
+MIGRATION_VERSION = "gestion-migration/2"
 
 Progress = Callable[[str, int, int], None]
 Cancel = Callable[[], bool]
@@ -131,6 +133,7 @@ class MigrationReport:
     evaluation_check: dict
     cancelled: bool = False
     validation_failures: list[str] = field(default_factory=list)
+    professor_identity: dict = field(default_factory=dict)
     snapshot: dict | None = None
     run_id: str = ""
     started: str = ""
@@ -138,11 +141,12 @@ class MigrationReport:
 
     def canonical(self) -> dict:
         """Deterministic part of the report (no ids/timestamps/paths)."""
-        return {"schema": REPORT_SCHEMA, "mode": self.mode,
+        return {"schema": REPORT_SCHEMA, "migrator": MIGRATION_VERSION, "mode": self.mode,
                 "source_revision": self.source_revision, "source_digest": self.source_digest,
                 "counts": self.counts, "warnings": self.warnings, "errors": self.errors,
                 "lossless": self.lossless, "evaluation_check": self.evaluation_check,
-                "cancelled": self.cancelled, "validation_failures": self.validation_failures}
+                "cancelled": self.cancelled, "validation_failures": self.validation_failures,
+                "professor_identity": self.professor_identity}
 
     @property
     def digest(self) -> str:
@@ -168,7 +172,9 @@ class _Planner:
     def __init__(self, snap: LegacySnapshot, mapped: dict[tuple[str, str], str],
                  counters: dict[str, int], taken_subjects: set[str],
                  opts: MigrationOptions, cancel: Cancel | None,
-                 known_hash: Callable[[str], str | None] = lambda h: None):
+                 known_hash: Callable[[str], str | None] = lambda h: None,
+                 taken_professors: set[str] | None = None,
+                 existing_people: dict[tuple[str, str], str] | None = None):
         self.known_hash = known_hash  # content hash -> existing resource id
         self.snap = snap
         self.mapped = dict(mapped)
@@ -182,6 +188,10 @@ class _Planner:
         self.ids: dict[tuple[str, str], str] = {}  # planned + pre-existing mapping
         self.subject_of_task: dict[str, str] = {}
         self.professors_seen: dict[str, Professor] = {}
+        # professor identity: (slug(name), email) -> id; ids already in use
+        self.person_by_evidence: dict[tuple[str, str], str] = dict(existing_people or {})
+        self.taken_professors: set[str] = set(taken_professors or ())
+        self.prof_stats = {"merged_by_email": 0, "homonyms_kept_separate": 0}
         self.staff_seen: set[tuple[str, str]] = set()
         self.goal_count: dict[str, int] = {}
         self.blob_plan: dict[str, dict] = {}  # documento id -> file info
@@ -334,8 +344,9 @@ class _Planner:
                 self._preserve("profesor", r, "orphan: asignatura missing", error=True)
                 continue
             name = (r.get("nombre") or "").strip()
+            email = (r.get("correo") or "").strip()
             try:
-                pid = make("professor", slugify(name))
+                pid = self._professor_id(r, name, email)
             except ValueError as e:
                 self._preserve("profesor", r, f"invalid name: {e}", error=True)
                 continue
@@ -345,12 +356,8 @@ class _Planner:
                 self._preserve_payload_only("profesor", r, "non-http aula_virtual")
                 url = ""
             if pid not in self.professors_seen:
-                self.professors_seen[pid] = Professor(pid, name, r.get("correo") or "",
+                self.professors_seen[pid] = Professor(pid, name, email,
                                                       r.get("despacho") or "", url)
-            elif (r.get("correo") and self.professors_seen[pid].email
-                  and r["correo"] != self.professors_seen[pid].email):
-                self.warnings.append(f"profesor#{r['id']}: homonym with different email "
-                                     f"merged into {pid} (per-link email kept)")
             if (subj, pid) in self.staff_seen:
                 self._preserve("profesor", r, "duplicate professor link in subject",
                                target=pid)
@@ -365,6 +372,33 @@ class _Planner:
                 continue
             self._add(Op("profesor", str(r["id"]), "migrate", pid,
                          (self.professors_seen[pid], link)))
+
+    def _professor_id(self, r: dict, name: str, email: str) -> str:
+        """Identity policy (F4.1 closure, ADR-0017): a Gestion `profesor` row
+        is per subject; two rows are the SAME person only with evidence --
+        same normalized name AND same non-empty e-mail. Same name alone is
+        never enough: without evidence each row keeps its own identity,
+        derived from its stable Gestion id (``-g<id>`` suffix when the plain
+        slug is already used). Existing target professors are reused only
+        under the same evidence rule."""
+        key_name = slugify(name)
+        key = (key_name, email.casefold()) if email else None
+        if key and key in self.person_by_evidence:
+            self.prof_stats["merged_by_email"] += 1
+            return self.person_by_evidence[key]
+        mapped = self.mapped.get(("profesor", str(r["id"])))
+        if mapped:
+            pid = mapped
+        else:
+            base = make("professor", key_name)
+            pid = base if base not in self.taken_professors else make(
+                "professor", f"{key_name}-g{int(r['id'])}")
+            if base in self.taken_professors:
+                self.prof_stats["homonyms_kept_separate"] += 1
+        self.taken_professors.add(pid)
+        if key:
+            self.person_by_evidence[key] = pid
+        return pid
 
     def _preserve_payload_only(self, table: str, row: dict, reason: str) -> None:
         """Extra verbatim copy for a row that is ALSO migrated (lossy field)."""
@@ -847,8 +881,11 @@ class GestionMigrationService:
             rows = sorted(self.records.find_by_hash(h))
             return rows[0][0] if rows else None
 
+        profs = self.academic.all_professors()
         planner = _Planner(snap, mapped, self.academic.load_counters(), taken, opts, cancel,
-                           known)
+                           known, {p.stable_id for p in profs},
+                           {(slugify(p.name), p.email.strip().casefold()): p.stable_id
+                            for p in profs if p.email.strip()})
         planner.build()
         return planner
 
@@ -870,6 +907,16 @@ class GestionMigrationService:
         report = MigrationReport(mode, rev, snap.digest(), counts, warnings,
                                  list(planner.errors), self._lossless(counts),
                                  self._eval_check(snap, planner))
+        names: dict[str, set[str]] = {}
+        for pid, prof in planner.professors_seen.items():
+            names.setdefault(slugify(prof.name), set()).add(pid)
+        report.professor_identity = {
+            "source_rows": snap.count("profesor"),
+            "identities": len(planner.professors_seen),
+            "merged_by_email_evidence": planner.prof_stats["merged_by_email"],
+            "homonym_rows_kept_separate": planner.prof_stats["homonyms_kept_separate"],
+            "names_with_several_identities": sum(1 for v in names.values() if len(v) > 1),
+        }
         report.started = started
         report.run_id = uuid.uuid4().hex
         if mode == "dry-run":
@@ -972,7 +1019,8 @@ class GestionMigrationService:
                 elif op.action == "preserve":
                     legacy.keep(SOURCE_SYSTEM, op.table, op.source_id,
                                 _jsonable(op.obj), target_id=op.target_id,
-                                deferred_to=op.deferred_to, reason=op.reason, cx=cx)
+                                deferred_to=op.deferred_to, reason=op.reason,
+                                migration_version=MIGRATION_VERSION, cx=cx)
                 if i % 200 == 0:
                     tick("write", i + 1, len(ops))
             for space_id, items in goals.items():

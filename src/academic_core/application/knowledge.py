@@ -84,17 +84,25 @@ class KnowledgeService:
         if self.academic.get_subject(subject_id) is None:
             raise _err(f"unknown subject: {subject_id}", "AC-ACD-002")
         created = linked = 0
-        existing = {l.professor_id for _, l in self.academic.staff_of(subject_id)}
+        staff = self.academic.staff_of(subject_id)
+        by_name = {slugify(p.name): p.stable_id for p, _ in staff}
         for i, p in enumerate(proposal.professors):
             try:
-                pid = make("professor", slugify(p.name))
-                if self.academic.get_professor(pid) is None:
-                    self.academic.add_professor(Professor(pid, p.name.strip()))
-                    created += 1
-                if pid not in existing:
-                    self.academic.attach_staff(SubjectStaff(subject_id, pid,
-                                                            p.role or "docente", "", i))
-                    linked += 1
+                key = slugify(p.name)
+                if key in by_name:
+                    continue  # already on this subject's staff: idempotent
+                # Same name elsewhere is NOT evidence of the same person
+                # (F4.1 closure): never attach another subject's professor.
+                pid, n = make("professor", key), 1
+                while self.academic.get_professor(pid) is not None:
+                    n += 1
+                    pid = make("professor", f"{key}-{n}")
+                self.academic.add_professor(Professor(pid, p.name.strip()))
+                created += 1
+                self.academic.attach_staff(SubjectStaff(subject_id, pid, p.role or "docente",
+                                                        "", i))
+                by_name[key] = pid
+                linked += 1
             except (DomainError, ValueError) as e:
                 raise _err(str(e), "AC-ACD-004") from e
         schemes = skipped = 0

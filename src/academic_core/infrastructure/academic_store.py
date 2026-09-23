@@ -519,11 +519,16 @@ class LegacyRepository(_Base):
                       (system, table, str(source_id), target_id))
 
     def keep(self, system: str, table: str, source_id, payload: dict, *, target_id: str = "",
-             deferred_to: str = "", reason: str = "", cx=None) -> None:
+             deferred_to: str = "", reason: str = "", migration_version: str = "",
+             cx=None) -> None:
+        """Verbatim copy of a source row: entity, id, payload, reason, target
+        phase (``deferred_to``) and the migrator version that kept it."""
         with self._tx(cx) as c:
-            c.execute("INSERT OR IGNORE INTO legacy_payloads VALUES (?,?,?,?,?,?,?)",
+            c.execute("INSERT OR IGNORE INTO legacy_payloads(source_system, source_table,"
+                      " source_id, target_id, deferred_to, reason, payload, migration_version)"
+                      " VALUES (?,?,?,?,?,?,?,?)",
                       (system, table, str(source_id), target_id, deferred_to, reason,
-                       _j(payload)))
+                       _j(payload), migration_version))
 
     def payloads(self, system: str, table: str = "") -> list[dict]:
         q, args = "SELECT * FROM legacy_payloads WHERE source_system=?", (system,)
