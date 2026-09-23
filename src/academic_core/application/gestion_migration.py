@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Gestion-Academica -> AcademicCore data migration (F4.1, ADR-0025).
+"""Gestion-Academica -> AcademicCore data migration (F4.1, ADR-0024).
 
 Protocol (never destructive, never a second database):
 
