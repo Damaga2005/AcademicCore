@@ -21,9 +21,62 @@ CALLOUT_TYPES = {
     "warning": "WARNING", "warn": "WARNING", "alert": "WARNING",
     "danger": "CAUTION", "error": "CAUTION", "caution": "CAUTION",
     "attention": "IMPORTANT", "atencion": "IMPORTANT", "atencio": "IMPORTANT",
-    "tip": "TIP", "consejo": "TIP", "note": "NOTE", "nota": "NOTE",
-    "info": "NOTE", "important": "IMPORTANT", "importante": "IMPORTANT",
+    "tip": "TIP", "consejo": "TIP", "consell": "TIP", "clau": "TIP",
+    "note": "NOTE", "nota": "NOTE", "info": "NOTE",
+    "important": "IMPORTANT", "importante": "IMPORTANT", "important": "IMPORTANT",
+    "example": "EXAMPLE", "exemple": "EXAMPLE", "ejemplo": "EXAMPLE",
+    "question": "QUESTION", "pregunta": "QUESTION",
 }
+
+
+def _preprocess_task_lists(soup):
+    for box in soup.find_all("input", attrs={"type": "checkbox"}):
+        mark = "[x] " if box.has_attr("checked") else "[ ] "
+        box.replace_with(mark)
+    return soup
+
+
+def _preprocess_footnotes(soup):
+    n = 0
+    for sup in soup.find_all("sup", class_=re.compile(r"footnote|reference|cite")):
+        a = sup.find("a")
+        if a and a.get("href", "").startswith("#"):
+            ref = a["href"].lstrip("#")
+            num = re.sub(r"\D", "", ref) or str(n + 1)
+            a.string = f"[^{num}]"
+            n += 1
+    for block in soup.find_all(attrs={"role": "doc-endnotes"}):
+        block.name = "div"
+    return soup
+
+
+def _preprocess_media(soup):
+    for tag in soup.find_all("iframe"):
+        src = tag.get("src", "")
+        if not src:
+            tag.decompose()
+            continue
+        m = re.search(r"(?:youtube\.com/(?:embed/|watch\?v=)|youtu\.be/)([\w-]{6,20})", src)
+        link = f"https://www.youtube.com/watch?v={m.group(1)}" if m else src
+        p = soup.new_tag("p")
+        a = soup.new_tag("a", href=link)
+        a.string = f"Video: {link}"
+        p.append(a)
+        tag.replace_with(p)
+    for tag in soup.find_all(["video", "audio"]):
+        src = tag.get("src", "")
+        if not src:
+            inner = tag.find("source")
+            src = (inner.get("src", "") if inner else "")
+        if src:
+            p = soup.new_tag("p")
+            a = soup.new_tag("a", href=src)
+            a.string = f"Media: {src}"
+            p.append(a)
+            tag.replace_with(p)
+        else:
+            tag.decompose()
+    return soup
 
 
 def _preprocess_callouts(soup):
@@ -48,9 +101,17 @@ def parse_html(raw: bytes | str, put=None, filename: str = "") -> A.Document:
     else:
         html, encoding = raw, "utf-8-str"
     soup = BeautifulSoup(html, "lxml")
+    if len(html) > 10 * 1024 * 1024:
+        from academic_core.errors import AdapterError
+        raise AdapterError("TRACE_LIMIT: HTML exceeds 10MiB", code="AC-ADP-210")
     meta = extract_metadata(soup)
     clean_soup_noise(soup)
     _preprocess_callouts(soup)
+    _preprocess_task_lists(soup)
+    _preprocess_footnotes(soup)
+    _preprocess_media(soup)
+    from academic_core.documents.links import rewrite_soup_links
+    _links_rewritten = rewrite_soup_links(soup)
     harvest_figs_from_scripts(soup)
     image_records = extract_images(soup, put or (lambda data: "nocas"))
     soup, math = shield_math(soup)
@@ -60,7 +121,8 @@ def parse_html(raw: bytes | str, put=None, filename: str = "") -> A.Document:
 
     history = [{"parser": PARSER_NAME, "version": PARSER_VERSION,
                 "source": filename, "encoding": encoding,
-                "math_findings": len(math), "images": len(image_records)}]
+                "math_findings": len(math), "images": len(image_records),
+                "links_rewritten": _links_rewritten}]
     return A.Document(
         A.Metadata(title=meta.get("title", ""), author=meta.get("author", ""),
                    language=meta.get("language", ""),
@@ -173,6 +235,11 @@ def _blocks(parent, math) -> list:
                 lang, code = extract_code_cells(child)
                 out.append(A.code_block(code, lang))
             elif grid:
+                from academic_core.documents import limits as _L
+                from academic_core.errors import AdapterError as _AE
+                cells = sum(len(r) for r in grid)
+                if cells > _L.MAX_TABLE_CELLS or len(grid) > _L.MAX_TABLE_ROWS:
+                    raise _AE("TRACE_LIMIT: table exceeds budget", code="AC-ADP-211")
                 rows = []
                 for r in grid:
                     rows.append(A.table_row([
@@ -185,6 +252,10 @@ def _blocks(parent, math) -> list:
         elif name == "img":
             for node in _inline_node(child, math):
                 out.append(A.paragraph([node]))
+        elif name == "a":
+            kids = _inline_node(child, math)
+            if kids:
+                out.append(A.paragraph(kids))
         elif name == "hr":
             out.append(A.thematic_break())
         elif name == "math-shield":
