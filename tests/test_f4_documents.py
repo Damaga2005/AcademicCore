@@ -220,3 +220,19 @@ def test_fts_subject_filter_never_drops_valid_hits(core):
     hits = core.fts.search("transiciones", subject="subject:ss", limit=4)
     assert len(hits) == 4 and all(h["title"].startswith("ss") for h in hits)
     assert len(core.fts.search("transiciones", kind="text", limit=50)) == 44
+
+
+def test_backup_restore_roundtrip_is_usable(core, tmp_path):
+    d = core.material.add_document("subject:dd", MD, "fsm.md", category="apuntes")
+    arc = core.backup.export_zip(tmp_path / "a.zip", cas_root=core.blobs.root)
+    out = BackupService.restore_zip(arc.path, tmp_path / "restored")
+    assert out["blobs"] == 1 and out["db_sha256"] == arc.db_sha256
+    os.environ["ACORE_DATA_DIR"] = str(tmp_path / "restored")
+    back = AcademicApp(Settings.load())
+    assert [s.stable_id for s in back.academic.all_subjects()] == [
+        s.stable_id for s in core.academic.all_subjects()]
+    res = back.records.get(d.resource_id).current()
+    assert back.blobs.get_bytes(res.content_hash) == MD
+    assert [x.resource_id for x in back.material.documents("subject:dd")] == [d.resource_id]
+    with pytest.raises(ArchiveRejected):  # never over a non-empty directory
+        BackupService.restore_zip(arc.path, tmp_path / "restored")

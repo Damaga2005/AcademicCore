@@ -176,3 +176,37 @@ class BackupService:
                     raise ArchiveRejected(f"blob hash mismatch: {name}")
             return {"members": len(infos), "db_sha256": manifest["db_sha256"],
                     "blobs": len(manifest.get("blobs", {}))}
+
+    # -- F4.1 closure: restore ------------------------------------------------
+    @classmethod
+    def restore_zip(cls, path: str | Path, dest_dir: str | Path) -> dict:
+        """Restore an archive into a NEW, empty data directory (never over a
+        live one): verify every member first, then write ``academic.db`` and
+        ``cas/<aa>/<bb>/<sha>`` and re-check each hash on disk. Member names
+        were validated by ``verify_zip``; the target paths are rebuilt from
+        them and confined to ``dest_dir``. Nothing is executed."""
+        info = cls.verify_zip(path)
+        dest = Path(dest_dir)
+        if dest.exists() and any(dest.iterdir()):
+            raise ArchiveRejected("restore target must be a new or empty directory")
+        dest.mkdir(parents=True, exist_ok=True)
+        root = dest.resolve()
+        with zipfile.ZipFile(path) as zf:
+            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            names = ["academic.db"] + sorted(manifest.get("blobs", {}))
+            for name in names:
+                target = (root / PurePosixPath(name)).resolve()
+                if root not in target.parents:
+                    raise ArchiveRejected(f"member escapes restore root: {name!r}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(name) as src, target.open("wb") as out:
+                    for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                        out.write(chunk)
+        db = root / "academic.db"
+        if _sha256(db) != manifest["db_sha256"] or sqlite_integrity(db) != "ok":
+            raise ArchiveRejected("restored database failed verification")
+        for name, expected in manifest.get("blobs", {}).items():
+            if _sha256(root / PurePosixPath(name)) != expected:
+                raise ArchiveRejected(f"restored blob failed verification: {name}")
+        return {"db": str(db), "cas_root": str(root / "cas"), "blobs": info["blobs"],
+                "db_sha256": manifest["db_sha256"]}
