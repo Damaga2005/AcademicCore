@@ -201,6 +201,7 @@ E0.1   Explainable Execution Expansion (pasos reales)  [CERTIFICADA]
 E0.1-R+ Hardening + cierre de limitaciones           [CERTIFICADA]
 E0.2   Explainable Engineering Expansion (analógico)  [CERTIFICADA]
 E0.3   Explainable Engineering Completeness       [CERTIFICADA]
+E0.4   Explainable Engineering Deep Observability & Resolver Retrofit [CERTIFICADA]
  │
  │  ═══════════ CAPACIDAD PEDAGÓGICA TRANSVERSAL ═══════════
  │
@@ -232,6 +233,7 @@ E0.3   Explainable Engineering Completeness       [CERTIFICADA]
 | 15d | E0.1-R+ | Hardening + limitaciones justificadas | E0.1 | Equivalencia observer/no-observer (GUM, F8-N, F8-P), etiquetas SYMBOLIC/NUMERIC/NONE, causalidad F8-Q delta a delta sin tocar el paquete digital, GUM declarativo (callables UNSUPPORTED), auditoría Decimal de √/ν_eff (se conserva el motor certificado), límites F8-N configurables — **CERTIFICADA** ([`GATE-E0.1-R-FINAL.md`](../gates/GATE-E0.1-R-FINAL.md)) |
 | 15e | E0.2 | Explainable Engineering Expansion (analógico) | E0.1-R+ | F8-H con Shockley real, Newton, Jacobiano, backtracking y KCL por nodo observados; MNA lineal con A, b y x exactos; barrido DC, AC, transitorio y TF a nivel de resultado con lo no observable declarado; «Explicar último» en el Laboratorio Virtual — **CERTIFICADA** ([`GATE-E0.2-FINAL.md`](../gates/GATE-E0.2-FINAL.md)) |
 | 15f | E0.3 | Explainable Engineering Completeness | E0.2 | Observadores opcionales inertes en AC (F8-D3), AC pequeña señal (F8-J), barrido DC (F8-M), transitorio (F8-L) y BJT Ebers-Moll (F8-I): matriz compleja A(jω), b(jω) y x(jω) reales; iteraciones de Newton y arranque en caliente/frío reales por punto; pasos, Δt, predictor, LTE y rechazos reales del integrador; barrido AC punto a punto; TF con polos/ceros del motor; BJT NPN/PNP con corrientes y bloque jacobiano reales; «Explicar en detalle» en el Laboratorio Virtual; `TRACE_TRUNCATED` explícito — **CERTIFICADA** ([`GATE-E0.3-FINAL.md`](../gates/GATE-E0.3-FINAL.md)) |
+| 15g | E0.4 | Explainable Engineering Deep Observability & Resolver Retrofit | E0.3 | Newton interno real del transitorio (x_k, F, J, Δx, α, backtracking), matriz A(jω) real por frecuencia en el barrido AC, semiconductores F8-K (MOSFET, JFET, Zener, LED, Schottky, fotodiodo) observados dentro del modelo, F8-M (barrido de parámetro, peor caso, sensibilidad con J·dx/dp = −dF/dp, Monte Carlo con semilla y muestras reales), GUM F8-O por su motor certificado, F8-P1..P5 (Routh, etapas FFT, muestreo, reflexión, BPSK bit a bit, balance de enlace), matriz formal de retrofit E0-A..D y política para resolvers nuevos — **CERTIFICADA** ([`GATE-E0.4-FINAL.md`](../gates/GATE-E0.4-FINAL.md)) |
 | 16 | F3-ext | Integración del conversor HTML→MD/LaTeX | F15 | Motor de `Conversor-HTML-A-MD` (ya desacoplado de Tkinter) |
 | 17 | F4-ext | Fusión de gestión académica | F15, F3-ext | Migra `GestionAcademicaGREELEC.exe` al modelo F4 y al dashboard |
 | 18 | F13-ext | Sync entre 2 PCs personales | F15 | Última edición gana + log (no CRDT) |
