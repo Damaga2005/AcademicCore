@@ -11,6 +11,8 @@ No PySide6/Qt, SQLite, FTS5, CAS, Stirling, Markdown, HTML, UI here — stdlib.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 
 SCHEMA_VERSION = 1
 
@@ -213,6 +215,39 @@ class Document:
                 raise AstError("history entries must carry a parser")
         kids = tuple(Node.from_dict(c) for c in d["children"])
         return cls(Metadata.from_dict(d.get("metadata", {})), tuple(d["history"]), kids)
+
+    def digest(self) -> str:
+        """Stable SHA-256 over semantic content (F3-ext §33).
+
+        Covers schema_version + semantic metadata + canonical children.
+        Excludes created_at/modified_at/history (runtime, non-semantic).
+        """
+        return document_digest(self)
+
+
+def _canonical_node(n: Node) -> dict:
+    return {"attrs": dict(n.attrs), "children": [_canonical_node(c) for c in n.children],
+            "kind": n.kind}
+
+
+def canonical_dict(doc: Document) -> dict:
+    """Semantic dict: deterministic, no runtime timestamps, no history."""
+    m = doc.meta
+    return {"children": [_canonical_node(c) for c in doc.children],
+            "metadata": {"author": m.author, "encoding": m.encoding,
+                         "extra": dict(m.extra), "language": m.language,
+                         "origin": m.origin, "source_resource_id": m.source_resource_id,
+                         "source_version": m.source_version, "title": m.title},
+            "schema_version": SCHEMA_VERSION}
+
+
+def canonical_json(doc: Document) -> str:
+    return json.dumps(canonical_dict(doc), sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=True, allow_nan=False)
+
+
+def document_digest(doc: Document) -> str:
+    return hashlib.sha256(canonical_json(doc).encode("utf-8")).hexdigest()
 
 
 def validate(doc: Document) -> None:

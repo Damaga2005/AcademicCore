@@ -120,7 +120,7 @@ def test_ast_is_stdlib_only():
             mods.update(a.name.split(".")[0] for a in node.names)
         elif isinstance(node, _ast.ImportFrom):
             mods.add((node.module or "").split(".")[0])
-    assert mods <= {"dataclasses", "__future__"}, mods
+    assert mods <= {"dataclasses", "__future__", "hashlib", "json"}, mods
 
 
 def test_pdf_backend_never_in_domain():
