@@ -35,9 +35,28 @@ re-evaluated to produce a result.
 - **ERROR** — a failed capture, with its D2 code.
 
 ``replay_capture(trace, circuit_factory)`` rebuilds the configuration
-from the recorded inputs, asks the factory for a fresh circuit (the
-circuit object is not serializable; the application passes its demo
-factory), re-runs, and ``replay.compare`` checks the result.
+from the recorded inputs, asks the factory for a fresh circuit, re-runs,
+and ``replay.compare`` checks the result. The factory is the
+application's demo factory, or (E0.1) a ``digital-circuit/1`` document
+whose digest is recorded as the ``circuit_digest`` context input.
+
+E0.1 pedagogical mode (``pedagogical=True``, off by default, so E0
+traces are byte-identical) adds the input ``mode = pedagogical`` and, after
+the transitions, one causal STEP per detailed transition:
+
+- **stimulus-driven net**: the stimulus edge that schedules exactly this
+  (time, state), taken from the stimulus's declared ``edges()``.
+- **gate-driven net**: the settled states of the gate inputs at that
+  instant, read from the captured trace, and the certified
+  ``DigitalComponent.evaluate`` of them. It refs the input transitions at
+  the same instant, which are the causes. Same-instant intermediate
+  transitions (zero-delay glitches) are stated as such: the engine does
+  not expose its internal delta-cycle evaluation, so no cause is invented
+  for them.
+- An unprobed input net with no driver keeps its declared initial state
+  (a topology fact). If an input net is not probed and is driven, a
+  WARNING says the cause is not observable. The explanation never fills
+  the gap.
 """
 
 from __future__ import annotations
@@ -71,6 +90,8 @@ CONFIG_INPUTS = ("channels", "start", "end", "trigger_channel", "edge", "pre_tri
 MAX_DETAILED_TRANSITIONS = 512
 MAX_CIRCUIT_DETAIL = 96  # nets + gates + stimuli + probes described one by one
 MAX_TRUTH_CHECKS = 64
+MAX_CAUSAL = 256  # causal explanations in pedagogical mode
+MODE_INPUT = "mode"
 TIME = (0, 0, 1, 0, 0, 0, 0)  # SI exponents (kg, m, s, A, K, mol, cd) of seconds
 
 
@@ -172,12 +193,16 @@ def _truth_checks(rec: TraceRecorder, circuit: DigitalCircuit, source: DigitalTr
 
 
 def explain_capture(circuit: DigitalCircuit, config: CaptureConfig, *, context=(),
-                    max_events: int = MAX_EVENTS) -> ExecutionTrace:
+                    max_events: int = MAX_EVENTS, pedagogical: bool = False) -> ExecutionTrace:
     """Capture for real with ``LogicAnalyzer`` and return the ExecutionTrace of that run."""
     if not isinstance(circuit, DigitalCircuit) or not isinstance(config, CaptureConfig):
         raise _invalid("INVALID_INPUT", "explain_capture needs a DigitalCircuit and a CaptureConfig")
+    if any(name == MODE_INPUT for name, _ in context):
+        raise _invalid("INVALID_INPUT", f"{MODE_INPUT!r} is a reserved context name")
     rec = TraceRecorder(OPERATION)
     ctx_ids = [rec.input(name, _txt(value), f"Contexto {name}") for name, value in context]
+    if pedagogical:
+        ctx_ids.append(rec.input(MODE_INPUT, _txt("pedagogical"), "Modo pedagógico (causalidad)"))
     cfg_ids = [rec.input(name, _txt(value), f"Configuración {name}")
                for name, value in config_inputs(config, max_events)]
     drivers = _describe_circuit(rec, circuit)
@@ -197,6 +222,7 @@ def explain_capture(circuit: DigitalCircuit, config: CaptureConfig, *, context=(
     shown = result.trace if result.trace is not None else source
     label = "capturada" if result.trace is not None else "examinada (sin captura)"
     detailed, trigger_event, total = 0, None, sum(len(c.samples) for c in shown.channels)
+    transition_ids: dict[tuple[str, int], str] = {}  # (probe_id, sample index) -> event id
     for ch in shown.channels:
         driver = circuit.driver(ch.net_id)
         why = (f"La red {ch.net_id} la maneja {driver}." if driver else
@@ -217,6 +243,7 @@ def explain_capture(circuit: DigitalCircuit, config: CaptureConfig, *, context=(
                     values=(("time", _t(s.time)), ("previous", _txt(previous.name)), ("new", _txt(s.state.name)),
                             ("same_time", _txt(f"{rank + 1}/{end - k}"))),
                     result=_txt(s.state.name))
+                transition_ids[(ch.probe_id, k + rank)] = prev_id
                 if result.trace is not None and ch.probe_id == result.trigger_channel and \
                         k + rank == result.trigger_index:
                     trigger_event = prev_id
@@ -227,6 +254,8 @@ def explain_capture(circuit: DigitalCircuit, config: CaptureConfig, *, context=(
         rec.event(EventKind.WARNING, "Transiciones no detalladas", refs=(sim_id,),
                   why=f"Se detallan {detailed} de {total} transiciones de la traza {label}; "
                       "la traza completa está en digital-trace/1 (ver digest del resultado).")
+    if pedagogical:
+        _causality(rec, circuit, shown, transition_ids, drivers)
     if config.trigger is not None:
         trig = config.trigger
         armed = f"[{canonical_time(config.start)}, {canonical_time(config.end)}] s"
@@ -279,6 +308,110 @@ def replay_capture(trace: ExecutionTrace, circuit_factory) -> ExecutionTrace:
     recorded = {n: v.text for n, v in trace.inputs}
     if any(recorded.get(n) is None for n in CONFIG_INPUTS):
         raise _invalid("INVALID_TRACE", "the trace lacks the capture configuration inputs")
-    context = tuple((n, recorded[n]) for n, _ in trace.inputs if n not in CONFIG_INPUTS)
+    mode = recorded.get(MODE_INPUT)
+    if mode not in (None, "pedagogical"):
+        raise _invalid("INVALID_TRACE", f"unknown mode {mode[:32]!r}")
+    context = tuple((n, recorded[n]) for n, _ in trace.inputs if n not in CONFIG_INPUTS and n != MODE_INPUT)
     config, max_events = config_from_inputs(recorded)
-    return explain_capture(circuit_factory(dict(context)), config, context=context, max_events=max_events)
+    return explain_capture(circuit_factory(dict(context)), config, context=context, max_events=max_events,
+                           pedagogical=mode == "pedagogical")
+
+
+def _settled(samples, initial, t) -> tuple:
+    """(state after every sample with time <= t, indices of the samples exactly at t)."""
+    state, at = initial, []
+    for i, s in enumerate(samples):
+        if s.time > t:
+            break
+        state = s.state
+        if s.time == t:
+            at.append(i)
+    return state, at
+
+
+def _causality(rec: TraceRecorder, circuit: DigitalCircuit, shown: DigitalTrace,
+               transition_ids: dict, drivers: dict) -> None:
+    """Pedagogical causal steps: why each detailed transition happened (observed facts only)."""
+    by_net: dict[str, object] = {}
+    for c in shown.channels:
+        by_net.setdefault(c.net_id, c)
+    gates = {g.component_id: g for g in circuit.components()}
+    stimuli = {s.stimulus_id: s for s in circuit.stimuli()}
+    done = 0
+    pending = sorted(transition_ids.items(), key=lambda kv: int(kv[1][1:]))  # emission order
+    for (probe_id, index), event_id in pending:
+        if done >= MAX_CAUSAL:
+            rec.event(EventKind.WARNING, "Causalidad limitada",
+                      why=f"Solo se explican las {MAX_CAUSAL} primeras transiciones detalladas.")
+            return
+        ch = next(c for c in shown.channels if c.probe_id == probe_id)
+        s = ch.samples[index]
+        driver = circuit.driver(ch.net_id)
+        when = canonical_time(s.time)
+        if driver in stimuli:
+            stim = stimuli[driver]
+            scheduled = (s.time, s.state) in stim.edges()
+            rec.event(EventKind.STEP if scheduled else EventKind.WARNING,
+                      f"Causa de {probe_id} → {s.state.name} en t = {when} s: estímulo {driver}",
+                      refs=tuple(r for r in (event_id, drivers.get(driver)) if r),
+                      why=(f"El estímulo {type(stim).__name__} {driver} programa el flanco {s.state.name} en "
+                           f"t = {when} s sobre la red {ch.net_id}." if scheduled else
+                           f"El estímulo {driver} no declara ese flanco; no se inventa una causa."),
+                      values=(("driver", _txt(driver)), ("kind", _txt("stimulus")), ("time", _t(s.time)),
+                              ("new", _txt(s.state.name))),
+                      result=_txt(s.state.name))
+            done += 1
+            continue
+        gate = gates.get(driver)
+        if gate is None:
+            continue
+        last_at_t = index + 1 >= len(ch.samples) or ch.samples[index + 1].time != s.time
+        if not last_at_t:
+            rec.event(EventKind.WARNING, f"{probe_id} → {s.state.name} en t = {when} s: transición transitoria",
+                      refs=tuple(r for r in (event_id, drivers.get(driver)) if r),
+                      why=("Estado intermedio de tiempo cero (delta): en el mismo instante la salida vuelve a cambiar. "
+                           "El motor no expone su evaluación interna delta a delta, así que no se inventa la causa."),
+                      values=(("driver", _txt(driver)), ("time", _t(s.time))))
+            done += 1
+            continue
+        # an unprobed net with no driver never changes (topology fact): its state is its declared initial state
+        constant = {n: circuit.net(n).state for n in gate.inputs if n not in by_net and circuit.driver(n) is None}
+        missing = sorted({n for n in gate.inputs if n not in by_net and n not in constant})
+        if missing:
+            rec.event(EventKind.WARNING, f"Causa de {probe_id} en t = {when} s no observable",
+                      refs=tuple(r for r in (event_id, drivers.get(driver)) if r),
+                      why=f"Entradas de {driver} sin sonda: {', '.join(missing)[:300]}. No se inventa la causa.",
+                      values=(("driver", _txt(driver)),))
+            done += 1
+            continue
+        states, causes, changed = [], [], []
+        for net in gate.inputs:
+            if net in constant:
+                states.append(constant[net])
+                continue
+            c = by_net[net]
+            state, at = _settled(c.samples, c.initial, s.time)
+            states.append(state)
+            for i in at:
+                ref = transition_ids.get((c.probe_id, i))
+                if ref and ref not in causes and int(ref[1:]) < int(event_id[1:]):
+                    causes.append(ref)
+                if net not in changed:
+                    changed.append(net)
+        evaluated = gate.evaluate(tuple(states))
+        pins = ", ".join(f"{n}={st.name}" for n, st in zip(gate.inputs, states))
+        if len(pins) > 300:
+            pins = pins[:297] + "…"
+        trigger = (f"al cambiar {', '.join(changed)[:120]} en t = {when} s" if changed
+                   else "en el arranque del simulador (evaluación inicial)")
+        rec.event(
+            EventKind.STEP, f"Causa de {probe_id} → {s.state.name} en t = {when} s: puerta {driver}",
+            refs=tuple(dict.fromkeys(r for r in (event_id, *causes[:32], drivers.get(driver)) if r)),
+            formula=f"{gate.output} = {gate.kind.value}({pins})",
+            why=(f"Retardo cero: {trigger}, la puerta {gate.kind.value} se re-evalúa con las entradas estables "
+                 f"y su salida pasa a {evaluated.name}."),
+            values=(("driver", _txt(driver)), ("kind", _txt(gate.kind.value)), ("time", _t(s.time)),
+                    ("inputs", _txt(pins)), ("evaluated", _txt(evaluated.name)), ("observed", _txt(s.state.name)),
+                    ("consistent", _txt("sí" if evaluated is s.state else "no"))),
+            result=_txt(evaluated.name))
+        done += 1

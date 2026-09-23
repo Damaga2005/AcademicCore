@@ -4,6 +4,12 @@ Margins come from direct L(jw) evaluations with bisection refinement
 on bracketed monotone segments. Stored Bode tables are never
 interpolated. Bracket intervals are always reported alongside refined
 points. Missing crossovers -> UNSUPPORTED, never a silent infinite gain.
+
+E0.1: ``margins``/``gain_crossovers``/``phase_crossovers`` accept an
+optional ``observer`` (default None) that is told the real bisection
+facts: ``bracket(kind, lo, hi)``, ``bisection(kind, k, lo, hi, mid,
+f_mid)`` for every midpoint the engine evaluates, and ``refined(kind,
+omega, reason)``. It never alters the computation.
 """
 
 from __future__ import annotations
@@ -78,23 +84,35 @@ def _scan_frequencies() -> list:
     return out
 
 
-def _refine_gain_crossover(loop: TransferFunctionTF, lo: Decimal, hi: Decimal) -> Decimal:
+def _refine_gain_crossover(loop: TransferFunctionTF, lo: Decimal, hi: Decimal, observer=None) -> Decimal:
     ctx = make_context()
     flo = _eval_jw(loop, lo).modulus() - Decimal(1)
     fhi = _eval_jw(loop, hi).modulus() - Decimal(1)
+    if observer is not None:
+        observer.bracket("gain", lo, hi)
     if flo == 0:
+        if observer is not None:
+            observer.refined("gain", lo, "exact zero at the lower end")
         return lo
     if fhi == 0:
+        if observer is not None:
+            observer.refined("gain", hi, "exact zero at the upper end")
         return hi
     if (flo > 0) == (fhi > 0):
         raise ControlError(ControlStatus.INVALID, "gain bracket holds no crossing")
-    for _ in range(MAX_BISECT_ITER):
+    reason = "iteration budget"
+    for k in range(MAX_BISECT_ITER):
         width = ctx.divide(ctx.subtract(hi, lo), hi if hi > 0 else Decimal(1))
         if width.copy_abs() <= BISECT_REL_TOL:
+            reason = "relative width <= BISECT_REL_TOL"
             break
         mid = ctx.divide(ctx.add(lo, hi), Decimal(2))
         fmid = _eval_jw(loop, mid).modulus() - Decimal(1)
+        if observer is not None:
+            observer.bisection("gain", k + 1, lo, hi, mid, fmid)
         if fmid == 0:
+            if observer is not None:
+                observer.refined("gain", mid, "exact zero at the midpoint")
             return mid
         if (flo > 0) == (fmid > 0):
             lo = mid
@@ -102,19 +120,27 @@ def _refine_gain_crossover(loop: TransferFunctionTF, lo: Decimal, hi: Decimal) -
         else:
             hi = mid
             fhi = fmid
-    return ctx.divide(ctx.add(lo, hi), Decimal(2))
+    out = ctx.divide(ctx.add(lo, hi), Decimal(2))
+    if observer is not None:
+        observer.refined("gain", out, reason)
+    return out
 
 
-def _refine_phase_crossover(loop: TransferFunctionTF, lo: Decimal, hi: Decimal) -> Decimal:
+def _refine_phase_crossover(loop: TransferFunctionTF, lo: Decimal, hi: Decimal, observer=None) -> Decimal:
     ctx = make_context()
-    for _ in range(MAX_BISECT_ITER):
+    if observer is not None:
+        observer.bracket("phase", lo, hi)
+    reason = "iteration budget"
+    for k in range(MAX_BISECT_ITER):
         width = ctx.divide(ctx.subtract(hi, lo), hi if hi > 0 else Decimal(1))
         if width.copy_abs() <= BISECT_REL_TOL:
+            reason = "relative width <= BISECT_REL_TOL"
             break
         mid = ctx.divide(ctx.add(lo, hi), Decimal(2))
         try:
             vmid = _eval_jw(loop, mid)
         except ControlError:
+            reason = "L(jw) not evaluable at the midpoint"
             break
         # Bisection on Im(L) with Re < 0 gate checked by the caller brackets.
         # Shrink toward the zero of Im: compare signs of Im(lo) and Im(mid).
@@ -125,16 +151,23 @@ def _refine_phase_crossover(loop: TransferFunctionTF, lo: Decimal, hi: Decimal) 
             continue
         im_lo = vlo.im
         im_mid = vmid.im
+        if observer is not None:
+            observer.bisection("phase", k + 1, lo, hi, mid, im_mid)
         if im_mid == 0:
+            if observer is not None:
+                observer.refined("phase", mid, "exact zero at the midpoint")
             return mid
         if (im_lo > 0) == (im_mid > 0):
             lo = mid
         else:
             hi = mid
-    return ctx.divide(ctx.add(lo, hi), Decimal(2))
+    out = ctx.divide(ctx.add(lo, hi), Decimal(2))
+    if observer is not None:
+        observer.refined("phase", out, reason)
+    return out
 
 
-def gain_crossovers(loop: TransferFunctionTF) -> tuple:
+def gain_crossovers(loop: TransferFunctionTF, observer=None) -> tuple:
     """Refined gain crossovers |L| = 1 with bracket intervals."""
     freqs = _scan_frequencies()
     out: list = []
@@ -156,14 +189,14 @@ def gain_crossovers(loop: TransferFunctionTF) -> tuple:
             if flo == 0:
                 out.append((prev_w, prev_w, prev_w))
             elif (flo > 0) != (fhi > 0):
-                refined = _refine_gain_crossover(loop, prev_w, w)
+                refined = _refine_gain_crossover(loop, prev_w, w, observer)
                 out.append((prev_w, w, refined))
         prev_w = w
         prev_m = cur_m
     return tuple(out)
 
 
-def phase_crossovers(loop: TransferFunctionTF) -> tuple:
+def phase_crossovers(loop: TransferFunctionTF, observer=None) -> tuple:
     """Refined phase crossovers Im(L) = 0 with Re < 0, with brackets."""
     freqs = _scan_frequencies()
     out: list = []
@@ -187,7 +220,7 @@ def phase_crossovers(loop: TransferFunctionTF) -> tuple:
             if im_lo == 0 and re_lo < 0:
                 out.append((prev_w, prev_w, prev_w))
             elif im_lo != im_hi and ((im_lo > 0) != (im_hi > 0)) and re_lo < 0 and re_hi < 0:
-                refined = _refine_phase_crossover(loop, prev_w, w)
+                refined = _refine_phase_crossover(loop, prev_w, w, observer)
                 # Verify the refined point keeps Re < 0 (true -180 crossing).
                 try:
                     vr = _eval_jw(loop, refined)
@@ -231,14 +264,14 @@ class MarginsReport:
     detail: str = ""
 
 
-def margins(loop: TransferFunctionTF) -> MarginsReport:
+def margins(loop: TransferFunctionTF, observer=None) -> MarginsReport:
     if not isinstance(loop, TransferFunctionTF):
         raise ControlError(ControlStatus.INVALID, "margins need a loop TF")
     from academic_core.domain.engineering.math.logarithm import decimal_log10
 
     ctx = make_context()
-    gc = gain_crossovers(loop)
-    pc = phase_crossovers(loop)
+    gc = gain_crossovers(loop, observer)
+    pc = phase_crossovers(loop, observer)
     gm_status = "UNSUPPORTED"
     pm_status = "UNSUPPORTED"
     gm = ""

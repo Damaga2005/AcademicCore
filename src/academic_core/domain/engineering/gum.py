@@ -820,16 +820,29 @@ class MeasurementModel:
         var_name: str,
         inputs: dict[str, Decimal],
         input_units: dict[str, str] | None = None,
+        observer: Any = None,
     ) -> tuple[Decimal, str]:
-        """Compute sensitivity coefficient c_i = dY / dX_i and report method (EXPLICIT, ANALYTIC, NUMERICAL)."""
+        """Compute sensitivity coefficient c_i = dY / dX_i and report method (EXPLICIT, ANALYTIC, NUMERICAL).
+
+        ``observer`` (E0.1, optional, default None) receives
+        ``observer.sensitivity(var_name, method, rule, details)`` with the
+        facts this method really used: the analytic pattern that matched,
+        or the central-difference step and the two evaluations. It never
+        changes the computation."""
+
+        def note(method: str, rule: str, details: tuple = ()) -> None:
+            if observer is not None:
+                observer.sensitivity(var_name, method, rule, details)
         # 1. Explicitly supplied sensitivities
         if self.sensitivities and var_name in self.sensitivities:
             sens_spec = self.sensitivities[var_name]
             if callable(sens_spec):
                 c_val = Decimal(str(sens_spec(inputs)))
+                note(SensitivityMethod.EXPLICIT.value, "explicit callable")
                 return c_val, SensitivityMethod.EXPLICIT.value
             else:
                 c_val = Decimal(str(sens_spec))
+                note(SensitivityMethod.EXPLICIT.value, "explicit value")
                 return c_val, SensitivityMethod.EXPLICIT.value
 
         # 2. Known analytical equation patterns
@@ -843,6 +856,7 @@ class MeasurementModel:
             if m_sum:
                 v1, v2 = m_sum.group(1), m_sum.group(2)
                 if var_name in (v1, v2):
+                    note(SensitivityMethod.ANALYTIC.value, "sum: d(X1 + X2)/dXi = 1")
                     return Decimal("1"), SensitivityMethod.ANALYTIC.value
 
             # Pattern: Difference: X1 - X2
@@ -850,8 +864,10 @@ class MeasurementModel:
             if m_diff:
                 v1, v2 = m_diff.group(1), m_diff.group(2)
                 if var_name == v1:
+                    note(SensitivityMethod.ANALYTIC.value, "difference: d(X1 - X2)/dX1 = 1")
                     return Decimal("1"), SensitivityMethod.ANALYTIC.value
                 elif var_name == v2:
+                    note(SensitivityMethod.ANALYTIC.value, "difference: d(X1 - X2)/dX2 = -1")
                     return Decimal("-1"), SensitivityMethod.ANALYTIC.value
 
             # Pattern: Product: X1 * X2
@@ -859,8 +875,10 @@ class MeasurementModel:
             if m_prod:
                 v1, v2 = m_prod.group(1), m_prod.group(2)
                 if var_name == v1:
+                    note(SensitivityMethod.ANALYTIC.value, "product: d(X1*X2)/dX1 = X2", ((v2, inputs[v2]),))
                     return inputs[v2], SensitivityMethod.ANALYTIC.value
                 elif var_name == v2:
+                    note(SensitivityMethod.ANALYTIC.value, "product: d(X1*X2)/dX2 = X1", ((v1, inputs[v1]),))
                     return inputs[v1], SensitivityMethod.ANALYTIC.value
 
             # Pattern: Quotient: X1 / X2
@@ -868,8 +886,11 @@ class MeasurementModel:
             if m_div:
                 v1, v2 = m_div.group(1), m_div.group(2)
                 if var_name == v1:
+                    note(SensitivityMethod.ANALYTIC.value, "quotient: d(X1/X2)/dX1 = 1/X2", ((v2, inputs[v2]),))
                     return Decimal("1") / inputs[v2], SensitivityMethod.ANALYTIC.value
                 elif var_name == v2:
+                    note(SensitivityMethod.ANALYTIC.value, "quotient: d(X1/X2)/dX2 = -X1/X2^2",
+                         ((v1, inputs[v1]), (v2, inputs[v2])))
                     return -inputs[v1] / (inputs[v2] ** 2), SensitivityMethod.ANALYTIC.value
 
             # Pattern: Voltage divider: Vin * R2 / (R1 + R2)
@@ -878,11 +899,15 @@ class MeasurementModel:
                 r1 = inputs["R1"]
                 r2 = inputs["R2"]
                 r_sum = r1 + r2
+                divider = (("Vin", vin), ("R1", r1), ("R2", r2))
                 if var_name == "Vin":
+                    note(SensitivityMethod.ANALYTIC.value, "divider: dVout/dVin = R2/(R1 + R2)", divider)
                     return r2 / r_sum, SensitivityMethod.ANALYTIC.value
                 elif var_name == "R1":
+                    note(SensitivityMethod.ANALYTIC.value, "divider: dVout/dR1 = -Vin*R2/(R1 + R2)^2", divider)
                     return -vin * r2 / (r_sum ** 2), SensitivityMethod.ANALYTIC.value
                 elif var_name == "R2":
+                    note(SensitivityMethod.ANALYTIC.value, "divider: dVout/dR2 = Vin*R1/(R1 + R2)^2", divider)
                     return vin * r1 / (r_sum ** 2), SensitivityMethod.ANALYTIC.value
 
         # 3. Deterministic Numerical Differentiation (Central Finite Difference)
@@ -899,6 +924,9 @@ class MeasurementModel:
 
         # Retain full Decimal precision without artificial rounding (Finding 3):
         c_num = (y_plus - y_minus) / (Decimal("2") * step)
+        note(SensitivityMethod.NUMERICAL.value, "central difference: (f(x+h) - f(x-h)) / (2h)",
+             (("x", x_val), ("h", step), ("x_plus_h", x_val + step), ("x_minus_h", x_val - step),
+              ("f_x_plus_h", y_plus), ("f_x_minus_h", y_minus)))
         return c_num, SensitivityMethod.NUMERICAL.value
 
 
@@ -1062,8 +1090,12 @@ def evaluate_gum(
     coverage_probability: float = 0.95,
     explicit_k: Decimal | float | int | None = None,
     cas_store: Any = None,
+    observer: Any = None,
 ) -> GUMResult:
-    """Execute complete GUM uncertainty propagation according to ISO/IEC Guide 98-3."""
+    """Execute complete GUM uncertainty propagation according to ISO/IEC Guide 98-3.
+
+    ``observer`` (E0.1, optional) is passed to ``get_sensitivity`` so that an
+    ExecutionTrace can record how each c_i was really obtained."""
     if not inputs:
         raise ValueError("GUM evaluation requires at least one input quantity")
 
@@ -1091,7 +1123,7 @@ def evaluate_gum(
 
     for name in sorted_names:
         q = inputs[name]
-        c_i, method = model.get_sensitivity(name, nominal_dict, input_units=input_units)
+        c_i, method = model.get_sensitivity(name, nominal_dict, input_units=input_units, observer=observer)
         c_map[name] = c_i
         c_method_map[name] = method
         u_map[name] = q.standard_uncertainty

@@ -606,7 +606,8 @@ class NewtonState:
 
 def solve_nonlinear_dc(circuit: Circuit, *,
                         max_iter: int = MAX_ITER,
-                        x_init: "tuple[Decimal, ...] | None" = None
+                        x_init: "tuple[Decimal, ...] | None" = None,
+                        observer=None,
                         ) -> NonlinearResult:
     """DC operating point with Shockley diodes (F8-H), Ebers-Moll BJTs
     (F8-I) and F8-K devices (MOSFET, JFET, diode-kind variants) via
@@ -619,8 +620,13 @@ def solve_nonlinear_dc(circuit: Circuit, *,
     ``n_unknowns``, finite ``Decimal`` entries). ``None`` (default) keeps
     the certified zero-vector start bit-for-bit. Convergence policy (Q1)
     is unchanged either way.
+
+    ``observer`` (E0.1, optional, default None) is told the facts of the
+    real iteration: ``newton_start(nodes, x, kcl, aux, scale)`` once and
+    ``newton_iteration(it, alpha, halvings, step_peak, x, kcl, aux, scale,
+    res_ok, step_ok)`` after every accepted step. It never alters the solve.
     """
-    return _solve_nonlinear_dc_impl(circuit, max_iter, x_init, None)
+    return _solve_nonlinear_dc_impl(circuit, max_iter, x_init, None, observer)
 
 
 def solve_nonlinear_dc_state(circuit: Circuit, *,
@@ -639,7 +645,8 @@ def solve_nonlinear_dc_state(circuit: Circuit, *,
 
 def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                               x_init: "tuple[Decimal, ...] | None",
-                              capture: "dict | None") -> NonlinearResult:
+                              capture: "dict | None",
+                              observer=None) -> NonlinearResult:
     if not isinstance(max_iter, int) or isinstance(max_iter, bool) \
             or max_iter < 0:
         return NonlinearResult(
@@ -722,6 +729,8 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
         )
     k0, a0n = system.block_norms(f0)
     scale = system.scale_of(x)
+    if observer is not None:
+        observer.newton_start(problem.nodes, x[:system.n_nodes], k0, a0n, scale)
     if _block_ok(list(f0[:system.n_nodes]), scale) and \
             _block_ok(list(f0[system.n_nodes:]), scale):
         if capture is not None:
@@ -792,9 +801,10 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
         dx = tuple(entry.re for entry in lin.solution)
         cur = max(final_pair)
         alpha = Decimal(1)
+        halvings = 0
         accepted: tuple[Decimal, ...] | None = None
         accepted_f: tuple[Decimal, ...] | None = None
-        for _ in range(MAX_BACKTRACK + 1):
+        for halvings in range(MAX_BACKTRACK + 1):
             trial = tuple(
                 ctx.add(xv, ctx.multiply(alpha, dv))
                 for xv, dv in zip(x, dx))
@@ -849,6 +859,9 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
         res_ok = _block_ok(list(final_f[:system.n_nodes]), scale) and \
             _block_ok(list(final_f[system.n_nodes:]), scale)
         step_ok = step_peak <= STOL + RTOL * scale
+        if observer is not None:
+            observer.newton_iteration(it, alpha, halvings, step_peak, x[:system.n_nodes], final_pair[0],
+                                      final_pair[1], scale, res_ok, step_ok)
         if res_ok and step_ok:
             if capture is not None:
                 capture.update(problem=problem, system=system, x=x)
