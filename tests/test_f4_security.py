@@ -19,7 +19,13 @@ F41_FILES = [SRC / p for p in (
     "application/knowledge.py", "application/gestion_migration.py",
     "application/gestion_oracle.py", "application/ids.py", "infrastructure/academic_store.py",
     "infrastructure/ics.py", "infrastructure/legacy_gestion.py", "documents/syllabus.py",
-    "infrastructure/migrations/012_academic_f41.sql")]
+    "infrastructure/migrations/012_academic_f41.sql",
+    "infrastructure/migrations/013_legacy_payload_version.sql",
+    "application/gestion_certification.py")]
+# The certification harness re-runs the migration once per PYTHONHASHSEED in
+# a child interpreter: subprocess is allowed THERE ONLY, and only as
+# run([sys.executable, "-c", <constant>, ...]) without a shell.
+SUBPROCESS_ALLOWED = {"gestion_certification.py"}
 PY = [p for p in F41_FILES if p.suffix == ".py"]
 F41_DOMAIN = [p for p in PY if p.parent.name == "domain"]
 
@@ -57,7 +63,24 @@ def test_no_unsafe_or_network_imports(path):
         mods = [a.name for a in n.names] if isinstance(n, ast.Import) else (
             [n.module or ""] if isinstance(n, ast.ImportFrom) else [])
         for m in mods:
+            if m == "subprocess" and path.name in SUBPROCESS_ALLOWED:
+                continue
             assert m.split(".")[0] not in forbidden, f"{path.name}: {m}"
+
+
+def test_harness_subprocess_is_argv_only():
+    tree = _tree(SRC / "application/gestion_certification.py")
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute) and n.func.attr in (
+                 "run", "Popen", "call", "check_output", "check_call")
+             and getattr(n.func.value, "id", "") == "subprocess"]
+    assert len(calls) == 1
+    call = calls[0]
+    argv = call.args[0]
+    assert isinstance(argv, ast.List)
+    assert ast.unparse(argv.elts[0]) == "sys.executable" and ast.unparse(argv.elts[1]) == "'-c'"
+    assert isinstance(argv.elts[2], ast.Name) and argv.elts[2].id == "script"
+    assert not any(k.arg == "shell" for k in call.keywords)
 
 
 @pytest.mark.parametrize("path", F41_DOMAIN, ids=lambda p: p.name)
