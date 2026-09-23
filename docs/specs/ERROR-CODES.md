@@ -7,7 +7,8 @@ message text may change. Codes are the consumer API, messages are prose.
 Areas: `VAL` validation, `DOM` domain, `CFG` configuration, `UNS`
 unsupported, `SER` serialization, `VER` version, `SEC` security, `APP`
 application, `ADP` adapter, `INF` infrastructure, `INT` integration,
-`OK` success milestones.
+`OK` success milestones; F4.1: `ACD` academic management, `MIG` legacy
+data migration, `ICS` calendar interchange.
 
 | Code | Meaning | Severity | Recoverability | Public | Since |
 |:---|:---|:---:|:---:|:---:|:---:|
@@ -25,6 +26,19 @@ application, `ADP` adapter, `INF` infrastructure, `INT` integration,
 | AC-INF-001 | storage / spawner / IO failure | ERROR | RETRY | yes | F15 |
 | AC-INT-001 | internal invariant violated (bug) | ERROR | NONE | yes | F15 |
 | AC-OK-001 | operation completed | INFO | NONE | yes | F15 |
+| AC-ACD-001 | academic management operation refused | ERROR | RECOVER | yes | F4.1 |
+| AC-ACD-002 | unknown academic entity (subject, term, task, space...) | WARNING | RECOVER | yes | F4.1 |
+| AC-ACD-003 | academic integrity guard (duplicate / still referenced) | WARNING | RECOVER | yes | F4.1 |
+| AC-ACD-004 | invalid academic value (state, category, weight, URL...) | WARNING | RECOVER | yes | F4.1 |
+| AC-MIG-001 | migration failed; target left unchanged (rolled back) | ERROR | RETRY | yes | F4.1 |
+| AC-MIG-002 | legacy source is not a valid/consistent SQLite database | ERROR | CONFIG_CHANGE | yes | F4.1 |
+| AC-MIG-003 | legacy schema revision not supported | ERROR | CONFIG_CHANGE | yes | F4.1 |
+| AC-MIG-004 | snapshot of the target required before applying | ERROR | CONFIG_CHANGE | yes | F4.1 |
+| AC-MIG-005 | migration cancelled; target left unchanged | INFO | RETRY | yes | F4.1 |
+| AC-MIG-006 | post-migration validation failed | ERROR | NONE | yes | F4.1 |
+| AC-SEC-002 | path escapes the allowed root (refused) | ERROR | NONE | generic only | F4.1 |
+| AC-SEC-003 | archive rejected (zip slip / bomb / limits / hash) | ERROR | NONE | generic only | F4.1 |
+| AC-ICS-001 | calendar file rejected (format or limits) | WARNING | CONFIG_CHANGE | yes | F4.1 |
 
 Engine status enums map to sub-codes: `AC-DOM-…` + `status.value`
 (e.g. `ControlStatus.DIVERGED`, `ACStatus.SINGULAR`, replay
