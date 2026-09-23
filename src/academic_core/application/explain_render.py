@@ -18,6 +18,28 @@ The explanation answers seven questions, one section each:
 7. ¿Qué resultado obtuvimos?  RESULT, or ERROR (code + where it stopped)
 
 Other outputs (CLI, HTML, UI) consume the same frozen ``ExplanationView``.
+
+E0.1 step-by-step lessons (``ExplanationView.lessons``). Each lesson is
+exactly one recorded event, never a merge, a split or an addition:
+
+    Paso N / Tipo / Regla / Entrada / Transformación / Salida / Explicación / Verificación
+
+- **Tipo**: the recorded ``operation`` of a symbolic step, else the
+  phase of the event (Datos, Fórmula, Conversión de unidades,
+  Sustitución, Cálculo, Decisión, Aviso, Resultado, Verificación).
+- **Regla**: the recorded ``rule``, else the event title.
+- **Entrada**: the recorded ``before``, else the values of the facts the
+  event consumed (its refs).
+- **Transformación**: the recorded ``substitution``, else the formula.
+- **Salida**: the recorded ``after`` or result, else its values.
+- **Explicación**: the recorded ``why``.
+- **Verificación**: the CHECK events whose refs reach this event through
+  the recorded causal chain, with their status. A step no check depends
+  on says so ("sin comprobación que dependa de este paso").
+
+Lessons exist for the E0.1 operations and for traces recorded in
+pedagogical mode. For E0 traces the list is empty and the text output is
+unchanged.
 """
 
 from __future__ import annotations
@@ -69,6 +91,19 @@ class ExplanationSection:
 
 
 @dataclass(frozen=True)
+class LessonView:
+    number: int
+    event_id: str
+    kind: str  # Tipo
+    rule: str  # Regla
+    input: str  # Entrada
+    transformation: str  # Transformación
+    output: str  # Salida
+    explanation: str  # Explicación
+    verification: str  # Verificación
+
+
+@dataclass(frozen=True)
 class ExplanationView:
     operation: str
     outcome: str
@@ -78,6 +113,13 @@ class ExplanationView:
     steps: tuple[StepView, ...]
     checks: tuple[CheckView, ...]
     trace_json: str
+    lessons: tuple[LessonView, ...] = ()
+
+
+LESSON_OPERATIONS = ("math.derivative", "math.integral", "math.linear-equation", "math.simplify",
+                     "engineering.gum", "engineering.nonlinear-dc", "control.margins")
+LESSON_FIELDS = ("Paso", "Tipo", "Regla", "Entrada", "Transformación", "Salida", "Explicación", "Verificación")
+MAX_LESSON_TEXT = 400
 
 
 def show_value(v: TraceValue | None) -> str:
@@ -157,7 +199,103 @@ def build_view(trace: ExecutionTrace) -> ExplanationView:
     sections = tuple(ExplanationSection(key, q, tuple(content[key]) or ("(nada registrado)",))
                      for key, q in QUESTIONS)
     return ExplanationView(trace.operation, trace.outcome.value, status.status.value, trace.digest(),
-                           sections, tuple(steps), tuple(checks), trace.to_json())
+                           sections, tuple(steps), tuple(checks), trace.to_json(), _lessons(trace))
+
+
+def wants_lessons(trace: ExecutionTrace) -> bool:
+    modes = {name: v.text for name, v in trace.inputs if name in ("e0.mode", "mode")}
+    return trace.operation in LESSON_OPERATIONS or "pedagogical" in modes.values()
+
+
+def _clip(text: str) -> str:
+    return text if len(text) <= MAX_LESSON_TEXT else text[:MAX_LESSON_TEXT - 1] + "…"
+
+
+def _phase(e) -> str:
+    names = dict(e.values)
+    if "operation" in names and "rule" in names:
+        return show_value(names["operation"])
+    if e.kind is EventKind.NORMALIZATION:
+        return "Datos"
+    if e.kind is EventKind.VALUE:
+        return "Dato"
+    if e.kind is EventKind.CHECK:
+        return "Verificación"
+    if e.kind is EventKind.RESULT:
+        return "Resultado"
+    if e.kind is EventKind.DECISION:
+        return "Decisión"
+    if e.kind is EventKind.WARNING:
+        return "Aviso"
+    if e.kind is EventKind.ERROR:
+        return "Error"
+    title = e.title.lower()
+    if title.startswith("analizar") or title in ("modelo de medida", "función de lazo", "leer el circuito"):
+        return "Fórmula"
+    if title.startswith("conversión"):
+        return "Conversión de unidades"
+    if title.startswith("sustitución"):
+        return "Sustitución"
+    return "Cálculo"
+
+
+def _lessons(trace: ExecutionTrace) -> tuple[LessonView, ...]:
+    if not wants_lessons(trace):
+        return ()
+    # which checks depend on each event: walk every CHECK's refs back through the recorded causal chain
+    covered: dict[str, list[str]] = {}
+    for c in trace.checks():
+        seen, stack = set(), list(c.refs)
+        while stack:
+            r = stack.pop()
+            if r in seen:
+                continue
+            seen.add(r)
+            stack.extend(trace.event(r).refs)
+        for r in seen:
+            covered.setdefault(r, []).append(f"{c.event_id} {c.check.status.value}")
+    out = []
+    for e in trace.events:
+        if e.kind is EventKind.INPUT:
+            continue
+        names = dict(e.values)
+        symbolic = "rule" in names and "before" in names
+        if e.kind is EventKind.CHECK:
+            c = e.check
+            entry = show_value(c.actual)
+            transformation = c.what
+            output = f"{c.status.value} (esperado {show_value(c.expected)}"
+            output += f", tolerancia {show_value(c.tolerance)})" if c.tolerance is not None else ")"
+            verification = f"{e.event_id} {c.status.value}"
+            explanation = c.detail
+        elif e.kind is EventKind.ERROR:
+            entry = "; ".join(_consumed(trace, r) for r in e.refs)
+            transformation, output = "", f"{e.error.code} {e.error.reason}"
+            explanation, verification = e.error.message, "—"
+        else:
+            if symbolic:
+                entry = show_value(names["before"])
+                transformation = show_value(names["substitution"]) if "substitution" in names else ""
+                output = show_value(names["after"])
+            else:
+                entry = "; ".join(_consumed(trace, r) for r in e.refs)
+                transformation = e.formula or ""
+                output = show_value(e.result) if e.result is not None else "; ".join(
+                    f"{n} = {show_value(v)}" for n, v in e.values)
+            explanation = e.why or ""
+            cover = covered.get(e.event_id)
+            verification = ("cubierto por " + ", ".join(cover)) if cover else "sin comprobación que dependa de este paso"
+        rule = show_value(names["rule"]) if symbolic else (e.check.what if e.kind is EventKind.CHECK else e.title)
+        out.append(LessonView(len(out) + 1, e.event_id, _phase(e), _clip(rule), _clip(entry), _clip(transformation),
+                              _clip(output), _clip(explanation), _clip(verification)))
+    return tuple(out)
+
+
+def lesson_lines(lesson: LessonView) -> tuple[str, ...]:
+    """The eight labelled lines of one lesson (empty fields shown as —)."""
+    values = (f"{lesson.number} [{lesson.event_id}]", lesson.kind, lesson.rule, lesson.input, lesson.transformation,
+              lesson.output, lesson.explanation, lesson.verification)
+    return tuple(f"{label}: {value or '—'}" for label, value in zip(LESSON_FIELDS, values))
 
 
 def render_text(view: ExplanationView) -> str:
@@ -166,6 +304,12 @@ def render_text(view: ExplanationView) -> str:
         out.append("")
         out.append(s.question)
         out.extend(f"  {line}" for line in s.lines)
+    if view.lessons:
+        out.append("")
+        out.append("Paso a paso")
+        for lesson in view.lessons:
+            out.append("")
+            out.extend(f"  {line}" for line in lesson_lines(lesson))
     out.append("")
     out.append(f"digest execution-trace/1: {view.digest}")
     return "\n".join(out)
@@ -184,5 +328,10 @@ def render_markdown(view: ExplanationView) -> str:
     for s in view.sections:
         out += ["", f"## {s.question}", ""]
         out += [f"- {_md(line)}" for line in s.lines]
+    if view.lessons:
+        out += ["", "## Paso a paso"]
+        for lesson in view.lessons:
+            out += ["", f"### Paso {lesson.number}", ""]
+            out += [f"- {_md(line)}" for line in lesson_lines(lesson)[1:]]
     out += ["", f"`execution-trace/1` digest: `{view.digest}`"]
     return "\n".join(out)
