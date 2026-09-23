@@ -32,6 +32,15 @@ performed it. No iteration is invented or skipped:
     iterations
   - continuity: x_(k+1) of each iteration is the x_k of the next
 
+E0.3 (F8-I, certified): Ebers-Moll BJTs are observed like Shockley diodes.
+``.param Q1 polarity=NPN|PNP …`` is the only text (non-quantity)
+parameter. Each BJT gets its model step (BJTParams, exact NPN/PNP
+equations) and, per iteration, the values captured inside
+``bjt_jacobian`` (V_F, V_R, g_F, g_R and the 3×3 block at x_k) and
+``bjt_terminal_currents`` (I_F, I_R, I_C, I_B, I_E at x_(k+1)), plus a
+CHECK I_C + I_B + I_E = 0 (NUMERIC). ``_newton_events`` builds every
+post-solve event and is shared with the Virtual Lab OP detail.
+
 Input limits are configurable (``max_lines``, ``max_line_length``,
 ``max_total_chars``) within the execution-trace/1 transport ceilings.
 """
@@ -65,8 +74,11 @@ _PARAM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,15}\Z")
 MAX_NODES_SHOWN = 32
 
 
+POLARITIES = ("NPN", "PNP")  # E0.3: the only text parameter (Ebers-Moll BJT polarity, F8-I)
+
+
 def circuit_spec(circuit: Circuit) -> str:
-    """Netlist + ``.param`` lines. Refused if a parameter is not a Quantity."""
+    """Netlist + ``.param`` lines. Refused if a parameter is not a Quantity (or a BJT polarity)."""
     lines = [circuit.to_netlist().rstrip("\n").removesuffix(".end").rstrip("\n")]
     for c in sorted(circuit.components, key=lambda c: c.ref.upper()):
         if not c.parameters:
@@ -74,6 +86,9 @@ def circuit_spec(circuit: Circuit) -> str:
         parts = []
         for name in sorted(c.parameters):
             q = c.parameters[name]
+            if name == "polarity" and isinstance(q, str) and q.upper() in POLARITIES:
+                parts.append(f"polarity={q.upper()}")
+                continue
             if not isinstance(q, Quantity):
                 raise _invalid("UNSUPPORTED_PARAMETER", f"{c.ref}.{name} is not a quantity; it cannot be written as text")
             parts.append(f"{name}={q.compact()}")
@@ -99,6 +114,11 @@ def parse_circuit_spec(spec: str, max_total_chars: int = MAX_SPEC) -> Circuit:
                 name, sep, val = item.partition("=")
                 if not sep or not _PARAM_RE.fullmatch(name) or name in values:
                     raise _invalid("INVALID_INPUT", f"bad parameter {item[:32]!r}")
+                if name == "polarity":
+                    if val.upper() not in POLARITIES:
+                        raise _invalid("INVALID_INPUT", f"polarity must be NPN or PNP, got {val[:16]!r}")
+                    values[name] = val.upper()
+                    continue
                 try:
                     values[name] = parse_quantity(val)
                 except UnitError:
@@ -129,25 +149,29 @@ class _Observer:
         self.start = None
         self.start_devices: tuple = ()
         self.diode_parameters: tuple = ()
+        self.bjt_parameters: tuple = ()
+        self.start_bjts: tuple = ()
         self.iterations: list = []
         self.failure = None
 
     def newton_start(self, nodes, x, kcl, aux, scale, *, unknowns=(), residual=(), devices=(),
-                     diode_parameters=()):
+                     diode_parameters=(), bjt_parameters=(), bjt_devices=()):
         # node columns keep their plain net name (E0.1-R+ value names); auxiliary currents keep I(key)
         self.nodes = tuple(nodes)
         self.unknowns = tuple(u[2:-1] if u.startswith("V(") and u.endswith(")") else u for u in unknowns)
         self.start = (tuple(x), kcl, aux, scale, tuple(residual))
         self.start_devices, self.diode_parameters = tuple(devices), tuple(diode_parameters)
+        self.bjt_parameters, self.start_bjts = tuple(bjt_parameters), tuple(bjt_devices)
 
     def newton_iteration(self, it, alpha, halvings, step_peak, x, kcl, aux, scale, res_ok, step_ok, *,
                          x_prev=(), residual_prev=(), jacobian=(), dx=(), residual=(), trials=(), reference=None,
-                         devices=(), device_conductances=()):
+                         devices=(), device_conductances=(), bjt_devices=(), bjt_jacobians=()):
         self.iterations.append(dict(it=it, alpha=alpha, halvings=halvings, peak=step_peak, x=tuple(x), kcl=kcl,
                                     aux=aux, scale=scale, res_ok=res_ok, step_ok=step_ok, x_prev=tuple(x_prev),
                                     f_prev=tuple(residual_prev), jac=tuple(jacobian), dx=tuple(dx),
                                     f=tuple(residual), trials=tuple(trials), reference=reference,
-                                    devices=tuple(devices), conductances=tuple(device_conductances)))
+                                    devices=tuple(devices), conductances=tuple(device_conductances),
+                                    bjts=tuple(bjt_devices), bjt_jacobians=tuple(bjt_jacobians)))
 
     def newton_failed(self, it, reason, trials):
         self.failure = (it, reason, tuple(trials))
@@ -167,9 +191,9 @@ def _shockley_models(rec: TraceRecorder, obs, circuit: Circuit, read: str) -> tu
             why="Parámetros que el solver usa para este diodo (DiodeParams del motor F8-H).",
             values=(("Is", TraceValue.of_number(is_, "A")), ("n", TraceValue.of_number(n)),
                     ("Vt", TraceValue.of_number(vt, "V")))))
-    shockley = {ref for ref, *_ in obs.diode_parameters}
+    observed = {ref for ref, *_ in obs.diode_parameters} | {ref for ref, *_ in obs.bjt_parameters}
     others = sorted(c.ref.upper() for c in circuit.components
-                    if c.type.upper() in ("D", "Q", "M", "J") and c.ref.upper() not in shockley)
+                    if c.type.upper() in ("D", "Q", "M", "J") and c.ref.upper() not in observed)
     if others:
         ids.append(rec.event(
             EventKind.WARNING, "Detalle de dispositivo no expuesto", refs=(read,),
@@ -177,6 +201,61 @@ def _shockley_models(rec: TraceRecorder, obs, circuit: Circuit, read: str) -> tu
                  "MOSFET, JFET); sus corrientes solo intervienen a través de F y J."),
             values=(("devices", TraceValue.of_text(", ".join(others)[:512])),)))
     return tuple(ids)
+
+
+_EM_FORMULA = {
+    "NPN": ("V_F = V_BE = V_B − V_E;  V_R = V_BC = V_B − V_C;  I_F = Is·(exp(V_F/(Nf·Vt)) − 1);  "
+            "I_R = Is·(exp(V_R/(Nr·Vt)) − 1);  I_C = I_F − I_R/α_R;  I_B = I_F/β_F + I_R/β_R;  I_E = −I_F/α_F + I_R"),
+    "PNP": ("V_F = V_EB = V_E − V_B;  V_R = V_CB = V_C − V_B;  I_F = Is·(exp(V_F/(Nf·Vt)) − 1);  "
+            "I_R = Is·(exp(V_R/(Nr·Vt)) − 1);  I_C = −I_F + I_R/α_R;  I_B = −I_F/β_F − I_R/β_R;  I_E = I_F/α_F − I_R"),
+}
+_EM_VOLTS = {"NPN": ("V_BE", "V_BC"), "PNP": ("V_EB", "V_CB")}
+_TERMINALS = ("C", "B", "E")
+
+
+def _ebers_moll_models(rec: TraceRecorder, obs, read: str) -> tuple:
+    """E0.3: one STEP per BJT with the BJTParams the solver used (F8-I, exact NPN/PNP equations of mna/bjt.py)."""
+    ids = []
+    for ref, pol, is_, bf, br, nf, nr, vt, af, ar in obs.bjt_parameters[:MAX_DEVICES]:
+        ids.append(rec.event(
+            EventKind.STEP, f"Modelo de Ebers-Moll: {ref} ({pol})", refs=(read,), formula=_EM_FORMULA[pol],
+            why=("Parámetros que el solver usa para este transistor (BJTParams del motor F8-I); α_F = β_F/(β_F+1) y "
+                 "α_R = β_R/(β_R+1) los calculó el propio motor. Corrientes entrantes al dispositivo."),
+            values=(("polarity", TraceValue.of_text(pol)), ("Is", TraceValue.of_number(is_, "A")),
+                    ("Bf", TraceValue.of_number(bf)), ("Br", TraceValue.of_number(br)), ("Nf", TraceValue.of_number(nf)),
+                    ("Nr", TraceValue.of_number(nr)), ("Vt", TraceValue.of_number(vt, "V")),
+                    ("alpha_F", TraceValue.of_number(af)), ("alpha_R", TraceValue.of_number(ar)))))
+    return tuple(ids)
+
+
+def _ebers_moll_events(rec: TraceRecorder, it: int, f: dict, prev: str, model_ids: tuple) -> str:
+    """E0.3: per BJT, the Ebers-Moll evaluations the solver computed in this iteration (never recomputed)."""
+    at_k = {row[0]: row for row in f["bjt_jacobians"]}
+    at_next = {row[0]: row for row in f["bjts"]}
+    for ref in sorted(set(at_k) | set(at_next))[:MAX_DEVICES]:
+        values = []
+        if ref in at_k:
+            _r, pol, _vc, _vb, _ve, vf, vr, gf, gr, jac = at_k[ref]
+            vfn, vrn = _EM_VOLTS[pol]
+            values += [(f"{vfn}_k", TraceValue.of_number(vf, "V")), (f"{vrn}_k", TraceValue.of_number(vr, "V")),
+                       ("gF_k", TraceValue.of_number(gf, "S")), ("gR_k", TraceValue.of_number(gr, "S"))]
+            values += [(f"J.{_TERMINALS[i]}.{_TERMINALS[j]}", TraceValue.of_number(jac[i][j], "S"))
+                       for i in range(3) for j in range(3)]
+        if ref in at_next:
+            _r, pol, vc, vb, ve, vf, vr, i_f, i_r, ic, ib, ie = at_next[ref]
+            vfn, vrn = _EM_VOLTS[pol]
+            values += [("V_C", TraceValue.of_number(vc, "V")), ("V_B", TraceValue.of_number(vb, "V")),
+                       ("V_E", TraceValue.of_number(ve, "V")), (vfn, TraceValue.of_number(vf, "V")),
+                       (vrn, TraceValue.of_number(vr, "V")), ("I_F", TraceValue.of_number(i_f, "A")),
+                       ("I_R", TraceValue.of_number(i_r, "A")), ("I_C", TraceValue.of_number(ic, "A")),
+                       ("I_B", TraceValue.of_number(ib, "A")), ("I_E", TraceValue.of_number(ie, "A"))]
+        prev = rec.event(
+            EventKind.STEP, f"Evaluación de Ebers-Moll: {ref} (iteración {it})", refs=(prev, *model_ids[-16:]),
+            formula="en x_k: g_F, g_R y el bloque 3×3 ∂(I_C, I_B, I_E)/∂(V_C, V_B, V_E);  en x_(k+1): I_F, I_R, I_C, I_B, I_E",
+            why=("Valores capturados dentro de bjt_jacobian (entra en J) y de bjt_terminal_currents (entra en F) "
+                 "durante esta iteración del solver."),
+            values=tuple(values))
+    return prev
 
 
 def _devices(devices: tuple, suffix: str) -> tuple:
@@ -278,105 +357,131 @@ def explain_nonlinear_dc(spec: str, *, max_lines: int = MAX_LINES, max_line_leng
                                  ("nets", TraceValue.of_text(", ".join(sorted(circuit.nets))[:512]))))
         obs = _Observer()
         result = solve_nonlinear_dc(circuit, observer=obs)
-        model_ids = _shockley_models(rec, obs, circuit, read)
-        prev = read
-        if obs.start is not None:
-            x0, kcl, aux, scale, _f0 = obs.start
-            prev = rec.event(EventKind.STEP, "Punto de partida", refs=(read, *model_ids),
-                             formula="x₀ = 0 (vector nulo determinista)",
-                             why="El solver parte del vector nulo y mide el residuo inicial F(x₀) por bloques.",
-                             values=(("kcl_residual", TraceValue.of_number(kcl, "A")),
-                                     ("aux_residual", TraceValue.of_number(aux, "V")),
-                                     ("scale", TraceValue.of_number(scale)), *_voltages(obs.nodes, x0),
-                                     *_devices(obs.start_devices, "")))
-        for f in obs.iterations:
-            prev = _trials(rec, f["it"], f["trials"], f["reference"], prev)
-            values = (("alpha", TraceValue.of_number(f["alpha"])), ("halvings", TraceValue.of_number(f["halvings"])),
-                      ("step_peak", TraceValue.of_number(f["peak"])), ("kcl_residual", TraceValue.of_number(f["kcl"], "A")),
-                      ("aux_residual", TraceValue.of_number(f["aux"], "V")), ("scale", TraceValue.of_number(f["scale"])),
-                      ("res_ok", TraceValue.of_text("sí" if f["res_ok"] else "no")),
-                      ("step_ok", TraceValue.of_text("sí" if f["step_ok"] else "no")), *_voltages(obs.nodes, f["x"]))
-            vectors = _vectors(obs.unknowns, f)
-            if len(values) + len(vectors) > 64:
-                vectors = (("jacobian", TraceValue.of_text("detalle omitido: no cabe en un evento (64 valores)")),)
-            prev = rec.event(
-                EventKind.STEP, f"Iteración {f['it']} de Newton", refs=(prev,),
-                formula="x_k, F(x_k), J(x_k) → resolver J·Δx = −F → x_(k+1) = x_k + α·Δx",
-                why=("Newton amortiguado: se resuelve el sistema lineal con el jacobiano real y se reduce α a la mitad "
-                     "hasta que el residuo disminuye (backtracking). ‖F‖ son las normas por bloques (KCL, auxiliar) "
-                     "en x_(k+1); ‖αΔx‖∞ es step_peak. Parada: res_ok y step_ok."),
-                values=values + vectors)
-            if f["devices"] or f["conductances"]:
-                prev = rec.event(
-                    EventKind.STEP, f"Evaluación de Shockley (iteración {f['it']})", refs=(prev, *model_ids),
-                    formula="I = Is·(exp(Vd/(n·Vt)) − 1);  g = Is/(n·Vt)·exp(Vd/(n·Vt))",
-                    why=("Valores que el solver calculó: g en x_k (entra en el jacobiano) e I en x_(k+1) "
-                         "(entra en el residuo)."),
-                    values=_device_values(f["conductances"], f["devices"]))
-        if obs.failure is not None:
-            it, reason, trials = obs.failure
-            prev = _trials(rec, it + 1, trials, None, prev, failed=True)
-            prev = rec.event(EventKind.WARNING, f"Iteración {it + 1} fallida", refs=(prev,),
-                             why=f"El solver informa: {reason}.", values=(("reason", TraceValue.of_text(reason[:512])),))
-        converged = result.status is NonlinearStatus.CONVERGED
-        decision = rec.event(
-            EventKind.DECISION, "Criterio de parada", refs=(prev,),
-            why=("Convergencia: residuo dentro de tolerancia (res_ok) y paso pequeño (step_ok)." if converged else
-                 "El solver se detuvo sin certificar la convergencia."),
-            values=(("status", TraceValue.of_text(result.status.value)),
-                    ("iterations", TraceValue.of_number(len(obs.iterations)))))
-        if not converged:
-            error = UnsupportedError if result.status is NonlinearStatus.UNSUPPORTED else ValidationError
-            raise error(f"{result.status.name}: {'; '.join(result.diagnostics[-1:])}"[:400])
-        res = rec.event(EventKind.RESULT, "Punto de operación", refs=(decision,),
-                        formula=", ".join(f"V({nv.node}) = {nv.voltage.format()}" for nv in result.node_voltages)[:512],
-                        values=tuple((f"V.{nv.node}", TraceValue.of_quantity(nv.voltage))
-                                     for nv in result.node_voltages[:MAX_NODES_SHOWN]),
-                        result=TraceValue.of_text(f"CONVERGED en {len(obs.iterations)} iteraciones"))
-        if obs.iterations:
-            last = obs.iterations[-1]["f"]
-            rows = [(f"KCL.{_label(lab)}", TraceValue.of_number(v, "A")) for lab, v in
-                    zip(obs.nodes, last[:len(obs.nodes)])]
-            rows += [(f"aux.{_label(lab)}", TraceValue.of_number(v, "V")) for lab, v in
-                     zip(obs.unknowns[len(obs.nodes):], last[len(obs.nodes):])]
-            res_kcl = rec.event(
-                EventKind.STEP, "KCL por nodo en la solución", refs=(res,),
-                formula="F(x*) por filas: una ecuación KCL por nodo y una restricción por fuente de tensión",
-                why=("El solver expone el residuo de cada fila de F en la solución. La descomposición en "
-                     "corrientes de cada elemento no se expone, así que no se muestra."),
-                values=tuple(rows[:64]) if len(rows) <= 64 else tuple(rows[:63]) + (
-                    ("omitted", TraceValue.of_text(f"{len(rows) - 63} filas más no caben en el evento")),))
-        cc = result.conservation_checks
-        if cc is not None:
-            rec.check("conservación (KCL, KVL, balance de potencia) del solver", TraceValue.of_text(
-                f"kcl={cc.kcl_max_residual}; kvl={cc.kvl_max_residual}; power={cc.power_balance_residual}"[:512]),
-                TraceValue.of_text(f"≤ {cc.tolerance}"), cc.passed, refs=(res,),
-                tolerance=TraceValue.of_text(cc.tolerance),
-                detail=labelled("residuos calculados por el solver frente a su tolerancia", NUMERIC),
-                title="Comprobación: leyes de Kirchhoff")
-        reported = result.provenance.get("iterations")
-        rec.check("iteraciones en la procedencia = iteraciones observadas",
-                  TraceValue.of_number(len(obs.iterations)), TraceValue.of_text(str(reported)),
-                  reported == len(obs.iterations), refs=(res,),
-                  detail=labelled("igualdad exacta de enteros", SYMBOLIC), title="Comprobación: iteraciones completas")
-        chained = all(a["x"] == b["x_prev"][:len(a["x"])] for a, b in zip(obs.iterations, obs.iterations[1:]))
-        rec.check("x_(k+1) de cada iteración = x_k de la siguiente", TraceValue.of_text("sí" if chained else "no"),
-                  TraceValue.of_text("sí"), chained if len(obs.iterations) > 1 else None, refs=(res,),
-                  detail=labelled("igualdad exacta de los vectores observados", SYMBOLIC if len(obs.iterations) > 1
-                                  else NONE), title="Comprobación: continuidad de las iteraciones")
-        worst = _linear_solve_residual(obs.iterations)
-        bound = worst != 0 and worst.adjusted() < -150
-        shown = Decimal("1E-150") if bound else +worst  # traced numbers are bounded to 200 digits
-        rec.check("J·Δx + F = 0 con los datos observados" + (" (cota superior)" if bound else ""),
-                  TraceValue.of_number(shown), TraceValue.of_number(Decimal(0)),
-                  worst <= LINEAR_TOL if obs.iterations else None, refs=(res,),
-                  tolerance=TraceValue.of_number(LINEAR_TOL),
-                  detail=labelled("máximo relativo sobre todas las iteraciones (J, Δx y F tal como los usó el solver)",
-                                  NUMERIC if obs.iterations else NONE),
-                  title="Comprobación: el sistema lineal de Newton")
+        _newton_events(rec, circuit, read, result, obs)
     except (ValueError, ArithmeticError) as exc:
         rec.fail(exc, "La ejecución se detuvo", refs=tuple(r for r in (rec.last,) if r))
     return rec.finish()
+
+
+def _newton_events(rec: TraceRecorder, circuit: Circuit, read: str, result, obs: _Observer) -> None:
+    """Every event after the solve, from the observed facts (shared by the F8-H trace and the lab OP detail)."""
+    model_ids = _shockley_models(rec, obs, circuit, read)
+    em_ids = _ebers_moll_models(rec, obs, read)
+    prev = read
+    if obs.start is not None:
+        x0, kcl, aux, scale, _f0 = obs.start
+        prev = rec.event(EventKind.STEP, "Punto de partida", refs=(read, *model_ids, *em_ids)[:64],
+                         formula="x₀ = 0 (vector nulo determinista)",
+                         why="El solver parte del vector nulo y mide el residuo inicial F(x₀) por bloques.",
+                         values=(("kcl_residual", TraceValue.of_number(kcl, "A")),
+                                 ("aux_residual", TraceValue.of_number(aux, "V")),
+                                 ("scale", TraceValue.of_number(scale)), *_voltages(obs.nodes, x0),
+                                 *_devices(obs.start_devices, "")))
+    for f in obs.iterations:
+        prev = _trials(rec, f["it"], f["trials"], f["reference"], prev)
+        values = (("alpha", TraceValue.of_number(f["alpha"])), ("halvings", TraceValue.of_number(f["halvings"])),
+                  ("step_peak", TraceValue.of_number(f["peak"])), ("kcl_residual", TraceValue.of_number(f["kcl"], "A")),
+                  ("aux_residual", TraceValue.of_number(f["aux"], "V")), ("scale", TraceValue.of_number(f["scale"])),
+                  ("res_ok", TraceValue.of_text("sí" if f["res_ok"] else "no")),
+                  ("step_ok", TraceValue.of_text("sí" if f["step_ok"] else "no")), *_voltages(obs.nodes, f["x"]))
+        vectors = _vectors(obs.unknowns, f)
+        if len(values) + len(vectors) > 64:
+            vectors = (("jacobian", TraceValue.of_text("detalle omitido: no cabe en un evento (64 valores)")),)
+        prev = rec.event(
+            EventKind.STEP, f"Iteración {f['it']} de Newton", refs=(prev,),
+            formula="x_k, F(x_k), J(x_k) → resolver J·Δx = −F → x_(k+1) = x_k + α·Δx",
+            why=("Newton amortiguado: se resuelve el sistema lineal con el jacobiano real y se reduce α a la mitad "
+                 "hasta que el residuo disminuye (backtracking). ‖F‖ son las normas por bloques (KCL, auxiliar) "
+                 "en x_(k+1); ‖αΔx‖∞ es step_peak. Parada: res_ok y step_ok."),
+            values=values + vectors)
+        if f["devices"] or f["conductances"]:
+            prev = rec.event(
+                EventKind.STEP, f"Evaluación de Shockley (iteración {f['it']})", refs=(prev, *model_ids),
+                formula="I = Is·(exp(Vd/(n·Vt)) − 1);  g = Is/(n·Vt)·exp(Vd/(n·Vt))",
+                why=("Valores que el solver calculó: g en x_k (entra en el jacobiano) e I en x_(k+1) "
+                     "(entra en el residuo)."),
+                values=_device_values(f["conductances"], f["devices"]))
+        if f["bjts"] or f["bjt_jacobians"]:
+            prev = _ebers_moll_events(rec, f["it"], f, prev, em_ids)
+    if obs.failure is not None:
+        it, reason, trials = obs.failure
+        prev = _trials(rec, it + 1, trials, None, prev, failed=True)
+        prev = rec.event(EventKind.WARNING, f"Iteración {it + 1} fallida", refs=(prev,),
+                         why=f"El solver informa: {reason}.", values=(("reason", TraceValue.of_text(reason[:512])),))
+    converged = result.status is NonlinearStatus.CONVERGED
+    decision = rec.event(
+        EventKind.DECISION, "Criterio de parada", refs=(prev,),
+        why=("Convergencia: residuo dentro de tolerancia (res_ok) y paso pequeño (step_ok)." if converged else
+             "El solver se detuvo sin certificar la convergencia."),
+        values=(("status", TraceValue.of_text(result.status.value)),
+                ("iterations", TraceValue.of_number(len(obs.iterations)))))
+    if not converged:
+        error = UnsupportedError if result.status is NonlinearStatus.UNSUPPORTED else ValidationError
+        raise error(f"{result.status.name}: {'; '.join(result.diagnostics[-1:])}"[:400])
+    res = rec.event(EventKind.RESULT, "Punto de operación", refs=(decision,),
+                    formula=", ".join(f"V({nv.node}) = {nv.voltage.format()}" for nv in result.node_voltages)[:512],
+                    values=tuple((f"V.{nv.node}", TraceValue.of_quantity(nv.voltage))
+                                 for nv in result.node_voltages[:MAX_NODES_SHOWN]),
+                    result=TraceValue.of_text(f"CONVERGED en {len(obs.iterations)} iteraciones"))
+    if obs.iterations:
+        last = obs.iterations[-1]["f"]
+        rows = [(f"KCL.{_label(lab)}", TraceValue.of_number(v, "A")) for lab, v in
+                zip(obs.nodes, last[:len(obs.nodes)])]
+        rows += [(f"aux.{_label(lab)}", TraceValue.of_number(v, "V")) for lab, v in
+                 zip(obs.unknowns[len(obs.nodes):], last[len(obs.nodes):])]
+        res_kcl = rec.event(
+            EventKind.STEP, "KCL por nodo en la solución", refs=(res,),
+            formula="F(x*) por filas: una ecuación KCL por nodo y una restricción por fuente de tensión",
+            why=("El solver expone el residuo de cada fila de F en la solución. La descomposición en "
+                 "corrientes de cada elemento no se expone, así que no se muestra."),
+            values=tuple(rows[:64]) if len(rows) <= 64 else tuple(rows[:63]) + (
+                ("omitted", TraceValue.of_text(f"{len(rows) - 63} filas más no caben en el evento")),))
+    cc = result.conservation_checks
+    if cc is not None:
+        rec.check("conservación (KCL, KVL, balance de potencia) del solver", TraceValue.of_text(
+            f"kcl={cc.kcl_max_residual}; kvl={cc.kvl_max_residual}; power={cc.power_balance_residual}"[:512]),
+            TraceValue.of_text(f"≤ {cc.tolerance}"), cc.passed, refs=(res,),
+            tolerance=TraceValue.of_text(cc.tolerance),
+            detail=labelled("residuos calculados por el solver frente a su tolerancia", NUMERIC),
+            title="Comprobación: leyes de Kirchhoff")
+    reported = result.provenance.get("iterations")
+    rec.check("iteraciones en la procedencia = iteraciones observadas",
+              TraceValue.of_number(len(obs.iterations)), TraceValue.of_text(str(reported)),
+              reported == len(obs.iterations), refs=(res,),
+              detail=labelled("igualdad exacta de enteros", SYMBOLIC), title="Comprobación: iteraciones completas")
+    chained = all(a["x"] == b["x_prev"][:len(a["x"])] for a, b in zip(obs.iterations, obs.iterations[1:]))
+    rec.check("x_(k+1) de cada iteración = x_k de la siguiente", TraceValue.of_text("sí" if chained else "no"),
+              TraceValue.of_text("sí"), chained if len(obs.iterations) > 1 else None, refs=(res,),
+              detail=labelled("igualdad exacta de los vectores observados", SYMBOLIC if len(obs.iterations) > 1
+                              else NONE), title="Comprobación: continuidad de las iteraciones")
+    worst = _linear_solve_residual(obs.iterations)
+    bound = worst != 0 and worst.adjusted() < -150
+    shown = Decimal("1E-150") if bound else +worst  # traced numbers are bounded to 200 digits
+    rec.check("J·Δx + F = 0 con los datos observados" + (" (cota superior)" if bound else ""),
+              TraceValue.of_number(shown), TraceValue.of_number(Decimal(0)),
+              worst <= LINEAR_TOL if obs.iterations else None, refs=(res,),
+              tolerance=TraceValue.of_number(LINEAR_TOL),
+              detail=labelled("máximo relativo sobre todas las iteraciones (J, Δx y F tal como los usó el solver)",
+                              NUMERIC if obs.iterations else NONE),
+              title="Comprobación: el sistema lineal de Newton")
+    if obs.iterations and obs.iterations[-1]["bjts"]:
+        _kcl_bjt_checks(rec, obs.iterations[-1]["bjts"], res)
+
+
+def _kcl_bjt_checks(rec: TraceRecorder, bjts: tuple, res: str) -> None:
+    """E0.3: I_C + I_B + I_E = 0 for each BJT, on the currents the solver evaluated at the solution (NUMERIC)."""
+    for _ref, pol, _vc, _vb, _ve, _vf, _vr, _if, _ir, ic, ib, ie in bjts[:MAX_DEVICES]:
+        with localcontext() as ctx:
+            ctx.prec = 80
+            total = abs(ic + ib + ie)
+            rel = total / max(Decimal(1), abs(ic), abs(ib), abs(ie))
+        with localcontext() as ctx:
+            ctx.prec = 6
+            rel = +rel
+        rec.check(f"I_C + I_B + I_E = 0 en {_ref} ({pol})", TraceValue.of_number(rel), TraceValue.of_number(Decimal(0)),
+                  rel <= LINEAR_TOL, refs=(res,), tolerance=TraceValue.of_number(LINEAR_TOL),
+                  detail=labelled("corrientes de Ebers-Moll que el solver evaluó en la solución", NUMERIC),
+                  title=f"Comprobación: conservación en {_ref}")
 
 
 def explain_nonlinear_circuit(circuit: Circuit, **limits) -> ExecutionTrace:

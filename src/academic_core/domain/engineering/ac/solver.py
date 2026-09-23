@@ -123,13 +123,27 @@ def _digest(doc: dict) -> str:
 def solve_ac_problem(
     problem: ACMNAProblem,
     mode: NumericMode = NumericMode.AUTO,
+    observer=None,
 ) -> ACSolution:
-    """Solve a pre-built :class:`ACMNAProblem` via the F8-D2 solver."""
+    """Solve a pre-built :class:`ACMNAProblem` via the F8-D2 solver.
+
+    E0.3: an optional ``observer`` receives the complex system exactly as
+    it is handed to the solver (``ac_system``) and the solver's outcome
+    (``ac_outcome``). Every value is an immutable snapshot; with
+    ``observer=None`` nothing is recorded and the result is unchanged.
+    """
     op = problem.operating_point
     lin_problem = ComplexLinearProblem.from_sequences(
         [list(row) for row in problem.matrix], list(problem.rhs)
     )
+    if observer is not None:
+        from academic_core.domain.engineering.mna.problem import unknown_labels
+        observer.ac_system(unknown_labels(problem), tuple(tuple(row) for row in problem.matrix),
+                           tuple(problem.rhs), problem.kind, op.frequency.to_base(), op.omega)
     lin = solve(lin_problem, mode)
+    if observer is not None:
+        observer.ac_outcome(lin.status.value, lin.numeric_mode.value, lin.rank_A, lin.solution,
+                            lin.residual_norm, lin.backward_error)
     status = _D2_TO_AC[lin.status]
     diagnostics: list[str] = [
         f"engine={ENGINE_VERSION}",
@@ -267,6 +281,7 @@ def solve_ac(
     circuit: Circuit,
     frequency: Quantity | str,
     mode: NumericMode = NumericMode.AUTO,
+    observer=None,
 ) -> ACSolution:
     """Solve a canonical circuit in sinusoidal steady state at ``frequency``.
 
@@ -288,4 +303,4 @@ def solve_ac(
         return _invalid_solution(ACStatus.UNSUPPORTED, (str(exc),), str(frequency))
     except _INVALID_ERRORS as exc:
         return _invalid_solution(ACStatus.INVALID, (str(exc),), str(frequency))
-    return solve_ac_problem(problem, mode)
+    return solve_ac_problem(problem, mode, observer)

@@ -318,6 +318,12 @@ class _NewtonSystem:
         # evaluation in residual() and (ref, Vd, g) in jacobian(), never alter them.
         self.device_log = None
         self.jac_log = None
+        # E0.3: same contract for Ebers-Moll BJTs. bjt_log records
+        # (ref, polarity, VC, VB, VE, V_F, V_R, IF, IR, IC, IB, IE) from inside
+        # bjt_terminal_currents; bjt_jac_log records (ref, polarity, VC, VB, VE,
+        # V_F, V_R, gF, gR, J3x3) from inside bjt_jacobian. None = inert.
+        self.bjt_log = None
+        self.bjt_jac_log = None
         self.models = {c.ref.upper(): diodes[c.ref.upper()]
                        for c in self.diode_list}
         self.a_index = {c.ref.upper(): problem.node_index.get(c.pins["A"])
@@ -402,6 +408,8 @@ class _NewtonSystem:
                 acc.append(ctx.subtract(total, self.b0[i]))
             if self.device_log is not None:
                 self.device_log = []
+            if self.bjt_log is not None:
+                self.bjt_log = []
             for ref in self.models:
                 p = self.models[ref]
                 vd = ctx.subtract(self._x_of(x, self.a_index[ref]),
@@ -433,9 +441,12 @@ class _NewtonSystem:
                 vc = self._x_of(x, self.c_index[ref])
                 vb = self._x_of(x, self.b_index[ref])
                 ve = self._x_of(x, self.e_index[ref])
-                ic, ib, ie = bjt_terminal_currents(vc, vb, ve, bp, ctx)
+                probe = [] if self.bjt_log is not None else None
+                ic, ib, ie = bjt_terminal_currents(vc, vb, ve, bp, ctx, probe)
                 if not (ic.is_finite() and ib.is_finite() and ie.is_finite()):
                     return None
+                if probe:
+                    self.bjt_log.append((ref, bp.polarity, vc, vb, ve, *probe[0], ic, ib, ie))
                 ic_idx = self.c_index[ref]
                 ib_idx = self.b_index[ref]
                 ie_idx = self.e_index[ref]
@@ -488,6 +499,8 @@ class _NewtonSystem:
             rows = [list(r) for r in self.a0]
             if self.jac_log is not None:
                 self.jac_log = []
+            if self.bjt_jac_log is not None:
+                self.bjt_jac_log = []
             for ref in self.models:
                 p = self.models[ref]
                 vd = ctx.subtract(self._x_of(x, self.a_index[ref]),
@@ -525,9 +538,12 @@ class _NewtonSystem:
                 vc = self._x_of(x, self.c_index[ref])
                 vb = self._x_of(x, self.b_index[ref])
                 ve = self._x_of(x, self.e_index[ref])
-                bjt_j = bjt_jacobian(vc, vb, ve, bp, ctx)
+                probe = [] if self.bjt_jac_log is not None else None
+                bjt_j = bjt_jacobian(vc, vb, ve, bp, ctx, probe)
                 if bjt_j is None:
                     return None
+                if probe:
+                    self.bjt_jac_log.append((ref, bp.polarity, vc, vb, ve, *probe[0], bjt_j))
                 c_idx = self.c_index[ref]
                 b_idx = self.b_index[ref]
                 e_idx = self.e_index[ref]
@@ -645,7 +661,11 @@ def solve_nonlinear_dc(circuit: Circuit, *,
     the Shockley evaluations (ref, Vd, I) at x_(k+1) and (ref, Vd, g) at
     x_k). ``newton_start`` also receives ``devices`` and
     ``diode_parameters`` (ref, Is, n, Vt); ``newton_failed(it, reason,
-    trials)`` reports an in-loop failure. Every argument is an immutable
+    trials)`` reports an in-loop failure. E0.3: ``newton_start`` also
+    receives ``bjt_parameters`` (ref, polarity, Is, Bf, Br, Nf, Nr, Vt,
+    alphaF, alphaR) and ``bjt_devices``; ``newton_iteration`` receives
+    ``bjt_devices`` (Ebers-Moll evaluation at x_(k+1)) and ``bjt_jacobians``
+    (gF, gR and the 3x3 block at x_k). Every argument is an immutable
     snapshot (tuples of Decimal), built only when an observer is present.
     It never alters the solve.
     """
@@ -654,12 +674,14 @@ def solve_nonlinear_dc(circuit: Circuit, *,
 
 def solve_nonlinear_dc_state(circuit: Circuit, *,
                               max_iter: int = MAX_ITER,
-                              x_init: "tuple[Decimal, ...] | None" = None
+                              x_init: "tuple[Decimal, ...] | None" = None,
+                              observer=None,
                               ) -> "tuple[NonlinearResult, NewtonState | None]":
     """Same solve as :func:`solve_nonlinear_dc`, additionally returning the
-    converged :class:`NewtonState` (``None`` unless ``CONVERGED``)."""
+    converged :class:`NewtonState` (``None`` unless ``CONVERGED``).
+    ``observer`` (E0.3, optional) has the :func:`solve_nonlinear_dc` contract."""
     capture: dict = {}
-    result = _solve_nonlinear_dc_impl(circuit, max_iter, x_init, capture)
+    result = _solve_nonlinear_dc_impl(circuit, max_iter, x_init, capture, observer)
     if result.status is NonlinearStatus.CONVERGED and capture:
         return result, NewtonState(capture["problem"], capture["system"],
                                     capture["x"])
@@ -737,6 +759,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
     backtrack_uses = 0
     if observer is not None:
         system.device_log, system.jac_log = [], []
+        system.bjt_log, system.bjt_jac_log = [], []
 
     def _failed(reason: str, trials=()) -> None:
         if observer is not None:
@@ -764,7 +787,11 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                               unknowns=unknown_labels(problem), residual=tuple(f0),
                               devices=tuple(system.device_log),
                               diode_parameters=tuple((ref, system.models[ref].Is, system.models[ref].n,
-                                                      system.models[ref].Vt) for ref in system.models))
+                                                      system.models[ref].Vt) for ref in system.models),
+                              bjt_parameters=tuple((ref, b.polarity, b.Is, b.Bf, b.Br, b.Nf, b.Nr, b.Vt,
+                                                    b.alphaF, b.alphaR)
+                                                   for ref, b in system.bjt_models.items()),
+                              bjt_devices=tuple(system.bjt_log))
     if _block_ok(list(f0[:system.n_nodes]), scale) and \
             _block_ok(list(f0[system.n_nodes:]), scale):
         if capture is not None:
@@ -780,6 +807,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
     while it < max_iter:
         jac = system.jacobian(x)
         jac_devices = tuple(system.jac_log) if observer is not None and jac is not None else ()
+        jac_bjts = tuple(system.bjt_jac_log) if observer is not None and jac is not None else ()
         if jac is None:
             _failed("DIVERGED: Jacobian evaluation non-finite")
             return NonlinearResult(
@@ -845,6 +873,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
         accepted_f: tuple[Decimal, ...] | None = None
         trials: list = []  # E0.2: (alpha, trial residual norm or None, accepted), filled only with an observer
         devices_next: tuple = ()
+        bjts_next: tuple = ()
         for halvings in range(MAX_BACKTRACK + 1):
             trial = tuple(
                 ctx.add(xv, ctx.multiply(alpha, dv))
@@ -857,6 +886,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                     if observer is not None:
                         trials.append((alpha, max(kt, at), True))
                         devices_next = tuple(system.device_log)
+                        bjts_next = tuple(system.bjt_log)
                     break
                 # SOLVER-EXT-01 (F8-K): exact-flat-region standstill.
                 # Piecewise devices (MOSFET/JFET cutoff, diode-kind
@@ -879,6 +909,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                     if observer is not None:
                         trials.append((alpha, max(kt, at), True))
                         devices_next = tuple(system.device_log)
+                        bjts_next = tuple(system.bjt_log)
                     break
             if observer is not None:
                 trials.append((alpha, None if ft is None else max(system.block_norms(ft)), False))
@@ -916,7 +947,8 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                                       x_prev=tuple(x_prev), residual_prev=tuple(f_prev),
                                       jacobian=tuple(tuple(r) for r in jac), dx=tuple(dx),
                                       residual=tuple(final_f), trials=tuple(trials), reference=cur,
-                                      devices=devices_next, device_conductances=jac_devices)
+                                      devices=devices_next, device_conductances=jac_devices,
+                                      bjt_devices=bjts_next, bjt_jacobians=jac_bjts)
         if res_ok and step_ok:
             if capture is not None:
                 capture.update(problem=problem, system=system, x=x)

@@ -124,7 +124,10 @@ LESSON_OPERATIONS = ("math.derivative", "math.integral", "math.linear-equation",
                      "engineering.gum", "engineering.nonlinear-dc", "control.margins",
                      # E0.2 analog engineering
                      "engineering.linear-dc", "engineering.dc-sweep", "engineering.ac", "engineering.transient",
-                     "control.tf-point", "lab.run")
+                     "control.tf-point", "lab.run",
+                     # E0.3 engine internals
+                     "engineering.ac-mna", "engineering.ac-sweep", "engineering.dc-sweep-detail",
+                     "engineering.transient-detail", "control.tf-analysis", "lab.run-detail")
 LESSON_FIELDS = ("Paso", "Tipo", "Regla", "Entrada", "Transformación", "Salida", "Explicación", "Verificación")
 MAX_LESSON_TEXT = 400
 

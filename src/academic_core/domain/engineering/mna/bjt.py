@@ -141,7 +141,7 @@ def extract_bjt_params(comp: Component) -> BJTParams:
 
 
 def bjt_injection_currents(
-    vc: Decimal, vb: Decimal, ve: Decimal, p: BJTParams, ctx
+    vc: Decimal, vb: Decimal, ve: Decimal, p: BJTParams, ctx, trace: list | None = None
 ) -> tuple[Decimal, Decimal]:
     """Calculate diode injection currents (IF, IR).
 
@@ -156,6 +156,9 @@ def bjt_injection_currents(
     IR = Is * (exp(V_R / (Nr * Vt)) - 1)
 
     Returns (IF, IR). May return Decimal("Infinity") on overflow.
+
+    E0.3: when ``trace`` is a list, ``(V_F, V_R, IF, IR)`` exactly as
+    computed here is appended to it (observation only; ``None`` = inert).
     """
     if p.polarity == "NPN":
         vf = ctx.subtract(vb, ve)
@@ -176,11 +179,13 @@ def bjt_injection_currents(
     except (Overflow, InvalidOperation):
         ir_val = Decimal("Infinity")
 
+    if trace is not None:
+        trace.append((vf, vr, if_val, ir_val))
     return if_val, ir_val
 
 
 def bjt_terminal_currents(
-    vc: Decimal, vb: Decimal, ve: Decimal, p: BJTParams, ctx
+    vc: Decimal, vb: Decimal, ve: Decimal, p: BJTParams, ctx, trace: list | None = None
 ) -> tuple[Decimal, Decimal, Decimal]:
     """Terminal currents entering the device (IC, IB, IE).
 
@@ -196,7 +201,7 @@ def bjt_terminal_currents(
     In all cases: IC + IB + IE == 0 identically.
     Returns (IC, IB, IE). If any term overflows, entries are Decimal('Infinity').
     """
-    if_val, ir_val = bjt_injection_currents(vc, vb, ve, p, ctx)
+    if_val, ir_val = bjt_injection_currents(vc, vb, ve, p, ctx, trace)
     if not (if_val.is_finite() and ir_val.is_finite()):
         inf = Decimal("Infinity")
         return inf, inf, inf
@@ -223,7 +228,7 @@ def bjt_terminal_currents(
 
 
 def bjt_conductances(
-    vc: Decimal, vb: Decimal, ve: Decimal, p: BJTParams, ctx
+    vc: Decimal, vb: Decimal, ve: Decimal, p: BJTParams, ctx, trace: list | None = None
 ) -> tuple[Decimal, Decimal]:
     """Small-signal junction conductances (gF, gR).
 
@@ -249,11 +254,13 @@ def bjt_conductances(
     except (Overflow, InvalidOperation):
         gr = Decimal("Infinity")
 
+    if trace is not None:  # E0.3 observation of (V_F, V_R, gF, gR); None = inert
+        trace.append((vf, vr, gf, gr))
     return gf, gr
 
 
 def bjt_jacobian(
-    vc: Decimal, vb: Decimal, ve: Decimal, p: BJTParams, ctx
+    vc: Decimal, vb: Decimal, ve: Decimal, p: BJTParams, ctx, trace: list | None = None
 ) -> tuple[tuple[Decimal, Decimal, Decimal], ...] | None:
     """Analytic 3x3 Jacobian matrix for terminal currents [IC, IB, IE] w.r.t. [VC, VB, VE].
 
@@ -269,7 +276,7 @@ def bjt_jacobian(
 
     Returns 3x3 tuple of Decimals, or None if any term is non-finite.
     """
-    gf, gr = bjt_conductances(vc, vb, ve, p, ctx)
+    gf, gr = bjt_conductances(vc, vb, ve, p, ctx, trace)
     if not (gf.is_finite() and gr.is_finite()):
         return None
 

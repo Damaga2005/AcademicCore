@@ -958,8 +958,20 @@ def _fail(status: TransientStatus, diagnostics: tuple[str, ...],
 
 
 def solve_transient(circuit: Circuit, config: TransientConfig,
-                    ) -> TransientResult:
-    """Time-domain transient analysis (F8-L) with implicit DAE integration."""
+                    observer=None) -> TransientResult:
+    """Time-domain transient analysis (F8-L) with implicit DAE integration.
+
+    E0.3: an optional ``observer`` is told the facts of the real stepping
+    loop, as immutable snapshots (tuples of Decimal/str/int/bool):
+    ``transient_start`` once (method, order, LTE constant, unknown labels,
+    x(0), dynamic states at t=0, step bounds), ``transient_reject`` for
+    every rejected attempt (cause, t_n, h tried, retry h, LTE data when the
+    cause is the LTE; retry h ``None`` = the attempt that stops the
+    integrator) and ``transient_accept`` for every committed step
+    (index of t_(n+1) in ``times``, t_n, h, t_(n+1), x_n, predictor,
+    x_(n+1), Newton iterations, LTE per dynamic state, methods used, next h). ``None`` (default) records
+    nothing and keeps the solve byte-identical.
+    """
     if not isinstance(config, TransientConfig):
         return TransientResult(
             status=TransientStatus.INVALID,
@@ -1164,6 +1176,15 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
     t_hist: list[Decimal] = [Decimal(0)]
     x_hist: list[tuple[Decimal, ...]] = [tuple(x0)]
     h_hist: list[Decimal] = []
+    if observer is not None:
+        from academic_core.domain.engineering.mna.problem import unknown_labels
+        observer.transient_start(
+            config.method, _METHOD_ORDER[config.method], _LTE_C[config.method],
+            bool(config.adaptive), unknown_labels(problem), tuple(x0),
+            tuple((ref, "C", v[0][0], v[0][1]) for ref, v in sorted(dyn_c.items()))
+            + tuple((ref, "L", v[0][0], v[0][1]) for ref, v in sorted(dyn_l.items())),
+            config.tstop, config.h_init, config.h_min, config.h_max,
+            config.reltol, config.abstol)
 
     # -- main stepping loop ---------------------------------------------------
     h = config.h_init
@@ -1280,11 +1301,13 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
 
         # Newton solve at t_{n+1} from an extrapolated guess.
         x = _predict(x_n, x_nm, h, hpm, ctx)
+        predictor = x
         f_cur = system.residual(x, t_next, comps, ctx)
         if f_cur is None:
             f_cur = system.residual(x_n, t_next, comps, ctx)
             x = x_n
             if f_cur is None:
+                h_tried = h
                 if fixed:
                     return _fail(
                         TransientStatus.DIVERGED,
@@ -1304,6 +1327,9 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                               len(t_hist) - 1), stats)
                 total_reject += 1
                 stats["rejected"] += 1
+                if observer is not None:
+                    observer.transient_reject("residual_nonfinite", t_n, h_tried, t_next, h,
+                                              None, (), 0)
                 continue
         k0, a0n = system.block_norms(f_cur)
         scale = system.scale_of(x)
@@ -1314,6 +1340,7 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
             _block_ok(list(f_cur[system.n_nodes:]), scale)
         diverged = False
         singular = False
+        newton_log: list | None = [] if observer is not None else None
         while not newton_ok and it < MAX_ITER:
             jac = system.jacobian(x, comps, ctx)
             if jac is None:
@@ -1369,8 +1396,18 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                 _block_ok(list(final_f[system.n_nodes:]), scale)
             step_ok = step_peak <= STOL + RTOL * scale
             newton_ok = res_ok and step_ok
+            if newton_log is not None:
+                newton_log.append((it, alpha, step_peak, final_pair[0], final_pair[1],
+                                   res_ok, step_ok))
         stats["newton_total"] += it
+
+        def _abort(cause, e=None, lte=()):
+            # E0.3: the attempt that stops the integrator (retry h = None).
+            if observer is not None:
+                observer.transient_reject(cause, t_n, h, t_next, None, e, tuple(lte), it,
+                                          newton=tuple(newton_log))
         if singular:
+            _abort("singular_jacobian")
             return _fail(
                 TransientStatus.SINGULAR_JACOBIAN,
                 tuple(diagnostics) + (
@@ -1381,16 +1418,19 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
             # Newton divergence -> deterministic retry at half step
             # (adaptive only; fixed-step mode reports DIVERGED).
             if fixed:
+                _abort("newton_failed")
                 return _fail(
                     TransientStatus.DIVERGED,
                     tuple(diagnostics) + (
                         f"Newton failed at t={t_next} (fixed-step mode)",),
                     _prov(TransientStatus.DIVERGED, len(t_hist) - 1), stats)
+            h_tried = h
             h_half = ctx.divide(h, Decimal(2))
             if h <= config.h_min or h_half < config.h_min:
                 if remaining <= config.h_min:
                     h_try = remaining
                 else:
+                    _abort("newton_failed")
                     return _fail(
                         TransientStatus.TIMESTEP_TOO_SMALL,
                         tuple(diagnostics) + (
@@ -1398,6 +1438,7 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                         _prov(TransientStatus.TIMESTEP_TOO_SMALL,
                               len(t_hist) - 1), stats)
                 if h_try <= 0 or h_try >= h:
+                    _abort("newton_failed")
                     return _fail(
                         TransientStatus.DIVERGED,
                         tuple(diagnostics) + (
@@ -1413,6 +1454,9 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
             diagnostics.append(
                 f"Newton retry at t={t_next} with h={h} "
                 f"(rejected={total_reject})")
+            if observer is not None:
+                observer.transient_reject("newton_failed", t_n, h_tried, t_next, h, None, (), it,
+                                          newton=tuple(newton_log))
             continue
 
         # LTE estimate on dynamic states (predictor vs corrector).
@@ -1422,6 +1466,7 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
         h1 = h_hist[-1] if h_hist else None
         h2 = h_hist[-2] if len(h_hist) >= 2 else None
         e_max: Decimal | None = Decimal(0)
+        lte_log: list | None = [] if observer is not None else None
         for c in system.cap_list:
             ref = c.ref.upper()
             vp = system._x_of(x, system.cp_index[ref])
@@ -1431,6 +1476,8 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
             d0 = ctx.divide(dyn_c[ref][0][1], system.cap_value[ref])
             y_pred = _y_predict(dyn_c, ref, 0, h, h1, h2, ctx, quad, d0)
             e = _ltep(y_new, y_pred, y_old, c_m, ctx)
+            if lte_log is not None:
+                lte_log.append((ref, "C", y_old, y_pred, y_new, e))
             if e is None:
                 e_max = None
                 break
@@ -1444,6 +1491,8 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
             d0 = ctx.divide(dyn_l[ref][0][1], system.ind_value[ref])
             y_pred = _y_predict(dyn_l, ref, 0, h, h1, h2, ctx, quad, d0)
             e = _ltep(y_new, y_pred, y_old, c_m, ctx)
+            if lte_log is not None:
+                lte_log.append((ref, "L", y_old, y_pred, y_new, e))
             if e is None:
                 e_max = None
                 break
@@ -1454,6 +1503,7 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                     f"LTE non-finite at t={t_next} accepted "
                     f"(fixed-step mode)")
             else:
+                h_tried = h
                 h = ctx.divide(h, Decimal(2))
                 if h < config.h_min and remaining > config.h_min:
                     return _fail(
@@ -1464,6 +1514,9 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                               len(t_hist) - 1), stats)
                 total_reject += 1
                 stats["rejected"] += 1
+                if observer is not None:
+                    observer.transient_reject("lte_nonfinite", t_n, h_tried, t_next, h, None,
+                                              tuple(lte_log), it, newton=tuple(newton_log))
                 continue
 
         if e_max is None or e_max <= 1 or fixed or \
@@ -1507,12 +1560,12 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                 stats["h_first"] = str(h)
                 first = False
             stats["h_last"] = str(h)
+            h_used = h
             if forced:
                 diagnostics.append(
                     f"final partial step at t={t_next} accepted with "
                     f"E={e_max} (below h_min, cannot refine)")
-                break
-            if fixed:
+            elif fixed:
                 diagnostics.append(
                     f"accepted t={t_next} E={e_max} newton_it={it} "
                     f"(fixed-step mode)")
@@ -1522,22 +1575,37 @@ def solve_transient(circuit: Circuit, config: TransientConfig,
                 diagnostics.append(
                     f"accepted t={t_next} E={e_max} newton_it={it} "
                     f"next_h={h}")
+            if observer is not None:
+                observer.transient_accept(
+                    len(t_hist) - 1, t_n, h_used, t_next, x_n, predictor, x, it, final_pair[0],
+                    final_pair[1], e_max, tuple(lte_log), tuple(sorted(used)),
+                    None if (forced or fixed) else h, forced,
+                    tuple((ref, "C", v[0], v[1]) for ref, v in sorted(new_dyn_c.items()))
+                    + tuple((ref, "L", v[0], v[1]) for ref, v in sorted(new_dyn_l.items())),
+                    newton=tuple(newton_log))
+            if forced:
+                break
         else:
             # REJECT: rollback (history untouched by construction) + retry.
             hn = _new_h(h, e_max, p_ord, ctx, upper=False)
             if hn is None or hn < config.h_min:
+                _abort("lte", e_max, lte_log)
                 return _fail(
                     TransientStatus.TIMESTEP_TOO_SMALL,
                     tuple(diagnostics) + (
                         f"LTE E={e_max} demands h < h_min at t={t_next}",),
                     _prov(TransientStatus.TIMESTEP_TOO_SMALL,
                           len(t_hist) - 1), stats)
+            h_tried = h
             h = hn
             total_reject += 1
             stats["rejected"] += 1
             diagnostics.append(
                 f"rejected t={t_next} E={e_max} retry_h={h} "
                 f"(history intact at t={t_n})")
+            if observer is not None:
+                observer.transient_reject("lte", t_n, h_tried, t_next, h, e_max, tuple(lte_log), it,
+                                          newton=tuple(newton_log))
 
     # -- assemble committed trajectories --------------------------------------
     node_trajs: dict[str, list[Decimal]] = {

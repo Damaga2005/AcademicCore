@@ -620,15 +620,20 @@ def _expand_grid_impl(grid: GridSpec) -> tuple[Decimal, ...]:
 # Point solve + shared driver
 # ---------------------------------------------------------------------------
 
-def solve_point(circuit: Circuit, x_init=None
+def solve_point(circuit: Circuit, x_init=None, observer=None
                 ) -> tuple[NonlinearResult, NewtonState | None]:
-    """One native DC operating point of ``circuit``'s DC equivalent."""
+    """One native DC operating point of ``circuit``'s DC equivalent.
+
+    ``observer`` (E0.3, optional) is handed to the Newton solve unchanged
+    (the :func:`solve_nonlinear_dc` contract); ``None`` keeps it inert."""
     try:
         dc = dc_equivalent(circuit)
     except InvalidCircuitError as exc:
         return NonlinearResult(status=NonlinearStatus.INVALID,
                                diagnostics=(str(exc),)), None
-    return solve_nonlinear_dc_state(dc, x_init=x_init)
+    if observer is None:
+        return solve_nonlinear_dc_state(dc, x_init=x_init)
+    return solve_nonlinear_dc_state(dc, x_init=x_init, observer=observer)
 
 
 def _precheck(circuit: Circuit) -> None:
@@ -714,7 +719,8 @@ def _make_point(index, label, params, result, state, init_mode, warm_used,
 
 
 def _drive_points(circuit: Circuit, plan: list[tuple[str, dict]],
-                  observables: tuple, warm_start: bool) -> list[SweepPoint]:
+                  observables: tuple, warm_start: bool,
+                  observer=None) -> list[SweepPoint]:
     """Shared M1/M2/M3 point driver.
 
     ``plan`` is an ordered list of ``(label, {ParamAddress: Decimal})``.
@@ -722,6 +728,13 @@ def _drive_points(circuit: Circuit, plan: list[tuple[str, dict]],
     converged; a failed warm attempt is re-solved from the zero vector and
     the fallback is recorded. A failed previous point forces a cold start
     (``cold-after-failure``). Nothing here converts a failure to success.
+
+    E0.3: an optional ``observer`` is told, before every Newton attempt,
+    ``sweep_attempt(index, label, parameters, attempt, x_init)`` with the
+    exact initial guess handed to the solver (``None`` = the solver's zero
+    vector), then receives that attempt's Newton calls, then
+    ``sweep_attempt_end(index, attempt, status, iterations, x_final)``.
+    ``None`` (default) keeps the driver byte-identical.
     """
     points: list[SweepPoint] = []
     prev_x = None
@@ -738,17 +751,27 @@ def _drive_points(circuit: Circuit, plan: list[tuple[str, dict]],
                                       False, False, observables))
             prev_x, prev_failed = None, True
             continue
+        if observer is not None:
+            def attempt(kind, x0):
+                observer.sweep_attempt(i, label, params, kind, x0)
+                r, s = solve_point(variant, x_init=x0, observer=observer)
+                observer.sweep_attempt_end(i, kind, r.status.value, _iters(r),
+                                           None if s is None else tuple(s.x))
+                return r, s
+        else:
+            def attempt(kind, x0):
+                return solve_point(variant, x_init=x0)
         if warm_start and prev_x is not None:
-            res, st = solve_point(variant, x_init=prev_x)
+            res, st = attempt("warm", prev_x)
             if res.status is NonlinearStatus.CONVERGED:
                 mode, warm, fb = "warm", True, False
             else:
-                res, st = solve_point(variant)
+                res, st = attempt("warm-fallback-cold", None)
                 mode, warm, fb = "warm-fallback-cold", True, True
         else:
-            res, st = solve_point(variant)
             mode = "cold-after-failure" if (warm_start and prev_failed) \
                 else "cold"
+            res, st = attempt(mode, None)
             warm = fb = False
         points.append(_make_point(i, label, params, res, st, mode, warm, fb,
                                   observables))
@@ -864,8 +887,8 @@ def _sweep_fail(status: SweepStatus, msg: str) -> SweepResult:
 
 
 def _finish_sweep(method, config_doc, circuit, plan, observables,
-                  warm_start, extra=None) -> SweepResult:
-    points = _drive_points(circuit, plan, observables, warm_start)
+                  warm_start, extra=None, observer=None) -> SweepResult:
+    points = _drive_points(circuit, plan, observables, warm_start, observer)
     prov = _points_provenance(method, config_doc, circuit, points, extra)
     prov["warm_start_enabled"] = warm_start
     return SweepResult(status=_sweep_status(points), points=tuple(points),
@@ -876,8 +899,11 @@ def _grid_doc(target_key: str, values: tuple) -> dict:
     return {"target": target_key, "values": [str(v) for v in values]}
 
 
-def solve_dc_sweep(circuit: Circuit, config: SweepConfig) -> SweepResult:
-    """M1: sweep an independent V/I source over a linear/log/list grid."""
+def solve_dc_sweep(circuit: Circuit, config: SweepConfig,
+                   observer=None) -> SweepResult:
+    """M1: sweep an independent V/I source over a linear/log/list grid.
+
+    ``observer`` (E0.3, optional): see :func:`_drive_points`."""
     try:
         if not isinstance(config, SweepConfig):
             raise InvalidCircuitError("config must be a SweepConfig")
@@ -902,7 +928,7 @@ def solve_dc_sweep(circuit: Circuit, config: SweepConfig) -> SweepResult:
            "warm_start": config.warm_start}
     return _finish_sweep("dc-sweep", doc, circuit, plan, observables,
                          config.warm_start,
-                         {"grid_digest": _sha(doc["grid"])})
+                         {"grid_digest": _sha(doc["grid"])}, observer)
 
 
 def _corner_plan(corners: tuple, nominal_of) -> list[tuple[str, dict]]:

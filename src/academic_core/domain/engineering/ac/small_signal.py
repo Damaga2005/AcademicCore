@@ -562,6 +562,7 @@ def solve_small_signal_ac(
     frequency: Quantity | str,
     *,
     dc_result: NonlinearResult | AnalysisResult | None = None,
+    observer=None,
 ) -> SmallSignalACResult:
     """Perform small-signal AC analysis of a circuit around its DC operating point.
 
@@ -1126,7 +1127,20 @@ def solve_small_signal_ac(
 
     # 6. Linear Complex Solve
     lin_prob = ComplexLinearProblem.from_sequences(matrix, rhs)
+    if observer is not None:
+        # E0.3: the linearised complex system exactly as it is solved
+        # (immutable snapshots; inert when observer is None).
+        labels = [f"x{k}" for k in range(total_size)]
+        for net, k in node_index.items():
+            labels[k] = f"V({net})"
+        for key, k in vsource_index.items():
+            labels[k] = f"I({key})"
+        observer.ac_system(tuple(labels), tuple(tuple(row) for row in matrix), tuple(rhs),
+                           "decimal", op.frequency.to_base(), op.omega)
     lin_sol = linsolve(lin_prob, NumericMode.HIGH_PRECISION)
+    if observer is not None:
+        observer.ac_outcome(lin_sol.status.value, lin_sol.numeric_mode.value, lin_sol.rank_A,
+                            lin_sol.solution, lin_sol.residual_norm, lin_sol.backward_error)
 
     status_map = {
         LinearStatus.SOLVED: ACStatus.SOLVED,

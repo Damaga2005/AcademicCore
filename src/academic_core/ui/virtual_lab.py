@@ -91,6 +91,11 @@ class VirtualLabPanel(QWidget):
         self.btn_explain = QPushButton("Explicar último")
         self.btn_explain.setToolTip("Explicación paso a paso del último run, desde el resultado certificado (E0.2)")
         erow.addWidget(self.btn_explain)
+        self.btn_explain_detail = QPushButton("Explicar en detalle")
+        self.btn_explain_detail.setToolTip(
+            "Paso a paso con los datos internos del motor (matriz AC, iteraciones por punto, pasos del "
+            "integrador), observados al re-ejecutar el run (E0.3)")
+        erow.addWidget(self.btn_explain_detail)
         self.status = QLabel("IDLE")
         erow.addWidget(self.status)
         layout.addLayout(erow)
@@ -101,6 +106,7 @@ class VirtualLabPanel(QWidget):
 
         self.btn_new.clicked.connect(self._new_session)
         self.btn_explain.clicked.connect(self._explain)
+        self.btn_explain_detail.clicked.connect(self._explain_detail)
         self.btn_save.clicked.connect(self._save)
         self.btn_load.clicked.connect(self._load)
         self.btn_run.clicked.connect(self._add_run)
@@ -311,6 +317,17 @@ class VirtualLabPanel(QWidget):
             return
         self._set_state(UiState.RUNNING, "RUNNING…")
         worker = ServiceWorker(self.app.explain.explain_lab_run, self.session, self.last_run_id)
+        worker.signals.finished.connect(self._on_explanation)
+        worker.signals.failed.connect(self._on_error)
+        self.pool.start(worker)
+
+    def _explain_detail(self) -> None:
+        """E0.3: the last run re-observed with the engine observer (the service checks it is the same result)."""
+        if self.session is None or self.last_run_id is None:
+            show_ui_error(self, ValueError("nothing to explain yet"), "Explicar en detalle")
+            return
+        self._set_state(UiState.RUNNING, "RUNNING…")
+        worker = ServiceWorker(self.app.explain.explain_lab_run_detail, self.session, self.last_run_id)
         worker.signals.finished.connect(self._on_explanation)
         worker.signals.failed.connect(self._on_error)
         self.pool.start(worker)

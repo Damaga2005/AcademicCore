@@ -117,6 +117,23 @@ def map_engine_status(engine_status_value):
     return RunStatus.SOLVER_FAILURE.value
 
 
+def working_circuit(session_circuit, definition):
+    """The transactional execution snapshot of one experiment (pure).
+
+    Clone -> normalize display units -> apply overrides/stimuli. Shared by
+    :func:`execute_run` and by E0.3 explanations, which re-observe a run on
+    exactly the circuit it executed. Raises the same errors as the run.
+    """
+    from .serialize import normalize_circuit
+    working = normalize_circuit(deepcopy_circuit(session_circuit))
+    if definition.overrides:
+        working = substitute(working, {addr: val for addr, val in
+                                       definition.overrides})
+    if definition.stimuli:
+        working = apply_stimuli(working, definition.stimuli)
+    return working
+
+
 def execute_run(session_circuit, definition, experiment_id, run_index,
                 session_id):
     """Build the immutable execution snapshot and run one analysis.
@@ -138,13 +155,7 @@ def execute_run(session_circuit, definition, experiment_id, run_index,
     # engine digests are display-unit sensitive while lab documents keep
     # base units only (round trips must stay bit-identical).
     try:
-        from .serialize import normalize_circuit
-        working = normalize_circuit(deepcopy_circuit(session_circuit))
-        if definition.overrides:
-            working = substitute(working, {addr: val for addr, val in
-                                           definition.overrides})
-        if definition.stimuli:
-            working = apply_stimuli(working, definition.stimuli)
+        working = working_circuit(session_circuit, definition)
     except LabConfigError as exc:
         return _failed_run(run_id, experiment_id, session_id, exp_digest,
                            core_digest, kind, definition.seed, RunStatus.INVALID_CONFIGURATION.value,

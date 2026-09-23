@@ -50,6 +50,7 @@ from academic_core.application.explain_render import ExplanationView, build_view
 from academic_core.domain.engineering import digital_circuit
 from academic_core.domain.execution import EventKind, ExecutionTrace, compare
 from academic_core.domain.execution import analog as analog_trace
+from academic_core.domain.execution import analog_detail as detail_trace
 from academic_core.domain.execution import control as control_trace
 from academic_core.domain.execution import digital as digital_trace
 from academic_core.domain.execution import equation as equation_trace
@@ -193,6 +194,41 @@ class ExplainService:
                   f"{view.outcome}/{view.verification} [cid={cid}]")
         return view
 
+    # -- E0.3 explainable engineering completeness ----------------------------------------
+    def detail_trace(self, kind: str, *args, **kwargs) -> ExecutionTrace:
+        """Fixed dispatch of the engine internals (no dynamic lookup):
+        ac-mna (AC / small-signal AC with its complex MNA system), ac-sweep, dc-sweep-detail,
+        transient-detail, tf-analysis, and bjt-dc (F8-I Ebers-Moll through the F8-H Newton trace)."""
+        if kind == "ac-mna":
+            return detail_trace.explain_ac_mna(*args, **kwargs)
+        if kind == "ac-sweep":
+            return detail_trace.explain_ac_sweep(*args, **kwargs)
+        if kind == "dc-sweep-detail":
+            return detail_trace.explain_dc_sweep_detail(*args, **kwargs)
+        if kind == "transient-detail":
+            return detail_trace.explain_transient_detail(*args, **kwargs)
+        if kind == "tf-analysis":
+            return detail_trace.explain_tf_analysis(*args, **kwargs)
+        if kind == "bjt-dc":
+            return newton_trace.explain_nonlinear_dc(*args, **kwargs)
+        raise ValidationError("UNSUPPORTED_OPERATION: detail kind must be one of "
+                              "ac-mna, ac-sweep, dc-sweep-detail, transient-detail, tf-analysis, bjt-dc")
+
+    def explain_detail(self, kind: str, *args, **kwargs) -> ExplanationView:
+        return build_view(self.detail_trace(kind, *args, **kwargs))
+
+    def lab_run_detail_trace(self, session, run_id: str) -> ExecutionTrace:
+        """The run re-observed on its own working circuit, engine observer attached (CHECK: same result)."""
+        session_records(session)  # typed session check (INVALID_INPUT otherwise)
+        return detail_trace.explain_lab_run_detail(session, run_id)
+
+    def explain_lab_run_detail(self, session, run_id: str) -> ExplanationView:
+        cid = new_correlation_id()
+        view = build_view(self.lab_run_detail_trace(session, run_id))
+        log_event(logger, logging.INFO, "AC-OK-001", "application.explain", "explain_lab_run_detail",
+                  f"{view.outcome}/{view.verification} [cid={cid}]")
+        return view
+
     # -- views --------------------------------------------------------------------
     def explain_exercise(self, key: str, inputs: dict[str, str], pedagogical: bool = False) -> ExplanationView:
         cid = new_correlation_id()
@@ -274,7 +310,9 @@ class ExplainService:
             return control_trace.replay_margins
         if operation in analog_trace.OPERATIONS:
             return analog_trace.replay_analog
-        if operation == analog_trace.LAB_RUN:
+        if operation in detail_trace.OPERATIONS:
+            return detail_trace.replay_detail
+        if operation in (analog_trace.LAB_RUN, detail_trace.LAB_DETAIL):
             raise ValidationError("UNSUPPORTED_OPERATION: a Virtual Lab run is replayed by the lab itself "
                                   "(LabService.replay compares result digests); its explanation is rebuilt from that run")
         raise ValidationError(f"UNSUPPORTED_OPERATION: no replayer for {operation[:64]!r}")
