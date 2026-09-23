@@ -248,6 +248,26 @@ class CourseMaterialRepository(_Base):
                               " ORDER BY page", (resource_id,)).fetchall()
         return [(r["page"], r["text"]) for r in rows]
 
+    def search_context(self, resource_ids: list[str]) -> dict[str, tuple[list[str],
+                                                                          list[tuple[int, str]]]]:
+        """Batch lookup for search hits: resource -> (subjects, pages), one
+        connection, two queries (avoids N+1 round trips)."""
+        out: dict[str, tuple[list[str], list[tuple[int, str]]]] = {
+            r: ([], []) for r in resource_ids}
+        if not resource_ids:
+            return out
+        marks = ",".join("?" * len(resource_ids))
+        with self._read() as cx:
+            for r in cx.execute(f"SELECT resource_id, subject_id FROM course_documents WHERE"
+                                f" resource_id IN ({marks}) ORDER BY resource_id, subject_id",
+                                tuple(resource_ids)):
+                out[r["resource_id"]][0].append(r["subject_id"])
+            for r in cx.execute(f"SELECT resource_id, page, text FROM document_pages WHERE"
+                                f" resource_id IN ({marks}) ORDER BY resource_id, page",
+                                tuple(resource_ids)):
+                out[r["resource_id"]][1].append((r["page"], r["text"]))
+        return out
+
     # external resources -------------------------------------------------------
     def add_external(self, x: CM.ExternalResource, cx=None) -> None:
         with self._tx(cx) as c:

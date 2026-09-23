@@ -153,23 +153,20 @@ class FtsResourceIndexer:
                limit: int = 20) -> list[dict]:
         cx = self.db.connect()
         # FTS5 match query passed as parameter (no string interpolation).
+        # F4.1: kind/subject filters run inside SQL and snippet() is computed
+        # only for the rows actually returned (previously for limit*3 rows,
+        # filtered in Python, which could also drop valid hits).
         rows = cx.execute(
-            "SELECT stable_id, kind, title, snippet(resources_fts, 3, '»', '«', '…', 12)"
-            " AS snippet FROM resources_fts WHERE resources_fts MATCH ? LIMIT ?",
-            (_match_expr(query), limit * 3)).fetchall()
-        out = []
-        for r in rows:
-            if kind and r["kind"] != kind:
-                continue
-            if subject:
-                link = cx.execute("SELECT 1 FROM resource_refs WHERE resource_id=?"
-                                  " AND subject_id=?", (r["stable_id"], subject)).fetchone()
-                if not link:
-                    continue
-            out.append({"stable_id": r["stable_id"], "kind": r["kind"],
-                        "title": r["title"], "snippet": r["snippet"]})
-            if len(out) >= limit:
-                break
+            "SELECT f.stable_id, f.kind, f.title,"
+            " snippet(resources_fts, 3, '»', '«', '…', 12) AS snippet"
+            " FROM resources_fts f WHERE resources_fts MATCH ?"
+            " AND (? = '' OR f.kind = ?)"
+            " AND (? = '' OR EXISTS (SELECT 1 FROM resource_refs r"
+            "      WHERE r.resource_id = f.stable_id AND r.subject_id = ?))"
+            " LIMIT ?",
+            (_match_expr(query), kind, kind, subject, subject, limit)).fetchall()
+        out = [{"stable_id": r["stable_id"], "kind": r["kind"],
+                "title": r["title"], "snippet": r["snippet"]} for r in rows]
         cx.close()
         return out
 

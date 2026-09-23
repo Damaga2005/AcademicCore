@@ -204,3 +204,15 @@ def test_zip_member_limits_and_tamper(core, tmp_path):
     (tmp_path / "junk.zip").write_bytes(b"not a zip")
     with pytest.raises(ArchiveRejected):
         BackupService.verify_zip(tmp_path / "junk.zip")
+
+
+def test_fts_subject_filter_never_drops_valid_hits(core):
+    """F4.1: filters run in SQL; the former limit*3 pre-fetch could return
+    fewer hits than exist when many other subjects matched first."""
+    for i in range(40):
+        core.material.add_document("subject:dd", f"transiciones dd {i}".encode(), f"dd{i}.txt")
+    for i in range(4):
+        core.material.add_document("subject:ss", f"transiciones ss {i}".encode(), f"ss{i}.txt")
+    hits = core.fts.search("transiciones", subject="subject:ss", limit=4)
+    assert len(hits) == 4 and all(h["title"].startswith("ss") for h in hits)
+    assert len(core.fts.search("transiciones", kind="text", limit=50)) == 44

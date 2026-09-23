@@ -78,8 +78,9 @@ class UnifiedSearchService:
         self.personal = personal
         self.fts = fts
 
-    def _page_of(self, resource_id: str, q: str) -> tuple[int | None, str]:
-        for page, text in self.material.pages_of(resource_id):
+    @staticmethod
+    def _page_of(pages: list[tuple[int, str]], q: str) -> tuple[int | None, str]:
+        for page, text in pages:
             n = norm(text)
             i = n.find(q)
             if i >= 0:
@@ -119,9 +120,11 @@ class UnifiedSearchService:
             if (not subject_id or x.subject_id == subject_id) and q in norm(
                     f"{x.name} {x.kind} {x.provider}"):
                 hits.append(UnifiedHit("link", x.stable_id, x.name, x.subject_id))
-        for d in self.fts.search(query, subject=subject_id, limit=limit):
-            subs = self.material.subjects_of_resource(d["stable_id"])
-            page, snippet = self._page_of(d["stable_id"], q)
+        docs = self.fts.search(query, subject=subject_id, limit=limit)
+        ctx = self.material.search_context([d["stable_id"] for d in docs])
+        for d in docs:
+            subs, pages = ctx[d["stable_id"]]
+            page, snippet = self._page_of(pages, q)
             hits.append(UnifiedHit("document", d["stable_id"], d["title"],
                                    subs[0] if subs else "", snippet or d["snippet"], page))
         return hits[:limit]
