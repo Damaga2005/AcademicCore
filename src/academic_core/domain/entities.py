@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 import re
 
 from academic_core.domain.identity import slugify, validate
@@ -52,6 +53,24 @@ def _check_url(value: str, field_name: str) -> str:
     if value and not _URL_RE.match(value.strip()):
         raise DomainError(f"{field_name} must be an http(s) URL")
     return value
+
+
+def _check_optional_subject(subject_id: str, owner: str) -> None:
+    """F4.1: calendar/study items may belong to no subject (``""``)."""
+    if subject_id and validate(subject_id) != "subject":
+        raise DomainError(f"bad {owner}.subject_id: {subject_id}")
+
+
+def _check_mark(value: str | None, field_name: str) -> None:
+    """Optional Decimal text in 0..10 (grades travel as strings, never floats)."""
+    if value is None or value == "":
+        return
+    try:
+        d = Decimal(value)
+    except (InvalidOperation, TypeError, ValueError):
+        raise DomainError(f"{field_name} must be a decimal string") from None
+    if not d.is_finite() or not (Decimal(0) <= d <= Decimal(10)):
+        raise DomainError(f"{field_name} must be within 0..10")
 
 
 # Shared lifecycle for dated academic activities (exam/project/lab).
@@ -139,6 +158,7 @@ class Term:
 
 SUBJECT_TYPES = ("obligatoria", "optativa", "tfg", "tfm", "otra")
 SUBJECT_STATES = ("cursando", "superada", "pendiente", "no_superada", "no_elegida")
+SUBJECT_SCHEME_RULES = ("maximo",)
 
 
 @dataclass
@@ -153,6 +173,14 @@ class Subject:
     course: int = 0  # year within degree, 0 = unspecified
     term_id: str = ""
     state: str = "pendiente"
+    # -- F4.1 (Gestion parity, all optional; see docs/domain/MODEL.md) -----
+    final_grade: str | None = None  # manual override, Decimal text 0..10
+    catalog_origin: bool = False  # elective row that came from a catalogue
+    scheme_rule: str = "maximo"  # how alternative assessment schemes combine
+    notes: str = ""
+    notes_updated_at: str = ""  # ISO timestamp, metadata only
+    virtual_classroom: str = ""  # http(s) URL, never fetched
+    extra: dict = field(default_factory=dict)  # lossless legacy metadata
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "subject":
@@ -169,6 +197,10 @@ class Subject:
             raise DomainError("Subject.credits must be >= 0")
         if self.term_id and validate(self.term_id) != "term":
             raise DomainError(f"bad term_id: {self.term_id}")
+        _check_mark(self.final_grade, "Subject.final_grade")
+        if self.scheme_rule not in SUBJECT_SCHEME_RULES:
+            raise DomainError(f"Subject.scheme_rule must be one of {SUBJECT_SCHEME_RULES}")
+        _check_url(self.virtual_classroom, "Subject.virtual_classroom")
 
 
 @dataclass
@@ -202,26 +234,34 @@ class Professor:
     name: str
     email: str = ""
     office: str = ""
+    virtual_classroom: str = ""  # F4.1, http(s) URL
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "professor":
             raise DomainError(f"bad id: {self.stable_id}")
         if not self.name.strip():
             raise DomainError("Professor.name is required")
+        _check_url(self.virtual_classroom, "Professor.virtual_classroom")
 
 
 @dataclass
 class SubjectStaff:
     subject_id: str
     professor_id: str
-    role: str = "docente"  # docente|coordinador|invitado
+    role: str = "docente"  # docente|coordinador|invitado (free text allowed)
     groups: str = ""
+    # -- F4.1: per-link contact data (Gestion stored it per subject) -------
+    order: int = 0
+    email: str = ""
+    office: str = ""
+    virtual_url: str = ""
 
     def __post_init__(self) -> None:
         if validate(self.subject_id) != "subject":
             raise DomainError(f"bad subject_id: {self.subject_id}")
         if validate(self.professor_id) != "professor":
             raise DomainError(f"bad professor_id: {self.professor_id}")
+        _check_url(self.virtual_url, "SubjectStaff.virtual_url")
 
 
 # ---------------------------------------------------------------- resources
@@ -368,25 +408,30 @@ class Task:
     location: str = ""
     link: str = ""
     reminder_days: int | None = None
+    room: str = ""  # F4.1 (aula); ``location`` keeps the free-text place
+    document_id: str = ""  # F4.1: resource the task is about (exam paper...)
 
     def __post_init__(self) -> None:
         if validate(self.stable_id) != "task":
             raise DomainError(f"bad id: {self.stable_id}")
-        if validate(self.subject_id) != "subject":
-            raise DomainError(f"bad subject_id: {self.subject_id}")
+        _check_optional_subject(self.subject_id, "Task")
         if self.kind not in TASK_TYPES:
             raise DomainError(f"Task.kind must be one of {TASK_TYPES}")
         if self.priority not in TASK_PRIORITIES:
             raise DomainError(f"Task.priority must be one of {TASK_PRIORITIES}")
         if self.state not in TASK_STATES:
             raise DomainError(f"Task.state must be one of {TASK_STATES}")
-        if (self.start or self.end) and not (self.start and self.end):
-            raise DomainError("Task start/end must both be set or both empty")
+        # A due time alone (end, no start) is a deadline hour — Gestion/ICS
+        # imports produce it. A start without an end is ambiguous: rejected.
+        if self.start and not self.end:
+            raise DomainError("Task start requires an end")
         if self.start and self.end and self.end <= self.start:
             raise DomainError("Task end must be after start")
         _check_url(self.link, "Task.link")
         if self.reminder_days is not None and self.reminder_days < 0:
             raise DomainError("Task.reminder_days must be >= 0")
+        if self.document_id and validate(self.document_id) != "resource":
+            raise DomainError(f"bad Task.document_id: {self.document_id}")
 
     @property
     def is_exam(self) -> bool:
@@ -484,8 +529,7 @@ class StudySpace:
     refs: list[str] = field(default_factory=list)  # resource ids, never copies
 
     def __post_init__(self) -> None:
-        if validate(self.subject_id) != "subject":
-            raise DomainError(f"bad subject_id: {self.subject_id}")
+        _check_optional_subject(self.subject_id, "StudySpace")
         if validate(self.exam_task_id) != "task":
             raise DomainError(f"bad exam_task_id: {self.exam_task_id}")
 
@@ -498,8 +542,7 @@ class StudySession:
     notes: str = ""
 
     def __post_init__(self) -> None:
-        if validate(self.subject_id) != "subject":
-            raise DomainError(f"bad subject_id: {self.subject_id}")
+        _check_optional_subject(self.subject_id, "StudySession")
         if self.minutes < 0:
             raise DomainError("StudySession.minutes must be >= 0")
 

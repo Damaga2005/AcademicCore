@@ -10,6 +10,14 @@ formula:<s>:f:NNNNNN  resource:<s>:r:NNNNN  lab:<s>:lab:NNNNN
 assignment:<s>:a:NNNNN  project:<s>:p:NNNNN  exam:<s>:e:NNNNN
 task:<s>:task:NNNNN
 
+F4.1 kinds (academic management; see docs/adr/ADR-0017):
+Root: milestone:<slug>  note:<slug>
+Scoped: scheme:<s>:sch:NNNNN  block:<s>:blk:NNNNN  component:<s>:cmp:NNNNN
+link:<s>:lnk:NNNNN (external resource URL)  docgroup:<s>:grp:NNNNN
+series:<s>:ser:NNNNN  space:<s>:sp:NNNNN
+Unscoped planning items (e.g. a calendar task with no subject) use the
+reserved scope slug ``general``.
+
 Topic legacy compatibility (P0-02, Option A): topic IDs created before
 the scope-letter fix use the bare form ``topic:<s>:NN``. Both forms
 validate as kind "topic" and are preserved byte-for-byte by
@@ -54,6 +62,16 @@ _PATTERNS = {
     "task": re.compile(rf"^task:{SLUG}:task:\d{{5}}$"),
     "assessment": re.compile(rf"^assessment:{SLUG}:as:\d{{5}}$"),
     "session": re.compile(rf"^session:{SLUG}:sess:\d{{5}}$"),
+    # -- F4.1 ------------------------------------------------------------
+    "milestone": re.compile(rf"^milestone:{SLUG}$"),
+    "note": re.compile(rf"^note:{SLUG}$"),
+    "scheme": re.compile(rf"^scheme:{SLUG}:sch:\d{{5}}$"),
+    "block": re.compile(rf"^block:{SLUG}:blk:\d{{5}}$"),
+    "component": re.compile(rf"^component:{SLUG}:cmp:\d{{5}}$"),
+    "link": re.compile(rf"^link:{SLUG}:lnk:\d{{5}}$"),
+    "docgroup": re.compile(rf"^docgroup:{SLUG}:grp:\d{{5}}$"),
+    "series": re.compile(rf"^series:{SLUG}:ser:\d{{5}}$"),
+    "space": re.compile(rf"^space:{SLUG}:sp:\d{{5}}$"),
 }
 
 KINDS = tuple(_PATTERNS)
@@ -63,7 +81,16 @@ _SCOPED = {
     "topic": "t", "concept": "c", "formula": "f", "resource": "r",
     "lab": "lab", "assignment": "a", "project": "p", "exam": "e",
     "task": "task", "assessment": "as", "session": "sess",
+    "scheme": "sch", "block": "blk", "component": "cmp", "link": "lnk",
+    "docgroup": "grp", "series": "ser", "space": "sp",
 }
+
+# Root kinds: no subject scope, ``make(kind, slug)``.
+_ROOT = ("university", "degree", "year", "term", "professor", "tag",
+         "milestone", "note")
+
+# Scope slug for planning items that belong to no subject.
+GENERAL_SCOPE = "general"
 
 
 def validate(stable_id: str) -> str:
@@ -87,7 +114,7 @@ def slugify(text: str) -> str:
 def make(kind: str, subject: str, code: str = "") -> str:
     """Build a stable id. Root kinds ignore `code`; scoped kinds require it,
     except subject/topic kept backward compatible with Phase 0 callers."""
-    if kind in ("university", "degree", "year", "term", "professor", "tag"):
+    if kind in _ROOT:
         sid = f"{kind}:{subject}"
     elif kind == "subject":
         sid = f"subject:{subject}"
