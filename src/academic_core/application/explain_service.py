@@ -32,7 +32,8 @@ integrals, linear equations, simplification), GUM budgets, F8-N Newton
 iterations and F8-P margin bisection. It also adds pedagogical exercise
 and capture modes, and the explanation of one selected Logic Analyzer
 transition (``explain_transition``). That explanation is extracted from a
-pedagogical capture trace; it is never recomputed.
+pedagogical capture trace; it is never recomputed. E0.1-R+: the
+transition explanation uses delta-level causality (``delta=True``).
 """
 
 from __future__ import annotations
@@ -101,23 +102,24 @@ class ExplainService:
         return equation_trace.explain_equation(dict(inputs), entry["source"], entry.get("dim") or None,
                                                pedagogical=pedagogical)
 
-    def capture_trace(self, request: AnalyzerRequest, pedagogical: bool = False) -> ExecutionTrace:
+    def capture_trace(self, request: AnalyzerRequest, pedagogical: bool = False, delta: bool = False) -> ExecutionTrace:
         config = self.digital.build_config(request)
         circuit = self.digital.new_circuit(request.demo)
         return digital_trace.explain_capture(circuit, config, context=(("demo", request.demo),),
-                                             pedagogical=pedagogical)
+                                             pedagogical=pedagogical or delta, delta=delta)
 
     def circuit_document(self, demo: str) -> str:
         """The demo circuit as a ``digital-circuit/1`` document (explanations no longer need the demo key)."""
         return digital_circuit.circuit_to_json(self.digital.new_circuit(demo))
 
     def document_capture_trace(self, document: object, request: AnalyzerRequest,
-                               pedagogical: bool = False) -> ExecutionTrace:
+                               pedagogical: bool = False, delta: bool = False) -> ExecutionTrace:
         """Capture on a ``digital-circuit/1`` document; its digest is the replay context."""
         circuit = digital_circuit.circuit_from_json(document)
         digest = digital_circuit.circuit_digest(circuit)
         return digital_trace.explain_capture(circuit, self.digital.build_config(request),
-                                             context=((CIRCUIT_DIGEST, digest),), pedagogical=pedagogical)
+                                             context=((CIRCUIT_DIGEST, digest),), pedagogical=pedagogical or delta,
+                                             delta=delta)
 
     def math_trace(self, kind: str, expression: str, variable: str = "x", lower: str | None = None,
                    upper: str | None = None) -> ExecutionTrace:
@@ -137,8 +139,8 @@ class ExplainService:
         return gum_trace.explain_gum(measurand, equation, quantities, output_unit, coverage_probability,
                                      explicit_k, correlations)
 
-    def nonlinear_trace(self, circuit_spec: str) -> ExecutionTrace:
-        return newton_trace.explain_nonlinear_dc(circuit_spec)
+    def nonlinear_trace(self, circuit_spec: str, **limits) -> ExecutionTrace:
+        return newton_trace.explain_nonlinear_dc(circuit_spec, **limits)
 
     def margins_trace(self, numerator: str, denominator: str) -> ExecutionTrace:
         return control_trace.explain_margins(numerator, denominator)
@@ -180,7 +182,7 @@ class ExplainService:
 
         Everything comes from the events of one pedagogical capture trace:
         the transition event and the causal step or warning that refs it."""
-        trace = self.capture_trace(request, pedagogical=True)
+        trace = self.capture_trace(request, delta=True)
         return transition_explanation(trace, channel, index)
 
     def load(self, text: object) -> ExplanationView:

@@ -22,7 +22,9 @@ node where it fired:
 - desarrollo de potencia
 - cociente de monomios
 - eliminar términos nulos
-- elemento neutro (1·u = u), producto por cero
+- elemento neutro (1·u = u, u + 0 = u), producto por cero
+- cancelación de factores (válida si el factor ≠ 0): u/u = 1 changes the
+  domain, so the condition is stated in the rule itself
 - orden canónico de términos y factores (when only the order changed)
 
 With a ``StepLog`` the simplifier records ``before → rule → after`` for
@@ -55,6 +57,7 @@ from academic_core.domain.engineering.symbolic.expr import (
     text,
 )
 
+CANCEL = "cancelación de factores (válida si el factor ≠ 0)"
 MAX_TERMS = 256
 MAX_EXPAND = 8
 
@@ -85,6 +88,8 @@ def _mono_mul(m1: Monomial, m2: Monomial, fired: list) -> Monomial:
         if key in exps:
             if "potencias de igual base" not in fired:
                 fired.append("potencias de igual base")
+            if exps[key] + e == 0 and CANCEL not in fired:
+                fired.append(CANCEL)  # u^a·u^(-a) = 1 only where u ≠ 0: the condition is part of the rule name
             exps[key] += e
         else:
             exps[key] = e
@@ -92,6 +97,8 @@ def _mono_mul(m1: Monomial, m2: Monomial, fired: list) -> Monomial:
 
 
 def _add(p: _Poly, q: _Poly, sign: int, fired: list) -> _Poly:
+    if (not p.terms or not q.terms) and "elemento neutro (u + 0 = u)" not in fired:
+        fired.append("elemento neutro (u + 0 = u)")
     terms = dict(p.terms)
     for m, c in q.terms.items():
         if m in terms:

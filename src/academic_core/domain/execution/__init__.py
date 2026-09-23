@@ -37,6 +37,7 @@ from academic_core.domain.execution.model import (
     Verification,
     VerificationStatus,
 )
+from academic_core.domain.execution.verification import verification_kind
 from academic_core.domain.execution.replay import (
     EQUIVALENT,
     RESULT_DIFFERS,
@@ -78,6 +79,7 @@ __all__ = [
     "canonical_decimal",
     "compare",
     "first_difference",
+    "verification_kind",
     "replay",
     "semantic_json",
     "verify_replay",

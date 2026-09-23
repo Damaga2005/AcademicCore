@@ -11,7 +11,10 @@ and runs ``margins(loop, observer=...)`` once. The trace records:
   logarithmic scan found and handed to bisection (gain: |L(jω)| − 1;
   phase: Im L(jω)).
 - **STEP "Bisección k"**: every midpoint the engine evaluated, with lo,
-  hi, ω_mid and f(ω_mid), exactly as computed.
+  hi, ω_mid and f(ω_mid), exactly as computed. E0.1-R+ adds f(lo) and
+  f(hi) as the engine held them (f(hi) of the phase bisection is never
+  computed, and the event says so), the sign condition taken, the new
+  interval, and the relative width the engine tested.
 - **DECISION "Parada de la bisección"**: the reason the engine stopped
   (relative width ≤ 1e-12, an exact zero, or the iteration budget) and
   the refined ω.
@@ -70,8 +73,8 @@ class _Observer:
     def bracket(self, kind, lo, hi):
         self.facts.append(("bracket", kind, lo, hi))
 
-    def bisection(self, kind, k, lo, hi, mid, f_mid):
-        self.facts.append(("bisection", kind, k, lo, hi, mid, f_mid))
+    def bisection(self, kind, k, lo, hi, mid, f_mid, *, f_lo=None, f_hi=None, new_lo=None, new_hi=None, width=None):
+        self.facts.append(("bisection", kind, k, lo, hi, mid, f_mid, f_lo, f_hi, new_lo, new_hi, width))
 
     def refined(self, kind, omega, reason):
         self.facts.append(("refined", kind, omega, reason))
@@ -105,13 +108,30 @@ def explain_margins(numerator: str, denominator: str) -> ExecutionTrace:
                     why="El barrido logarítmico (40 puntos por década) encontró un cambio de signo; se refina por bisección.",
                     values=(("lo", TraceValue.of_number(lo, "rad/s")), ("hi", TraceValue.of_number(hi, "rad/s"))))
             elif fact[0] == "bisection":
-                _, _, k, lo, hi, mid, f_mid = fact
+                _, _, k, lo, hi, mid, f_mid, f_lo, f_hi, new_lo, new_hi, width = fact
+                if new_lo == new_hi == mid:
+                    kept = "f(ω_mid) = 0 exacto: la bisección termina en ω_mid"
+                elif new_lo == mid:
+                    kept = "signo(f(lo)) = signo(f(ω_mid)) → lo ← ω_mid"
+                else:
+                    kept = "signo(f(lo)) ≠ signo(f(ω_mid)) → hi ← ω_mid"
+                values = [("lo", TraceValue.of_number(lo, "rad/s")), ("hi", TraceValue.of_number(hi, "rad/s")),
+                          ("omega_mid", TraceValue.of_number(mid, "rad/s")), ("f_mid", TraceValue.of_number(f_mid)),
+                          ("f_lo", TraceValue.of_number(f_lo) if f_lo is not None else TraceValue.of_text("no calculado")),
+                          ("f_hi", TraceValue.of_number(f_hi) if f_hi is not None else
+                           TraceValue.of_text("no calculado por el motor")),
+                          ("sign_condition", TraceValue.of_text(kept))]
+                if new_lo is not None:
+                    values += [("new_lo", TraceValue.of_number(new_lo, "rad/s")),
+                               ("new_hi", TraceValue.of_number(new_hi, "rad/s"))]
+                if width is not None:
+                    values.append(("relative_width", TraceValue.of_number(width)))
                 prev = rec.event(
                     EventKind.STEP, f"Bisección {k} ({label})", refs=(prev,),
-                    formula=f"ω_mid = (lo + hi)/2;  {f_name} en ω_mid",
-                    why="Se conserva la mitad del intervalo donde la función sigue cambiando de signo.",
-                    values=(("lo", TraceValue.of_number(lo, "rad/s")), ("hi", TraceValue.of_number(hi, "rad/s")),
-                            ("omega_mid", TraceValue.of_number(mid, "rad/s")), ("f_mid", TraceValue.of_number(f_mid))))
+                    formula=f"ω_mid = (lo + hi)/2;  {f_name} en ω_mid;  nuevo intervalo [new_lo, new_hi]",
+                    why=("Se conserva la mitad del intervalo donde la función sigue cambiando de signo. "
+                         "relative_width = (hi − lo)/hi es el ancho que el motor comparó con 1e-12 antes de este paso."),
+                    values=tuple(values))
             else:
                 _, _, omega, reason = fact
                 prev = last_decision[kind] = rec.event(
@@ -144,6 +164,15 @@ def explain_margins(numerator: str, denominator: str) -> ExecutionTrace:
     except (ValueError, ArithmeticError) as exc:
         rec.fail(exc, "La ejecución se detuvo", refs=tuple(r for r in (rec.last,) if r))
     return rec.finish()
+
+
+def explain_margins_tf(loop) -> ExecutionTrace:
+    """Trace a ``TransferFunctionTF`` through its exact coefficients (E0.1-R+ L7)."""
+    from academic_core.domain.engineering.control.tf import TransferFunctionTF
+
+    if not isinstance(loop, TransferFunctionTF):
+        raise _invalid("INVALID_INPUT", "expected a TransferFunctionTF")
+    return explain_margins(", ".join(str(c) for c in loop.num.coeffs), ", ".join(str(c) for c in loop.den.coeffs))
 
 
 def replay_margins(trace: ExecutionTrace) -> ExecutionTrace:

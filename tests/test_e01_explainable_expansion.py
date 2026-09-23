@@ -333,7 +333,9 @@ def test_e01_e01_linear_equation_steps_and_exact_verification():
                         "transponer el término independiente", "despejar: dividir ambos lados entre el coeficiente"]
     c = t.checks()[0].check
     assert c.status is CheckStatus.PASS and c.actual.text == c.expected.text == "-7"
-    assert c.detail == "3*(-3) + 2 = -3 - 4"
+    # E0.1-R+: the detail now also states how it was verified (exact rational substitution = SYMBOLIC)
+    from academic_core.domain.execution.verification import verification_kind
+    assert c.detail.startswith("3*(-3) + 2 = -3 - 4") and verification_kind(c) == "SYMBOLIC"
 
 
 def test_e01_e02_identity_contradiction_and_nonlinear():
@@ -726,14 +728,19 @@ def test_e01_q09_transition_explanation_extracts_recorded_events():
 def test_e01_x01_equation_pedagogical_steps():
     t = eqn.explain_equation(*DIVIDER[:2], DIVIDER[2], pedagogical=True)
     titles = [e.title for e in t.events]
-    assert "Conversión a unidades SI: R1" in titles and "Sustitución" in titles
+    # E0.1-R+ correction: only conversions the evaluator really performs are shown. R1 only enters the sum
+    # (same unit, no conversion); the division converts the SUM (3 kΩ), the product converts R2.
+    assert "Conversión a unidades SI: R1" not in titles and "Sustitución" in titles
+    assert "Conversión a unidades SI: R1 + R2" in titles
     subst = [e for e in t.events if e.title == "Sustitución"][0]
     assert subst.formula == "Vout = (12 V) * (2 kohm) / ((1 kohm) + (2 kohm))"
     conv = [e for e in t.events if e.title == "Conversión a unidades SI: R2"][0]
     assert conv.result.number == D("2000") and conv.result.unit == "Ω"
+    product = [e for e in t.events if e.title == "Producto"][0]
+    assert conv.event_id in product.refs  # the conversion is consumed by the operation that performed it
     assert compare(t, eqn.replay_equation(t)).status == EQUIVALENT
     kinds = [lesson.kind for lesson in build_view(t).lessons]
-    order = [kinds.index(k) for k in ("Fórmula", "Datos", "Conversión de unidades", "Sustitución", "Cálculo",
+    order = [kinds.index(k) for k in ("Fórmula", "Datos", "Sustitución", "Conversión de unidades", "Cálculo",
                                       "Resultado", "Verificación")]
     assert order == sorted(order)
 

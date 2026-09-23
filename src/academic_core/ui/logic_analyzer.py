@@ -22,8 +22,8 @@ triggers, sampling, X/Z) have no controls.
 E0.1: selecting a transition row shows its explanation: time, channel,
 previous and new state, driver, why it changed, and the checks. The text
 comes from ONE pedagogical capture trace per capture
-(``app.explain.capture_trace(request, pedagogical=True)``, run on a
-worker and cached). ``explain_service.transition_explanation`` extracts
+(``app.explain.capture_trace(request, pedagogical=True, delta=True)``,
+run on a worker and cached; E0.1-R+ delta-level causality). ``explain_service.transition_explanation`` extracts
 the recorded events. A loaded trace file has no circuit, so no cause is
 shown for it.
 """
@@ -309,7 +309,7 @@ class LogicAnalyzerPanel(QWidget):
         if self._trace is None:
             self._pending_row = row
             self.explanation.setPlainText("Explicando… (ejecutando la captura en modo pedagógico)")
-            worker = ServiceWorker(self.app.explain.capture_trace, self._request, True)
+            worker = ServiceWorker(self.app.explain.capture_trace, self._request, True, True)
             worker.signals.finished.connect(self._on_trace)
             worker.signals.failed.connect(self._on_error)
             self.pool.start(worker)

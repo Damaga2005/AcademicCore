@@ -40,6 +40,12 @@ Verification CHECKs are computed independently of the steps:
 A point where the expression is not defined is skipped, and the check
 says so. If no point is usable, the check is ``NOT_APPLICABLE``.
 
+E0.1-R+: every equivalence check carries its ``verification_kind``
+(``execution.verification``): ``SYMBOLIC`` for normal-form proofs and
+exact rational substitution, ``NUMERIC`` for evaluations with a
+tolerance (central difference, fixed points, Simpson), ``NONE`` when
+nothing could be verified. A numeric agreement is never called a proof.
+
 Replay (``replay_math``) re-runs the engine from the recorded inputs.
 """
 
@@ -57,6 +63,7 @@ from academic_core.domain.engineering.symbolic.numeric import symbols, value
 from academic_core.domain.engineering.symbolic.solve import solve_linear, verify
 from academic_core.domain.engineering.symbolic.steps import StepLog
 from academic_core.domain.execution.model import EventKind, ExecutionTrace, TraceRecorder, TraceValue, _invalid
+from academic_core.domain.execution.verification import NONE, NUMERIC, SYMBOLIC, labelled
 
 DERIVATIVE = "math.derivative"
 INTEGRAL = "math.integral"
@@ -144,8 +151,8 @@ def _check_derivative(rec: TraceRecorder, e: Expr, d: Expr, var: str, ref: str) 
     others = sorted((symbols(e) | symbols(d)) - {var})
     if others:
         rec.check("diferencia central en puntos fijos", TraceValue.of_text("-"), TraceValue.of_text("-"), None,
-                  refs=(ref,), detail=f"no aplicable: la expresión tiene parámetros sin valor ({', '.join(others)})",
-                  title="Comprobación: derivada numérica")
+                  refs=(ref,), detail=labelled(f"no aplicable: la expresión tiene parámetros sin valor ({', '.join(others)})",
+                                               NONE), title="Comprobación: derivada numérica")
         return
     for p in POINTS:
         fp, fm, dp = value(e, {var: p + H}), value(e, {var: p - H}), value(d, {var: p})
@@ -161,7 +168,8 @@ def _check_derivative(rec: TraceRecorder, e: Expr, d: Expr, var: str, ref: str) 
     detail = "; ".join(rows) + (f"; puntos fuera del dominio: {', '.join(skipped)}" if skipped else "")
     rec.check("diferencia central en puntos fijos (h = 1e-6)", TraceValue.of_number(worst),
               TraceValue.of_number(Decimal(0)), (worst <= DERIVATIVE_TOL) if rows else None, refs=(ref,),
-              tolerance=TraceValue.of_number(DERIVATIVE_TOL), detail=detail[:512] or "sin puntos evaluables",
+              tolerance=TraceValue.of_number(DERIVATIVE_TOL),
+              detail=labelled(detail or "sin puntos evaluables", NUMERIC if rows else NONE),
               title="Comprobación: derivada numérica")
 
 
@@ -169,7 +177,8 @@ def _check_same(rec: TraceRecorder, a: Expr, b: Expr, var: str, what: str, ref: 
     """Normal-form equivalence; if not provable that way, numeric agreement at fixed points."""
     if equivalent(a, b, var):
         rec.check(what, TraceValue.of_text(text(normal_expr(a, var))), TraceValue.of_text(text(normal_expr(b, var))),
-                  True, refs=(ref,), detail="demostrado: la forma normal exacta de la diferencia es 0", title=title)
+                  True, refs=(ref,), detail=labelled("demostrado: la forma normal exacta de la diferencia es 0", SYMBOLIC),
+                  title=title)
         return
     rows, worst = [], Decimal(0)
     others = sorted((symbols(a) | symbols(b)) - {var})
@@ -182,8 +191,8 @@ def _check_same(rec: TraceRecorder, a: Expr, b: Expr, var: str, what: str, ref: 
         rows.append(f"{var}={p}: {va:.12g} vs {vb:.12g}")
     rec.check(what, TraceValue.of_number(worst), TraceValue.of_number(Decimal(0)),
               (worst <= EQUAL_TOL) if rows else None, refs=(ref,), tolerance=TraceValue.of_number(EQUAL_TOL),
-              detail=("numérica (la forma normal no basta, p. ej. identidades con abs/log): " + "; ".join(rows))[:512]
-              if rows else "no aplicable: ningún punto evaluable", title=title)
+              detail=labelled("numérica (la forma normal no basta, p. ej. identidades con abs/log): " + "; ".join(rows),
+                              NUMERIC) if rows else labelled("no aplicable: ningún punto evaluable", NONE), title=title)
 
 
 def explain_derivative(expression: str, variable: str = "x") -> ExecutionTrace:
@@ -255,7 +264,7 @@ def _check_simpson(rec: TraceRecorder, e: Expr, var: str, a: Fraction, b: Fracti
             fx = value(e, {var: da + i * h})
             if fx is None:
                 rec.check("Simpson compuesto (n = 64)", TraceValue.of_text("-"), TraceValue.of_text("-"), None,
-                          refs=(ref,), detail="no aplicable: el integrando no es evaluable en un nodo",
+                          refs=(ref,), detail=labelled("no aplicable: el integrando no es evaluable en un nodo", NONE),
                           title="Comprobación: integración numérica independiente")
                 return
             total += fx * (1 if i in (0, SIMPSON_N) else 4 if i % 2 else 2)
@@ -265,7 +274,7 @@ def _check_simpson(rec: TraceRecorder, e: Expr, var: str, a: Fraction, b: Fracti
     rec.check("Simpson compuesto (n = 64) frente a F(b) - F(a)", TraceValue.of_number(err),
               TraceValue.of_number(Decimal(0)), err <= SIMPSON_TOL, refs=(ref,),
               tolerance=TraceValue.of_number(SIMPSON_TOL),
-              detail=f"Simpson ≈ {approx:.15g}; Barrow = {exact:.15g}",
+              detail=labelled(f"Simpson ≈ {approx:.15g}; Barrow = {exact:.15g}", NUMERIC),
               title="Comprobación: integración numérica independiente")
 
 
@@ -288,7 +297,8 @@ def explain_linear_equation(equation: str, variable: str = "x") -> ExecutionTrac
             ok, lv, rv, substituted = verify(sol, var)
             rec.check("sustitución en la ecuación original (exacta)",
                       TraceValue.of_text("-" if lv is None else str(lv)), TraceValue.of_text("-" if rv is None else str(rv)),
-                      ok, refs=(result,), detail=f"{substituted}"[:512], title="Comprobación: verificar la solución")
+                      ok, refs=(result,), detail=labelled(substituted, SYMBOLIC if lv is not None else NONE),
+                      title="Comprobación: verificar la solución")
         else:
             label = f"todo {var} es solución" if sol.status == "IDENTITY" else "sin solución"
             result = rec.event(EventKind.RESULT, "Conclusión", refs=(steps.of(sol.last_step),), formula=label,
@@ -298,7 +308,8 @@ def explain_linear_equation(equation: str, variable: str = "x") -> ExecutionTrac
             ok = constant is not None and ((constant == 0) == (sol.status == "IDENTITY"))
             rec.check("lado izquierdo - lado derecho (forma normal exacta)", TraceValue.of_text(text(diff)),
                       TraceValue.of_text("0" if sol.status == "IDENTITY" else "constante distinta de 0"), ok,
-                      refs=(result,), title="Comprobación: identidad o contradicción")
+                      refs=(result,), detail=labelled(f"lhs − rhs = {text(diff)}", SYMBOLIC),
+                      title="Comprobación: identidad o contradicción")
     except ValueError as exc:
         _fail(rec, steps, log, exc)
     return rec.finish()

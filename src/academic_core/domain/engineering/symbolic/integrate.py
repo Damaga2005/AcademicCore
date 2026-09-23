@@ -10,14 +10,16 @@ order and records the one that really produced the antiderivative:
    into c·xⁿ is recorded if it was written differently); n = -1 gives
    log(abs(x))
 4. constant factor: ∫c·u = c·∫u, ∫u/c = (1/c)·∫u
-5. table: sin, cos, tan, exp, sqrt of the variable
+5. table: sin, cos, tan, exp, sqrt of the variable; E0.1-R+: aˣ (a > 0,
+   a ≠ 1) and 1/cos(x)²
 6. change of variable u = g(x), when the rest of the integrand is a
    constant multiple k·g'(x). This covers the linear case (ax + b) and the
    general one. g' comes from the derivation engine, whose steps are
    recorded too.
 7. integration by parts: log(x)·xⁿ, and xⁿ·exp/sin/cos(ax + b)
-8. rewrite into the exact normal form (expanding products), recorded,
-   then integrate that
+8. E0.1-R+: sqrt(u) rewritten as u^(1/2) (recorded, valid for u ≥ 0)
+   when nothing above applied; then rewrite into the exact normal form
+   (expanding products), recorded, and integrate that
 9. otherwise ``UnsupportedError NO_RULE``
 
 Strategies 6 and 7 are tentative: they run on a scratch ``StepLog``, and
@@ -213,10 +215,29 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
         rule, builder = _TABLE[e.name]
         out = builder(x)
         return out, log.add(OP, rule, _integral(e, var), text(out), explanation="Integral inmediata de la tabla.")
+    if isinstance(e, Pow) and e.exponent == x and not depends(e.base, var):
+        a = exact_value(e.base)
+        if a is not None and a > 0 and a != 1:
+            out = Div(e, Fn("log", e.base))
+            return out, log.add(OP, "tabla: ∫a^x dx = a^x/log(a)", _integral(e, var), text(out),
+                                substitution=f"a = {text(e.base)}",
+                                explanation="Exponencial de base constante a > 0, a ≠ 1: la derivada de a^x es a^x·log(a).")
+    if (isinstance(e, Pow) and isinstance(e.base, Fn) and e.base.name == "cos" and e.base.arg == x
+            and exact_value(e.exponent) == -2) or (isinstance(e, Div) and e.left == ONE and isinstance(e.right, Pow)
+                                                    and e.right.base == Fn("cos", x) and exact_value(e.right.exponent) == 2):
+        out = Fn("tan", x)
+        return out, log.add(OP, "tabla: ∫1/cos(u)^2 du = tan(u)", _integral(e, var), text(out),
+                            explanation="Integral inmediata de la tabla (inversa de d/du tan(u)). Dominio: cos(u) ≠ 0.")
     for strategy in (_substitution, _by_parts):
         got = _attempt(log, lambda scratch, st=strategy: st(e, var, scratch, depth))
         if got is not None:
             return got
+    if _has_sqrt(e):
+        rewritten = _sqrt_as_power(e)
+        s0 = log.add(OP, "reescribir la raíz como potencia", text(e), text(rewritten),
+                     substitution="sqrt(u) = u^(1/2)", explanation="Identidad válida para u ≥ 0 (dominio de sqrt).")
+        f, s = integrate(rewritten, var, log, depth + 1, normalized)
+        return f, log.add(OP, "integrar la forma reescrita", _integral(rewritten, var), text(f), uses=(s0, s))
     if not normalized:
         simple, rules = simplify(e, var, expand=True)
         if text(simple) != text(e):
@@ -225,6 +246,31 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
             f, s = integrate(simple, var, log, depth + 1, normalized=True)
             return f, log.add(OP, "integrar la forma reescrita", _integral(simple, var), text(f), uses=(s0, s))
     raise no_rule(f"no hay regla de integración registrada para ∫{text(e)} d{var}")
+
+
+def _has_sqrt(e: Expr) -> bool:
+    if isinstance(e, Fn):
+        return e.name == "sqrt" or _has_sqrt(e.arg)
+    if isinstance(e, Neg):
+        return _has_sqrt(e.arg)
+    if isinstance(e, Pow):
+        return _has_sqrt(e.base) or _has_sqrt(e.exponent)
+    if isinstance(e, (Add, Sub, Mul, Div)):
+        return _has_sqrt(e.left) or _has_sqrt(e.right)
+    return False
+
+
+def _sqrt_as_power(e: Expr) -> Expr:
+    if isinstance(e, Fn):
+        arg = _sqrt_as_power(e.arg)
+        return Pow(arg, Num(Fraction(1, 2))) if e.name == "sqrt" else Fn(e.name, arg)
+    if isinstance(e, Neg):
+        return Neg(_sqrt_as_power(e.arg))
+    if isinstance(e, Pow):
+        return Pow(_sqrt_as_power(e.base), _sqrt_as_power(e.exponent))
+    if isinstance(e, (Add, Sub, Mul, Div)):
+        return type(e)(_sqrt_as_power(e.left), _sqrt_as_power(e.right))
+    return e
 
 
 def _candidates(e: Expr, var: str) -> list[tuple]:

@@ -8,8 +8,12 @@ points. Missing crossovers -> UNSUPPORTED, never a silent infinite gain.
 E0.1: ``margins``/``gain_crossovers``/``phase_crossovers`` accept an
 optional ``observer`` (default None) that is told the real bisection
 facts: ``bracket(kind, lo, hi)``, ``bisection(kind, k, lo, hi, mid,
-f_mid)`` for every midpoint the engine evaluates, and ``refined(kind,
-omega, reason)``. It never alters the computation.
+f_mid, *, f_lo, f_hi, new_lo, new_hi, width)`` for every midpoint the
+engine evaluates, and ``refined(kind, omega, reason)``. ``f_lo``/``f_hi``
+are the values the engine really holds at that moment (``None`` when it
+did not compute them: the phase bisection never evaluates Im L at ``hi``),
+``new_lo``/``new_hi`` the interval it keeps, ``width`` the relative width
+it tested. It never alters the computation.
 """
 
 from __future__ import annotations
@@ -108,18 +112,22 @@ def _refine_gain_crossover(loop: TransferFunctionTF, lo: Decimal, hi: Decimal, o
             break
         mid = ctx.divide(ctx.add(lo, hi), Decimal(2))
         fmid = _eval_jw(loop, mid).modulus() - Decimal(1)
-        if observer is not None:
-            observer.bisection("gain", k + 1, lo, hi, mid, fmid)
         if fmid == 0:
             if observer is not None:
+                observer.bisection("gain", k + 1, lo, hi, mid, fmid, f_lo=flo, f_hi=fhi, new_lo=mid, new_hi=mid,
+                                   width=width)
                 observer.refined("gain", mid, "exact zero at the midpoint")
             return mid
+        old = (lo, hi, flo, fhi)
         if (flo > 0) == (fmid > 0):
             lo = mid
             flo = fmid
         else:
             hi = mid
             fhi = fmid
+        if observer is not None:
+            observer.bisection("gain", k + 1, old[0], old[1], mid, fmid, f_lo=old[2], f_hi=old[3], new_lo=lo,
+                               new_hi=hi, width=width)
     out = ctx.divide(ctx.add(lo, hi), Decimal(2))
     if observer is not None:
         observer.refined("gain", out, reason)
@@ -151,16 +159,20 @@ def _refine_phase_crossover(loop: TransferFunctionTF, lo: Decimal, hi: Decimal, 
             continue
         im_lo = vlo.im
         im_mid = vmid.im
-        if observer is not None:
-            observer.bisection("phase", k + 1, lo, hi, mid, im_mid)
         if im_mid == 0:
             if observer is not None:
+                observer.bisection("phase", k + 1, lo, hi, mid, im_mid, f_lo=im_lo, f_hi=None, new_lo=mid,
+                                   new_hi=mid, width=width)
                 observer.refined("phase", mid, "exact zero at the midpoint")
             return mid
+        old = (lo, hi)
         if (im_lo > 0) == (im_mid > 0):
             lo = mid
         else:
             hi = mid
+        if observer is not None:
+            observer.bisection("phase", k + 1, old[0], old[1], mid, im_mid, f_lo=im_lo, f_hi=None, new_lo=lo,
+                               new_hi=hi, width=width)
     out = ctx.divide(ctx.add(lo, hi), Decimal(2))
     if observer is not None:
         observer.refined("phase", out, reason)

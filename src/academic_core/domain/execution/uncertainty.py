@@ -36,8 +36,15 @@ observer, and records what the engine really did:
     evaluated at the nominal values. The tolerance is 1e-6 relative for
     NUMERICAL (central difference) and 1e-20 otherwise.
 
-Only equation models are traceable: a callable evaluator cannot be
-recorded as data, so it is refused (``UNSUPPORTED``).
+Only DECLARATIVE models are traceable: an equation (text), optionally
+with constant sensitivities (inputs ``c.<name>``, E0.1-R+). A callable
+evaluator or sensitivity is code, not data, so its explanation is refused
+(``UNSUPPORTED``). Computing it with ``evaluate_gum`` stays allowed.
+
+E0.1-R+ L6: two extra CHECKs recompute √(u_c²) and Welch–Satterthwaite
+in Decimal (50 digits) from the certified budget and measure the
+difference from the certified float values. The certified values are
+kept (KEEP_CERTIFIED_BEHAVIOR).
 """
 
 from __future__ import annotations
@@ -52,6 +59,7 @@ from academic_core.domain.engineering.symbolic.expr import parse, text
 from academic_core.domain.engineering.symbolic.numeric import symbols, value
 from academic_core.domain.engineering.symbolic.steps import StepLog
 from academic_core.domain.execution.model import EventKind, ExecutionTrace, TraceRecorder, TraceValue, _invalid
+from academic_core.domain.execution.verification import NONE, NUMERIC, SYMBOLIC, labelled
 from academic_core.errors import UnsupportedError
 
 OPERATION = "engineering.gum"
@@ -61,6 +69,9 @@ _RESERVED = {"measurand", "equation", "output_unit", "coverage_probability", "ex
 VARIANCE_TOL = Decimal("1e-12")
 SENS_TOL_NUMERICAL = Decimal("1e-6")
 SENS_TOL_EXACT = Decimal("1e-20")
+SENS_PREFIX = "c."  # declared (constant) sensitivities, E0.1-R+ L3
+DECIMAL_SQRT_TOL = Decimal("1e-15")  # float √: correctly rounded binary64, printed with repr (17 digits)
+DECIMAL_NU_TOL = Decimal("1e-12")  # float accumulation in Welch–Satterthwaite
 
 
 def quantity_spec(q: G.InputQuantity) -> str:
@@ -135,7 +146,7 @@ def _substituted(rhs: str, nominal: dict[str, Decimal]) -> str:
 
 def explain_gum(measurand: str, equation: str, quantities: dict[str, str], output_unit: str = "",
                 coverage_probability: str = "0.95", explicit_k: str | None = None,
-                correlations: str = "") -> ExecutionTrace:
+                correlations: str = "", sensitivities: dict[str, str] | None = None) -> ExecutionTrace:
     if not isinstance(quantities, dict) or not quantities or not all(
             isinstance(k, str) and _NAME_RE.fullmatch(k) and k not in _RESERVED and isinstance(v, str)
             for k, v in quantities.items()):
@@ -153,7 +164,18 @@ def explain_gum(measurand: str, equation: str, quantities: dict[str, str], outpu
         rec.input("explicit_k", TraceValue.of_text(explicit_k), "Factor de cobertura explícito")
     rec.input("correlations", TraceValue.of_text(correlations), "Correlaciones")
     raw = {n: rec.input(n, TraceValue.of_text(quantities[n]), f"Magnitud de entrada {n}") for n in sorted(quantities)}
+    declared = dict(sensitivities or {})
+    if not all(isinstance(k, str) and k in quantities and isinstance(v, str) for k, v in declared.items()):
+        raise _invalid("INVALID_INPUT", "sensitivities must map input quantity names to decimal text")
+    for n in sorted(declared):
+        rec.input(f"{SENS_PREFIX}{n}", TraceValue.of_text(declared[n]), f"Coeficiente de sensibilidad declarado c_{n}")
     try:
+        try:
+            explicit = {n: Decimal(declared[n]) for n in declared}
+        except InvalidOperation:
+            raise _invalid("INVALID_INPUT", "declared sensitivities must be decimal numbers") from None
+        if not all(v.is_finite() for v in explicit.values()):
+            raise _invalid("INVALID_INPUT", "declared sensitivities must be finite")
         inputs = {}
         norm = {}
         for n in sorted(quantities):
@@ -166,7 +188,8 @@ def explain_gum(measurand: str, equation: str, quantities: dict[str, str], outpu
                 values=(("x", _n(q.nominal_value)), ("unit", TraceValue.of_text(q.unit or "1")),
                         ("u", _n(q.standard_uncertainty)), ("type", TraceValue.of_text(q.uncertainty_type)),
                         ("distribution", TraceValue.of_text(q.distribution)), ("dof", TraceValue.of_text(dof))))
-        model = G.MeasurementModel(measurand=measurand, equation=equation, output_unit=output_unit)
+        model = G.MeasurementModel(measurand=measurand, equation=equation, output_unit=output_unit,
+                                   sensitivities=explicit or None)
         p = float(Decimal(coverage_probability))
         k_arg = Decimal(explicit_k) if explicit_k is not None else None
         obs = _Observer()
@@ -235,7 +258,8 @@ def explain_gum(measurand: str, equation: str, quantities: dict[str, str], outpu
                          result=TraceValue.of_number(result.expanded_uncertainty, unit))
         rec.event(EventKind.WARNING, "Precisión del motor GUM", refs=(uc_id, nu_id),
                   why="El motor GUM certificado calcula √(u_c²) y ν_eff en coma flotante binaria (math.sqrt / float); "
-                      "esos dos valores no son exactos. El resto de la cadena es Decimal.")
+                      "esos dos valores no son exactos. El resto de la cadena es Decimal. Se conserva el comportamiento "
+                      "certificado (KEEP_CERTIFIED_BEHAVIOR); la comprobación Decimal de abajo mide la diferencia.")
         res_id = rec.event(EventKind.RESULT, f"Resultado {measurand}", refs=(y_id, u_id), formula=result.summary()[:512],
                            result=TraceValue.of_text(result.summary()[:512]))
         _checks(rec, res_id, result, measurand, rhs, nominal, obs, sens_ids)
@@ -270,7 +294,58 @@ def _checks(rec, res_id, result, measurand, rhs, nominal, obs, sens_ids) -> None
         rec.check("Σ contribuciones % = 100·Σ(c_i·u_i)²/u_c² (redondeo de la tabla)", TraceValue.of_number(pct),
                   TraceValue.of_number(expected.quantize(Decimal("1e-6"))), abs(pct - expected) <= tol, refs=(res_id,),
                   tolerance=TraceValue.of_number(tol), title="Comprobación: porcentajes del presupuesto")
+    _check_decimal_path(rec, res_id, result)
     _check_partials(rec, res_id, result, rhs, nominal, obs, sens_ids)
+
+
+def decimal_audit(result: G.GUMResult) -> tuple[Decimal, Decimal, Decimal | None, Decimal | None]:
+    """(u_c Decimal, relative difference, ν_eff Decimal or None if ∞, relative difference or None).
+
+    E0.1-R+ L6: the same formulas as the certified engine (√ of the combined
+    variance, Welch–Satterthwaite over the budget contributions), in Decimal
+    at 50 digits. It is an audit of the certified float values; it does not
+    replace them."""
+    b = result.budget
+    with localcontext() as ctx:
+        ctx.prec = 50
+        uc = b.combined_variance.sqrt() if b.combined_variance > 0 else Decimal(0)
+        certified = result.combined_standard_uncertainty
+        uc_diff = abs(uc - certified) / uc if uc else abs(certified)
+        denom = Decimal(0)
+        finite = False
+        for r in b.rows:
+            if not math.isinf(r.degrees_of_freedom):
+                finite = True
+                if r.contribution != 0:
+                    denom += r.contribution ** 4 / Decimal(repr(r.degrees_of_freedom))
+        if not finite or denom == 0:
+            return uc, uc_diff, None, None
+        nu = uc ** 4 / denom
+        engine_nu = result.effective_degrees_of_freedom
+        nu_diff = abs(nu - Decimal(repr(engine_nu))) / nu if not math.isinf(engine_nu) else None
+        return uc, uc_diff, nu, nu_diff
+
+
+def _check_decimal_path(rec, res_id, result) -> None:
+    uc, uc_diff, nu, nu_diff = decimal_audit(result)
+    rec.check("u_c: √ Decimal (50 dígitos) frente a √ float certificada", TraceValue.of_number(uc_diff),
+              TraceValue.of_number(Decimal(0)), uc_diff <= DECIMAL_SQRT_TOL, refs=(res_id,),
+              tolerance=TraceValue.of_number(DECIMAL_SQRT_TOL),
+              detail=labelled(f"u_c Decimal = {uc:.25g}; certificada = {result.combined_standard_uncertainty}", NUMERIC),
+              title="Comprobación: ruta Decimal de u_c")
+    if nu is None:
+        rec.check("ν_eff Decimal frente a ν_eff certificada", TraceValue.of_text("∞"),
+                  TraceValue.of_text("∞" if math.isinf(result.effective_degrees_of_freedom) else "finito"),
+                  math.isinf(result.effective_degrees_of_freedom), refs=(res_id,),
+                  detail=labelled("todas las entradas con ν = ∞ (o contribuciones nulas)", SYMBOLIC),
+                  title="Comprobación: ruta Decimal de ν_eff")
+        return
+    ok = nu_diff is not None and nu_diff <= DECIMAL_NU_TOL
+    rec.check("ν_eff Decimal frente a ν_eff certificada (float)",
+              TraceValue.of_number(nu_diff) if nu_diff is not None else TraceValue.of_text("∞ en el motor"),
+              TraceValue.of_number(Decimal(0)), ok, refs=(res_id,), tolerance=TraceValue.of_number(DECIMAL_NU_TOL),
+              detail=labelled(f"ν_eff Decimal = {nu:.20g}; certificada = {result.effective_degrees_of_freedom!r}", NUMERIC),
+              title="Comprobación: ruta Decimal de ν_eff")
 
 
 def _check_partials(rec, res_id, result, rhs, nominal, obs, sens_ids) -> None:
@@ -290,28 +365,37 @@ def _check_partials(rec, res_id, result, rhs, nominal, obs, sens_ids) -> None:
         title = f"Comprobación: c_{row.quantity} frente a ∂f/∂{row.quantity} simbólica"
         if f is None:
             rec.check(f"c_{row.quantity} = ∂f/∂{row.quantity}", TraceValue.of_number(row.sensitivity_coefficient),
-                      TraceValue.of_text("-"), None, refs=(ref,), detail=f"no aplicable: {reason}", title=title)
+                      TraceValue.of_text("-"), None, refs=(ref,), detail=labelled(f"no aplicable: {reason}", NONE),
+                      title=title)
             continue
         _raw, d, _s = derivative(f, row.quantity, StepLog())
         expected = value(d, dict(nominal))
         tol = SENS_TOL_NUMERICAL if row.sensitivity_method == "NUMERICAL" else SENS_TOL_EXACT
         if expected is None:
             rec.check(f"c_{row.quantity} = ∂f/∂{row.quantity}", TraceValue.of_number(row.sensitivity_coefficient),
-                      TraceValue.of_text("-"), None, refs=(ref,), detail="no aplicable: ∂f no evaluable", title=title)
+                      TraceValue.of_text("-"), None, refs=(ref,), detail=labelled("no aplicable: ∂f no evaluable", NONE),
+                      title=title)
             continue
         err = _rel(row.sensitivity_coefficient, expected) if expected else abs(row.sensitivity_coefficient)
         rec.check(f"c_{row.quantity} = ∂f/∂{row.quantity}", TraceValue.of_number(row.sensitivity_coefficient),
                   TraceValue.of_number(expected), err <= tol, refs=(ref,), tolerance=TraceValue.of_number(tol),
-                  detail=f"∂f/∂{row.quantity} = {text(d)}"[:512], title=title)
+                  detail=labelled(f"∂f/∂{row.quantity} = {text(d)} evaluada en los valores nominales", NUMERIC),
+                  title=title)
 
 
 def explain_gum_model(model: G.MeasurementModel, inputs: dict[str, G.InputQuantity],
                       coverage_probability: float = 0.95, explicit_k=None) -> ExecutionTrace:
-    """Convenience: trace an equation ``MeasurementModel`` (a callable evaluator cannot be traced)."""
-    if model.equation is None or model.evaluator is not None or model.sensitivities:
-        raise UnsupportedError("UNSUPPORTED: only equation models without callables can be traced as data")
+    """Trace a DECLARATIVE ``MeasurementModel``: an equation (text, parsed by the certified evaluator)
+    plus, optionally, constant sensitivities. A callable evaluator or a callable sensitivity is code,
+    not data: it can still be computed with ``evaluate_gum``, but its explanation is ``UNSUPPORTED``."""
+    if model.equation is None or model.evaluator is not None:
+        raise UnsupportedError("UNSUPPORTED: a callable evaluator cannot be traced as data; use an equation model")
+    declared = dict(model.sensitivities or {})
+    if any(callable(v) for v in declared.values()):
+        raise UnsupportedError("UNSUPPORTED: a callable sensitivity cannot be traced as data; declare a constant")
     return explain_gum(model.measurand, model.equation, {n: quantity_spec(q) for n, q in inputs.items()},
-                       model.output_unit, repr(coverage_probability), None if explicit_k is None else str(explicit_k))
+                       model.output_unit, repr(coverage_probability), None if explicit_k is None else str(explicit_k),
+                       sensitivities={n: str(Decimal(str(v))) for n, v in declared.items()})
 
 
 def replay_gum(trace: ExecutionTrace) -> ExecutionTrace:
@@ -319,5 +403,7 @@ def replay_gum(trace: ExecutionTrace) -> ExecutionTrace:
         raise _invalid("INVALID_TRACE", f"not an {OPERATION} trace")
     rec = {k: v.text for k, v in trace.inputs}
     fixed = {n: rec.pop(n) for n in list(rec) if n in _RESERVED}
+    declared = {n[len(SENS_PREFIX):]: rec.pop(n) for n in list(rec) if n.startswith(SENS_PREFIX)}
     return explain_gum(fixed.get("measurand", ""), fixed.get("equation", ""), rec, fixed.get("output_unit", ""),
-                       fixed.get("coverage_probability", "0.95"), fixed.get("explicit_k"), fixed.get("correlations", ""))
+                       fixed.get("coverage_probability", "0.95"), fixed.get("explicit_k"), fixed.get("correlations", ""),
+                       sensitivities=declared or None)

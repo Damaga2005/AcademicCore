@@ -622,9 +622,13 @@ def solve_nonlinear_dc(circuit: Circuit, *,
     is unchanged either way.
 
     ``observer`` (E0.1, optional, default None) is told the facts of the
-    real iteration: ``newton_start(nodes, x, kcl, aux, scale)`` once and
-    ``newton_iteration(it, alpha, halvings, step_peak, x, kcl, aux, scale,
-    res_ok, step_ok)`` after every accepted step. It never alters the solve.
+    real iteration: ``newton_start(nodes, x, kcl, aux, scale, *, unknowns,
+    residual)`` once and ``newton_iteration(it, alpha, halvings, step_peak,
+    x, kcl, aux, scale, res_ok, step_ok, *, x_prev, residual_prev,
+    jacobian, dx, residual)`` after every accepted step (E0.1-R+: full
+    vectors and the Jacobian actually used). Every argument is an immutable
+    snapshot (tuples of Decimal), built only when an observer is present.
+    It never alters the solve.
     """
     return _solve_nonlinear_dc_impl(circuit, max_iter, x_init, None, observer)
 
@@ -730,7 +734,11 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
     k0, a0n = system.block_norms(f0)
     scale = system.scale_of(x)
     if observer is not None:
-        observer.newton_start(problem.nodes, x[:system.n_nodes], k0, a0n, scale)
+        unknowns = (tuple(problem.nodes) + tuple(f"I({r})" for r in problem.vsource_refs)
+                    + tuple(f"I({r}):{k}" for r in problem.tx_leg_refs for k in (1, 2))
+                    + tuple(f"I({r})" for r in problem.l_aux_refs))
+        observer.newton_start(problem.nodes, x[:system.n_nodes], k0, a0n, scale,
+                              unknowns=unknowns[:n], residual=tuple(f0))
     if _block_ok(list(f0[:system.n_nodes]), scale) and \
             _block_ok(list(f0[system.n_nodes:]), scale):
         if capture is not None:
@@ -847,6 +855,7 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
                     f"stagnation",
                 ]),
             )
+        x_prev, f_prev = x, final_f
         if alpha < 1:
             backtrack_uses += 1
         step_peak = max([abs(ctx.multiply(alpha, dv)) for dv in dx]
@@ -861,7 +870,10 @@ def _solve_nonlinear_dc_impl(circuit: Circuit, max_iter: int,
         step_ok = step_peak <= STOL + RTOL * scale
         if observer is not None:
             observer.newton_iteration(it, alpha, halvings, step_peak, x[:system.n_nodes], final_pair[0],
-                                      final_pair[1], scale, res_ok, step_ok)
+                                      final_pair[1], scale, res_ok, step_ok,
+                                      x_prev=tuple(x_prev), residual_prev=tuple(f_prev),
+                                      jacobian=tuple(tuple(r) for r in jac), dx=tuple(dx),
+                                      residual=tuple(final_f))
         if res_ok and step_ok:
             if capture is not None:
                 capture.update(problem=problem, system=system, x=x)

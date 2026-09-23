@@ -155,17 +155,24 @@ def _power(e: Pow, var: str, log: StepLog) -> tuple[Expr, int]:
                         uses=(s0, s1, s2))
 
 
+# E0.1-R+: the domain condition under which each table entry holds (stated, never checked silently)
+_DOMAIN = {"tan": "válida donde cos(u) ≠ 0", "log": "válida para u > 0", "sqrt": "válida para u > 0",
+           "abs": "válida para u ≠ 0"}
+
+
 def _function(e: Fn, var: str, log: StepLog) -> tuple[Expr, int]:
     rule, builder = _TABLE[e.name]
+    domain = f" Dominio: {_DOMAIN[e.name]}." if e.name in _DOMAIN else ""
     inner = e.arg
     if isinstance(inner, Sym) and inner.name == var:
         out = builder(inner)
-        return out, log.add(OP, rule, f"d/d{var}[{text(e)}]", text(out), explanation="Derivada inmediata de la tabla.")
+        return out, log.add(OP, rule, f"d/d{var}[{text(e)}]", text(out),
+                            explanation="Derivada inmediata de la tabla." + domain)
     s0 = log.add(OP, "regla de la cadena: identificar función exterior e interior", text(e),
                  f"exterior: {e.name}(u); interior: u = {text(inner)}", explanation="(f(g))' = f'(g)·g'")
     outer = builder(inner)
     s1 = log.add(OP, f"derivar la exterior ({rule})", f"{e.name}(u)", text(builder(Sym("u"))),
-                 explanation="Derivada de la función exterior respecto de u.")
+                 explanation="Derivada de la función exterior respecto de u." + domain)
     dg, s2 = differentiate(inner, var, log)
     out = Mul(outer, dg)
     return out, log.add(OP, "regla de la cadena: sustituir", "f'(u)·u'", text(out),

@@ -46,7 +46,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from academic_core.domain.execution import EventKind, ExecutionTrace, TraceValue, canonical_decimal
+from academic_core.domain.execution import EventKind, ExecutionTrace, TraceValue, canonical_decimal, verification_kind
+
+KIND_TEXT = {"SYMBOLIC": "verificación simbólica/exacta", "NUMERIC": "verificación numérica, no es una demostración",
+             "NONE": "sin verificación"}
 from academic_core.errors import ValidationError
 
 QUESTIONS = (
@@ -81,6 +84,7 @@ class CheckView:
     expected: str
     tolerance: str
     detail: str
+    kind: str = ""  # E0.1-R+: SYMBOLIC / NUMERIC / NONE for labelled equivalence checks, "" otherwise
 
 
 @dataclass(frozen=True)
@@ -176,7 +180,7 @@ def build_view(trace: ExecutionTrace) -> ExplanationView:
             c = e.check
             checks.append(CheckView(e.event_id, c.what, c.status.value, show_value(c.actual),
                                     show_value(c.expected), show_value(c.tolerance) if c.tolerance else "",
-                                    c.detail))
+                                    c.detail, verification_kind(c)))
             line = f"{tag} {c.status.value}: {c.what} — obtenido {show_value(c.actual)}, esperado {show_value(c.expected)}"
             if c.tolerance is not None:
                 line += f" (tolerancia {show_value(c.tolerance)})"
@@ -266,7 +270,8 @@ def _lessons(trace: ExecutionTrace) -> tuple[LessonView, ...]:
             transformation = c.what
             output = f"{c.status.value} (esperado {show_value(c.expected)}"
             output += f", tolerancia {show_value(c.tolerance)})" if c.tolerance is not None else ")"
-            verification = f"{e.event_id} {c.status.value}"
+            kind = verification_kind(c)
+            verification = f"{e.event_id} {c.status.value}" + (f" ({KIND_TEXT[kind]})" if kind else "")
             explanation = c.detail
         elif e.kind is EventKind.ERROR:
             entry = "; ".join(_consumed(trace, r) for r in e.refs)
