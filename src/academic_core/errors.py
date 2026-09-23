@@ -68,6 +68,37 @@ class IntegrationError(AcademicCoreError):
     category = "integration"
 
 
+class AcademicManagementError(AcademicCoreError):
+    """F4.1 academic management use-case failure (unknown entity, guard...)."""
+    code = "AC-ACD-001"
+    category = "academic"
+
+
+class MigrationError(AcademicCoreError):
+    """F4.1 legacy data migration failure (never partially applied)."""
+    code = "AC-MIG-001"
+    category = "migration"
+
+
+# F4.1 code registry (documented in docs/specs/ERROR-CODES.md; uniqueness
+# is enforced by tests/test_f4_security.py).
+F41_ERROR_CODES: dict[str, str] = {
+    "AC-ACD-001": "academic management operation refused",
+    "AC-ACD-002": "unknown academic entity",
+    "AC-ACD-003": "academic integrity guard (duplicate / still referenced)",
+    "AC-ACD-004": "invalid academic value (state, category, weight...)",
+    "AC-MIG-001": "migration failed; target left unchanged",
+    "AC-MIG-002": "legacy source is not a valid/consistent SQLite database",
+    "AC-MIG-003": "legacy schema version not supported",
+    "AC-MIG-004": "snapshot of the target is required before applying",
+    "AC-MIG-005": "migration cancelled; target left unchanged",
+    "AC-MIG-006": "post-migration validation failed",
+    "AC-SEC-002": "path escapes the allowed root (refused)",
+    "AC-SEC-003": "archive rejected (zip slip / bomb / limits)",
+    "AC-ICS-001": "calendar file rejected (format or limits)",
+}
+
+
 # ---------------------------------------------------------------------------
 # UiError (D2 §14): the ONLY value widgets may present.
 # ---------------------------------------------------------------------------

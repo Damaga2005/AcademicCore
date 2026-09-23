@@ -16,6 +16,10 @@ from academic_core.infrastructure.repositories import (
     PlanningRepository, StudyRepository,
 )
 from academic_core.infrastructure.resources import FtsResourceIndexer, SqliteResourceRecords
+from academic_core.infrastructure.academic_store import (
+    CourseMaterialRepository, EvaluationRepository, LegacyRepository, PersonalRepository,
+    SeriesRepository, StudySpaceRepository,
+)
 
 __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "GradingRepository", "IntegrityError",
@@ -24,4 +28,6 @@ __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "NgSpiceBackend", "NgSpiceDiscovery", "RuntimeInfo", "SimulationExecution", "HEALTH_NETLIST",
            "parse_ngspice_op", "parse_ngspice_output",
            "BlobNotFound", "CorruptBlob", "FileBlobStore", "TooLarge",
-           "FtsResourceIndexer", "SqliteResourceRecords"]
+           "FtsResourceIndexer", "SqliteResourceRecords",
+           "CourseMaterialRepository", "EvaluationRepository", "LegacyRepository",
+           "PersonalRepository", "SeriesRepository", "StudySpaceRepository"]

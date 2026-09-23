@@ -83,6 +83,39 @@ class AcademicApp:
         # -- E0 explainable execution (traces of real runs -> explanations) --
         from academic_core.application.explain_service import ExplainService
         self.explain = ExplainService(self.engineering, self.digital)
+        # -- F4.1 academic management (one app, one DB, subject-centred) --
+        from academic_core.application.academic_mgmt import (
+            CareerService, CourseMaterialService, EvaluationService, PlanningService,
+        )
+        from academic_core.application.calendar import CalendarService
+        from academic_core.application.gestion_migration import GestionMigrationService
+        from academic_core.application.knowledge import KnowledgeService
+        from academic_core.application.search import UnifiedSearchService
+        from academic_core.infrastructure import (
+            CourseMaterialRepository, EvaluationRepository, PersonalRepository,
+            SeriesRepository, StudySpaceRepository,
+        )
+        self.evaluations = EvaluationRepository(self.db)
+        self.course_material = CourseMaterialRepository(self.db)
+        self.study_spaces = StudySpaceRepository(self.db)
+        self.series = SeriesRepository(self.db)
+        self.personal = PersonalRepository(self.db)
+        self.evaluation = EvaluationService(self.academic, self.evaluations)
+        self.career = CareerService(self.academic, self.planning, self.evaluation,
+                                    self.course_material, self.study_spaces, self.series,
+                                    self.personal)
+        self.material = CourseMaterialService(self.academic, self.course_material,
+                                              self.study_spaces, self.planning, self.ingest)
+        self.calendar = CalendarService(self.academic, self.planning, self.series,
+                                        self.study_spaces)
+        self.plans = PlanningService(self.academic, self.personal)
+        self.knowledge = KnowledgeService(self.academic, self.documents, self.records,
+                                          self.course_material, self.evaluation)
+        self.unified_search = UnifiedSearchService(self.academic, self.planning,
+                                                   self.course_material, self.personal,
+                                                   self.fts)
+        self.migration = GestionMigrationService(self.db, self.blobs, self.records, self.fts,
+                                                 self.academic, self.backup)
 
     def ensure_demo(self) -> None:
         """Generic, deletable demo hierarchy (never institution-specific)."""

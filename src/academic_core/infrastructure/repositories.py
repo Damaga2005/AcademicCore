@@ -25,6 +25,19 @@ def _u(v, default):
     return json.loads(v) if v else default
 
 
+SUBJECT_UPSERT = (
+    "INSERT OR REPLACE INTO subjects(stable_id, code, name, acronym, description, credits,"
+    " kind, course, term_id, state, final_grade, catalog_origin, scheme_rule, notes,"
+    " notes_updated_at, virtual_classroom, extra) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+
+
+def subject_params(s: E.Subject) -> tuple:
+    return (s.stable_id, s.code, s.name, s.acronym, s.description, s.credits, s.kind,
+            s.course, s.term_id, s.state, s.final_grade, int(s.catalog_origin),
+            s.scheme_rule, s.notes, s.notes_updated_at, s.virtual_classroom,
+            json.dumps(s.extra, ensure_ascii=False, sort_keys=True))
+
+
 class AcademicRepository:
     """Hierarchy + people + topics + stable-id counters."""
 
@@ -108,10 +121,16 @@ class AcademicRepository:
                           (s.term_id,)).fetchone():
             cx.close()
             raise IntegrityError(f"parent term does not exist: {s.term_id}")
-        cx.execute("INSERT OR REPLACE INTO subjects VALUES (?,?,?,?,?,?,?,?,?,?)",
-                   (s.stable_id, s.code, s.name, s.acronym, s.description,
-                    s.credits, s.kind, s.course, s.term_id, s.state))
+        cx.execute(SUBJECT_UPSERT, subject_params(s))
         cx.commit(); cx.close()
+
+    @staticmethod
+    def _subject(r) -> E.Subject:
+        return E.Subject(r["stable_id"], r["code"], r["name"], r["acronym"], r["description"],
+                         r["credits"], r["kind"], r["course"], r["term_id"], r["state"],
+                         r["final_grade"], bool(r["catalog_origin"]), r["scheme_rule"],
+                         r["notes"], r["notes_updated_at"], r["virtual_classroom"],
+                         _u(r["extra"], {}))
 
     def get_subject(self, stable_id: str) -> E.Subject | None:
         cx = self.db.connect()
@@ -119,41 +138,78 @@ class AcademicRepository:
         cx.close()
         if not r:
             return None
-        return E.Subject(r["stable_id"], r["code"], r["name"], r["acronym"], r["description"],
-                         r["credits"], r["kind"], r["course"], r["term_id"], r["state"])
+        return self._subject(r)
 
     def subjects_of_term(self, term_id: str) -> list[E.Subject]:
         cx = self.db.connect()
-        rows = cx.execute("SELECT * FROM subjects WHERE term_id=? ORDER BY name",
+        rows = cx.execute("SELECT * FROM subjects WHERE term_id=? ORDER BY name, stable_id",
                           (term_id,)).fetchall(); cx.close()
-        return [self.get_subject(r["stable_id"]) for r in rows]
+        return [self._subject(r) for r in rows]
 
     def all_subjects(self) -> list[E.Subject]:
         cx = self.db.connect()
-        rows = cx.execute("SELECT stable_id FROM subjects ORDER BY name").fetchall(); cx.close()
-        return [self.get_subject(r["stable_id"]) for r in rows]
+        rows = cx.execute("SELECT * FROM subjects ORDER BY name, stable_id").fetchall(); cx.close()
+        return [self._subject(r) for r in rows]
+
+    def all_terms(self) -> list[E.Term]:
+        cx = self.db.connect()
+        rows = cx.execute("SELECT DISTINCT academic_year_id FROM terms"
+                          " ORDER BY academic_year_id").fetchall(); cx.close()
+        out: list[E.Term] = []
+        for r in rows:
+            out.extend(self.terms_of(r["academic_year_id"]))
+        return out
+
+    def get_professor(self, stable_id: str) -> E.Professor | None:
+        cx = self.db.connect()
+        r = cx.execute("SELECT * FROM professors WHERE stable_id=?", (stable_id,)).fetchone()
+        cx.close()
+        return (E.Professor(r["stable_id"], r["name"], r["email"], r["office"],
+                            r["virtual_classroom"]) if r else None)
+
+    def all_professors(self) -> list[E.Professor]:
+        cx = self.db.connect()
+        rows = cx.execute("SELECT * FROM professors ORDER BY name, stable_id").fetchall()
+        cx.close()
+        return [E.Professor(r["stable_id"], r["name"], r["email"], r["office"],
+                            r["virtual_classroom"]) for r in rows]
 
     # -- people -------------------------------------------------------------
     def add_professor(self, p: E.Professor) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO professors VALUES (?,?,?,?)",
-                   (p.stable_id, p.name, p.email, p.office))
+        cx.execute("INSERT OR REPLACE INTO professors(stable_id, name, email, office,"
+                   " virtual_classroom) VALUES (?,?,?,?,?)",
+                   (p.stable_id, p.name, p.email, p.office, p.virtual_classroom))
         cx.commit(); cx.close()
 
     def attach_staff(self, link: E.SubjectStaff) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO subject_staff VALUES (?,?,?,?)",
-                   (link.subject_id, link.professor_id, link.role, link.groups))
+        cx.execute("INSERT OR REPLACE INTO subject_staff(subject_id, professor_id, role,"
+                   " groups, ord, email, office, virtual_url) VALUES (?,?,?,?,?,?,?,?)",
+                   (link.subject_id, link.professor_id, link.role, link.groups,
+                    link.order, link.email, link.office, link.virtual_url))
         cx.commit(); cx.close()
 
     def staff_of(self, subject_id: str) -> list[tuple[E.Professor, E.SubjectStaff]]:
         cx = self.db.connect()
         rows = cx.execute(
-            "SELECT p.*, s.role, s.groups FROM professors p JOIN subject_staff s "
-            "ON s.professor_id=p.stable_id WHERE s.subject_id=?", (subject_id,)).fetchall()
+            "SELECT p.*, s.role, s.groups, s.ord, s.email AS link_email,"
+            " s.office AS link_office, s.virtual_url FROM professors p JOIN subject_staff s"
+            " ON s.professor_id=p.stable_id WHERE s.subject_id=?"
+            " ORDER BY s.ord, p.name, p.stable_id", (subject_id,)).fetchall()
         cx.close()
-        return [(E.Professor(r["stable_id"], r["name"], r["email"], r["office"]),
-                 E.SubjectStaff(subject_id, r["stable_id"], r["role"], r["groups"])) for r in rows]
+        return [(E.Professor(r["stable_id"], r["name"], r["email"], r["office"],
+                             r["virtual_classroom"]),
+                 E.SubjectStaff(subject_id, r["stable_id"], r["role"], r["groups"],
+                                r["ord"], r["link_email"], r["link_office"],
+                                r["virtual_url"])) for r in rows]
+
+    def subjects_of_professor(self, professor_id: str) -> list[str]:
+        cx = self.db.connect()
+        rows = cx.execute("SELECT subject_id FROM subject_staff WHERE professor_id=?"
+                          " ORDER BY subject_id", (professor_id,)).fetchall()
+        cx.close()
+        return [r["subject_id"] for r in rows]
 
     # -- topics --------------------------------------------------------------
     def add_topic(self, t: E.Topic) -> None:
@@ -440,10 +496,14 @@ class PlanningRepository:
     # tasks / deadlines ---------------------------------------------------------
     def add_task(self, t: E.Task) -> None:
         cx = self.db.connect()
-        cx.execute("INSERT OR REPLACE INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        cx.execute("INSERT OR REPLACE INTO tasks(stable_id, subject_id, title, kind, day,"
+                   " start, end, priority, state, notes, description, location, link,"
+                   " reminder_days, room, document_id)"
+                   " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (t.stable_id, t.subject_id, t.title, t.kind, t.day.isoformat() if t.day else None,
                     t.start, t.end, t.priority, t.state, t.notes,
-                    t.description, t.location, t.link, t.reminder_days))
+                    t.description, t.location, t.link, t.reminder_days, t.room,
+                    t.document_id))
         cx.commit(); cx.close()
 
     def _task(self, r) -> E.Task:
@@ -454,7 +514,15 @@ class PlanningRepository:
                       r["description"] if "description" in keys else "",
                       r["location"] if "location" in keys else "",
                       r["link"] if "link" in keys else "",
-                      r["reminder_days"] if "reminder_days" in keys else None)
+                      r["reminder_days"] if "reminder_days" in keys else None,
+                      r["room"] if "room" in keys else "",
+                      r["document_id"] if "document_id" in keys else "")
+
+    def get_task(self, stable_id: str) -> E.Task | None:
+        cx = self.db.connect()
+        r = cx.execute("SELECT * FROM tasks WHERE stable_id=?", (stable_id,)).fetchone()
+        cx.close()
+        return self._task(r) if r else None
 
     def tasks_of(self, subject_id: str) -> list[E.Task]:
         cx = self.db.connect()
@@ -464,7 +532,7 @@ class PlanningRepository:
 
     def all_tasks(self) -> list[E.Task]:
         cx = self.db.connect()
-        rows = cx.execute("SELECT * FROM tasks ORDER BY day").fetchall(); cx.close()
+        rows = cx.execute("SELECT * FROM tasks ORDER BY day, stable_id").fetchall(); cx.close()
         return [self._task(r) for r in rows]
 
     def delete_task(self, stable_id: str) -> None:

@@ -20,7 +20,7 @@ _MIGRATIONS = ("001_academic.sql", "002_grading.sql",
                "005_resources.sql", "006_fts.sql",
                "007_documents.sql", "008_academic_f4.sql",
                "009_authoring.sql", "010_engineering.sql",
-               "011_assessment.sql")
+               "011_assessment.sql", "012_academic_f41.sql")
 
 
 def _split_statements(script: str) -> list[str]:
@@ -142,3 +142,27 @@ class Database:
         finally:
             if not _initialized:
                 cx.close()
+
+
+def online_backup(src_path: str | Path, dst_path: str | Path) -> None:
+    """Consistent copy of a live SQLite database (WAL-safe), via SQLite's
+    online-backup API. A plain file copy can miss committed pages that
+    still live in the -wal file."""
+    src = sqlite3.connect(Path(src_path), timeout=10.0)
+    try:
+        dst = sqlite3.connect(Path(dst_path))
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+
+
+def sqlite_integrity(path: str | Path) -> str:
+    """``PRAGMA integrity_check`` of a file opened read-only."""
+    cx = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        return cx.execute("PRAGMA integrity_check").fetchone()[0]
+    finally:
+        cx.close()

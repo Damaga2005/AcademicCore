@@ -1,0 +1,390 @@
+{
+ "cases": [
+  {
+   "expected": {
+    "esquemas": [],
+    "profesores": [
+     {
+      "nombre": "EVA RODRIGUEZ LUNA",
+      "rol": "Responsable (grupos 11, 12, 13)"
+     },
+     {
+      "nombre": "JUAN CARLOS CRUELLAS IBARZ",
+      "rol": "Grupo 11"
+     }
+    ]
+   },
+   "text": "\nPROFESORADO\nProfesorado responsable: EVA RODRIGUEZ LUNA\nOtros: Primer quadrimestre:\nJUAN CARLOS CRUELLAS IBARZ - 11\nEVA RODRIGUEZ LUNA - 11, 12, 13\nCAPACIDADES PREVIAS\nResolución de sistemas lineales.\n"
+  },
+  {
+   "expected": {
+    "esquemas": [],
+    "profesores": []
+   },
+   "text": "\nPROFESORADO\nProfesorado responsable:\nOtros:\nCAPACIDADES PREVIAS\n"
+  },
+  {
+   "expected": {
+    "esquemas": [
+     {
+      "bloques": [],
+      "componentes": [
+       {
+        "nombre": "Nota de laboratorio (LAB)",
+        "pendiente_revision": false,
+        "porcentaje": 10.0,
+        "tipo": "laboratorio"
+       },
+       {
+        "nombre": "Problemas y actividades a casa (PRO)",
+        "pendiente_revision": false,
+        "porcentaje": 10.0,
+        "tipo": "otro"
+       },
+       {
+        "nombre": "Examen parcial de teoría durante el curso (EXPAR)",
+        "pendiente_revision": false,
+        "porcentaje": 30.0,
+        "tipo": "parcial"
+       },
+       {
+        "nombre": "Examen final de teoría (EXFIN)",
+        "pendiente_revision": false,
+        "porcentaje": 50.0,
+        "tipo": "examen_final"
+       }
+      ],
+      "nombre": "Evaluación",
+      "pendiente_revision": false,
+      "texto_sin_analizar": null
+     }
+    ],
+    "profesores": []
+   },
+   "text": "\nSISTEMA DE CALIFICACIÓN\nNota de laboratorio (LAB): 10%\nProblemas y actividades a casa (PRO): 10%\nExamen parcial de teoría durante el curso (EXPAR): 30%\nExamen final de teoría (EXFIN): 50%\nBIBLIOGRAFÍA\n"
+  },
+  {
+   "expected": {
+    "esquemas": [
+     {
+      "bloques": [],
+      "componentes": [
+       {
+        "nombre": "Qüestionaris quinzenals",
+        "pendiente_revision": false,
+        "porcentaje": 10.0,
+        "tipo": "otro"
+       },
+       {
+        "nombre": "Exámenes parciales",
+        "pendiente_revision": false,
+        "porcentaje": 40.0,
+        "tipo": "parcial"
+       },
+       {
+        "nombre": "Examen final",
+        "pendiente_revision": false,
+        "porcentaje": 50.0,
+        "tipo": "examen_final"
+       }
+      ],
+      "nombre": "Evaluación",
+      "pendiente_revision": false,
+      "texto_sin_analizar": null
+     }
+    ],
+    "profesores": []
+   },
+   "text": "\nSISTEMA DE CALIFICACIÓN\nQüestionaris quinzenals 10%\nExámenes parciales: 40%\nExamen final: 50%\nBIBLIOGRAFÍA\n"
+  },
+  {
+   "expected": {
+    "esquemas": [
+     {
+      "bloques": [],
+      "componentes": [
+       {
+        "nombre": "Nota de laboratorio (LAB)",
+        "pendiente_revision": false,
+        "porcentaje": 10.0,
+        "tipo": "laboratorio"
+       },
+       {
+        "nombre": "Problemas y actividades a casa (PRO)",
+        "pendiente_revision": false,
+        "porcentaje": 10.0,
+        "tipo": "otro"
+       },
+       {
+        "nombre": "Examen parcial de teoría durante el curso (EXPAR)",
+        "pendiente_revision": false,
+        "porcentaje": 30.0,
+        "tipo": "parcial"
+       },
+       {
+        "nombre": "Examen final de teoría (EXFIN)",
+        "pendiente_revision": false,
+        "porcentaje": 50.0,
+        "tipo": "examen_final"
+       }
+      ],
+      "nombre": "Evaluación",
+      "pendiente_revision": false,
+      "texto_sin_analizar": null
+     }
+    ],
+    "profesores": []
+   },
+   "text": "\nSISTEMA DE CALIFICACIÓN\nNota de laboratorio (LAB): 10%\nProblemas y actividades a casa (PRO): 10%\nExamen parcial de teoría durante el curso (EXPAR): 30%\nExamen final de teoría (EXFIN): 50%\nSolamente es reevaluable la parte de teoría con un peso del 90%. La nota de laboratorio se conservará de la\nevaluación anterior con un peso del 10%.\nBIBLIOGRAFÍA\n"
+  },
+  {
+   "expected": {
+    "esquemas": [
+     {
+      "bloques": [
+       {
+        "componentes": [
+         {
+          "nombre": "Examen lab",
+          "pendiente_revision": true,
+          "porcentaje": 50.0,
+          "tipo": "laboratorio"
+         },
+         {
+          "nombre": "Proyecto",
+          "pendiente_revision": true,
+          "porcentaje": 50.0,
+          "tipo": "otro"
+         }
+        ],
+        "nombre": "Nota laboratorio",
+        "pendiente_revision": true,
+        "porcentaje": 40.0
+       }
+      ],
+      "componentes": [
+       {
+        "nombre": "Examen final",
+        "pendiente_revision": true,
+        "porcentaje": 60.0,
+        "tipo": "examen_final"
+       }
+      ],
+      "nombre": "Solo examen final",
+      "pendiente_revision": false,
+      "texto_sin_analizar": null
+     },
+     {
+      "bloques": [
+       {
+        "componentes": [
+         {
+          "nombre": "Examen lab",
+          "pendiente_revision": true,
+          "porcentaje": 50.0,
+          "tipo": "laboratorio"
+         },
+         {
+          "nombre": "Proyecto",
+          "pendiente_revision": true,
+          "porcentaje": 50.0,
+          "tipo": "otro"
+         }
+        ],
+        "nombre": "Nota laboratorio",
+        "pendiente_revision": true,
+        "porcentaje": 40.0
+       }
+      ],
+      "componentes": [
+       {
+        "nombre": "Examen final",
+        "pendiente_revision": true,
+        "porcentaje": 40.0,
+        "tipo": "examen_final"
+       },
+       {
+        "nombre": "Examen parcial",
+        "pendiente_revision": true,
+        "porcentaje": 20.0,
+        "tipo": "parcial"
+       }
+      ],
+      "nombre": "Con examen parcial",
+      "pendiente_revision": false,
+      "texto_sin_analizar": null
+     }
+    ],
+    "profesores": []
+   },
+   "text": "\nSISTEMA DE CALIFICACIÓN\nNota final = MAX (0.6*Examen_final, 0.4*Examen_final + 0.2*Examen_parcial) + 0.4*Nota_laboratorio\nNota_laboratorio = 0.5*Examen_lab + 0.5*Proyecto\nBIBLIOGRAFÍA\n"
+  },
+  {
+   "expected": {
+    "esquemas": [
+     {
+      "bloques": [],
+      "componentes": [],
+      "nombre": "Evaluación",
+      "pendiente_revision": true,
+      "texto_sin_analizar": "Nota final = 0.6*Teoria + 0.4*Laboratorio\nLaboratorio = 0.5*Practicas + 0.25*Control"
+     }
+    ],
+    "profesores": []
+   },
+   "text": "\nSISTEMA DE CALIFICACIÓN\nNota final = 0.6*Teoria + 0.4*Laboratorio\nLaboratorio = 0.5*Practicas + 0.25*Control\nBIBLIOGRAFÍA\n"
+  },
+  {
+   "expected": {
+    "esquemas": [
+     {
+      "bloques": [],
+      "componentes": [],
+      "nombre": "Evaluación",
+      "pendiente_revision": true,
+      "texto_sin_analizar": "Se asigna una nota global al proyecto desarrollado por el equipo utilizando una rúbrica\nque tiene en cuenta los diferentes aspectos del proceso."
+     }
+    ],
+    "profesores": []
+   },
+   "text": "\nSISTEMA DE CALIFICACIÓN\nSe asigna una nota global al proyecto desarrollado por el equipo utilizando una rúbrica\nque tiene en cuenta los diferentes aspectos del proceso.\nBIBLIOGRAFÍA\n"
+  },
+  {
+   "expected": {
+    "esquemas": [
+     {
+      "bloques": [
+       {
+        "componentes": [
+         {
+          "nombre": "Practicas",
+          "pendiente_revision": true,
+          "porcentaje": 50.0,
+          "tipo": "laboratorio"
+         },
+         {
+          "nombre": "Control lab",
+          "pendiente_revision": true,
+          "porcentaje": 50.0,
+          "tipo": "laboratorio"
+         }
+        ],
+        "nombre": "Nota lab",
+        "pendiente_revision": true,
+        "porcentaje": 40.0
+       }
+      ],
+      "componentes": [
+       {
+        "nombre": "Examen final",
+        "pendiente_revision": true,
+        "porcentaje": 60.0,
+        "tipo": "examen_final"
+       }
+      ],
+      "nombre": "Solo examen final",
+      "pendiente_revision": false,
+      "texto_sin_analizar": null
+     },
+     {
+      "bloques": [
+       {
+        "componentes": [
+         {
+          "nombre": "Practicas",
+          "pendiente_revision": true,
+          "porcentaje": 50.0,
+          "tipo": "laboratorio"
+         },
+         {
+          "nombre": "Control lab",
+          "pendiente_revision": true,
+          "porcentaje": 50.0,
+          "tipo": "laboratorio"
+         }
+        ],
+        "nombre": "Nota lab",
+        "pendiente_revision": true,
+        "porcentaje": 40.0
+       }
+      ],
+      "componentes": [
+       {
+        "nombre": "Examen parcial",
+        "pendiente_revision": true,
+        "porcentaje": 30.0,
+        "tipo": "parcial"
+       },
+       {
+        "nombre": "Examen final",
+        "pendiente_revision": true,
+        "porcentaje": 30.0,
+        "tipo": "examen_final"
+       }
+      ],
+      "nombre": "Con examen parcial",
+      "pendiente_revision": false,
+      "texto_sin_analizar": null
+     }
+    ],
+    "profesores": []
+   },
+   "text": "SISTEMA DE CALIFICACIÓN\nNota final = MAX(0.6*Examen_final + 0.4*Nota_lab, 0.3*Examen_parcial + 0.3*Examen_final + 0.4*Nota_lab)\nNota_lab = 0.5*Practicas + 0.5*Control_lab\nBIBLIOGRAFÍA\nLibro\n"
+  },
+  {
+   "expected": {
+    "esquemas": [],
+    "profesores": [
+     {
+      "nombre": "Marta Ruiz",
+      "rol": null
+     },
+     {
+      "nombre": "Otros: Marta Ruiz",
+      "rol": "Grupo 10"
+     },
+     {
+      "nombre": "Pau Serra",
+      "rol": "Grupos 11, 12"
+     }
+    ]
+   },
+   "text": "PROFESORADO\nProfesorado responsable: Marta Ruiz\nOtros: Marta Ruiz - 10\nPau Serra - 11, 12\nCAPACIDADES PREVIAS\nNinguna\n"
+  },
+  {
+   "expected": {
+    "esquemas": [
+     {
+      "bloques": [],
+      "componentes": [
+       {
+        "nombre": "Qüestionaris quinzenals",
+        "pendiente_revision": false,
+        "porcentaje": 10.0,
+        "tipo": "otro"
+       },
+       {
+        "nombre": "Examen parcial",
+        "pendiente_revision": false,
+        "porcentaje": 35.5,
+        "tipo": "parcial"
+       },
+       {
+        "nombre": "Examen final",
+        "pendiente_revision": false,
+        "porcentaje": 54.5,
+        "tipo": "examen_final"
+       }
+      ],
+      "nombre": "Evaluación",
+      "pendiente_revision": false,
+      "texto_sin_analizar": null
+     }
+    ],
+    "profesores": []
+   },
+   "text": "SISTEMA DE CALIFICACIÓN\nQüestionaris quinzenals 10%\nExamen parcial: 35,5%\nExamen final: 54,5%\nRECURSOS\nx\n"
+  }
+ ],
+ "source": "Gestion-Academica@187a614 guia_docente.py"
+}
