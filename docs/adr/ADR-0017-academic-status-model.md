@@ -20,6 +20,10 @@ per subject, and no data loss.
   override, catalogue origin, scheme rule, notes, classroom URL, `extra`
   JSON for lossless legacy metadata).
 
+- Professor identity (closure amendment): never by name alone. Legacy rows
+  merge only with evidence (same name AND same non-empty e-mail); otherwise
+  distinct ids derived from the stable legacy id; reversible via legacy_map.
+
 ## Consequence
 No duplicated subjects; a subject that passes simply leaves the "current"
 view. New F4.1 stable-id kinds (scheme/block/component/link/docgroup/series/

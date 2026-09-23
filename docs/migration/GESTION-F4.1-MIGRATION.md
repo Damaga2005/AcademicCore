@@ -31,6 +31,36 @@ assert rep.lossless and not rep.validation_failures                   # 4. post-
 - Recovery: the snapshot in `snapshot_dir` (SHA-256 in the report) is a
   consistent SQLite copy taken before any write.
 
+## Certification run on the REAL installation (F4.1 closure)
+
+The certification gate needs evidence from the user's own data. On the
+machine that holds the Gestion installation (never commit its outputs):
+
+```bash
+python -m academic_core.application.gestion_certification \
+    --source  "<gestion>/academico.db" --documents "<gestion>/documentos" \
+    --work    "<empty dir>" --out F4.1_REAL_CERTIFICATION.json
+# and the closure tests against the same data:
+ACORE_GESTION_REAL_DB="<gestion>/academico.db" \
+ACORE_GESTION_REAL_DOCS="<gestion>/documentos" pytest -o addopts="" -q tests/test_f4_real_*.py
+```
+
+The harness never writes the source (read-only open; SHA-256 of the DB and a
+manifest hash of every document compared before/after) and writes all
+AcademicCore state under `--work`. The JSON report is anonymized (counts,
+stable ids, hashes, legacy numeric ids; no names/e-mails/file names) and has
+one PASS/FAIL per gate criterion: source_untouched, migration_valid,
+no_loss, documents_real_hashes, evaluation_real, home_real, career_real,
+relations_real, backup_verify_restore, idempotence, determinism. Close the
+application (or Syncthing) first so the database is not modified meanwhile.
+
+## Professor identity (F4.1 closure)
+
+Same name is NOT the same person. Gestion `profesor` rows are merged only
+with evidence (same normalized name AND same non-empty e-mail); otherwise
+each row keeps its own identity (`professor:<slug>-g<gestion id>`), and the
+mapping source row -> identity is recorded in `legacy_map` (reversible).
+
 ## Mapping summary
 
 See `GESTION-F4.1-DELTA-MAP.md`. Every source row ends in `legacy_map`
@@ -58,7 +88,7 @@ Gestion-Academica@187a614, Alembic head `e5a7c9b1d3f4`,
 | cuatrimestre | 8 | 8 | 0 | 8 terms (2 `actual`) |
 | asignatura | 54 | 54 | 0 | 54 subjects (53 with acronym) |
 | asignatura_prerrequisito | 1 | 1 | 0 | 1 prerequisite |
-| profesor | 61 | 61 | 0 | 61 subject_staff links, 52 professors (homonyms = one identity) |
+| profesor | 61 | 61 | 0 | 61 subject_staff links, 61 professors (no e-mails in the guides -> no merge evidence; 9 homonym rows kept separate) |
 | esquema_evaluacion | 65 | 65 | 0 | 65 assessment_schemes |
 | componente_evaluacion | 164 | 164 | 0 | 164 assessment_components |
 | recurso_externo | 81 | 81 | 0 | 81 external_resources (50 wuolah, 31 studocu) |
@@ -67,8 +97,11 @@ Gestion-Academica@187a614, Alembic head `e5a7c9b1d3f4`,
 Dry-run 0.022 s, apply 0.047 s, re-run 0.033 s (0 migrated, 438 already
 migrated). Evaluation equivalence: 54 subjects checked, 0 mismatches.
 Lossless: yes. Post-validation failures: 0. Source SHA-256 unchanged.
-Report digest (dry-run) `117b0a422818f51d…` identical across fresh targets;
-source digest `e6c2734367a63e0d…`.
+Report digest (migrator gestion-migration/2): dry-run `6f81ec3af62c5401…`,
+apply `45780e6f31557e33…`, identical across fresh targets; source digest
+`e6c2734367a63e0d…`. The certification harness passes every criterion on
+this reference DB (including determinism over 4 hash seeds) — it is NOT the
+user's data and does not certify F4.1 by itself.
 
 ### B. Scale test (reference DB + 676 synthetic PDFs + 7244 pages)
 
