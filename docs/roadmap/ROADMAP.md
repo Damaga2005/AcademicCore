@@ -118,7 +118,7 @@ Las fases ya certificadas o cerradas se conservan como historial y como base té
 >
 > **F14 — Sistemes-de-Mesura queda eliminada del roadmap.**
 >
-> **F16 — Contenido Aeroespacial/Satélite queda eliminada del roadmap.**
+> **F16 — Contenido Aeroespacial/Satélite se conserva como fase final del roadmap.**
 >
 > Las subdivisiones históricas **PRE-F0.x** se conservan como referencia del proyecto, pero sus nombres exactos no están formalizados actualmente en este repositorio.
 
@@ -188,6 +188,8 @@ F11       Aprendizaje Adaptativo                         [PENDIENTE]
 F12       IA / Tutor Socrático con Guardrails            [PENDIENTE]
    │
 F13       OneDrive / Cloud Sync completo                 [PENDIENTE]
+   │
+F16       Contenido Aeroespacial / Satélite              [PENDIENTE — ÚLTIMA FASE]
 ```
 
 ### 5.3 Plan de implementación por fase
@@ -204,6 +206,7 @@ F13       OneDrive / Cloud Sync completo                 [PENDIENTE]
 | 8 | F11 | Selección adaptativa de ejercicios y rutas personalizadas, funcional con LLM=OFF | F10 | Pendiente |
 | 9 | F12 | Tutor socrático desacoplado: LLM → JSON estructurado → validación → autoridad determinista | F11 | Pendiente |
 | 10 | F13 | Sincronización cloud/OneDrive completa, conflictos, versionado y operación offline-first | F13-ext | Pendiente |
+| 11 | F16 | Contenido Aeroespacial/Satélite; mecánica orbital básica como fase final de contenido | F13 | Pendiente |
 
 ### 5.4 Dependencias críticas
 
@@ -262,8 +265,7 @@ Una fase se considera cerrada únicamente cuando:
 #### F14 — Sistemes-de-Mesura
 **ELIMINADA.** No forma parte del plan de implementación futuro.
 
-#### F16 — Contenido Aeroespacial/Satélite
-**ELIMINADA.** No forma parte del plan de implementación futuro.
+
 
 ### 5.7 Regla de oro
 
@@ -459,7 +461,7 @@ La familia **F8** constituye el motor de simulación circuital y electrónica de
 - **Estado: CERTIFICADA / IMPLEMENTADA.**
 - Entorno de escritorio unificado en Qt/PySide6 que sirve como base de integración de las fases posteriores.
 
-> **F14 y F16 no forman parte de la evolución futura de AcademicCore y no deben reintroducirse en el orden de implementación sin una decisión explícita y documentada.**
+> **F14 — Sistemes-de-Mesura queda eliminada. F16 — Contenido Aeroespacial/Satélite permanece como última fase futura y no debe adelantarse ni eliminarse sin una decisión explícita y documentada.**
 
 ## 8. Principios de Certificación y Deuda Técnica
 
