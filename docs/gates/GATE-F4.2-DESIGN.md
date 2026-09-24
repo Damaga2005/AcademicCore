@@ -131,8 +131,116 @@ Aceptación: las 4 reglas con niveles exactos; favoritos/recientes según §5; p
 
 ## 19. Bloqueos
 
-Ninguno total. Parciales (no impiden diseñar, sí condicionan implementar): catálogo de widgets exigible (F15), UX de avisos (F15), política de retención de recientes más allá de 15.
+Los siguientes puntos quedan **cerrados por especificación antes de implementación**. No cambian el alcance de F4.2 ni F4.1; convierten decisiones implícitas en contratos ejecutables.
+
+### 19.1 Resolución de referencias legacy — BLOQUEO CERRADO
+
+busqueda_favorito.entidad_id y busqueda_reciente.entidad_id de Gestion son IDs físicos de la base legacy y **no son IDs reutilizables directamente** en AcademicCore.
+
+Regla normativa:
+1. El consumo F4.2 DEBE resolver referencias legacy mediante legacy_map/la identidad estable producida por F4.1.
+2. F4.2 NO DEBE inventar, slugificar, reinterpretar ni reutilizar numéricamente un entidad_id legacy como stable_id.
+3. Si una referencia no tiene mapping determinista a un objeto AcademicCore, el payload se conserva íntegramente en legacy_payloads y **no se crea** un SavedSearch/RecentSearch adivinando el destino.
+4. El migrador debe distinguir entre referencia resuelta (se materializa el registro F4.2) y referencia no resoluble (payload preservado + warning/deferred evidence, sin pérdida).
+5. La resolución debe ser idempotente y no modificar el origen Gestion.
+
+Esto es obligatorio para el caso real del fixture: tipo_entidad=asignatura, entidad_id=2 y tipo_entidad=documento, entidad_id=1.
+
+### 19.2 Actividad canónica de asignatura — BLOQUEO CERRADO
+
+La regla dias > dias_asignatura_abandonada requiere una fuente de actividad determinista. F4.2 NO puede inventar un campo inexistente en Subject.
+
+Contrato:
+- La actividad se calcula únicamente desde fuentes AcademicCore ya existentes que puedan asociarse inequívocamente a una asignatura.
+- Como mínimo se consideran las fuentes de actividad que ya tienen subject_id y fecha/hora persistidas; activity_days por sí solo NO se tratará como actividad específica de asignatura cuando no exista asociación.
+- La implementación debe exponer una función de aplicación/domain de solo lectura, por ejemplo last_subject_activity(subject_id), que devuelva la última actividad canónica o None.
+- Si no existe actividad específica resoluble para una asignatura, la regla inactiva se **omite**, tal como exige §5.
+- El cálculo usa today inyectado; nunca datetime.now() oculto dentro de compute().
+
+La fuente exacta debe quedar documentada en los tests con casos por cada tipo de actividad utilizado; no se permite introducir una fuente nueva o una escritura lateral para fabricar actividad.
+
+### 19.3 Frontera Notification / NotificationView — BLOQUEO CERRADO
+
+F4.2 NO remodela la tabla notifications ni convierte las notificaciones persistidas existentes en el almacenamiento de los avisos computados.
+
+Separación obligatoria:
+
+Notification / notify() / pending_notifications()
+    = mecanismo persistido existente
+
+NotificationView
+    = resultado efímero y determinista de NotificationService.compute()
+
+compute():
+- no escribe notifications;
+- no marca tareas/exámenes como completados;
+- no crea descartes;
+- no altera app_settings;
+- no altera legacy_payloads;
+- solo lee datos y devuelve NotificationView[].
+
+AvisoDescartado sigue siendo F12 y queda fuera de F4.2.
+
+### 19.4 Preferencias: namespace y serialización — BLOQUEO CERRADO
+
+F4.2 reutiliza exclusivamente app_settings y PersonalRepository.set_setting/setting.
+
+Namespace canónico:
+
+f42.theme
+f42.exam_reminder_days
+f42.abandoned_subject_days
+f42.widgets_order
+f42.widgets_hidden
+f42.target_average
+
+Reglas:
+- theme ∈ {claro, oscuro}.
+- exam_reminder_days y abandoned_subject_days son enteros ≥ 1.
+- target_average es Decimal/valor textual validado en rango [0,10], o None para eliminarlo.
+- widgets_order y widgets_hidden se almacenan como JSON UTF-8 canónico de listas de strings.
+- No se usa CSV como representación persistida F4.2.
+- Al leer valores legacy gestion.widgets_*, el servicio puede normalizarlos a la representación F4.2; no modifica los valores legacy durante una lectura.
+- La serialización debe ser estable para que dos estados semánticamente iguales produzcan el mismo texto persistido.
+
+### 19.5 Queries limitadas de UI — BLOQUEO CERRADO
+
+Las queries de UI existentes como upcoming_deadlines(..., limit=20) y overdue_deadlines(..., limit=50) NO son una fuente completa para NotificationService.compute().
+
+F4.2 debe usar una fuente completa o una query específica sin límite de presentación. Los límites de UI no pueden hacer desaparecer silenciosamente avisos computables.
+
+### 19.6 Fecha canónica de StudySpace — BLOQUEO CERRADO
+
+Para la regla espacio sin empezar ≤3 días, el origen temporal canónico es el objeto académico que originó el espacio, preferentemente su exam_task_id cuando exista.
+
+La implementación debe:
+1. resolver el StudySpace;
+2. resolver su tarea/examen asociado;
+3. calcular días respecto a la fecha canónica de ese objeto;
+4. comprobar material existente y progreso 0%;
+5. omitir la regla si falta información suficiente, sin inventar fechas.
+
+No se usará created del StudySpace como sustituto silencioso de la fecha del evento académico.
+
+### 19.7 Desempates deterministas
+
+Todos los listados F4.2 deben tener orden explícito.
+- favoritos: created DESC, kind ASC, ref ASC;
+- recientes: accessed DESC, kind ASC, ref ASC;
+- avisos: level priority DESC, due ASC, stable/entity id ASC.
+
+Nunca se dependerá del orden accidental de SQLite.
 
 ## 20. Cambios realizados
 
-`docs/gates/GATE-F4.2-DESIGN.md` (este documento; único artefacto autorizado).
+Actualización de docs/gates/GATE-F4.2-DESIGN.md para cerrar los cuatro puntos de especificación detectados en la auditoría de implementación:
+1. resolución segura de referencias legacy;
+2. definición canónica de actividad por asignatura;
+3. separación estricta entre notificaciones persistidas y avisos computados;
+4. namespace y serialización de preferencias.
+
+Además se han cerrado explícitamente los riesgos derivados de límites de queries de UI, fecha canónica de StudySpace y desempates deterministas.
+
+**Estado:** F4.2 DESIGN READY → IMPLEMENTATION READY (con contratos cerrados).
+
+No se implementa código F4.2 en este commit. F4.1 permanece intacto.
