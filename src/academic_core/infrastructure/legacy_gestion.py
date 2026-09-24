@@ -49,6 +49,66 @@ class UnsafePathError(AcademicCoreError):
     category = "security"
 
 
+MAX_INDEX_FILES = 200_000
+
+
+def build_filename_index(root: str | Path, max_files: int = MAX_INDEX_FILES
+                         ) -> dict[str, list[str]]:
+    """Map filename -> sorted list of relative POSIX paths under ``root``.
+
+    Deterministic (sorted walk), read-only, never follows symlinks that
+    escape the root. Bounded: raises UnsafePathError past ``max_files``.
+    Used ONLY as an identity fallback when the historic ``ruta_local``
+    no longer matches the user's physical layout (F4.1 closure §3)."""
+    base = Path(os.path.realpath(root))
+    if not base.is_dir():
+        raise FileNotFoundError(str(root))
+    index: dict[str, list[str]] = {}
+    n = 0
+    entries = sorted(base.rglob("*"))
+    for p in entries:
+        if not p.is_file() or p.is_symlink():
+            continue
+        n += 1
+        if n > max_files:
+            raise UnsafePathError("documents tree exceeds index budget")
+        try:
+            rel = p.relative_to(base).as_posix()
+        except ValueError:
+            continue
+        index.setdefault(p.name, []).append(rel)
+    for v in index.values():
+        v.sort()
+    return index
+
+
+def resolve_document_by_identity(root: str | Path, filename: str, size: int | None,
+                                 max_bytes: int,
+                                 index: dict[str, list[str]] | None = None) -> Path:
+    """Resolve a legacy document by identity (filename + size), not by path.
+
+    Returns the unique candidate re-validated through :func:`resolve_document`
+    (same traversal/symlink/size guards). Raises FileNotFoundError when there
+    is no candidate or more than one (ambiguous: never guess)."""
+    if not filename or "\x00" in filename or "/" in filename or "\\" in filename:
+        raise UnsafePathError("identity filename refused")
+    idx = build_filename_index(root) if index is None else index
+    candidates = idx.get(filename, [])
+    if size is not None:
+        sized = []
+        for rel in candidates:
+            try:
+                target = resolve_document(root, rel, max_bytes)
+            except (UnsafePathError, FileNotFoundError):
+                continue
+            if target.stat().st_size == size:
+                sized.append(rel)
+        candidates = sized
+    if len(candidates) != 1:
+        raise FileNotFoundError(f"{filename}: {len(candidates)} identity candidates")
+    return resolve_document(root, candidates[0], max_bytes)
+
+
 @dataclass
 class LegacySnapshot:
     revision: str

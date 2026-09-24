@@ -52,14 +52,16 @@ from academic_core.infrastructure.academic_store import (
 )
 from academic_core.infrastructure.legacy_gestion import (
     SOURCE_SYSTEM, TABLES, LegacyGestionSource, LegacySnapshot, UnsafePathError,
-    resolve_document,
+    resolve_document, resolve_document_by_identity,
 )
 from academic_core.resources.adapters import UnsupportedType, adapter_for, detect_kind
 
 SETTING_TARGET_AVERAGE = "grades.target_average"
 REPORT_SCHEMA = "gestion-migration-report/1"
 # /2: F4.1 closure — professor identity by evidence (never by name alone)
-MIGRATION_VERSION = "gestion-migration/2"
+# /3: F4.1 closure — identity resolution for moved documents (ruta_local is
+# provenance; content + relational evidence is identity; source untouched)
+MIGRATION_VERSION = "gestion-migration/3"
 
 Progress = Callable[[str, int, int], None]
 Cancel = Callable[[], bool]
@@ -134,6 +136,7 @@ class MigrationReport:
     cancelled: bool = False
     validation_failures: list[str] = field(default_factory=list)
     professor_identity: dict = field(default_factory=dict)
+    identity_resolutions: list[dict] = field(default_factory=list)
     snapshot: dict | None = None
     run_id: str = ""
     started: str = ""
@@ -146,7 +149,8 @@ class MigrationReport:
                 "counts": self.counts, "warnings": self.warnings, "errors": self.errors,
                 "lossless": self.lossless, "evaluation_check": self.evaluation_check,
                 "cancelled": self.cancelled, "validation_failures": self.validation_failures,
-                "professor_identity": self.professor_identity}
+                "professor_identity": self.professor_identity,
+                "identity_resolutions": self.identity_resolutions}
 
     @property
     def digest(self) -> str:
@@ -195,6 +199,8 @@ class _Planner:
         self.staff_seen: set[tuple[str, str]] = set()
         self.goal_count: dict[str, int] = {}
         self.blob_plan: dict[str, dict] = {}  # documento id -> file info
+        self.identity_resolutions: list[dict] = []  # §4 evidence, source-stable facts
+        self._name_index: dict[str, list[str]] | None = None
 
     # utils -----------------------------------------------------------------
     def _check(self) -> None:
@@ -555,13 +561,35 @@ class _Planner:
                 continue
             try:
                 path = resolve_document(root, r["ruta_local"], self.opts.max_document_bytes)
+                resolved_by = "ruta_local"
             except UnsafePathError as e:
                 self._preserve("documento", r, f"unsafe path refused: {e}", error=True)
                 continue
             except FileNotFoundError:
-                self._preserve("documento", r, "file missing under documents_dir",
-                               deferred="rerun-with-documents", error=True)
-                continue
+                # Historic path is provenance, not identity: the user may have
+                # reorganized the tree (F4.1 closure §3). Resolve by filename +
+                # size, then verify by content hash below. Never guess: zero or
+                # several candidates stay preserved (deferred, unresolved=0
+                # only when every row is accounted for).
+                if self._name_index is None:
+                    try:
+                        from academic_core.infrastructure.legacy_gestion import (
+                            build_filename_index)
+                        self._name_index = build_filename_index(root)
+                    except (UnsafePathError, FileNotFoundError) as e:
+                        self._preserve("documento", r, f"file missing under documents_dir"
+                                                       f" (index unavailable: {e})",
+                                       deferred="rerun-with-documents", error=True)
+                        continue
+                try:
+                    path = resolve_document_by_identity(
+                        root, r["nombre_archivo"], r.get("tamano_bytes"),
+                        self.opts.max_document_bytes, self._name_index)
+                    resolved_by = "identity:filename+size"
+                except (UnsafePathError, FileNotFoundError):
+                    self._preserve("documento", r, "file missing under documents_dir",
+                                   deferred="rerun-with-documents", error=True)
+                    continue
             h = hashlib.sha256()
             with path.open("rb") as fh:
                 head = fh.read(8)
@@ -606,6 +634,27 @@ class _Planner:
                 legacy["apartado"] = apartados.get(r["apartado_id"])
             if r.get("categoria") != cat:
                 legacy["categoria"] = r.get("categoria")
+            if resolved_by != "ruta_local":
+                # Historic path kept as provenance; physical location recorded
+                # as evidence (F4.1 closure §3-§4). Content hash above is the
+                # identity; relational evidence (subject/group) is checked by
+                # post-validation like every other row.
+                rel_physical = path.relative_to(Path(root).resolve()).as_posix() \
+                    if Path(path).is_absolute() else Path(path).as_posix()
+                legacy["physical_path"] = rel_physical
+                legacy["path_resolution"] = resolved_by
+                self.identity_resolutions.append({
+                    "legacy_id": int(r["id"]),
+                    "legacy_path": r["ruta_local"],
+                    "physical_path": rel_physical,
+                    "filename": filename,
+                    "size_bytes": path.stat().st_size,
+                    "sha256": digest,
+                    "asignatura_id": r["asignatura_id"],
+                    "grupo_documento_id": r.get("grupo_documento_id"),
+                    "apartado": apartados.get(r["apartado_id"]) if r.get(
+                        "apartado_id") else None,
+                    "resultado": "mismo documento migrado"})
             try:
                 cd = CM.CourseDocument(subj, rid, cat, grp or "", filename,
                                        CM.split_tags(r.get("etiquetas")),
@@ -707,15 +756,40 @@ class _Planner:
             self._add(Op("espacio_estudio", str(r["id"]), "migrate", sid,
                          (sp, iso(r.get("created_at")))))
 
+    def _doc_resource(self, doc_id) -> str | None:
+        """Resource id for a documento row, including byte-identical duplicates.
+
+        Duplicate rows are preserved (not migrated) but carry the shared
+        resource as op target; relations pointing at them must follow the
+        shared resource instead of being dropped (no-loss)."""
+        res = self.target("documento", doc_id)
+        if res:
+            return res
+        for op in self.ops:
+            if (op.table == "documento" and op.source_id == str(doc_id)
+                    and op.action == "preserve" and op.target_id):
+                return op.target_id
+        return None
+
     def _space_docs(self) -> None:
+        seen: set[tuple[str, str]] = set()
         for r in self.rows("espacio_estudio_documento"):
             space = self.target("espacio_estudio", r["espacio_estudio_id"])
-            res = self.target("documento", r["documento_id"])
+            res = self._doc_resource(r["documento_id"])
             if not space or not res:
                 self._preserve("espacio_estudio_documento", r,
                                "space or document not migrated", error=not space,
                                deferred="" if not space else "rerun-with-documents")
                 continue
+            if (space, res) in seen:
+                # Same space already links these exact bytes (byte-identical
+                # duplicate documents collapse to one resource): the relation
+                # exists, so this row is a duplicate, never a loss.
+                self._preserve("espacio_estudio_documento", r,
+                               "duplicate relation to shared resource",
+                               target=f"{space}#doc={res}")
+                continue
+            seen.add((space, res))
             try:
                 d = CM.StudySpaceDocument(space, res, r["seccion"], bool(r.get("leido")),
                                           bool(r.get("destacado")), int(r.get("orden") or 0))
@@ -917,6 +991,8 @@ class GestionMigrationService:
             "homonym_rows_kept_separate": planner.prof_stats["homonyms_kept_separate"],
             "names_with_several_identities": sum(1 for v in names.values() if len(v) > 1),
         }
+        report.identity_resolutions = sorted(planner.identity_resolutions,
+                                             key=lambda e: e["legacy_id"])
         report.started = started
         report.run_id = uuid.uuid4().hex
         if mode == "dry-run":

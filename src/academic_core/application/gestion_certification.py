@@ -200,7 +200,17 @@ class Certifier:
                 continue
             r = by_id[sid]
             checked += 1
-            path = resolve_document(self.documents, r["ruta_local"], self.opts.max_document_bytes)
+            try:
+                path = resolve_document(self.documents, r["ruta_local"],
+                                        self.opts.max_document_bytes)
+            except FileNotFoundError:
+                # Same identity rule as the migrator (closure §3): historic
+                # path is provenance; filename + size is identity.
+                from academic_core.infrastructure.legacy_gestion import (
+                    resolve_document_by_identity)
+                path = resolve_document_by_identity(
+                    self.documents, r["nombre_archivo"], r.get("tamano_bytes"),
+                    self.opts.max_document_bytes)
             res = core.records.get(rid)
             cur = res.current()
             src_hash = sha256_file(path)

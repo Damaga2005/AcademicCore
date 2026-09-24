@@ -243,7 +243,7 @@ def test_calendar_spaces_and_personal(migrated):
     assert core.personal.activity_days() == [date(2026, 9, 10), date(2026, 9, 11)]
     assert core.personal.setting("gestion.tema") == "oscuro"
     assert {p["migration_version"] for p in core.migration.legacy.payloads(
-        "gestion-academica")} == {"gestion-migration/2"}
+        "gestion-academica")} == {"gestion-migration/3"}
     deferred = {p["source_table"]: p["deferred_to"]
                 for p in core.migration.legacy.payloads("gestion-academica")}
     assert deferred["marcador"] == deferred["anotacion_pdf"] == "F14"
@@ -289,6 +289,107 @@ def test_documents_can_be_migrated_in_a_later_run(tmp_path, legacy):
                               snapshot_dir=tmp_path / "s2")
     assert r2.counts["documento"]["migrated"] == 4 and r2.validation_failures == []
     assert len(core.material.documents("subject:dd")) == 3
+
+
+# ------------------------------------------- identity resolution (closure §3)
+
+
+def _add_moved_row(db, **kw):
+    cx = sqlite3.connect(db)
+    cx.execute("INSERT INTO documento (id, asignatura_id, nombre_archivo, ruta_local,"
+               " fecha_subida, categoria, grupo_documento_id, tamano_bytes,"
+               " tiempo_total_lectura_segundos, numero_sesiones)"
+               " VALUES (8, 2, 'movido.txt', '2_dd/teoria/movido.txt',"
+               " '2026-02-01 09:00:00.000000', 'otros', 1, ?, 0, 0)",
+               (kw["size"],))
+    cx.commit()
+    cx.close()
+
+
+def test_moved_document_resolved_by_identity(tmp_path, legacy):
+    # Historic ruta_local says teoria/ but the user moved the file to otros/:
+    # content + relational evidence is the identity; the source is untouched.
+    db, root = legacy
+    data = "Ejercicios movidos por el usuario".encode()
+    (root / "2_dd/otros").mkdir(parents=True, exist_ok=True)
+    (root / "2_dd/otros/movido.txt").write_bytes(data)
+    _add_moved_row(db, size=len(data))
+    core = _app(tmp_path)
+    src_sha = _sha(db)
+    rep = core.migration.dry_run(db, _opts(root))
+    assert rep.lossless
+    assert _sha(db) == src_sha  # source byte-identical after a read-only run
+    assert rep.counts["documento"]["migrated"] == 5
+    assert rep.identity_resolutions == [{
+        "legacy_id": 8, "legacy_path": "2_dd/teoria/movido.txt",
+        "physical_path": "2_dd/otros/movido.txt", "filename": "movido.txt",
+        "size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+        "asignatura_id": 2, "grupo_documento_id": 1, "apartado": None,
+        "resultado": "mismo documento migrado"}]
+    got = core.migration.apply(db, _opts(root), snapshot_dir=tmp_path / "s")
+    assert got.lossless and got.validation_failures == []
+    docs = {d.filename: d for d in core.material.documents("subject:dd")}
+    assert docs["movido.txt"].legacy["physical_path"] == "2_dd/otros/movido.txt"
+    assert docs["movido.txt"].legacy["ruta_local"] == "2_dd/teoria/movido.txt"
+    assert _sha(db) == src_sha  # source still byte-identical after apply
+
+
+def test_ambiguous_identity_never_guesses(tmp_path, legacy):    # Same filename AND same size in two places: preserved, never guessed.
+    db, root = legacy
+    data = b"duplicado ambiguo...."
+    (root / "2_dd/otros").mkdir(parents=True, exist_ok=True)
+    (root / "2_dd/otros/dup.txt").write_bytes(data)
+    (root / "2_dd/teoria/9").mkdir(parents=True, exist_ok=True)
+    (root / "2_dd/teoria/9/dup.txt").write_bytes(data)
+    cx = sqlite3.connect(db)
+    cx.execute("INSERT INTO documento (id, asignatura_id, nombre_archivo, ruta_local,"
+               " fecha_subida, categoria, tamano_bytes,"
+               " tiempo_total_lectura_segundos, numero_sesiones)"
+               " VALUES (8, 2, 'dup.txt', '2_dd/teoria/dup.txt',"
+               " '2026-02-01 09:00:00.000000', 'otros', ?, 0, 0)", (len(data),))
+    cx.commit()
+    cx.close()
+    core = _app(tmp_path)
+    rep = core.migration.dry_run(db, _opts(root))
+    assert rep.lossless
+    assert rep.counts["documento"]["preserved"] == 4  # copia.pdf + falta.pdf + evil.pdf + dup.txt
+    assert rep.identity_resolutions == []
+    assert "documento#8: file missing under documents_dir" in rep.errors
+
+
+def test_space_relation_follows_shared_resource_of_duplicate(tmp_path, legacy):
+    # Doc 4 is a byte-identical duplicate of doc 1 (same subject, preserved
+    # with the shared resource as target): a study-space relation pointing at
+    # doc 4 resolves to the shared resource. The link already exists (same
+    # space + same bytes), so the row is preserved as an explicit duplicate —
+    # never silently REPLACEd, never lost.
+    db, root = legacy
+    cx = sqlite3.connect(db)
+    cx.execute("INSERT INTO espacio_estudio_documento (id, espacio_estudio_id,"
+               " documento_id, seccion, leido, destacado, orden,"
+               " fecha_referencia) VALUES (3, 1, 4, 'teoria', 1, 0, 5,"
+               " '2026-09-01')")
+    cx.commit()
+    cx.close()
+    core = _app(tmp_path)
+    rep = core.migration.dry_run(db, _opts(root))
+    assert rep.lossless
+    assert rep.counts["espacio_estudio_documento"]["migrated"] == 2
+    assert rep.counts["espacio_estudio_documento"]["preserved"] == 1
+    got = core.migration.apply(db, _opts(root), snapshot_dir=tmp_path / "s")
+    assert got.lossless and got.validation_failures == []
+    by_name = {d.filename: d.resource_id
+               for d in core.material.documents("subject:dd")}
+    cx = sqlite3.connect(core.db.path)
+    rows = cx.execute("SELECT resource_id, section, ord FROM study_space_documents"
+                      " ORDER BY ord").fetchall()
+    kept = cx.execute("SELECT reason, target_id FROM legacy_payloads"
+                      " WHERE source_table='espacio_estudio_documento'"
+                      " AND source_id='3'").fetchone()
+    cx.close()
+    assert len(rows) == 2  # no silent REPLACE, no duplicate row
+    assert kept[0] == "duplicate relation to shared resource"
+    assert kept[1].endswith("#doc=" + by_name["tema1.pdf"])
 
 
 def test_existing_subject_ids_are_never_overwritten(tmp_path, legacy):
