@@ -21,7 +21,7 @@ _MIGRATIONS = ("001_academic.sql", "002_grading.sql",
                "007_documents.sql", "008_academic_f4.sql",
                "009_authoring.sql", "010_engineering.sql",
                "011_assessment.sql", "012_academic_f41.sql",
-               "013_legacy_payload_version.sql")
+               "013_legacy_payload_version.sql", "014_f42_search_history.sql")
 
 
 def _split_statements(script: str) -> list[str]:

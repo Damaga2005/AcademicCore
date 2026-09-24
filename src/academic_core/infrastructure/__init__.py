@@ -18,7 +18,7 @@ from academic_core.infrastructure.repositories import (
 from academic_core.infrastructure.resources import FtsResourceIndexer, SqliteResourceRecords
 from academic_core.infrastructure.academic_store import (
     CourseMaterialRepository, EvaluationRepository, LegacyRepository, PersonalRepository,
-    SeriesRepository, StudySpaceRepository,
+    SearchHistoryRepository, SeriesRepository, StudySpaceRepository,
 )
 
 __all__ = ["Database", "AcademicRepository", "GradebookRepository",
@@ -30,4 +30,5 @@ __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "BlobNotFound", "CorruptBlob", "FileBlobStore", "TooLarge",
            "FtsResourceIndexer", "SqliteResourceRecords",
            "CourseMaterialRepository", "EvaluationRepository", "LegacyRepository",
-           "PersonalRepository", "SeriesRepository", "StudySpaceRepository"]
+           "PersonalRepository", "SearchHistoryRepository", "SeriesRepository",
+           "StudySpaceRepository"]

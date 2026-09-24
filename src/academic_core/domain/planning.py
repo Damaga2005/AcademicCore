@@ -25,6 +25,12 @@ NEXT_MILESTONE_STATE = {"pendiente": "en_progreso", "en_progreso": "hecho",
                         "hecho": "pendiente"}
 CONCEPT_STATES = ("no_visto", "flojo", "dominado")
 QUICK_NOTE_MAX = 1000
+# Search type catalog (F4.2): the Gestion `TIPOS_ENTIDAD_BUSQUEDA` catalog,
+# kept verbatim so legacy favourites/recents resolve without invention.
+SEARCH_KINDS = ("asignatura", "profesor", "documento", "pagina_pdf", "tarea",
+                "examen", "evento", "etiqueta", "hito", "concepto",
+                "nota_al_vuelo")
+RECENT_SEARCH_LIMIT = 15
 
 
 @dataclass
@@ -94,3 +100,45 @@ def due_concepts(concepts: list[StudyConcept], today: date) -> list[StudyConcept
     parity). Scheduling/re-rating stays in F11."""
     return sorted((c for c in concepts if c.next_review is not None and c.next_review <= today),
                   key=lambda c: (c.next_review, c.stable_id))
+
+
+@dataclass
+class SavedSearch:
+    """A pinned search (F4.2) <- Gestion `BusquedaFavorito` (kind + entity)."""
+    kind: str
+    ref: str
+    title: str
+    created: str = ""  # ISO datetime, set by the service when empty
+
+    def __post_init__(self) -> None:
+        if self.kind not in SEARCH_KINDS:
+            raise DomainError(f"SavedSearch.kind must be one of {SEARCH_KINDS}")
+        self.ref = (self.ref or "").strip()
+        if not self.ref:
+            raise DomainError("SavedSearch.ref is required")
+        self.title = (self.title or "").strip()
+        if not self.title:
+            raise DomainError("SavedSearch.title is required")
+
+
+@dataclass
+class RecentSearch:
+    """A recent search entry (F4.2) <- Gestion `BusquedaReciente`."""
+    kind: str
+    ref: str
+    label: str
+    url: str
+    accessed: str = ""  # ISO datetime, set by the service when empty
+
+    def __post_init__(self) -> None:
+        if self.kind not in SEARCH_KINDS:
+            raise DomainError(f"RecentSearch.kind must be one of {SEARCH_KINDS}")
+        self.ref = (self.ref or "").strip()
+        if not self.ref:
+            raise DomainError("RecentSearch.ref is required")
+        self.label = (self.label or "").strip()
+        if not self.label:
+            raise DomainError("RecentSearch.label is required")
+        self.url = (self.url or "").strip()
+        if not self.url:
+            raise DomainError("RecentSearch.url is required")

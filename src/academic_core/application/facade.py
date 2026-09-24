@@ -90,10 +90,13 @@ class AcademicApp:
         from academic_core.application.calendar import CalendarService
         from academic_core.application.gestion_migration import GestionMigrationService
         from academic_core.application.knowledge import KnowledgeService
+        from academic_core.application.notify import NotificationService
+        from academic_core.application.personal import PreferencesService
         from academic_core.application.search import UnifiedSearchService
+        from academic_core.application.search_history import SearchHistoryService
         from academic_core.infrastructure import (
             CourseMaterialRepository, EvaluationRepository, PersonalRepository,
-            SeriesRepository, StudySpaceRepository,
+            SearchHistoryRepository, SeriesRepository, StudySpaceRepository,
         )
         self.evaluations = EvaluationRepository(self.db)
         self.course_material = CourseMaterialRepository(self.db)
@@ -116,6 +119,11 @@ class AcademicApp:
                                                    self.fts)
         self.migration = GestionMigrationService(self.db, self.blobs, self.records, self.fts,
                                                  self.academic, self.backup)
+        # -- F4.2 assistance layer (favourites/recents, notifications, prefs) --
+        self.search_history = SearchHistoryService(SearchHistoryRepository(self.db))
+        self.notify = NotificationService(self.academic, self.planning,
+                                          self.material, self.study_spaces)
+        self.preferences = PreferencesService(self.personal)
 
     def ensure_demo(self) -> None:
         """Generic, deletable demo hierarchy (never institution-specific)."""

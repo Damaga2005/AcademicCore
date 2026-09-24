@@ -448,6 +448,10 @@ class CourseMaterialService:
     def documents(self, subject_id: str, category: str = "") -> list[CM.CourseDocument]:
         return self.material.documents_of(subject_id, category)
 
+    def progress_of(self, resource_id: str) -> CM.ReadingProgress | None:
+        """Read-only viewer progress for one resource (F4.2 notifications)."""
+        return self.material.progress_of(resource_id)
+
     def record_reading(self, resource_id: str, *, page: int | None = None,
                        percent: str | None = None, seconds: int = 0,
                        when: str | None = None) -> CM.ReadingProgress:

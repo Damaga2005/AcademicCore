@@ -491,6 +491,67 @@ class PersonalRepository(_Base):
         return {r["key"]: r["value"] for r in rows}
 
 
+# -------------------------------------------------------- search history F4.2
+
+class SearchHistoryRepository(_Base):
+    """Favourites + recents (F4.2). Deterministic ordering, no hash() ids."""
+
+    # -- favourites ------------------------------------------------------
+    def add_favourite(self, s: PL.SavedSearch, cx=None) -> bool:
+        """Insert; existing (kind, ref) is a no-op. Returns True if inserted."""
+        with self._tx(cx) as c:
+            cur = c.execute("INSERT OR IGNORE INTO saved_searches(kind, ref, title,"
+                            " created) VALUES (?,?,?,?)",
+                            (s.kind, s.ref, s.title, s.created))
+            return cur.rowcount == 1
+
+    def is_favourite(self, kind: str, ref: str) -> bool:
+        with self._read() as cx:
+            return cx.execute("SELECT 1 FROM saved_searches WHERE kind=? AND ref=?",
+                              (kind, ref)).fetchone() is not None
+
+    def favourites(self) -> list[PL.SavedSearch]:
+        with self._read() as cx:
+            rows = cx.execute("SELECT kind, ref, title, created FROM saved_searches"
+                              " ORDER BY created DESC, kind ASC, ref ASC").fetchall()
+        return [PL.SavedSearch(r["kind"], r["ref"], r["title"], r["created"]) for r in rows]
+
+    def remove_favourite(self, kind: str, ref: str) -> bool:
+        """Delete; missing rows are idempotent. Returns True if removed."""
+        with self._tx() as c:
+            cur = c.execute("DELETE FROM saved_searches WHERE kind=? AND ref=?",
+                            (kind, ref))
+            return cur.rowcount == 1
+
+    # -- recents -----------------------------------------------------------
+    def record_recent(self, r: PL.RecentSearch, cx=None) -> bool:
+        """Upsert by (kind, ref), then trim to RECENT_SEARCH_LIMIT.
+
+        Returns True only when the stored row actually changed, so a
+        re-run over identical data reports zero changes."""
+        with self._tx(cx) as c:
+            cur = c.execute("SELECT label, url, accessed FROM recent_searches"
+                            " WHERE kind=? AND ref=?", (r.kind, r.ref)).fetchone()
+            if cur is not None and tuple(cur) == (r.label, r.url, r.accessed):
+                return False
+            c.execute("INSERT INTO recent_searches(kind, ref, label, url, accessed)"
+                      " VALUES (?,?,?,?,?)"
+                      " ON CONFLICT(kind, ref) DO UPDATE SET label=excluded.label,"
+                      " url=excluded.url, accessed=excluded.accessed",
+                      (r.kind, r.ref, r.label, r.url, r.accessed))
+            c.execute("DELETE FROM recent_searches WHERE id NOT IN (SELECT id FROM"
+                      " recent_searches ORDER BY accessed DESC, kind ASC, ref ASC LIMIT ?)",
+                      (PL.RECENT_SEARCH_LIMIT,))
+            return True
+
+    def recents(self) -> list[PL.RecentSearch]:
+        with self._read() as cx:
+            rows = cx.execute("SELECT kind, ref, label, url, accessed FROM recent_searches"
+                              " ORDER BY accessed DESC, kind ASC, ref ASC").fetchall()
+        return [PL.RecentSearch(r["kind"], r["ref"], r["label"], r["url"],
+                                r["accessed"]) for r in rows]
+
+
 # ------------------------------------------------------------------ migration
 
 class LegacyRepository(_Base):
