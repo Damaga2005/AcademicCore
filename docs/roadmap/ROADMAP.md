@@ -1,8 +1,8 @@
-# AcademicCore — Roadmap Maestro Completo, Arquitectura y Evolución Futura
+# AcademicCore — Roadmap Maestro + Plan de Implementación
 
 > **Proyecto**: AcademicCore  
-> **Documento**: Roadmap Maestro y Visión Funcional  
-> **Estado**: En Desarrollo Activo (Fases F0 a F8-P5 **CERTIFICADAS**)
+> **Documento**: Roadmap Maestro + Plan de Implementación  
+> **Estado**: En Desarrollo Activo — orden de implementación consolidado y actualizado
 > **Objetivo**: Plataforma académica técnica con conocimiento estructurado, evaluación, aprendizaje adaptativo, ingeniería/simulación e IA asistiva gobernada por guardrails deterministas.
 
 ---
@@ -103,155 +103,171 @@ La arquitectura permite incorporar nuevas disciplinas (Matemáticas, Electrónic
 
 ---
 
-## 5. Roadmap Global y Estado de Certificación
+## 5. Roadmap Global + Plan de Implementación
+
+Esta sección es la **fuente normativa del orden de trabajo** de AcademicCore. No representa únicamente la historia del proyecto: define el orden recomendado para continuar la implementación, minimizando bloqueos, duplicaciones y trabajo que después tendría que rehacerse.
+
+### 5.1 Estado global
+
+Las fases ya certificadas o cerradas se conservan como historial y como base técnica. Las fases pendientes se ejecutan en el orden indicado en §5.2.
+
+> [!IMPORTANT]
+> **Regla de orden:** no iniciar una fase pendiente mientras una dependencia directa marcada en el plan no esté cerrada, salvo decisión explícita documentada.
+>
+> **Regla de integridad:** ninguna fase futura puede modificar bajo ningún concepto el comportamiento certificado de fases anteriores sin una fase de cambio explícitamente aprobada, con tests de regresión y nueva certificación.
+>
+> **F14 — Sistemes-de-Mesura queda eliminada del roadmap.**
+>
+> **F16 — Contenido Aeroespacial/Satélite queda eliminada del roadmap.**
+>
+> Las subdivisiones históricas **PRE-F0.x** se conservan como referencia del proyecto, pero sus nombres exactos no están formalizados actualmente en este repositorio.
+
+### 5.2 Orden normativo de implementación
 
 ```
- F0  Auditoría y Arquitectura                  [CERTIFICADO]
-  │
- F1  Núcleo de Dominio                         [CERTIFICADO]
-  │
- F2  Recursos y Almacenamiento CAS             [CERTIFICADO]
-  │
- F3  Documentos / PDF / AST                    [CERTIFICADO]
-  │
- F4  Knowledge / Modelo Académico              [CERTIFICADO]
-  │
- F5  Authoring Engine                          [CERTIFICADO]
-  │
- F6  Matemáticas e Ingeniería Base             [CERTIFICADO]
-  │
- F7  MNA Lineal y Simulación SPICE             [CERTIFICADO]
-  │
- F8  Electrónica Avanzada (F8-A ... F8-M)      [CERTIFICADO]
-  │
- F9  Assessment y Evaluación Formal            [EN PLANIFICACIÓN]
-  │
- F10 Mastery y Modelado del Estudiante         [EN PLANIFICACIÓN]
-  │
- F11 Aprendizaje Adaptativo                    [EN PLANIFICACIÓN]
-  │
- F12 IA / Tutor Socrático con Guardrails       [EN PLANIFICACIÓN]
-  │
- F13 OneDrive / Cloud Sync                     [EN PLANIFICACIÓN]
-  │
- F14 Migración de Sistemes-de-Mesura           [EN PLANIFICACIÓN]
-  │
- F15 Aplicación Final Integral                 [EN PLANIFICACIÓN]
+PRE-F0.x  Fundaciones históricas                         [HISTÓRICO]
+   │
+F0        Auditoría y Arquitectura                       [CERTIFICADO]
+   │
+F1        Núcleo de Dominio                              [CERTIFICADO]
+   │
+F2        Recursos y Almacenamiento CAS                  [CERTIFICADO]
+   │
+F3        Documentos / PDF / AST                         [CERTIFICADO]
+   │
+F3.1      Extensión de ingestión                         [CERTIFICADO]
+   │
+F4        Knowledge / Modelo Académico                   [CERTIFICADO]
+   │
+F4.1      Migración y consolidación                      [CERTIFICADO]
+   │
+F4.2      Historial / Personalización / Notificaciones  [CERTIFICADO]
+   │
+F5        Authoring Engine                               [CERTIFICADO]
+   │
+F6        Matemáticas e Ingeniería Base                  [CERTIFICADO]
+   │
+F7        MNA Lineal y Simulación SPICE                  [CERTIFICADO]
+   │
+F8-A → F8-P5  Electrónica Avanzada                       [CERTIFICADO]
+   │
+F8-Q      Motor Digital + Logic Analyzer                 [CERTIFICADO]
+   │
+E0 → E0.4 Explainable Execution / Engineering           [CERTIFICADO]
+   │
+D1        Arquitectura de módulos/plugins                [CERTIFICADO]
+   │
+D2        Logging / errores                              [CERTIFICADO]
+   │
+D3        Licencia única                                 [CERTIFICADO]
+   │
+F15       Aplicación Final / app mínima funcional        [CERTIFICADO]
+   │
+F3-ext    Integración conversor HTML→MD/LaTeX            [CERTIFICADO]
+   │
+F4-ext    Fusión de gestión académica                    [CERTIFICADO]
+   │
+══════════════════ ESTADO ACTUAL ══════════════════════════
+   │
+F13-ext   Sync entre 2 PCs personales                    [SIGUIENTE]
+   │
+D4        Pipeline CI/build                              [PENDIENTE]
+   │
+D5        Suite global de tests                          [PENDIENTE]
+   │
+D6        Esquema neutro de banco de preguntas           [PENDIENTE]
+   │
+D7        Ingesta estructurada → Knowledge Core          [PENDIENTE]
+   │
+F9        Assessment y Evaluación Formal                 [PENDIENTE]
+   │
+F10       Mastery y Modelado del Estudiante              [PENDIENTE]
+   │
+F11       Aprendizaje Adaptativo                         [PENDIENTE]
+   │
+F12       IA / Tutor Socrático con Guardrails            [PENDIENTE]
+   │
+F13       OneDrive / Cloud Sync completo                 [PENDIENTE]
 ```
 
-### 5.1 Orden de implementación vigente (a partir de F8-J)
+### 5.3 Plan de implementación por fase
 
-> Fuente: `ROADMAP_orden_implementacion.md` (2026-09-19). Este orden es
-> estricto y único: sin fases en paralelo salvo decisión explícita.
-> Nota de estado local (verificado en repo): F8-J está implementado
-> (`GATE-F8J.md` CERTIFIED) y existe dominio F9/assessment (`GATE-F9A.md`,
-> tests `test_f9*`); el orden de lo pendiente sigue siendo el de abajo.
+| Orden | Fase | Objetivo de implementación | Dependencias principales | Estado |
+|---:|---|---|---|:---:|
+| 1 | F13-ext | Sincronización determinista entre 2 PCs personales; última edición gana + log, sin CRDT | F15 | **SIGUIENTE** |
+| 2 | D4 | Pipeline CI/build y ejecución automática de tests en cada cambio | F15 | Pendiente |
+| 3 | D5 | Consolidar suite global de tests y cobertura de regresión, empezando por el conversor HTML→MD | D4 | Pendiente |
+| 4 | D6 | Definir esquema neutro y versionado para bancos de preguntas, independiente de una asignatura concreta | — | Pendiente |
+| 5 | D7 | Transformar definiciones, fórmulas y preguntas estructuradas en entidades del Knowledge Core/F4 | D6, F4 | Pendiente |
+| 6 | F9 | Assessment formal: tipos de pregunta, intentos, corrección determinista y pipeline de evaluación | D6, D7 | Pendiente |
+| 7 | F10 | Modelado de mastery y dominio del estudiante a partir de evidencia real de F9 | F9 | Pendiente |
+| 8 | F11 | Selección adaptativa de ejercicios y rutas personalizadas, funcional con LLM=OFF | F10 | Pendiente |
+| 9 | F12 | Tutor socrático desacoplado: LLM → JSON estructurado → validación → autoridad determinista | F11 | Pendiente |
+| 10 | F13 | Sincronización cloud/OneDrive completa, conflictos, versionado y operación offline-first | F13-ext | Pendiente |
 
-```
-F0   Auditoría y Arquitectura                          [CERTIFICADO]
-F1   Núcleo de Dominio                                 [CERTIFICADO]
-F2   Recursos y Almacenamiento CAS                      [CERTIFICADO]
-F3   Documentos / PDF / AST                             [CERTIFICADO]
-F4   Knowledge / Modelo Académico                       [CERTIFICADO]
-F5   Authoring Engine                                   [CERTIFICADO]
-F6   Matemáticas e Ingeniería Base                      [CERTIFICADO]
-F7   MNA Lineal y Simulación SPICE                      [CERTIFICADO]
-F8-A a F8-I   Electrónica Avanzada                      [CERTIFICADO]
- │
- │  ═══════════ A PARTIR DE AQUÍ: NUEVO ORDEN ═══════════
- │
-F8-J   Small-Signal AC                                  [1º]
-F8-K   Semiconductores Adicionales (MOSFET/JFET/Zener)  [2º]
-F8-L   Transitorio (DAE, Backward Euler, Trapezoidal)   [3º]
-F8-M   Análisis Avanzados (Sweep, Sensibilidad, MC)     [4º] CERTIFICADO
-F8-N   Laboratorio Virtual                              [5º] CERTIFICADO
-F8-O   Metrología e Incertidumbre (GUM)                 [6º] CERTIFICADO
-F8-P1  Sistemas y Control                               [7º] CERTIFICADO
-F8-P2  DSP                                              [8º] CERTIFICADO
-F8-P3  RF y Líneas de Transmisión                       [9º] CERTIFICADO
-F8-P4  Comunicaciones Digitales                         [10º] CERTIFICADO
-F8-P5  Síntesis Satcom                                  [11º] CERTIFICADO
- │
- │  ═══════════ CIERRE DE F8. EMPIEZA CONSTRUCCIÓN DE APP ═══════════
- │
-[D1]   Decisión: Arquitectura de módulos/plugins        [12º]
-[D2]   Decisión: Estándar de logging/errores            [13º]
-[D3]   Decisión: Licencia única del proyecto             [14º]
-F15    Aplicación Final (app mínima funcional)          [15º]
-F3-ext Integración conversor HTML→MD/LaTeX              [16º]
-F4-ext Fusión gestión académica                         [17º]
-F13-ext Sync entre 2 PCs personales                     [18º]
- │
- │  ═══════════ APP FUNCIONAL. CONSTRUCCIÓN SOBRE ELLA ═══════════
- │
-[D4]   Pipeline CI/build (GitHub Actions)               [19º]
-[D5]   Suite de tests                                   [20º]
-[D6]   Esquema neutro de banco de preguntas             [21º]
-[D7]   Ingesta estructurada al Knowledge Core (F4)      [22º]
-F9     Assessment y Evaluación Formal                   [23º]
-F10    Mastery y Modelado del Estudiante                [24º]
-F11    Aprendizaje Adaptativo                           [25º]
-F12    IA / Tutor Socrático con Guardrails               [26º]
-F13    OneDrive / Cloud Sync (completo)                 [27º]
-F14    Migración de Sistemes-de-Mesura                  [28º]
-F16    Contenido Aeroespacial/Satélite (última fase)    [29º]
-F8-Q  Motor Digital + Logic Analyzer                 [CERTIFICADA]
-E0     Explainable Execution / Pedagogical Trace        [CERTIFICADA]
-E0.1   Explainable Execution Expansion (pasos reales)  [CERTIFICADA]
-E0.1-R+ Hardening + cierre de limitaciones           [CERTIFICADA]
-E0.2   Explainable Engineering Expansion (analógico)  [CERTIFICADA]
-E0.3   Explainable Engineering Completeness       [CERTIFICADA]
-E0.4   Explainable Engineering Deep Observability & Resolver Retrofit [CERTIFICADA]
- │
- │  ═══════════ CAPACIDAD PEDAGÓGICA TRANSVERSAL ═══════════
- │
-> **E0 es obligatoria para todo resolver nuevo y para la migración progresiva de los resolvers existentes.**
-> No es una feature exclusiva de UI ni una explicación generada retrospectivamente por IA: la explicación debe proceder de una traza estructurada de la ejecución determinista.
+### 5.4 Dependencias críticas
+
+La cadena pedagógica deberá mantenerse explícitamente:
 
 ```
+D6
+ ↓
+D7
+ ↓
+F9
+ ↓
+F10
+ ↓
+F11
+ ↓
+F12
+```
 
-| # | Código | Nombre | Depende de | Nota |
-|---|---|---|---|---|
-| 1 | F8-J | Small-Signal AC | F8-H, F8-I | Linealización de diodo/BJT para pequeña señal |
-| 2 | F8-K | Semiconductores Adicionales | F8-J | MOSFET Level 1, JFET, Zener, LED, Schottky, fotodiodo |
-| 3 | F8-L | Transitorio | F8-K | DAE, Backward Euler, Trapezoidal, BDF, paso adaptativo |
-| 4 | F8-M | Análisis Avanzados | F8-L | DC Sweep, Parameter Sweep, sensibilidad, Monte Carlo, Worst Case |
-| 5 | F8-N | Laboratorio Virtual | F8-M | Fuente DC, multímetro, osciloscopio, generador, analizador lógico |
-| 6 | F8-O | Metrología e Incertidumbre (GUM) | F8-N, F6 | Capa de metrología sobre GUM local F7-B7 (sin `eval`); propagación analítica + MC, cifras significativas, trazabilidad — **CERTIFICADO** |
-| 7 | F8-P1 | Sistemas y Control | F8-D6 (Bode ya certificado) | Función de transferencia, Bode, lugar de raíces, PID, espacio de estados — **CERTIFICADO** |
-| 8 | F8-P2 | DSP | F8-P1 | FFT/DFT, transformada Z, FIR/IIR, muestreo, aliasing — **CERTIFICADO** |
-| 9 | F8-P3 | RF y Líneas de Transmisión | F8-D1/D2, F8-P2 | Carta de Smith, parámetros S, líneas de transmisión, matching — **CERTIFICADO** (antenas/link budget diferidos a F8-P5, roadmap:212) |
-| 10 | F8-P4 | Comunicaciones Digitales | F8-P2, F8-P3 | Modulaciones, constelaciones, BER/SNR, Shannon — **CERTIFICADO** |
-| 11 | F8-P5 | Síntesis Satcom | F8-P1..P4 | Módulo integrador: link budget + modulación + ruido + antenas — **CERTIFICADO** |
-| 12 | D1 | Arquitectura de módulos/plugins | — | Manifiesto común antes de fusionar `GestionAcademicaGREELEC.exe`, el conversor y AcademicCore |
-| 13 | D2 | Estándar de logging/errores | — | Sustituye el patrón `except Exception: pass` del conversor |
-| 14 | D3 | Licencia única | — | El conversor ya usa MIT; fijar antes de fusionar más repos |
-| 15 | F15 | Aplicación Final | D1, D2, D3, toda F8 | Qt/PySide6, dashboard, resolución de ejercicios, simulación |
-| 15a | F8-Q | Motor Digital + Logic Analyzer | F15, F8-N | Motor digital event-driven (LOW/HIGH, tiempo Decimal, zero-delay), gates N-arias, stimuli, probes, `DigitalTrace`, serialización/replay `digital-trace/1`, Logic Analyzer (trigger RISING/FALLING/BOTH, pre/post-trigger) e integración F15 (pestaña Logic Analyzer + renderer de formas de onda) — **CERTIFICADA** (Q.1–Q.7, [`GATE-F8Q-FINAL.md`](../gates/GATE-F8Q-FINAL.md)) |
-| 15b | E0 | Explainable Execution / Pedagogical Trace | F8-Q.7 (F8-Q certificada) | `ExecutionTrace` común (`execution-trace/1`, digest, replay, renderer de 7 preguntas) integrado con el resolver de ecuaciones y con F8-Q; botón «Explicar» en Ejercicios — **CERTIFICADA** ([`GATE-E0-FINAL.md`](../gates/GATE-E0-FINAL.md)); retrofit de otros resolvers (E0-A…E0-D) pendiente |
-| 15c | E0.1 | Explainable Execution Expansion | E0 | Motor simbólico acotado con pasos reales (derivadas, integrales, ecuaciones lineales, simplificación), iteraciones reales de F8-N (Newton) y F8-P (bisección), presupuesto GUM paso a paso, causalidad F8-Q, `digital-circuit/1`, lecciones «Paso N / Tipo / Regla / …» en Ejercicios y Logic Analyzer — **CERTIFICADA** ([`GATE-E0.1-FINAL.md`](../gates/GATE-E0.1-FINAL.md)) |
-| 15d | E0.1-R+ | Hardening + limitaciones justificadas | E0.1 | Equivalencia observer/no-observer (GUM, F8-N, F8-P), etiquetas SYMBOLIC/NUMERIC/NONE, causalidad F8-Q delta a delta sin tocar el paquete digital, GUM declarativo (callables UNSUPPORTED), auditoría Decimal de √/ν_eff (se conserva el motor certificado), límites F8-N configurables — **CERTIFICADA** ([`GATE-E0.1-R-FINAL.md`](../gates/GATE-E0.1-R-FINAL.md)) |
-| 15e | E0.2 | Explainable Engineering Expansion (analógico) | E0.1-R+ | F8-H con Shockley real, Newton, Jacobiano, backtracking y KCL por nodo observados; MNA lineal con A, b y x exactos; barrido DC, AC, transitorio y TF a nivel de resultado con lo no observable declarado; «Explicar último» en el Laboratorio Virtual — **CERTIFICADA** ([`GATE-E0.2-FINAL.md`](../gates/GATE-E0.2-FINAL.md)) |
-| 15f | E0.3 | Explainable Engineering Completeness | E0.2 | Observadores opcionales inertes en AC (F8-D3), AC pequeña señal (F8-J), barrido DC (F8-M), transitorio (F8-L) y BJT Ebers-Moll (F8-I): matriz compleja A(jω), b(jω) y x(jω) reales; iteraciones de Newton y arranque en caliente/frío reales por punto; pasos, Δt, predictor, LTE y rechazos reales del integrador; barrido AC punto a punto; TF con polos/ceros del motor; BJT NPN/PNP con corrientes y bloque jacobiano reales; «Explicar en detalle» en el Laboratorio Virtual; `TRACE_TRUNCATED` explícito — **CERTIFICADA** ([`GATE-E0.3-FINAL.md`](../gates/GATE-E0.3-FINAL.md)) |
-| 15g | E0.4 | Explainable Engineering Deep Observability & Resolver Retrofit | E0.3 | Newton interno real del transitorio (x_k, F, J, Δx, α, backtracking), matriz A(jω) real por frecuencia en el barrido AC, semiconductores F8-K (MOSFET, JFET, Zener, LED, Schottky, fotodiodo) observados dentro del modelo, F8-M (barrido de parámetro, peor caso, sensibilidad con J·dx/dp = −dF/dp, Monte Carlo con semilla y muestras reales), GUM F8-O por su motor certificado, F8-P1..P5 (Routh, etapas FFT, muestreo, reflexión, BPSK bit a bit, balance de enlace), matriz formal de retrofit E0-A..D y política para resolvers nuevos — **CERTIFICADA** ([`GATE-E0.4-FINAL.md`](../gates/GATE-E0.4-FINAL.md)) |
-| 16 | F3-ext | Integración del conversor HTML→MD/LaTeX | F15 | Motor de `Conversor-HTML-A-MD` (ya desacoplado de Tkinter) |
-| 17 | F4-ext | Fusión de gestión académica | F15, F3-ext | Migra `GestionAcademicaGREELEC.exe` al modelo F4 y al dashboard |
-| 18 | F13-ext | Sync entre 2 PCs personales | F15 | Última edición gana + log (no CRDT) |
-| 19 | D4 | Pipeline de CI/build | F15 | GitHub Actions, tests en cada commit |
-| 20 | D5 | Suite de tests | D4 | Empieza por el motor de conversión HTML→MD |
-| 21 | D6 | Esquema neutro de banco de preguntas | — | Generaliza `BANC`/`DATA.items`/`ITEMS` a JSON neutro por asignatura |
-| 22 | D7 | Ingesta estructurada al Knowledge Core | D6, F4 | Definiciones/fórmulas/preguntas como entidades F4, no `.md` sueltos |
-| 23 | F9 | Assessment y Evaluación Formal | D6, D7 | Tipos de pregunta, pipeline de corrección |
-| 24 | F10 | Mastery y Modelado del Estudiante | F9 | Modelo bayesiano de dominio |
-| 25 | F11 | Aprendizaje Adaptativo | F10 | Rutas personalizadas, `LLM = OFF` garantizado |
-| 26 | F12 | IA / Tutor Socrático con Guardrails | F11 | LLM → JSON estructurado → Validador → Solver determinista |
-| 27 | F13 | OneDrive / Cloud Sync (completo) | F13-ext | Versión completa más allá del sync entre 2 PCs |
-| 28 | F14 | Migración de Sistemes-de-Mesura | F4-ext | Ingesta del repo `Damaga2005/Sistemes-de-Mesura` |
-| 29 | F16 | Contenido Aeroespacial/Satélite | F8-P5 | Mecánica orbital básica; última fase, sin prisa |
+Y la cadena de sincronización:
 
-**Regla de oro:** no empezar una fase con dependencias sin marcar como hecha. Orden estricto, sin paralelo salvo decisión explícita.
+```
+F15
+ ↓
+F13-ext
+ ↓
+F13
+```
 
----
+La razón del orden es evitar implementar una capa sobre contratos todavía inestables. En particular:
+
+- **D6** define qué representa una pregunta.
+- **D7** define cómo entra ese conocimiento estructurado en el Knowledge Core.
+- **F9** convierte esa estructura en evaluación y evidencia.
+- **F10** convierte la evidencia de evaluación en estado de dominio.
+- **F11** utiliza el dominio para decidir qué estudiar después.
+- **F12** utiliza todo lo anterior como contexto pedagógico, pero nunca sustituye la autoridad determinista.
+- **F13-ext** resuelve primero el caso pequeño de sincronización entre dos PCs antes de ampliar el problema a cloud/OneDrive con F13.
+
+### 5.5 Criterio para avanzar
+
+Una fase se considera cerrada únicamente cuando:
+
+1. su implementación está terminada;
+2. sus tests específicos están verdes;
+3. las regresiones relevantes están verdes;
+4. sus contratos de dependencia están documentados;
+5. existe gate/certificación cuando corresponda;
+6. no quedan cambios silenciosos sobre fases certificadas;
+7. el estado del roadmap se actualiza al cierre.
+
+**No se considera una fase completada simplemente porque exista código funcional.**
+
+### 5.6 Fases eliminadas
+
+#### F14 — Sistemes-de-Mesura
+**ELIMINADA.** No forma parte del plan de implementación futuro.
+
+#### F16 — Contenido Aeroespacial/Satélite
+**ELIMINADA.** No forma parte del plan de implementación futuro.
+
+### 5.7 Regla de oro
+
+> **Construir en orden, verificar cada dependencia, preservar lo certificado y no introducir complejidad antes de que exista una necesidad contractual clara.**
 
 ## 5.2 E0 — Explainable Execution / Pedagogical Trace
 
@@ -417,39 +433,33 @@ La familia **F8** constituye el motor de simulación circuital y electrónica de
 
 ---
 
-## 7. Evolución Futura del Sistema (F9 a F15)
+## 7. Evolución Futura del Sistema
 
 ### F9 — Assessment & Evaluación
 - **Tipos de preguntas**: Selección múltiple, verdadero/falso, respuesta numérica con unidades y tolerancias, fórmulas algebraicas, esquemas circuitales, diagnóstico de fallos y problemas abiertos.
-- **Pipeline de corrección**: `Student Answer` $\to$ `Correction Service` (Exacto $\to$ Numérico $\to$ Simbólico $\to$ Solver de Ingeniería $\to$ IA supervisada). Prioridad absoluta al motor determinista.
+- **Pipeline de corrección**: Student Answer → Correction Service (Exacto → Numérico → Simbólico → Solver de Ingeniería → IA supervisada). Prioridad absoluta al motor determinista.
 
 ### F10 — Mastery & Modelado del Estudiante
 - Representación probabilística y bayesiana del dominio de cada estudiante desglosado por asignatura, tema, sección, concepto, fórmula y habilidad.
 
 ### F11 — Aprendizaje Adaptativo
-- Selección dinámica de ejercicios en base a la política de priorización:
-  $$
-  P = 100 \cdot (0.5 \cdot need \cdot evW + 0.3 \cdot err + 0.2 \cdot rec)
-  $$
-- Funcionalidad garantizada con `LLM = OFF`.
+- Selección dinámica de ejercicios en base a evidencia de dominio, errores y recencia.
+- Funcionalidad garantizada con LLM = OFF.
 
 ### F12 — Asistencia Inteligente / Tutor Socrático
 - Asistencia conversacional pedagógica: explicaciones contextuales, pistas progresivas y razonamiento guiado socrático antes de proporcionar soluciones directas.
 - Arquitectura de guardrails obligatorios:
-  $$
-  \text{LLM Output} \longrightarrow \text{Structured JSON} \longrightarrow \text{Validator} \longrightarrow \text{Deterministic Solver} \longrightarrow \text{Verified Response}
-  $$
+  LLM Output → Structured JSON → Validator → Deterministic Solver → Verified Response
 
 ### F13 — OneDrive & Sincronización en la Nube
-- Arquitectura *offline-first* con sincronización bidireccional, detección de conflictos y versionado determinista.
-
-### F14 — Migración de Sistemes-de-Mesura
-- Ingesta, normalización y validación del corpus completo del repositorio `Damaga2005/Sistemes-de-Mesura` (teoría, fórmulas y problemas de instrumentación).
+- Evolución de F13-ext hacia sincronización cloud/OneDrive completa.
+- Arquitectura offline-first, sincronización bidireccional, detección de conflictos y versionado determinista.
 
 ### F15 — Aplicación Final
-- Entorno de escritorio unificado en Qt/PySide6 que integra dashboard, biblioteca de apuntes, resolución de ejercicios, simulación de circuitos, laboratorio virtual y tutoría adaptativa.
+- **Estado: CERTIFICADA / IMPLEMENTADA.**
+- Entorno de escritorio unificado en Qt/PySide6 que sirve como base de integración de las fases posteriores.
 
----
+> **F14 y F16 no forman parte de la evolución futura de AcademicCore y no deben reintroducirse en el orden de implementación sin una decisión explícita y documentada.**
 
 ## 8. Principios de Certificación y Deuda Técnica
 
