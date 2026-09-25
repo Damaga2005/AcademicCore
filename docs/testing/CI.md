@@ -51,10 +51,17 @@ Bucle rápido (estrategia del proyecto): `pytest -m "not migration"`.
 
 - `AssertionError` / `ImportError` / fallo de test o de build → fallo de
   código: CI rojo, corregir antes de consolidar.
-- El test `test_document_symlink_escape_refused` requiere privilegio de
-  symlinks del SO (`WinError 1314` sin modo desarrollador): limitación
-  ambiental conocida, preexistente en local; si un runner la reproduce,
-  es entorno, no regresión (ver gate D4).
+- `tests/conftest.py` contiene la ÚNICA tabla de excepciones ambientales
+  (§14: explícitas, mínimas, auditadas; fijada por
+  `test_env_exceptions_are_explicit_and_minimal`):
+  1. `test_html_corpus` en linux → `xfail(strict=True)`: el golden
+     `html_cp1252` pinea la recuperación HTML de lxml y el wheel
+     manylinux difiere del wheel Windows con el mismo lock (win py3.12
+     y py3.14 reproducen el golden; ubuntu da otro digest). Preexistente
+     (CHANGELOG F4.1). Si algún día coinciden, XPASS vuelve rojo.
+  2. `test_document_symlink_escape_refused` → `skip` solo si el SO niega
+     crear symlinks (`WinError 1314` sin modo desarrollador). Se prueba
+     la capacidad real; donde existe, el test corre.
 
 ## Artefactos
 

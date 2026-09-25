@@ -79,6 +79,43 @@ preexistente en baseline (falla con y sin D4); documentado en `CI.md`.
 - Runners pineados `windows-2025/ubuntu-24.04` (reproducibilidad) +
   test D4 `test_runners_are_pinned_not_floating` que lo fija.
 
+### Run #2 — `36104755964` (`11f3eb9`, 2026-09-25): FAILURE (causa real)
+
+- `test (ubuntu-24.04, py 3.12)`: suite al 100% en ~34 min, **1 único
+  fallo**: `test_f3_golden.py::TestGolden::test_html_corpus` —
+  `AssertionError: html_cp1252` (`3cd3bc49…` vs golden `7f7d73d8…`).
+  Resto cancelado por `fail-fast`; `package` skipped por `needs`.
+- Causa raíz probada (no esconder, §14): el golden pinea la recuperación
+  HTML de lxml para un input cp1252; el wheel manylinux de lxml produce
+  otro árbol que el wheel Windows con el MISMO lock y MISMO input.
+  Evidencia: `py -3.12` y `py -3.14` en Windows reproducen el golden en
+  seeds 0/1/42; ubuntu-24.04 da `3cd3…`. Preexistente en el repo
+  (CHANGELOG F4.1: "fallo F3 golden preexistente por libxml2") y
+  verificado idéntico sobre baseline pristino `23b88de` (worktree).
+- Hallazgo colateral: los blobs git están en LF; los fallos golden
+  `e0/f8q4/f8q5` vistos en local proceden de `core.autocrlf=true` de esta
+  máquina (checkout con CRLF), NO del repo. Sin cambios necesarios.
+
+### Fix §14 (cero ficheros certificados tocados)
+
+Justificación (§12: justificación + regresión + evidencia, sin cambio de
+comportamiento): el check depende del wheel del SO, no del commit; no
+puede ponerse verde en ambas plataformas con configuración (no es
+pineable); excluirlo en silencio está prohibido (§5) pero el manejo
+explícito §14 (marker + documentación + auditoría) es el camino previsto.
+
+- Nuevo `tests/conftest.py` (propiedad de D4): hook
+  `pytest_collection_modifyitems` con tabla de 2 excepciones y razones
+  audibles; ningún otro test se toca.
+- `test_html_corpus` en linux → `xfail(strict=True)` (todas las demás
+  aserciones del test siguen ejecutándose; señal preservada en Windows).
+- `test_document_symlink_escape_refused` → `skip` solo si el SO niega
+  symlinks (sonda real de capacidad).
+- Test D4 `test_env_exceptions_are_explicit_and_minimal` fija la tabla
+  (exactamente 2 entradas, node ids exactos, sin `collect_ignore`).
+- Evidencia local: `test_d4_pipeline + test_f3_golden + test_f4_security`
+  → verde con `SKIPPED [1]` y razón visible.
+
 ## 6. Veredicto
 
 **D4 IMPLEMENTADA, PENDIENTE DE RUN REAL EN CI.** No certificada todavía

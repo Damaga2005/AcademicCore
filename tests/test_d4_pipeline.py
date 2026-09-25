@@ -99,6 +99,17 @@ def test_static_check_compiles_all_sources(tmp_path):
     assert "python -m build" in _text(), "CI debe verificar el build"
 
 
+def test_env_exceptions_are_explicit_and_minimal():
+    src = (ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
+    assert "collect_ignore" not in src
+    assert src.count("add_marker") == 2, "solo 2 excepciones ambientales"
+    for node in ("test_f3_golden.py::TestGolden::test_html_corpus",
+                 "test_f4_security.py::test_document_symlink_escape_refused"):
+        assert node in src, f"excepción sin node id exacto: {node}"
+    assert "xfail" in src and "strict=True" in src and "skip" in src
+    assert "linux" in src and "symlink" in src
+
+
 def test_no_unwanted_artifacts_in_worktree():
     ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
     for entry in ("*.db", ".pytest_cache/", "build/", "dist/", "__pycache__/"):

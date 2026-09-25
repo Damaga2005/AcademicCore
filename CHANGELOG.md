@@ -3,7 +3,7 @@
 ## Unreleased — Fase D4: Pipeline CI/build (IMPLEMENTADA, pendiente de run real)
 - Workflow único `.github/workflows/ci.yml`: matriz windows/ubuntu × py3.12/3.13, install desde `requirements-lock.txt`, `compileall`, `pytest -m "not external"`, job `package` con `python -m build` y artefacto `dist/`. Sin bypasses, sin secretos, sin dependencias de producto.
 - Tests `test_d4_pipeline.py` (7, stdlib, sin red): triggers, sin bypasses, lock pineado, pytest ejecuta, fallo→rc!=0, build declarado, árbol limpio.
-- Docs `docs/testing/CI.md` + `GATE-D4-CERTIFICATION.md`. Evidencia local: 58 passed regresión, build real sdist+whl en venv aislado. Run del proveedor pendiente (sin `gh`/push desde esta máquina) → D4 aún NO certificada.
+- Docs `docs/testing/CI.md` + `GATE-D4-CERTIFICATION.md`. Evidencia local: 58 passed regresión, build real sdist+whl en venv aislado. Runs del proveedor: #1 fallo setup (Qt/ubuntu, corregido), #2 un solo fallo preexistente `html_cp1252` (divergencia manylinux-lxml, documentada) → `tests/conftest.py` con tabla §14 (xfail estricto en linux + skip por sonda symlink), sin tocar ficheros certificados → D4 aún NO certificada hasta run verde.
 
 ## Unreleased — Fase F13-ext: Sync determinista 2 PCs (CERTIFICADA)
 - Motor puro `domain/sync.py`: LWW `(ms, device)`, digest canónico, tombstones, idempotencia `sync(S',R)=S'`, protocolo `f13ext-sync/1`, sin CRDT.
