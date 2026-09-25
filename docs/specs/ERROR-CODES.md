@@ -39,6 +39,7 @@ data migration, `ICS` calendar interchange.
 | AC-SEC-002 | path escapes the allowed root (refused) | ERROR | NONE | generic only | F4.1 |
 | AC-SEC-003 | archive rejected (zip slip / bomb / limits / hash) | ERROR | NONE | generic only | F4.1 |
 | AC-ICS-001 | calendar file rejected (format or limits) | WARNING | CONFIG_CHANGE | yes | F4.1 |
+| AC-SYN-001 | sync snapshot/resource rejected (schema, hash, limits) | ERROR | NONE | generic only | F13-ext |
 
 Engine status enums map to sub-codes: `AC-DOM-…` + `status.value`
 (e.g. `ControlStatus.DIVERGED`, `ACStatus.SINGULAR`, replay

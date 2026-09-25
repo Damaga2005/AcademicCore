@@ -20,6 +20,8 @@ from academic_core.infrastructure.academic_store import (
     CourseMaterialRepository, EvaluationRepository, LegacyRepository, PersonalRepository,
     SearchHistoryRepository, SeriesRepository, StudySpaceRepository,
 )
+from academic_core.infrastructure.sync_store import SyncLogRepository
+from academic_core.infrastructure.sync_transport import FileTransport, SyncRejected
 
 __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "GradingRepository", "IntegrityError",
@@ -31,4 +33,4 @@ __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "FtsResourceIndexer", "SqliteResourceRecords",
            "CourseMaterialRepository", "EvaluationRepository", "LegacyRepository",
            "PersonalRepository", "SearchHistoryRepository", "SeriesRepository",
-           "StudySpaceRepository"]
+           "StudySpaceRepository", "SyncLogRepository", "FileTransport", "SyncRejected"]

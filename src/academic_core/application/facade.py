@@ -124,6 +124,13 @@ class AcademicApp:
         self.notify = NotificationService(self.academic, self.planning,
                                           self.material, self.study_spaces)
         self.preferences = PreferencesService(self.personal)
+        # -- F13-ext deterministic sync between 2 PCs (LWW + log, no CRDT) --
+        from academic_core.application.sync import SyncService, ensure_device_id
+        from academic_core.infrastructure.sync_store import SyncLogRepository
+        self.sync_store = SyncLogRepository(self.db)
+        self.device_id = ensure_device_id(self.personal)
+        self.sync = SyncService(self.personal, SearchHistoryRepository(self.db),
+                                self.sync_store, self.device_id)
 
     def ensure_demo(self) -> None:
         """Generic, deletable demo hierarchy (never institution-specific)."""

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Fase F13-ext: Sync determinista 2 PCs (CERTIFICADA)
+- Motor puro `domain/sync.py`: LWW `(ms, device)`, digest canónico, tombstones, idempotencia `sync(S',R)=S'`, protocolo `f13ext-sync/1`, sin CRDT.
+- Aplicación `application/sync.py`: identidad estable `sync.device_id`, adaptadores preferences/saved_searches/quick_notes, verify interno.
+- Infraestructura: migración 015 (`sync_state`+`sync_log`), `FileTransport` con límites y rechazo `AC-SYN-001`, wiring en facade.
+- Tests `test_f13ext_sync.py`: 12/12 normativos. Docs: `F13EXT-SYNC.md` + `GATE-F13EXT-CERTIFICATION.md`. Roadmap: F13-ext CERTIFICADA, D4 SIGUIENTE.
+
 ## Unreleased — Fase F4.1: Gestion-Academica integrada (2026-09-23)
 - Modelo académico centrado en la asignatura: estados CURSANDO/APROBADA/SUSPENDIDA/NO_CURSANDO, Home/Carrera/detalle de asignatura.
 - Evaluación esquema/bloque/componente/nota mínima en Decimal (golden 400 casos vs Gestion real).

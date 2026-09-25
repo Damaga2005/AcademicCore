@@ -169,9 +169,9 @@ F4-ext    Fusión de gestión académica                    [CERTIFICADO]
    │
 ══════════════════ ESTADO ACTUAL ══════════════════════════
    │
-F13-ext   Sync entre 2 PCs personales                    [SIGUIENTE]
+F13-ext   Sync entre 2 PCs personales                    [CERTIFICADA]
    │
-D4        Pipeline CI/build                              [PENDIENTE]
+D4        Pipeline CI/build                              [SIGUIENTE]
    │
 D5        Suite global de tests                          [PENDIENTE]
    │
@@ -196,8 +196,8 @@ F16       Contenido Aeroespacial / Satélite              [PENDIENTE — ÚLTIMA
 
 | Orden | Fase | Objetivo de implementación | Dependencias principales | Estado |
 |---:|---|---|---|:---:|
-| 1 | F13-ext | Sincronización determinista entre 2 PCs personales; última edición gana + log, sin CRDT | F15 | **SIGUIENTE** |
-| 2 | D4 | Pipeline CI/build y ejecución automática de tests en cada cambio | F15 | Pendiente |
+| 1 | F13-ext | Sincronización determinista entre 2 PCs personales; última edición gana + log, sin CRDT | F15 | **CERTIFICADA** |
+| 2 | D4 | Pipeline CI/build y ejecución automática de tests en cada cambio | F15 | **SIGUIENTE** |
 | 3 | D5 | Consolidar suite global de tests y cobertura de regresión, empezando por el conversor HTML→MD | D4 | Pendiente |
 | 4 | D6 | Definir esquema neutro y versionado para bancos de preguntas, independiente de una asignatura concreta | — | Pendiente |
 | 5 | D7 | Transformar definiciones, fórmulas y preguntas estructuradas en entidades del Knowledge Core/F4 | D6, F4 | Pendiente |
