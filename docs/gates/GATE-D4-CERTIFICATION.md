@@ -59,10 +59,30 @@ preexistente en baseline (falla con y sin D4); documentado en `CI.md`.
   no ejecutado). Al hacer push, GitHub Actions ejecutará el workflow; con
   el run en verde se marca el criterio y el roadmap.
 
-## 5. Veredicto
+## 5. Runs reales en el proveedor
+
+### Run #1 — `36104261250` (`b05ded6`, 2026-09-25): FAILURE (diagnosticado)
+
+- `test (ubuntu-24.04→entonces ubuntu-latest, py 3.12)`: install + editable +
+  compileall verdes; pytest muere en ~20 s con **exit code 3**
+  (`INTERNALERROR` en colección). Causa: runner Linux sin librerías del
+  sistema de Qt → `pytest-qt` no puede importar PySide6. Resto cancelado
+  por `fail-fast` (funciona como diseñado); `package` skipped por `needs`.
+- Avisos: actions `checkout@v4/setup-python@v5` apuntan a Node 20
+  (deprecado); `ubuntu-latest` migrará a Ubuntu 26 (oct-2026).
+
+### Fix (mismo `main`, sin tocar código certificado)
+
+- Paso `Qt system libs (ubuntu only)`: apt `libegl1 libgl1 libxkbcommon0
+  libdbus-1-3 libfontconfig1` (documentado en `docs/testing/CI.md`).
+- Actions a `checkout@v5/setup-python@v6/upload-artifact@v5` (Node 24).
+- Runners pineados `windows-2025/ubuntu-24.04` (reproducibilidad) +
+  test D4 `test_runners_are_pinned_not_floating` que lo fija.
+
+## 6. Veredicto
 
 **D4 IMPLEMENTADA, PENDIENTE DE RUN REAL EN CI.** No certificada todavía
 por criterio explícito del prompt (§15/§19). Roadmap queda en
-`D4 SIGUIENTE` → pasará a `CERTIFICADA` (y `D5 SIGUIENTE`) cuando el primer
-run del proveedor esté verde. Para cerrar: push a `origin/main` →
-Actions → run verde → actualizar §4 y roadmap en commit aparte.
+`D4 SIGUIENTE` → pasará a `CERTIFICADA` (y `D5 SIGUIENTE`) cuando un run
+del proveedor esté verde. Para cerrar: push → Actions → run verde →
+actualizar §4 y roadmap en commit aparte.

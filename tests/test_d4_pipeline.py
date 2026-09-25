@@ -35,6 +35,13 @@ def test_workflow_exists_and_triggers_on_main():
     assert re.search(r"branches:\s*\[main\]", text)
 
 
+def test_runners_are_pinned_not_floating():
+    code = "\n".join(ln for ln in _text().splitlines()
+                     if ln.strip() and not ln.lstrip().startswith("#"))
+    assert "ubuntu-24.04" in code and "windows-2025" in code
+    assert "ubuntu-latest" not in code and "windows-latest" not in code
+
+
 def test_no_silent_bypasses_in_workflow():
     code = "\n".join(ln for ln in _text().splitlines()
                      if ln.strip() and not ln.lstrip().startswith("#"))

@@ -12,7 +12,13 @@ checkout -> setup Python -> pip install -r requirements-lock.txt
   -> python -m build -> verifica sdist+wheel -> sube dist/
 ```
 
-- Matriz `test`: `windows-latest × ubuntu-latest` × Python `3.12, 3.13`.
+- Matriz `test`: `windows-2025 × ubuntu-24.04` × Python `3.12, 3.13`
+  (imágenes pineadas, no etiquetas flotantes: `ubuntu-latest` migraría a
+  Ubuntu 26 y rompería la reproducibilidad).
+- Paso `Qt system libs (ubuntu only)`: `libegl1 libgl1 libxkbcommon0
+  libdbus-1-3 libfontconfig1` vía apt — PySide6 necesita esas librerías
+  del sistema en Linux (sin ellas, `pytest-qt` falla en colección con
+  `INTERNALERROR`, exit 3). Solo Linux; Windows trae sus DLLs.
   El rango soportado es `>=3.11,<3.15` (`pyproject.toml`, badge README
   3.11–3.14); CI muestrea 3.12/3.13 y el resto sigue siendo instalable.
   D5 podrá ampliar la matriz.
