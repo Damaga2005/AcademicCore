@@ -155,8 +155,12 @@ def test_madrid_offsets():
     assert utc_to_madrid(datetime(2026, 3, 29, 1, 0)).hour == 3
 
 
+# ids explícitos: pytest-qt exporta el node id a una variable de entorno y
+# Windows limita las env vars a 32767 caracteres (los MB de X colgaban CI).
+# Los inputs bajo prueba no cambian.
 @pytest.mark.parametrize("raw", [b"hello", b"BEGIN:VCALENDAR\n" + b"X" * (3 * 1024 * 1024),
-                                 b"BEGIN:VCALENDAR\nSUMMARY:" + b"a" * 9000 + b"\n"])
+                                 b"BEGIN:VCALENDAR\nSUMMARY:" + b"a" * 9000 + b"\n"],
+                         ids=["not-ical", "oversize-3mb", "line-too-long"])
 def test_ics_limits(raw):
     with pytest.raises(IcsError) as e:
         parse_calendar(raw)

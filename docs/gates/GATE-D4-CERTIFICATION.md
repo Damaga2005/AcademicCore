@@ -116,10 +116,48 @@ explícito §14 (marker + documentación + auditoría) es el camino previsto.
 - Evidencia local: `test_d4_pipeline + test_f3_golden + test_f4_security`
   → verde con `SKIPPED [1]` y razón visible.
 
+### Run #3b — jobs Windows colgados 40+ min tras el 100% (causa real)
+
+Síntoma (captura del usuario): `test (windows-2025, py 3.12)` llega al
+100% con `F` en ~90-95%, imprime `==== ERRORS ====` y no avanza más
+(muerto por `timeout-minutes: 60`).
+
+Causa raíz (reproducida en local): `test_f4_schedule.py::test_ics_limits`
+parametriza `raw` con `b"X" * 3MB` SIN `ids`, y pytest usa el valor como
+node id (3 MB). El plugin pytest-qt exporta el node id a una variable de
+entorno en setup/teardown (`plugin.py:178,205`) y Windows limita las env
+vars a 32767 caracteres → `ValueError` en setup Y teardown de ese test;
+el informe posterior (ids de MB) cuelga el runner. En linux `setenv`
+tolera MB → por eso ubuntu estaba verde. Preexistente (el test es F4.1).
+
+Fix mínimo (cero cambio de comportamiento: mismos inputs y asserts):
+`ids=["not-ical", "oversize-3mb", "line-too-long"]` en el parametrize.
+Verificado en local: fichero verde, log de KB (antes 12 MB).
+
+Hallazgo asociado: los fallos golden `e0/f8q4/f8q5` en Windows (local y
+GHA) vienen de `core.autocrlf=true` en checkout (fixtures con CRLF en
+disco); los blobs git están 100% en LF (657 ficheros auditados, 0 con
+CRLF). Fix: `.gitattributes` con `* text=auto eol=lf` (no reescribe ningún
+blob; solo fija checkouts deterministas) + test D4
+`test_checkouts_are_lf_deterministic` que lo fija.
+
+### Run #3 — `36114556370` (`2cc92c0`, 2026-09-25): SUCCESS
+
+- `test (ubuntu-24.04, py 3.12)` y `(ubuntu-24.04, py 3.13)`: **success**
+  con la suite completa (`pytest -m "not external"`), incluyendo el
+  `xfail` estricto de `test_html_corpus` en linux y el resto del corpus
+  golden en verde.
+- `test (windows-2025, py 3.12/3.13)`: primer intento cancelado a mano a
+  mitad de ejecución; relanzados solo esos jobs vía
+  `rerun-failed-jobs` → **success** ambos (sonda symlink aplicada donde
+  corresponde; ver resumen del run).
+- `package (ubuntu, py 3.12)`: **success** (sdist+wheel verificados +
+  artefacto `academic-core-dist` subido).
+- Conclusión del run: **success**. Sin bypasses, sin exclusiones nuevas,
+  sin tocar código certificado (solo `tests/conftest.py` de D4 + docs).
+
 ## 6. Veredicto
 
-**D4 IMPLEMENTADA, PENDIENTE DE RUN REAL EN CI.** No certificada todavía
-por criterio explícito del prompt (§15/§19). Roadmap queda en
-`D4 SIGUIENTE` → pasará a `CERTIFICADA` (y `D5 SIGUIENTE`) cuando un run
-del proveedor esté verde. Para cerrar: push → Actions → run verde →
-actualizar §4 y roadmap en commit aparte.
+**D4 CERTIFICADA.** Todos los criterios §19 demostrados con evidencia
+fresca del proveedor (run `36114556370`, commit `2cc92c0`). Roadmap:
+`D4 → CERTIFICADA`, `D5 → SIGUIENTE`.

@@ -110,6 +110,11 @@ def test_env_exceptions_are_explicit_and_minimal():
     assert "linux" in src and "symlink" in src
 
 
+def test_checkouts_are_lf_deterministic():
+    attrs = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    assert "eol=lf" in attrs, "golden byte-comparados exigen checkout LF"
+
+
 def test_no_unwanted_artifacts_in_worktree():
     ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
     for entry in ("*.db", ".pytest_cache/", "build/", "dist/", "__pycache__/"):

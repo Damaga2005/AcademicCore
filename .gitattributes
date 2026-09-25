@@ -1,0 +1,4 @@
+# D4: checkouts deterministas en todos los SO.
+# Los golden fixtures se comparan byte a byte; CRLF de checkout
+# (core.autocrlf en Windows) los rompería. eol=lf lo fija.
+* text=auto eol=lf
