@@ -38,6 +38,11 @@ Thumbs.db
 .idea/
 *.code-workspace
 
+# AI agent local config
+.claude/
+.cursor/
+AGENTS.local.md
+
 # Test / coverage
 .pytest_cache/
 .coverage
