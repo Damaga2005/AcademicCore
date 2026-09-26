@@ -98,21 +98,15 @@ reutilizados (todos en `ERROR-CODES.md`; `used ⊆ table` verde en
 - [x] seguridad cubierta (AST + límites + dup-keys + NaN + oversize)
 - [x] tests D6 verdes (16/16 local)
 - [x] regresión D5 verde (§1)
-- [ ] CI real verde — run pendiente tras push (ver §6)
+- [x] CI real verde — run `36236406471` (`86f105d`): 4/4 celdas
+  success (windows/ubuntu × 3.12/3.13: win-3.12 23m49s, ubuntu-3.12 28m58s,
+  ubuntu-3.13 30m48s, win-3.13 32m48s) + package success (ver §6)
 - [x] documentación creada (`D6-QUESTION-BANK.md` + este gate)
 - [x] gate creado (este fichero)
-- [ ] roadmap actualizado a `D6 CERTIFICADA` / `D7 SIGUIENTE` **solo
-      después del CI verde** (prohibido adelantar; ver §6)
+- [x] roadmap actualizado a `D6 CERTIFICADA` / `D7 SIGUIENTE` tras el CI verde
 
-## 6. Certificación pendiente
+## 6. Certificación
 
-D6 queda **IMPLEMENTADA, NO CERTIFICADA** hasta CI real verde sobre el
-commit de certificación. Secuencia de cierre obligatoria:
-
-1. push `main` (dispara CI D4: 4 celdas + package);
-2. run verde 4/4 + package → completar este §6 con el run id;
-3. solo entonces: roadmap `D6 → CERTIFICADA`, `D7 → SIGUIENTE`,
-   CHANGELOG de certificación y commit `docs(d6): certificar …`.
-
-**Prohibido marcar D6 CERTIFICADA con evidencia solo-local**
-(roadmap §5.5.4 + prompt D6 §21: `CI real verde`).
+**D6 CERTIFICADA.** Todos los criterios §21 demostrados con evidencia
+fresca del proveedor (run `36236406471`, commit `86f105d`). Roadmap:
+`D6 → CERTIFICADA`, `D7 → SIGUIENTE`.

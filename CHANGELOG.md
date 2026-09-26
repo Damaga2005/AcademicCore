@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased — Fase D6: Esquema neutro de banco de preguntas (IMPLEMENTADA, pendiente CI)
+## Unreleased — Fase D6: Esquema neutro de banco de preguntas (CERTIFICADA)
 - Dominio puro `domain/question_bank.py`: `Bank`/`Question`, 7 `qtype`, `answer_spec` por tipo (claves cerradas), IDs `bank:<slug>` / `question:<slug>:q:NNNNN`, `schema d6-question-bank/1` + `content_version`, canonicalización `sort_keys` + digest `sha256(tag+0x00+canonical)`, envelope con `integrity`, validación estricta + extensiones `x-`, provenance forma F2, errores D2 existentes (sin códigos nuevos), cero floats, sin persistencia (formato + validador).
 - Nuevos: `test_d6_question_bank.py` (16 contractuales: mínimos, tipos, IDs, schema/rechazo `AC-VER-001`, canonicalización, digest semántico, round-trip, provenance, knowledge_refs, answer_spec, unidades + `parse_unit`, extensiones, tamper/inválidos, determinismo, seguridad AST).
 - Docs: `D6-QUESTION-BANK.md` + `GATE-D6-CERTIFICATION.md` (criterios §21: todo verde salvo CI real y roadmap, explícitamente pendientes). Cero código certificado tocado.
-- Evidencia local: 16/16 D6 + regresión 189 passed / 1 skip ambiental + 36 passed × 3 hash-seeds. Commit impl. `07b3136`. Certificación bloqueada hasta run CI verde sobre `main`.
+- Evidencia local: 16/16 D6 + regresión 189 passed / 1 skip ambiental + 36 passed × 3 hash-seeds. Commit impl. `07b3136`. Run `36236406471` (`86f105d`) verde 4/4 + package. Roadmap: D6 CERTIFICADA, D7 SIGUIENTE.
 
 ## Unreleased — Fase D5: Suite global de tests (CERTIFICADA)
 - Baseline pre-D5: 4598 tests / 138 ficheros → 4583 passed, 2 failed (preexistentes), 13 skipped, ~60 min local.
