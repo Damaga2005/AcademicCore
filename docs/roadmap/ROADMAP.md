@@ -183,9 +183,9 @@ F9        Assessment y Evaluación Formal                 [CERTIFICADA]
    │
 F10       Mastery y Modelado del Estudiante              [CERTIFICADA]
    │
-F11       Aprendizaje Adaptativo                         [SIGUIENTE]
+F11       Aprendizaje Adaptativo                         [CERTIFICADA]
    │
-F12       IA / Tutor Socrático con Guardrails            [PENDIENTE]
+F12       IA / Tutor Socrático con Guardrails            [SIGUIENTE]
    │
 F13       OneDrive / Cloud Sync completo                 [PENDIENTE]
    │
@@ -203,8 +203,8 @@ F16       Contenido Aeroespacial / Satélite              [PENDIENTE — ÚLTIMA
 | 5 | D7 | Transformar definiciones, fórmulas y preguntas estructuradas en entidades del Knowledge Core/F4 | D6, F4 | **CERTIFICADA** |
 | 6 | F9 | Assessment formal: tipos de pregunta, intentos, corrección determinista y pipeline de evaluación | D6, D7 | **CERTIFICADA** |
 | 7 | F10 | Modelado de mastery y dominio del estudiante a partir de evidencia real de F9 | F9 | **CERTIFICADA** |
-| 8 | F11 | Selección adaptativa de ejercicios y rutas personalizadas, funcional con LLM=OFF | F10 | **SIGUIENTE** |
-| 9 | F12 | Tutor socrático desacoplado: LLM → JSON estructurado → validación → autoridad determinista | F11 | Pendiente |
+| 8 | F11 | Selección adaptativa de ejercicios y rutas personalizadas, funcional con LLM=OFF | F10 | **CERTIFICADA** |
+| 9 | F12 | Tutor socrático desacoplado: LLM → JSON estructurado → validación → autoridad determinista | F11 | **SIGUIENTE** |
 | 10 | F13 | Sincronización cloud/OneDrive completa, conflictos, versionado y operación offline-first | F13-ext | Pendiente |
 | 11 | F16 | Contenido Aeroespacial/Satélite; mecánica orbital básica como fase final de contenido | F13 | Pendiente |
 

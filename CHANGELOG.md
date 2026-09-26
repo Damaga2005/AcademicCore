@@ -1,12 +1,12 @@
 # Changelog
 
-## Unreleased — Fase F11: Aprendizaje Adaptativo (IMPLEMENTADA, pendiente CI)
+## Unreleased — Fase F11: Aprendizaje Adaptativo (CERTIFICADA)
 - Motor `domain/adaptive.py` (`f11-adaptive/1`): `AdaptiveConfig` versionada (pesos 60/20/15/5, umbrales 0.40/0.70, max_per_concept 2, exclude_done), `AdaptiveContext`, `Candidate`/`ScoredCandidate`/`AdaptivePlan` (rationale cerrado + `NO_ELIGIBLE_EXERCISES`/`PREREQUISITE_UNMET`), `target_difficulty`/`difficulty_fit`, `score_candidate`, `rank_candidates` (score DESC, question_id ASC, version ASC), `build_route` (cap por concepto), `plan_digest` (`f11-adaptive-plan/1`).
 - Servicio `application/adaptive.py`: `build_plan` (eligible→filter→score→rank→route→persist), elegibilidad contractual (subject/tipo/difficulty/concept/prerequisites subject-level/historial F10), persistencia idempotente (plan_id = plan_digest). LLM=OFF: sin imports de IA.
 - Migración 019 aditiva (`adaptive_plans`) + consultas `QBankRepository.questions_of_subject` (json_each) y `MasteryRepository.save_plan/get_plan/plans_of`. Cero comportamiento certificado cambiado.
 - Nuevos: `test_f11_adaptive.py` (22 contractuales: elegibilidad, prioridad mastery, ranking/tie-break, historial, route, reproducibilidad, idempotencia, prerequisitos, edge cases, LLM=OFF, seguridad AST).
 - Docs: `F11-ADAPTIVE.md` + `GATE-F11-CERTIFICATION.md` (criterios §31: todo verde salvo CI real y roadmap, explícitamente pendientes). Tocado certificado: solo métodos nuevos + pins `18→19` (la 019 los exige).
-- Evidencia local: 22/22 F11 + regresión 217 passed / 1 skip ambiental + 36 passed × 3 hash-seeds. Certificación bloqueada hasta run CI verde sobre `main`.
+- Evidencia local: 22/22 F11 + regresión 217 passed / 1 skip ambiental + 36 passed × 3 hash-seeds. Run `36260971728` (`28c6863`) verde 4/4 + package a la primera. Roadmap: F11 CERTIFICADA, F12 SIGUIENTE.
 
 ## Unreleased — Fase F10: Mastery y Modelado del Estudiante (CERTIFICADA)
 - Modelo `domain/mastery.py` (`f10-beta/1`): Beta-Binomial conjugado Decimal (sin floats/NaN), `P=m/(m+n)`, varianza Beta, prior Beta(1,1) configurable, `split_weight` exacto multi-concepto, `fold_observations`/`fold_deltas`/`pool_states`, digests `f10-observation/1` + `f10-state/1`.

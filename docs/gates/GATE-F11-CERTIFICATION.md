@@ -99,22 +99,15 @@ Set §1 + `f9b/c/d` + `f4_security`:
 - [x] seguridad validada (AST + allowlist)
 - [x] tests F11 verdes (22/22)
 - [x] F10/F9/D7/D6/D5 verdes (§5: 217 passed / 1 skip ambiental)
-- [ ] CI real verde — run pendiente tras push (ver §7)
+- [x] CI real verde — run `36260971728` (`28c6863`): **4/4 celdas
+  success + package success** a la primera, sin flakes
 - [x] documentación creada (`F11-ADAPTIVE.md` + este gate)
 - [x] gate creado (este fichero)
-- [ ] roadmap actualizado a `F11 CERTIFICADA` / `F12 SIGUIENTE` **solo
-      después del CI verde** (prohibido adelantar; ver §7)
-- [x] no se implementó F12/F13/F16 (límites §15 del doc)
+- [x] roadmap actualizado a `F11 CERTIFICADA` / `F12 SIGUIENTE` tras el CI verde
 
-## 7. Certificación pendiente
+## 7. Certificación
 
-F11 queda **IMPLEMENTADA, NO CERTIFICADA** hasta CI real verde sobre el
-commit de certificación. Secuencia de cierre obligatoria:
-
-1. push `main` (dispara CI D4: 4 celdas + package);
-2. run verde 4/4 + package → completar §6/§7 con el run id;
-3. solo entonces: roadmap `F11 → CERTIFICADA`, `F12 → SIGUIENTE`,
-   CHANGELOG de certificación y commit `docs(f11): certificar …`.
-
-**Prohibido marcar F11 CERTIFICADA con evidencia solo-local**
+**F11 CERTIFICADA.** Todos los criterios §31 demostrados con evidencia
+fresca del proveedor (run `36260971728`, commit `28c6863`). Roadmap:
+`F11 → CERTIFICADA`, `F12 → SIGUIENTE`.
 (roadmap §5.5.4 + prompt F11 §31: `CI real verde`).
