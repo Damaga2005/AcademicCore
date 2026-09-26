@@ -604,6 +604,24 @@ class QBankRepository(_Base):
                            (question_id,)).fetchone()
         return dict(r) if r else None
 
+    def all_questions(self) -> list[dict]:
+        with self._read() as cx:
+            rows = cx.execute("SELECT * FROM qbank_questions"
+                              " ORDER BY question_id").fetchall()
+        return [dict(r) for r in rows]
+
+    def questions_of_subject(self, subject_id: str) -> list[dict]:
+        """Questions referencing a concept of this subject (json_each)."""
+        prefix = f"concept:{subject_id.split(':', 1)[1]}:"
+        with self._read() as cx:
+            rows = cx.execute(
+                "SELECT q.* FROM qbank_questions q WHERE EXISTS ("
+                " SELECT 1 FROM json_each(q.canonical_json, '$.concepts') je"
+                " WHERE substr(je.value, 1, ?) = ? )"
+                " ORDER BY q.question_id",
+                (len(prefix), prefix)).fetchall()
+        return [dict(r) for r in rows]
+
     def save_question(self, *, question_id: str, bank_id: str,
                       content_version: int, digest: str, qtype: str,
                       canonical_json: str, provenance: dict, cx=None) -> None:
@@ -723,6 +741,39 @@ class MasteryRepository(_Base):
         with self._tx(cx) as c:
             c.execute("DELETE FROM mastery_states WHERE student_id=?",
                       (student_id,))
+
+    # -- F11 adaptive plans -------------------------------------------------
+    def save_plan(self, plan_id: str, *, student_id: str, subject_id: str,
+                  config_version: int, model_version: str, bank_digest: str,
+                  selections: list, rationale: list, mastery_snapshot: list,
+                  context: dict, plan_digest: str, created_at_ms: int,
+                  cx=None) -> bool:
+        """INSERT OR REPLACE by deterministic plan_id (idempotent)."""
+        with self._tx(cx) as c:
+            c.execute(
+                "INSERT OR REPLACE INTO adaptive_plans(plan_id, student_id,"
+                " subject_id, config_version, model_version, bank_digest,"
+                " selections_json, rationale_json, mastery_snapshot_json,"
+                " context_json, plan_digest, created_at_ms)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (plan_id, student_id, subject_id, config_version,
+                 model_version, bank_digest, _j(selections), _j(rationale),
+                 _j(mastery_snapshot), _j(context), plan_digest,
+                 created_at_ms))
+            return True
+
+    def get_plan(self, plan_id: str) -> dict | None:
+        with self._read() as cx:
+            r = cx.execute("SELECT * FROM adaptive_plans WHERE plan_id=?",
+                           (plan_id,)).fetchone()
+        return dict(r) if r else None
+
+    def plans_of(self, student_id: str) -> list[dict]:
+        with self._read() as cx:
+            rows = cx.execute("SELECT * FROM adaptive_plans WHERE student_id=?"
+                              " ORDER BY created_at_ms, plan_id",
+                              (student_id,)).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ------------------------------------------------------------------ migration

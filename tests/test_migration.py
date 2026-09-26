@@ -335,7 +335,7 @@ def test_real_migration_files_split_cleanly():
     package, not just synthetic examples."""
     from academic_core.infrastructure.database import _MIGRATIONS, _split_statements
 
-    assert len(_MIGRATIONS) == 18  # 018_f10_mastery (F10)
+    assert len(_MIGRATIONS) == 19  # 019_f11_adaptive (F11)
     for name in _MIGRATIONS:
         sql = resources.files("academic_core.infrastructure.migrations").joinpath(name).read_text(encoding="utf-8")
         stmts = _split_statements(sql)
