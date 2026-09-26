@@ -90,22 +90,16 @@ Set §1 + `f9d_assessment_persistence` + `f4_security`:
 - [x] concurrencia tratada (doble-apply seguro)
 - [x] tests F10 verdes (14/14)
 - [x] D5/D6/D7/F9 verdes (§4-§5: 281 passed / 1 skip ambiental)
-- [ ] CI real verde — run pendiente tras push (ver §7)
+- [x] CI real verde — run `36254755243` (`9e6d66c`): intento 1 con 1 flake
+  (`test_perf_academic_scale` 21.0s vs presupuesto 20s en win-3.12;
+  clase §8, umbral intacto, cero código F10 en ese camino); tras
+  `rerun --failed`, intento 2: **4/4 celdas success + package success**
 - [x] documentación creada (`F10-MASTERY.md` + este gate)
 - [x] gate creado (este fichero)
-- [ ] roadmap actualizado a `F10 CERTIFICADA` / `F11 SIGUIENTE` **solo
-      después del CI verde** (prohibido adelantar; ver §7)
-- [x] no se implementó F11/F12/F13/F16 (límites §16 del doc)
+- [x] roadmap actualizado a `F10 CERTIFICADA` / `F11 SIGUIENTE` tras el CI verde
 
-## 7. Certificación pendiente
+## 7. Certificación
 
-F10 queda **IMPLEMENTADA, NO CERTIFICADA** hasta CI real verde sobre el
-commit de certificación. Secuencia de cierre obligatoria:
-
-1. push `main` (dispara CI D4: 4 celdas + package);
-2. run verde 4/4 + package → completar §6/§7 con el run id;
-3. solo entonces: roadmap `F10 → CERTIFICADA`, `F11 → SIGUIENTE`,
-   CHANGELOG de certificación y commit `docs(f10): certificar …`.
-
-**Prohibido marcar F10 CERTIFICADA con evidencia solo-local**
-(roadmap §5.5.4 + prompt F10 §33: `CI real verde`).
+**F10 CERTIFICADA.** Todos los criterios §33 demostrados con evidencia
+fresca del proveedor (run `36254755243`, commit `9e6d66c`). Roadmap:
+`F10 → CERTIFICADA`, `F11 → SIGUIENTE`.
