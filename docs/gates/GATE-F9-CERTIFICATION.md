@@ -99,5 +99,6 @@ productor); sin simulación como corrección (documentada futura);
 ## 6. Certificación
 
 **F9 CERTIFICADA.** Todos los criterios §23 demostrados con evidencia
-fresca del proveedor (run `36244520858`, commit `ef1976c`). Roadmap:
+fresca del proveedor (run `36244520858`, commit `ef1976c`; run de
+certificación `36248720654` también verde 5/5). Roadmap:
 `F9 → CERTIFICADA`, `F10 → SIGUIENTE`.
