@@ -1,11 +1,11 @@
 # Changelog
 
-## Unreleased — Fase D7: Ingesta estructurada → Knowledge Core (IMPLEMENTADA, pendiente CI)
+## Unreleased — Fase D7: Ingesta estructurada → Knowledge Core (CERTIFICADA)
 - Plan puro `domain/ingestion.py` + servicio `application/bank_ingest.py` (plan/dry-run/ingest, 1 tx `unit_of_work`, verify post-commit, `now_ms` inyectable). Políticas: reuse/create/rechazo determinista, ambigüedad concepto+formula → error, idempotencia por digest, versiones create/unchanged/update/conflict/stale, reuse sin overwrite, fórmula modificada = conflicto.
 - Migración 016 aditiva (`qbank_banks`, `qbank_questions`, `formulas` para `academic.Formula`) + `QBankRepository` con `cx`; conceptos en `study_concepts` (reuso, creación solo con catálogo + subject existente + bump `id_counters.concept`); refs section/document/topic carried opacos. Errores `AC-ACD-002/003/004` + `AC-INT-001` (sin códigos nuevos).
 - Nuevos: `test_d7_ingestion.py` (18 contractuales: mínimo, mapping, digest, create, idempotencia cero-writes, update+delete, reuse, unresolved `AC-ACD-002`, ambigüedad `AC-ACD-003`, provenance E2E, no-overwrite, conflicto de fórmula, rollback inyectado, dry-run, determinismo ×2 DBs, inválidos/versiones, subject desconocido, seguridad AST + latex inerte).
 - Docs: `D7-INGESTION.md` + `GATE-D7-CERTIFICATION.md` (criterios §23: todo verde salvo CI real y roadmap, explícitamente pendientes). Tocado certificado: solo pins `15→16` en `test_migration.py`/`test_persistence.py` (la 016 los exige).
-- Evidencia local: 18/18 D7 + regresión amplia verde (1 pin actualizado, re-verde) + 48 passed × 3 hash-seeds. Commit impl. `18d3815`. Certificación bloqueada hasta run CI verde sobre `main`.
+- Evidencia local: 18/18 D7 + regresión amplia verde (1 pin actualizado, re-verde) + 48 passed × 3 hash-seeds. Commit impl. `18d3815`. Run `36239628773` (`03579c0`): intento 1 con 1 flake `test_perf_academic_scale` (21.47s/20s, win-3.13, clase §8); intento 2 tras `rerun --failed` verde 4/4 + package. Roadmap: D7 CERTIFICADA, F9 SIGUIENTE.
 
 ## Unreleased — Fase D6: Esquema neutro de banco de preguntas (CERTIFICADA)
 - Dominio puro `domain/question_bank.py`: `Bank`/`Question`, 7 `qtype`, `answer_spec` por tipo (claves cerradas), IDs `bank:<slug>` / `question:<slug>:q:NNNNN`, `schema d6-question-bank/1` + `content_version`, canonicalización `sort_keys` + digest `sha256(tag+0x00+canonical)`, envelope con `integrity`, validación estricta + extensiones `x-`, provenance forma F2, errores D2 existentes (sin códigos nuevos), cero floats, sin persistencia (formato + validador).

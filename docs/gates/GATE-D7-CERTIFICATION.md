@@ -96,21 +96,17 @@ store; la consume F9); refs `section/document/topic` carried opacos;
 - [x] contenido importado nunca ejecutado (AST + latex inerte)
 - [x] tests D7 verdes (18/18 local)
 - [x] regresión D5/D6 verde (§4)
-- [ ] CI real verde — run pendiente tras push (ver §6)
+- [x] CI real verde — run `36239628773` (`03579c0`): intento 1 con 1 flake
+  (`test_perf_academic_scale` 21.47s vs presupuesto 20s en win-3.13;
+  clase documentada en `TEST-SUITE.md` §8, umbral intacto, cero código D7
+  en ese camino); tras `rerun --failed`, intento 2: **4/4 celdas success
+  + package success** (ver §6)
 - [x] documentación creada (`D7-INGESTION.md` + este gate)
 - [x] gate creado (este fichero)
-- [ ] roadmap actualizado a `D7 CERTIFICADA` / `F9 SIGUIENTE` **solo
-      después del CI verde** (prohibido adelantar; ver §6)
+- [x] roadmap actualizado a `D7 CERTIFICADA` / `F9 SIGUIENTE` tras el CI verde
 
-## 6. Certificación pendiente
+## 6. Certificación
 
-D7 queda **IMPLEMENTADA, NO CERTIFICADA** hasta CI real verde sobre el
-commit de certificación. Secuencia de cierre obligatoria:
-
-1. push `main` (dispara CI D4: 4 celdas + package);
-2. run verde 4/4 + package → completar este §6 con el run id;
-3. solo entonces: roadmap `D7 → CERTIFICADA`, `F9 → SIGUIENTE`,
-   CHANGELOG de certificación y commit `docs(d7): certificar …`.
-
-**Prohibido marcar D7 CERTIFICADA con evidencia solo-local**
-(roadmap §5.5.4 + prompt D7 §23: `CI real verde`).
+**D7 CERTIFICADA.** Todos los criterios §23 demostrados con evidencia
+fresca del proveedor (run `36239628773`, commit `03579c0`). Roadmap:
+`D7 → CERTIFICADA`, `F9 → SIGUIENTE`.
