@@ -661,6 +661,70 @@ class QBankRepository(_Base):
                        _j(f.provenance), f.version))
 
 
+# ------------------------------------------------------------- F10 mastery
+
+class MasteryRepository(_Base):
+    """F10 states + append-only observation set (all writes take cx)."""
+
+    def save_observation(self, o, obs_digest: str, applied_at_ms: int,
+                         cx=None) -> bool:
+        """INSERT OR IGNORE: re-apply (even concurrent) is a no-op."""
+        with self._tx(cx) as c:
+            cur = c.execute(
+                "INSERT OR IGNORE INTO mastery_observations(student_id,"
+                " session_id, item_id, concept_ref, topic_ref, subject_id,"
+                " alpha_delta, beta_delta, obs_digest, question_digest,"
+                " engine, applied_at_ms)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (o.student_id, o.session_id, o.item_id, o.concept_ref,
+                 o.topic_ref, o.subject_id, str(o.alpha_delta),
+                 str(o.beta_delta), obs_digest, o.question_digest,
+                 o.engine, applied_at_ms))
+            return cur.rowcount == 1
+
+    def observations_of(self, student_id: str) -> list[dict]:
+        with self._read() as cx:
+            rows = cx.execute(
+                "SELECT * FROM mastery_observations WHERE student_id=?"
+                " ORDER BY session_id, item_id, concept_ref",
+                (student_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_state(self, *, student_id: str, level: str, ref_id: str,
+                   alpha: str, beta: str, model_version: str,
+                   config_version: int, obs_count: int, members: list,
+                   updated_at_ms: int, cx=None) -> None:
+        with self._tx(cx) as c:
+            c.execute(
+                "INSERT OR REPLACE INTO mastery_states(student_id, level,"
+                " ref_id, alpha, beta, model_version, config_version,"
+                " obs_count, members_json, updated_at_ms)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (student_id, level, ref_id, alpha, beta, model_version,
+                 config_version, obs_count, _j(members), updated_at_ms))
+
+    def get_state(self, student_id: str, level: str,
+                  ref_id: str) -> dict | None:
+        with self._read() as cx:
+            r = cx.execute("SELECT * FROM mastery_states"
+                           " WHERE student_id=? AND level=? AND ref_id=?",
+                           (student_id, level, ref_id)).fetchone()
+        return dict(r) if r else None
+
+    def states_of(self, student_id: str, level: str) -> list[dict]:
+        with self._read() as cx:
+            rows = cx.execute("SELECT * FROM mastery_states"
+                              " WHERE student_id=? AND level=?"
+                              " ORDER BY ref_id",
+                              (student_id, level)).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_states(self, student_id: str, cx=None) -> None:
+        with self._tx(cx) as c:
+            c.execute("DELETE FROM mastery_states WHERE student_id=?",
+                      (student_id,))
+
+
 # ------------------------------------------------------------------ migration
 
 class LegacyRepository(_Base):

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Fase F10: Mastery y Modelado del Estudiante (IMPLEMENTADA, pendiente CI)
+- Modelo `domain/mastery.py` (`f10-beta/1`): Beta-Binomial conjugado Decimal (sin floats/NaN), `P=m/(m+n)`, varianza Beta, prior Beta(1,1) configurable, `split_weight` exacto multi-concepto, `fold_observations`/`fold_deltas`/`pool_states`, digests `f10-observation/1` + `f10-state/1`.
+- Servicio `application/mastery.py`: `apply_evidence` (validate→plan→1 tx; `no_update` para omitidas/sin-concepto; `AC-ACD-002` concepto desconocido; `AC-ACD-003` tamper), queries concept/topic/subject (jerarquía D7 real vía `topic_ref` del ítem), `rebuild` (fold en orden fijo; incremental == rebuild).
+- Migración 018 aditiva (`mastery_states` + `mastery_observations` PK-idempotente) + `MasteryRepository` con `cx`. Extensión aditiva F9: `ItemEvidence.topic_ref` + `build_evidence(assessment=)`. Motor F9 intacto.
+- Nuevos: `test_f10_mastery.py` (14 contractuales: modelo, evidencia, split, unknown-concept, idempotencia (doble apply + doble-insert concurrente), rebuild, determinismo cross-fixture, jerarquía, rollback, round-trip + NaN, seguridad AST + no-re-corrección).
+- Docs: `F10-MASTERY.md` + `GATE-F10-CERTIFICATION.md` (criterios §33: todo verde salvo CI real y roadmap, explícitamente pendientes). Tocado certificado: solo DTO aditivo + pins `17→18` (la 018 los exige).
+- Evidencia local: 14/14 F10 + regresión 281 passed / 1 skip ambiental + 28 passed × 3 hash-seeds. Certificación bloqueada hasta run CI verde sobre `main`.
+
 ## Unreleased — Fase F9: Assessment y Evaluación Formal (CERTIFICADA)
 - Motor `domain/correction.py` (`f9-correct/1`): mcq/tf exactos, numeric `Decimal`+unidades+tolerancia/precisión (cifras significativas), symbolic con prueba `equivalent` o acuerdo exacto etiquetado, short/structured/circuit honestos (`needs_review` donde D6 no da criterio), malformados → `AC-DOM-001`, razones cerradas, nada ejecutado.
 - Servicio `application/correction.py`: cupo `attempts_allowed` (cancel no consume), `prepare` (snapshots congelados idempotentes), `submit_with_correction` (submit→correct→result+evidence en 1 tx), `build_evidence` (DTO F10 con `verified`, resiliente a tamper). Errores `AC-ACD-002/003/004` + `AC-INT-001` (sin códigos nuevos).

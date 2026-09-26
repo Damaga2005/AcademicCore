@@ -56,13 +56,14 @@ class ItemEvidence:
     qtype: str
     content_version: int
     question_digest: str
-    given_raw: str | None
-    given_normalized: str | None
-    is_correct: bool | None
-    ratio: Decimal | None
-    score: Decimal
-    reason: str
-    engine: str
+    topic_ref: str = ""
+    given_raw: str | None = None
+    given_normalized: str | None = None
+    is_correct: bool | None = None
+    ratio: Decimal | None = None
+    score: Decimal = Decimal(0)
+    reason: str = "omitted"
+    engine: str = CORRECTION_ENGINE
     concepts: tuple = ()
     formulas: tuple = ()
     provenance: dict = field(default_factory=dict, compare=False)
@@ -223,12 +224,14 @@ class CorrectionService:
         return self.repo.get_session(session_id)
 
     # -- evidence -----------------------------------------------------------
-    def build_evidence(self, session_id: str) -> AttemptEvidence:
+    def build_evidence(self, session_id: str, assessment=None) -> AttemptEvidence:
         sess = self.repo.get_session(session_id)
         if sess is None or sess.result is None:
             raise _err(f"no evaluated attempt: {session_id}", "AC-ACD-002")
         snaps = {s["item_id"]: s for s in self.repo.get_snapshots(session_id)}
         rows = {r["item_id"]: r for r in self.repo.get_evidence(session_id)}
+        topic_of = ({i.item_id: i.topic_id for i in assessment.items}
+                    if assessment is not None else {})
         items = []
         for item_id in sess.item_order:
             snap = snaps.get(item_id)
@@ -245,12 +248,14 @@ class CorrectionService:
                     _question_from_snapshot(snap)) == snap["question_digest"]
             except (AcademicManagementError, DomainError):
                 verified = False
+            topic_ref = topic_of.get(item_id, "")
             if row is None:
                 items.append(ItemEvidence(
                     question_id=snap["question_id"],
                     qtype=raw.get("qtype", ""),
                     content_version=snap["content_version"],
                     question_digest=snap["question_digest"],
+                    topic_ref=topic_ref,
                     given_raw=None, given_normalized=None,
                     is_correct=None, ratio=None, score=Decimal(0),
                     reason="omitted", engine=CORRECTION_ENGINE,
@@ -265,6 +270,7 @@ class CorrectionService:
                 question_id=row["question_id"], qtype=row["qtype"],
                 content_version=snap["content_version"],
                 question_digest=snap["question_digest"],
+                topic_ref=topic_ref,
                 given_raw=resp.answer if resp else None,
                 given_normalized=row["given_normalized"],
                 is_correct=(None if row["is_correct"] is None
