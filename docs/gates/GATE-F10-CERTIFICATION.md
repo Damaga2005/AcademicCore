@@ -4,7 +4,8 @@
 > **BASELINE:** `main @ 8dbd961` (F9 CERTIFICADA); árbol limpio al inicio
 > (salvo `.claude/` local sin trackear, config del agente, intacta).
 > **Rama:** `main`, sin líneas paralelas.
-> **Implementación:** `feat(f10): modelo beta-binomial de mastery sobre evidencia F9`.
+> **Implementación:** `d637d4e`
+> `feat(f10): modelo beta-binomial de mastery sobre evidencia F9`.
 
 ## 1. Baseline pre-F10 (2026-09-26, local win, py 3.14.6)
 
@@ -32,7 +33,7 @@ python -m pytest tests/test_f9_correction.py tests/test_f9b_domain_assessment.py
 - **Infraestructura:** `Database` 001..017, `_Base._tx(cx)` +
   `unit_of_work`, JSON canónico `_j`, errores D2, tests/CI D4/D5.
 
-## 3. Implementación F10
+## 3. Implementación F10 (`d637d4e`, +1243/−14, 13 ficheros)
 
 | Cambio | Alcance |
 |---|---|
@@ -56,10 +57,6 @@ default en el DTO F10 + parámetro opcional en `build_evidence`).
   normalizados incompletos, `fold_observations` vs agregados →
   `fold_deltas`, monkeypatch en la instancia correcta — todos con fix en
   producto o en el test según correspondiera).
-- Regresión: F10 + F9(+correction) + F9-B/C/D + D7 + D6 + D5 + arquitectura +
-  migraciones + persistencia + F4-seguridad → **verde** (ver §5).
-- Multiseed (`PYTHONHASHSEED=0/1/42`):
-  `f10 + migration + persistence` → **28 passed × 3**.
 - Seguridad AST: sin `eval/exec/compile/__import__/shell=True`; imports
   nuevos ⊆ `{__future__, decimal, hashlib, json, academic_core}`;
   `correct_answer` jamás referenciado en F10 (test).
@@ -106,7 +103,7 @@ F10 queda **IMPLEMENTADA, NO CERTIFICADA** hasta CI real verde sobre el
 commit de certificación. Secuencia de cierre obligatoria:
 
 1. push `main` (dispara CI D4: 4 celdas + package);
-2. run verde 4/4 + package → completar §5/§6/§7 con el run id;
+2. run verde 4/4 + package → completar §6/§7 con el run id;
 3. solo entonces: roadmap `F10 → CERTIFICADA`, `F11 → SIGUIENTE`,
    CHANGELOG de certificación y commit `docs(f10): certificar …`.
 
