@@ -87,21 +87,17 @@ productor); sin simulación como corrección (documentada futura);
 - [x] resultados vinculados a versiones/digests (snapshots + `verified`)
 - [x] intentos reproducibles y transaccionales (1 tx + rollback verificado)
 - [x] tests F9, D5, D6 y D7 verdes (§4)
-- [ ] CI real verde — run pendiente tras push (ver §6)
+- [x] CI real verde — run `36244520858` (`ef1976c`): intento 1 con 1 flake
+  (`test_perf_academic_scale` 22.9s vs presupuesto 20s en win-3.13;
+  clase documentada en `TEST-SUITE.md` §8, umbral intacto, cero código F9
+  en ese camino); tras `rerun --failed`, intento 2: **4/4 celdas success
+  + package success** (ver §6)
 - [x] documentación creada (`F9-ASSESSMENT.md` + este gate)
 - [x] gate creado (este fichero)
-- [ ] roadmap actualizado a `F9 CERTIFICADA` / `F10 SIGUIENTE` **solo
-      después del CI verde** (prohibido adelantar; ver §6)
+- [x] roadmap actualizado a `F9 CERTIFICADA` / `F10 SIGUIENTE` tras el CI verde
 
-## 6. Certificación pendiente
+## 6. Certificación
 
-F9 queda **IMPLEMENTADA, NO CERTIFICADA** hasta CI real verde sobre el
-commit de certificación. Secuencia de cierre obligatoria:
-
-1. push `main` (dispara CI D4: 4 celdas + package);
-2. run verde 4/4 + package → completar este §6 con el run id;
-3. solo entonces: roadmap `F9 → CERTIFICADA`, `F10 → SIGUIENTE`,
-   CHANGELOG de certificación y commit `docs(f9): certificar …`.
-
-**Prohibido marcar F9 CERTIFICADA con evidencia solo-local**
-(roadmap §5.5.4 + prompt F9 §23: `CI real verifica el cambio`).
+**F9 CERTIFICADA.** Todos los criterios §23 demostrados con evidencia
+fresca del proveedor (run `36244520858`, commit `ef1976c`). Roadmap:
+`F9 → CERTIFICADA`, `F10 → SIGUIENTE`.

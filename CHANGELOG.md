@@ -1,12 +1,12 @@
 # Changelog
 
-## Unreleased — Fase F9: Assessment y Evaluación Formal (IMPLEMENTADA, pendiente CI)
+## Unreleased — Fase F9: Assessment y Evaluación Formal (CERTIFICADA)
 - Motor `domain/correction.py` (`f9-correct/1`): mcq/tf exactos, numeric `Decimal`+unidades+tolerancia/precisión (cifras significativas), symbolic con prueba `equivalent` o acuerdo exacto etiquetado, short/structured/circuit honestos (`needs_review` donde D6 no da criterio), malformados → `AC-DOM-001`, razones cerradas, nada ejecutado.
 - Servicio `application/correction.py`: cupo `attempts_allowed` (cancel no consume), `prepare` (snapshots congelados idempotentes), `submit_with_correction` (submit→correct→result+evidence en 1 tx), `build_evidence` (DTO F10 con `verified`, resiliente a tamper). Errores `AC-ACD-002/003/004` + `AC-INT-001` (sin códigos nuevos).
 - Migración 017 aditiva (snapshots+evidence+triggers) + refactor `save_session→_save_session_tx` (misma semántica, F9-D verde) + métodos con `cx`. `GradingPolicy`/orquestación intactas; sin scoring inventado ni simulación como corrección.
 - Nuevos: `test_f9_correction.py` (19 contractuales: lifecycle, cupo/cancel, doble submit, prepare, historia congelada, tipos, bordes numeric, symbolic, inválidos, pending, omitidas, evidence+tamper, rollback, determinismo, seguridad AST).
 - Docs: `F9-ASSESSMENT.md` + `GATE-F9-CERTIFICATION.md` (criterios §23: todo verde salvo CI real y roadmap, explícitamente pendientes). Tocado certificado: refactor interno + pins `16→17` (la 017 los exige).
-- Evidencia local: 19/19 F9 + regresión 267 passed / 1 skip ambiental + 33 passed × 3 hash-seeds. Commit impl. `acec7ed`. Certificación bloqueada hasta run CI verde sobre `main`.
+- Evidencia local: 19/19 F9 + regresión 267 passed / 1 skip ambiental + 33 passed × 3 hash-seeds. Commit impl. `acec7ed`. Run `36244520858` (`ef1976c`): intento 1 con 1 flake `test_perf_academic_scale` (22.9s/20s, win-3.13, clase §8); intento 2 tras `rerun --failed` verde 4/4 + package. Roadmap: F9 CERTIFICADA, F10 SIGUIENTE.
 
 ## Unreleased — Fase D7: Ingesta estructurada → Knowledge Core (CERTIFICADA)
 - Plan puro `domain/ingestion.py` + servicio `application/bank_ingest.py` (plan/dry-run/ingest, 1 tx `unit_of_work`, verify post-commit, `now_ms` inyectable). Políticas: reuse/create/rechazo determinista, ambigüedad concepto+formula → error, idempotencia por digest, versiones create/unchanged/update/conflict/stale, reuse sin overwrite, fórmula modificada = conflicto.

@@ -179,9 +179,9 @@ D6        Esquema neutro de banco de preguntas           [CERTIFICADA]
    │
 D7        Ingesta estructurada → Knowledge Core          [CERTIFICADA]
    │
-F9        Assessment y Evaluación Formal                 [SIGUIENTE]
+F9        Assessment y Evaluación Formal                 [CERTIFICADA]
    │
-F10       Mastery y Modelado del Estudiante              [PENDIENTE]
+F10       Mastery y Modelado del Estudiante              [SIGUIENTE]
    │
 F11       Aprendizaje Adaptativo                         [PENDIENTE]
    │
@@ -201,8 +201,8 @@ F16       Contenido Aeroespacial / Satélite              [PENDIENTE — ÚLTIMA
 | 3 | D5 | Consolidar suite global de tests y cobertura de regresión, empezando por el conversor HTML→MD | D4 | **CERTIFICADA** |
 | 4 | D6 | Definir esquema neutro y versionado para bancos de preguntas, independiente de una asignatura concreta | — | **CERTIFICADA** |
 | 5 | D7 | Transformar definiciones, fórmulas y preguntas estructuradas en entidades del Knowledge Core/F4 | D6, F4 | **CERTIFICADA** |
-| 6 | F9 | Assessment formal: tipos de pregunta, intentos, corrección determinista y pipeline de evaluación | D6, D7 | **SIGUIENTE** |
-| 7 | F10 | Modelado de mastery y dominio del estudiante a partir de evidencia real de F9 | F9 | Pendiente |
+| 6 | F9 | Assessment formal: tipos de pregunta, intentos, corrección determinista y pipeline de evaluación | D6, D7 | **CERTIFICADA** |
+| 7 | F10 | Modelado de mastery y dominio del estudiante a partir de evidencia real de F9 | F9 | **SIGUIENTE** |
 | 8 | F11 | Selección adaptativa de ejercicios y rutas personalizadas, funcional con LLM=OFF | F10 | Pendiente |
 | 9 | F12 | Tutor socrático desacoplado: LLM → JSON estructurado → validación → autoridad determinista | F11 | Pendiente |
 | 10 | F13 | Sincronización cloud/OneDrive completa, conflictos, versionado y operación offline-first | F13-ext | Pendiente |
