@@ -1,16 +1,18 @@
 # Testing strategy
 
-- `tests/test_*.py` unit (identity, config) — fast, no Qt.
-- Integration (storage CAS/SQLite) — tmp dirs, real files.
-- Architecture (`test_architecture.py`) — import boundaries, fails build on violation.
-- Migration (`test_migration.py`, marker `migration`) — formula coverage contract;
-  full 2896-gate runs in Phase 12.
-- Reproducibility (`test_reproducibility.py`, marker `repro`) — netlists, hashes.
-- Future: `pytest-qt` UI smoke (offscreen), engine benchmark suites with fixed
-  seeds, gold files + sha256 manifests.
-- Run: `pytest -m "not migration"` for fast loop; full suite in CI + Windows job.
-- External: `@pytest.mark.external` needs live runtimes (Stirling/Java);
-  `pytest -m "not external"` is the default gate; external never blocks it.
+> Estrategia histórica (resumen). Canónico: `docs/testing/TEST-SUITE.md`
+> (D5). Pipeline: `docs/testing/CI.md` (D4).
+
+- Suite estándar (= CI): `pytest -m "not external" -q` (ver TEST-SUITE.md
+  §1–§2 para el resto de comandos: bucle rápido, `arch`, `repro`,
+  `migration`, `external`, `perf`).
+- UI Qt solo offscreen (`QT_QPA_PLATFORM=offscreen`).
+- External: `@pytest.mark.external` necesita runtimes vivos
+  (Stirling/Java/ngspice); nunca bloquea el gate.
+- `integration` = runtime instalado con sonda skip (ver §3).
+- Perf: `pytest -m perf`; presupuestos temporales intactos, nunca
+  relajados para verdear.
 - Equivalence: `tests/conversor_ref.py` loads the read-only Conversor module
   (CONVERSOR_PATH or default checkout) and compares 1:1; skips when absent.
-- Perf: `tests/test_perf.py` prints timings with generous bounds (no tuning).
+- Excepciones ambientales: solo la tabla de `tests/conftest.py`
+  (libxml2-linux xfail estricto, symlink skip con sonda).

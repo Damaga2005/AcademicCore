@@ -7,7 +7,11 @@ Whole src: no sqlalchemy at all (ADR-0012, stdlib sqlite3 decision).
 import pathlib
 import re
 
+import pytest
+
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "academic_core"
+
+pytestmark = pytest.mark.arch
 
 # NOTE: plain substring "academic_core.app" would false-positive on
 # "academic_core.application" — match the app module exactly.

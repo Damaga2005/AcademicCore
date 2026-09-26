@@ -1,6 +1,10 @@
 """Reproducibility: netlist generation + CAS hashing are deterministic."""
+import pytest
+
 from academic_core.engines.engineering import Circuit, Component
 from academic_core.storage import Store
+
+pytestmark = pytest.mark.repro
 
 
 def test_netlist_deterministic():

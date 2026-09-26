@@ -1,6 +1,8 @@
 """F5 performance: open/save/undo/serialize/roundtrips/large docs."""
 import time
 
+import pytest
+
 from academic_core.application import AcademicApp
 from academic_core.config import Settings
 from academic_core.documents import ast as A
@@ -8,6 +10,8 @@ from academic_core.documents import render_html as RH
 from academic_core.documents import render_markdown as RM
 from academic_core.documents.markdown_parser import parse_markdown
 from academic_core.domain import authoring as AU
+
+pytestmark = pytest.mark.perf
 
 
 def _app(tmp_path):

@@ -41,5 +41,6 @@ markers = [
   "repro: reproducibility tests",
   "external: needs live external runtime (never blocks normal pytest)",
   "integration: requires an installed external runtime",
+  "perf: performance-budget tests (timed, runner-sensitive; explicit runs, thresholds never relaxed to green)",
   "slow: exact-rational-arithmetic scaling stress test (minutes-long by design; not excluded from the default gate, filter explicitly with -m \"not slow\" for a fast iteration loop)",
 ]

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — Fase D5: Suite global de tests (IMPLEMENTADA, pendiente de run CI)
+- Baseline pre-D5: 4598 tests / 138 ficheros → 4583 passed, 2 failed (preexistentes), 13 skipped, ~60 min local.
+- Fix §12 (bug real): `SyncService._apply_winners` llamaba `add_favourite(kind, ref, title)` sobre el repositorio → `TypeError` al aplicar favoritos remotos; ahora construye `PL.SavedSearch` (preserva `created`). Regresión incluida.
+- Fix §12 (test con fecha caducada): `test_activity_from_documents_and_reading` dependía del reloj real (verde CI 09-25, rojo desde 09-26); `added_at` backdateado, fechas 100% fijas. Cero producto tocado.
+- Fix §9: `test_generality_sweep_both_modes` (105s > 90s en runner lento, CI verde) marcado `perf`; umbral intacto.
+- Nuevos: `test_f13ext_service.py` (13: identidad, adaptadores, 2 BDs, idempotencia, `AC-SYN-001`, límites) + `test_d5_contracts.py` (7: AST F13-ext/D4, pureza dominio, markers, perf).
+- Markers `arch`/`repro`/`perf` (+registro `perf`); CI ejecuta lo mismo. Docs: `TEST-SUITE.md` canónico (+matriz 16 áreas), `STRATEGY.md` como puntero. Cero eliminaciones (auditoría: sin duplicados reales).
+- Evidencia: 20 nuevos verdes + regresión 134 passed × 3 hash-seeds. D5 aún NO certificada hasta run verde del proveedor.
+
 ## Unreleased — Fase D4: Pipeline CI/build (CERTIFICADA)
 - Workflow único `.github/workflows/ci.yml`: matriz windows/ubuntu × py3.12/3.13, install desde `requirements-lock.txt`, `compileall`, `pytest -m "not external"`, job `package` con `python -m build` y artefacto `dist/`. Sin bypasses, sin secretos, sin dependencias de producto.
 - Tests `test_d4_pipeline.py` (7, stdlib, sin red): triggers, sin bypasses, lock pineado, pytest ejecuta, fallo→rc!=0, build declarado, árbol limpio.

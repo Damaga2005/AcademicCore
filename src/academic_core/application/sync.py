@@ -144,8 +144,14 @@ class SyncService:
                     _, kind, ref = rid.split(":", 2)
                     self.history.remove_favourite(kind, ref)
                 else:
+                    # D5 fix: history es el REPOSITORIO (add_favourite toma
+                    # SavedSearch, no (kind, ref, title) del servicio).
+                    # El TypeError anterior rompía toda aplicación remota
+                    # de favoritos. Se preserva `created` remoto.
                     _, kind, ref = rid.split(":", 2)
-                    self.history.add_favourite(kind, ref, str(rec.payload.get("title", "")))
+                    self.history.add_favourite(PL.SavedSearch(
+                        kind, ref, str(rec.payload.get("title", "")),
+                        str(rec.payload.get("created", ""))))
             elif rec.kind == "quick_note":
                 if rec.deleted:
                     if hasattr(self.personal, "delete_note"):

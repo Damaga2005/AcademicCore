@@ -1,10 +1,14 @@
 """Performance smoke (Phase 3): measure, don't micro-opt. Generous bounds."""
 import time
 
+import pytest
+
 from academic_core.documents import render_html as RH
 from academic_core.documents import render_markdown as RM
 from academic_core.documents.html_parser import parse_html
 from academic_core.documents.markdown_parser import parse_markdown
+
+pytestmark = pytest.mark.perf
 
 
 def _timed(label, fn, bound):

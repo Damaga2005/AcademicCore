@@ -150,6 +150,10 @@ def test_subject_activity(tmp_path):
 def test_activity_from_documents_and_reading(tmp_path):
     core = _app(tmp_path)
     doc = core.material.add_document("subject:dd", b"z", "c.pdf")
+    # D5: backdate added_at (INSERT OR REPLACE): add_document stamps the
+    # REAL clock, which rotted this test on 2026-09-26 (added_at=today made
+    # the 14-day boundary fail; CI 09-25 passed). All dates fixed now.
+    core.material.material.link(replace(doc, added_at="2026-09-20T10:00:00"))
     core.material.record_reading(doc.resource_id, when="2026-09-20T10:00:00")
     got = core.notify.compute(date(2026, 10, 10), abandoned_subject_days=14)
     assert [v.kind for v in got] == ["asignatura_inactiva"]

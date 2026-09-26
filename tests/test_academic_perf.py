@@ -3,10 +3,14 @@ import time
 from datetime import date, datetime
 from decimal import Decimal
 
+import pytest
+
 from academic_core.application import AcademicApp
 from academic_core.config import Settings
 from academic_core.domain import entities as E
 from academic_core.domain import results as R
+
+pytestmark = pytest.mark.perf
 
 
 def _core(tmp_path):
