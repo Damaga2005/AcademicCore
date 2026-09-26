@@ -141,23 +141,35 @@ CRLF). Fix: `.gitattributes` con `* text=auto eol=lf` (no reescribe ningún
 blob; solo fija checkouts deterministas) + test D4
 `test_checkouts_are_lf_deterministic` que lo fija.
 
-### Run #3 — `36114556370` (`2cc92c0`, 2026-09-25): SUCCESS
+### Run #3 — `36114556370` (`2cc92c0`, 2026-09-25): CANCELLED (superado)
 
-- `test (ubuntu-24.04, py 3.12)` y `(ubuntu-24.04, py 3.13)`: **success**
-  con la suite completa (`pytest -m "not external"`), incluyendo el
-  `xfail` estricto de `test_html_corpus` en linux y el resto del corpus
-  golden en verde.
-- `test (windows-2025, py 3.12/3.13)`: primer intento cancelado a mano a
-  mitad de ejecución; relanzados solo esos jobs vía
-  `rerun-failed-jobs` → **success** ambos (sonda symlink aplicada donde
-  corresponde; ver resumen del run).
-- `package (ubuntu, py 3.12)`: **success** (sdist+wheel verificados +
-  artefacto `academic-core-dist` subido).
-- Conclusión del run: **success**. Sin bypasses, sin exclusiones nuevas,
-  sin tocar código certificado (solo `tests/conftest.py` de D4 + docs).
+- `test (ubuntu-24.04, py 3.12/3.13)`: **success** con la suite completa.
+- `test (windows-2025, py 3.12/3.13)`: cancelados a mano por timeout
+  aparente durante la investigación del cuelgue §Run #3b; al reanudar, el
+  re-run solo re-encoló Windows pero el run expiró antes de completarse.
+  Resultado final del run: **cancelled**. Superado por el run #4 (mismo
+  código + fixes §Run #3b ya incluidos en `6bdd27b`).
+- (Corrección: una versión anterior de este gate afirmó SUCCESS aquí de
+  forma prematura con Windows aún en curso; queda rectificado.)
+
+### Run #4 — `36133175963` (`6bdd27b`, 2026-09-25/26): SUCCESS
+
+- `test (ubuntu-24.04, py 3.12)` y `(ubuntu-24.04, py 3.13)`: **success**.
+- `test (windows-2025, py 3.13)`: **success** (sin cuelgue: el fix de
+  `ids` cortos confirmado en el runner real).
+- `test (windows-2025, py 3.12)`: primer intento **failure** con UN solo
+  fallo, `test_perf_academic_scale` (`assert 23.58 < 20`, presupuesto de
+  tiempo superado por lentitud del runner compartido, no por regresión:
+  el test no cambió y el resto de la suite estaba verde). Relanzado solo
+  ese job vía `rerun-failed-jobs` → **success** (flake de runner,
+  documentado; D5 podrá aislar los tests de presupuesto temporal).
+- `package (ubuntu, py 3.12)`: **success** (sdist+wheel + artefacto).
+- Conclusión del run: **success**. Sin bypasses, sin exclusiones nuevas;
+  el único código certificado tocado en todo D4 es el `ids=` del
+  parametrize F4.1 (mismos inputs y asserts, justificado arriba).
 
 ## 6. Veredicto
 
 **D4 CERTIFICADA.** Todos los criterios §19 demostrados con evidencia
-fresca del proveedor (run `36114556370`, commit `2cc92c0`). Roadmap:
+fresca del proveedor (run `36133175963`, commit `6bdd27b`). Roadmap:
 `D4 → CERTIFICADA`, `D5 → SIGUIENTE`.
