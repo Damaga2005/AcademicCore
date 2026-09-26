@@ -552,6 +552,115 @@ class SearchHistoryRepository(_Base):
                                 r["accessed"]) for r in rows]
 
 
+# ------------------------------------------------------------- D7 ingestion
+
+class QBankRepository(_Base):
+    """D7 materialization of D6 banks: bank rows, question rows, formulas.
+
+    The bank owns its question set (questions absent from a newer version
+    are removed on update). Concepts keep living in ``study_concepts``
+    (PersonalRepository); this store only adds what has no home yet.
+    Every write accepts ``cx`` to join the single D7 transaction.
+    """
+
+    # -- banks -----------------------------------------------------------
+    def get_bank(self, bank_id: str) -> dict | None:
+        with self._read() as cx:
+            r = cx.execute("SELECT * FROM qbank_banks WHERE bank_id=?",
+                           (bank_id,)).fetchone()
+        return dict(r) if r else None
+
+    def save_bank_new(self, *, bank_id: str, title: str, content_version: int,
+                      digest: str, question_count: int, provenance: dict,
+                      now_ms: int, cx=None) -> None:
+        with self._tx(cx) as c:
+            c.execute("INSERT INTO qbank_banks(bank_id, title, content_version,"
+                      " digest, question_count, provenance, ingested_at_ms,"
+                      " updated_at_ms) VALUES (?,?,?,?,?,?,?,?)",
+                      (bank_id, title, content_version, digest, question_count,
+                       _j(provenance), now_ms, now_ms))
+
+    def save_bank_update(self, *, bank_id: str, title: str, content_version: int,
+                         digest: str, question_count: int, provenance: dict,
+                         now_ms: int, cx=None) -> None:
+        with self._tx(cx) as c:
+            c.execute("UPDATE qbank_banks SET title=?, content_version=?, digest=?,"
+                      " question_count=?, provenance=?, updated_at_ms=?"
+                      " WHERE bank_id=?",
+                      (title, content_version, digest, question_count,
+                       _j(provenance), now_ms, bank_id))
+
+    # -- questions -------------------------------------------------------
+    def question_digests(self, bank_id: str) -> dict[str, str]:
+        with self._read() as cx:
+            rows = cx.execute("SELECT question_id, digest FROM qbank_questions"
+                              " WHERE bank_id=? ORDER BY question_id",
+                              (bank_id,)).fetchall()
+        return {r["question_id"]: r["digest"] for r in rows}
+
+    def get_question(self, question_id: str) -> dict | None:
+        with self._read() as cx:
+            r = cx.execute("SELECT * FROM qbank_questions WHERE question_id=?",
+                           (question_id,)).fetchone()
+        return dict(r) if r else None
+
+    def save_question(self, *, question_id: str, bank_id: str,
+                      content_version: int, digest: str, qtype: str,
+                      canonical_json: str, provenance: dict, cx=None) -> None:
+        with self._tx(cx) as c:
+            c.execute("INSERT OR REPLACE INTO qbank_questions(question_id, bank_id,"
+                      " content_version, digest, qtype, canonical_json, provenance)"
+                      " VALUES (?,?,?,?,?,?,?)",
+                      (question_id, bank_id, content_version, digest, qtype,
+                       canonical_json, _j(provenance)))
+
+    def delete_bank_questions_not_in(self, bank_id: str,
+                                     keep_ids: list[str], cx=None) -> list[str]:
+        """Remove questions of this bank absent from the new version.
+
+        Returns the removed ids, sorted. Empty ``keep_ids`` removes all.
+        """
+        with self._tx(cx) as c:
+            rows = c.execute("SELECT question_id FROM qbank_questions WHERE bank_id=?",
+                             (bank_id,)).fetchall()
+            doomed = sorted(r["question_id"] for r in rows
+                            if r["question_id"] not in set(keep_ids))
+            for qid in doomed:
+                c.execute("DELETE FROM qbank_questions WHERE question_id=?", (qid,))
+            return doomed
+
+    # -- formulas (academic.Formula rows from explicit D7 catalogs) ------
+    def all_formula_heads(self) -> dict[str, str]:
+        """{stable_id: latex} ordered, for pure-plan snapshots."""
+        with self._read() as cx:
+            rows = cx.execute("SELECT stable_id, latex FROM formulas"
+                              " ORDER BY stable_id").fetchall()
+        return {r["stable_id"]: r["latex"] for r in rows}
+
+    def get_formula(self, stable_id: str):
+        from academic_core.domain import academic as AC
+        with self._read() as cx:
+            r = cx.execute("SELECT * FROM formulas WHERE stable_id=?",
+                           (stable_id,)).fetchone()
+        if r is None:
+            return None
+        return AC.Formula(
+            stable_id=r["stable_id"], latex=r["latex"],
+            source_latex=r["source_latex"], topic_id=r["topic_id"],
+            concept_ids=json.loads(r["concept_ids"]),
+            variables=json.loads(r["variables"]), units=json.loads(r["units"]),
+            provenance=json.loads(r["provenance"]), version=r["version"])
+
+    def save_formula(self, f, cx=None) -> None:
+        with self._tx(cx) as c:
+            c.execute("INSERT OR REPLACE INTO formulas(stable_id, topic_id, latex,"
+                      " source_latex, concept_ids, variables, units, provenance,"
+                      " version) VALUES (?,?,?,?,?,?,?,?,?)",
+                      (f.stable_id, f.topic_id, f.latex, f.source_latex,
+                       _j(f.concept_ids), _j(f.variables), _j(f.units),
+                       _j(f.provenance), f.version))
+
+
 # ------------------------------------------------------------------ migration
 
 class LegacyRepository(_Base):

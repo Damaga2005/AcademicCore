@@ -18,7 +18,7 @@ from academic_core.infrastructure.repositories import (
 from academic_core.infrastructure.resources import FtsResourceIndexer, SqliteResourceRecords
 from academic_core.infrastructure.academic_store import (
     CourseMaterialRepository, EvaluationRepository, LegacyRepository, PersonalRepository,
-    SearchHistoryRepository, SeriesRepository, StudySpaceRepository,
+    QBankRepository, SearchHistoryRepository, SeriesRepository, StudySpaceRepository,
 )
 from academic_core.infrastructure.sync_store import SyncLogRepository
 from academic_core.infrastructure.sync_transport import FileTransport, SyncRejected
@@ -32,5 +32,5 @@ __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "BlobNotFound", "CorruptBlob", "FileBlobStore", "TooLarge",
            "FtsResourceIndexer", "SqliteResourceRecords",
            "CourseMaterialRepository", "EvaluationRepository", "LegacyRepository",
-           "PersonalRepository", "SearchHistoryRepository", "SeriesRepository",
+           "PersonalRepository", "QBankRepository", "SearchHistoryRepository", "SeriesRepository",
            "StudySpaceRepository", "SyncLogRepository", "FileTransport", "SyncRejected"]
