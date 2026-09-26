@@ -173,9 +173,9 @@ F13-ext   Sync entre 2 PCs personales                    [CERTIFICADA]
    │
 D4        Pipeline CI/build                              [CERTIFICADA]
    │
-D5        Suite global de tests                          [SIGUIENTE]
+D5        Suite global de tests                          [CERTIFICADA]
    │
-D6        Esquema neutro de banco de preguntas           [PENDIENTE]
+D6        Esquema neutro de banco de preguntas           [SIGUIENTE]
    │
 D7        Ingesta estructurada → Knowledge Core          [PENDIENTE]
    │
@@ -198,8 +198,8 @@ F16       Contenido Aeroespacial / Satélite              [PENDIENTE — ÚLTIMA
 |---:|---|---|---|:---:|
 | 1 | F13-ext | Sincronización determinista entre 2 PCs personales; última edición gana + log, sin CRDT | F15 | **CERTIFICADA** |
 | 2 | D4 | Pipeline CI/build y ejecución automática de tests en cada cambio | F15 | **CERTIFICADA** |
-| 3 | D5 | Consolidar suite global de tests y cobertura de regresión, empezando por el conversor HTML→MD | D4 | **SIGUIENTE** |
-| 4 | D6 | Definir esquema neutro y versionado para bancos de preguntas, independiente de una asignatura concreta | — | Pendiente |
+| 3 | D5 | Consolidar suite global de tests y cobertura de regresión, empezando por el conversor HTML→MD | D4 | **CERTIFICADA** |
+| 4 | D6 | Definir esquema neutro y versionado para bancos de preguntas, independiente de una asignatura concreta | — | **SIGUIENTE** |
 | 5 | D7 | Transformar definiciones, fórmulas y preguntas estructuradas en entidades del Knowledge Core/F4 | D6, F4 | Pendiente |
 | 6 | F9 | Assessment formal: tipos de pregunta, intentos, corrección determinista y pipeline de evaluación | D6, D7 | Pendiente |
 | 7 | F10 | Modelado de mastery y dominio del estudiante a partir de evidencia real de F9 | F9 | Pendiente |

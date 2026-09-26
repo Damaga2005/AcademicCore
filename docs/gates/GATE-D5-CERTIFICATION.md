@@ -21,8 +21,11 @@ Comando idéntico al job CI: `pytest -m "not external" -q`
    **test con fecha caducada** (código correcto, test no determinista):
    `add_document` sella `added_at` con el reloj real; con lectura fijada
    el 2026-09-20, cómputo el 2026-10-10 y umbral 14, el test pasa si
-   hoy ≤ 2026-09-25 (CI D4 verde) y falla si hoy ≥ 2026-09-26 (local
-   rojo). Reproducido aislado. Fix SOLO-test: backdate `added_at` vía
+   hoy ≤ 2026-09-25 y falla si hoy ≥ 2026-09-26. Evidencia en 3 niveles:
+   CI verde el 09-25 (run D4 #4), CI ROJO el 09-26 con el mismo código
+   (run `36227465776`, ubuntu py 3.13:
+   `assert [] == ['asignatura_inactiva']`), y rojo local aislado.
+   Reproducido aislado. Fix SOLO-test: backdate `added_at` vía
    `replace` + `INSERT OR REPLACE` del repositorio (mismo patrón que
    `test_subject_activity` con `notes_updated_at`). Todas las fechas
    fijas ahora; robusto para siempre. Cero toques a producto.
@@ -92,11 +95,13 @@ certificados (salvo los 2 fixes §12 documentados).
 - [x] sin bypasses (conftest intacto; skips solo con sonda)
 - [x] sin reducción de cobertura (CI ejecuta lo mismo + 20 tests nuevos)
 - [x] documentación y gate creados
-- [ ] suite verde en CI — pendiente run del proveedor (ver §6)
-- [ ] evidencia CI fresca — pendiente (ver §6)
+- [x] suite verde en CI — run `36232344763` (`c14c317`): 4/4 celdas
+  success (ubuntu/windows × 3.12/3.13, ~30 min cada una) + package success
+- [x] evidencia CI fresca — run `36232344763` + run previo `36227465776`
+  (mismo código sin fix: confirma el fallo temporal, ver §1)
 
 ## 6. Veredicto
 
-**D5 IMPLEMENTADA, PENDIENTE DE RUN REAL EN CI** (precedente D4 §15:
-no certificar sin ejecución del proveedor). Roadmap queda en
-`D5 SIGUIENTE` → `CERTIFICADA` (y `D6 SIGUIENTE`) con el run verde.
+**D5 CERTIFICADA.** Todos los criterios §15 demostrados con evidencia
+fresca del proveedor (run `36232344763`, commit `c14c317`). Roadmap:
+`D5 → CERTIFICADA`, `D6 → SIGUIENTE`.
