@@ -4,7 +4,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Tests Passing](https://img.shields.io/badge/tests-4700%2B%20passing-2ea44f.svg?style=flat-square&logo=pytest&logoColor=white)]()
-[![Status](https://img.shields.io/badge/status-D6--D7--F9--F10%20CERTIFIED-0052CC.svg?style=flat-square&logo=academia&logoColor=white)]()
+[![Status](https://img.shields.io/badge/status-D6--D7--F9--F10--F11%20CERTIFIED-0052CC.svg?style=flat-square&logo=academia&logoColor=white)]()
 [![Zero-Float Core](https://img.shields.io/badge/arithmetic-zero--float%20core-8A2BE2.svg?style=flat-square)]()
 [![Oracle Verified](https://img.shields.io/badge/oracle-ngspice%2047%20verified-E34F26.svg?style=flat-square)]()
 [![License](https://img.shields.io/badge/license-MIT-informational.svg?style=flat-square)]()
@@ -61,6 +61,8 @@
   - Deterministic ingestion into the existing Knowledge Core: concept reuse via `study_concepts`, formula persistence, idempotent (digest), versioned (create/unchanged/update/conflict), one-transaction applies.
 - **Mastery Model (F10)**:
   - Beta-Binomial conjugate model over F9 evidence (`f10-beta/1`): `P(mastery)=α/(α+β)` in exact `Decimal`, prior Beta(1,1) configurable, founded Beta variance, topic/subject aggregation from the real D7 hierarchy. LLM = OFF, fully deterministic.
+- **Adaptive Engine (F11)**:
+  - Deterministic practice planner (`f11-adaptive/1`) over F10 mastery: versioned score (mastery 60 / difficulty 20 / relevance 15 / diversity 5), stable tie-break (score DESC, id ASC), per-concept caps, subject-level prerequisites, idempotent persisted plans. **LLM=OFF complete** — no AI import, no LLM authority anywhere.
 - **Academic Management & Knowledge Hierarchy**: 7-tier academic curriculum tree (University $\to$ Degree $\to$ Academic Year $\to$ Term $\to$ Subject $\to$ Topic $\to$ Section) with prerequisite DAG validation and weighted gradebooks.
 - **Document & Authoring Engine**: Canonical Document AST with LaTeX math formulas, bidirectional Markdown/HTML roundtrip, native PDF generation, Content-Addressable Storage (CAS SHA-256), and transactional undo/redo commands.
 - **Zero Dynamic Code Execution**: Zero usage of `eval`, `exec`, `compile`, or uncontrolled subprocess calls.
@@ -213,6 +215,7 @@ University (Institution)
 - **Structured Ingestion (D7)**: deterministic bridge into the existing Knowledge Core. Concept reuse via `study_concepts`, formula persistence, idempotent applies (per-bank and per-question digests), explicit versioning (`create`/`unchanged`/`update`/`conflict`), one-transaction applies with post-commit verification.
 - **Formal Assessment (F9)**: deterministic correction engine `f9-correct/1` over all D6 types (exact-set/bool, `Decimal`+units+tolerance/precision, certified symbolic equivalence, honest `needs_review` for open answers). Frozen attempt snapshots (per-question digests) and immutable per-item evidence rows; `GradingPolicy` scoring unchanged.
 - **Mastery Model (F10)**: Beta-Binomial conjugate model (`f10-beta/1`) over F9 evidence — `P(mastery)=α/(α+β)` in exact `Decimal`, configurable prior Beta(1,1), founded Beta variance, idempotent applies and reproducible rebuilds, topic/subject aggregation derived from the real D7 hierarchy. Fully deterministic, LLM = OFF.
+- **Adaptive Engine (F11)**: deterministic practice planner (`f11-adaptive/1`) over F10 mastery — versioned score (60/20/15/5), mastery→difficulty fit, stable tie-break, per-concept caps, subject-level prerequisites, `exclude_done` repetition control, idempotent plans (`plan_id = plan_digest`, migration 019). **LLM=OFF: complete implementation, not an empty fallback.**
 
 ---
 
@@ -264,9 +267,9 @@ University (Institution)
 | **F9-D** | Assessment Persistence | SQLite migration 011, restart survival, countdown recovery. | **CERTIFIED** | [`GATE-F9-D.md`](docs/gates/GATE-F9-D.md) |
 | **F9** | Assessment & Evaluation Formal | Correction engine `f9-correct/1` (7 D6 types), frozen snapshots (017), per-item immutable evidence, `GradingPolicy` unchanged. | **CERTIFIED** | [`GATE-F9-CERTIFICATION.md`](docs/gates/GATE-F9-CERTIFICATION.md) |
 | **F10** | Mastery & Student Model | Beta-Binomial conjugate model (`f10-beta/1`) over F9 evidence, concept/topic/subject aggregation from D7, idempotent + rebuildable (migration 018). | **CERTIFICADA** | [`GATE-F10-CERTIFICATION.md`](docs/gates/GATE-F10-CERTIFICATION.md) |
-| **F11** | Adaptive Learning | Question selection, adaptive routes — requires F10 mastery; must work with LLM=OFF. | **SIGUIENTE** | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
-| **F12** | Socratic AI Tutor | Conversational tutoring layer with guardrails (LLM as assistance only). | *Pendent* | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
-| **F13** | OneDrive / Cloud Sync | Full cloud sync on top of F13-ext (LWW, two PCs). | *Pendent* | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
+| **F11** | Adaptive Learning | Deterministic practice planner (`f11-adaptive/1`): versioned score, stable tie-break, per-concept caps, subject prerequisites, idempotent plans (migration 019). LLM=OFF complete. | **CERTIFICADA** | [`GATE-F11-CERTIFICATION.md`](docs/gates/GATE-F11-CERTIFICATION.md) |
+| **F12** | Socratic AI Tutor | Conversational tutoring layer with guardrails (LLM as assistance only). | **SIGUIENTE** | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
+| **F13** | OneDrive / Cloud Sync | Full cloud sync on top of F13-ext (LWW, two PCs). | *Pendiente* | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
 | **F13-ext** | Two-PC Sync | Deterministic LWW sync between two personal computers + sync log (no CRDT). | **CERTIFIED** | [`GATE-F13EXT-CERTIFICATION.md`](docs/gates/GATE-F13EXT-CERTIFICATION.md) |
 | **D4** | CI/Build Pipeline | GitHub Actions matrix (Windows/Ubuntu × py3.12/3.13), pinned requirements, no bypasses. | **CERTIFICADA** | [`GATE-D4-CERTIFICATION.md`](docs/gates/GATE-D4-CERTIFICATION.md) |
 | **D5** | Global Test Suite | Consolidated regression suite + markers (`arch`/`repro`/`perf`), canonical `TEST-SUITE.md`. | **CERTIFICADA** | [`GATE-D5-CERTIFICATION.md`](docs/gates/GATE-D5-CERTIFICATION.md) |
@@ -412,6 +415,41 @@ print(f"Mastery(c1) : {m10.get_mastery('student_dmartinez', 'concept:circuits:c:
 
 ---
 
+### Recipe 4: Building a Deterministic Practice Plan (F11, LLM=OFF)
+
+```python
+from academic_core.application.adaptive import AdaptiveService
+from academic_core.domain.adaptive import AdaptiveConfig, AdaptiveContext
+from academic_core.infrastructure.academic_store import QBankRepository
+
+# 1. Engine over the same certified stores (no AI anywhere)
+qb = QBankRepository(db)
+mrepo = MasteryRepository(db)
+adaptive = AdaptiveService(qb, mrepo, acad,
+                            config=AdaptiveConfig())
+
+# 2. Explicit context + versioned configuration
+context = AdaptiveContext(
+    subject_id="subject:circuits-101",
+    exercise_count=5,
+    allowed_types=("multiple_choice", "numeric"),
+)
+
+# 3. Deterministic plan: eligibility → score → rank → constraints → route
+plan = adaptive.build_plan("student_dmartinez", context)
+for pick in plan.selections:
+    print(f"{pick.candidate.question_id}  score={pick.adaptive_score}"
+          f"  codes={','.join(pick.rationale)}")
+
+# 4. Reproducible + idempotent: same inputs → same plan_id, no duplicates
+plan2 = adaptive.build_plan("student_dmartinez", context)
+assert __import__("academic_core.domain.adaptive", fromlist=["x"]).plan_digest(plan) \
+    == __import__("academic_core.domain.adaptive", fromlist=["x"]).plan_digest(plan2)
+print(f"Plan persisted once: {len(mrepo.plans_of('student_dmartinez'))} row")
+```
+
+---
+
 ## Developer Quickstart
 
 ### 1. Environment Setup
@@ -453,8 +491,8 @@ pytest tests/test_f9b_domain_assessment.py tests/test_f9c_assessment_orchestrati
 # 5. Run AC Phasors, Power & Resonance Suite (F8-D1 → F8-D8: 120+ tests)
 pytest tests/test_f8d*.py -v
 
-# 6. Run Question Bank / Ingestion / Correction / Mastery suites (D6, D7, F9, F10: 67 tests)
-pytest tests/test_d6_question_bank.py tests/test_d7_ingestion.py tests/test_f9_correction.py tests/test_f10_mastery.py -v
+# 6. Run Question Bank / Ingestion / Correction / Mastery / Adaptive suites (D6, D7, F9, F10, F11: 89 tests)
+pytest tests/test_d6_question_bank.py tests/test_d7_ingestion.py tests/test_f9_correction.py tests/test_f10_mastery.py tests/test_f11_adaptive.py -v
 ```
 
 ### 3. Running Static Code & Zero-Float Audits
@@ -509,6 +547,7 @@ AcademicCore/
 │   │   ├── ingestion.py             # D7 ingestion planner (D6 → Knowledge Core)
 │   │   ├── correction.py            # F9 deterministic correction engine (f9-correct/1)
 │   │   ├── mastery.py               # F10 Beta-Binomial mastery model (f10-beta/1)
+│   │   ├── adaptive.py              # F11 adaptive engine (f11-adaptive/1, LLM=OFF)
 │   │   ├── academic.py              # Curriculum hierarchy, subjects, rubrics & gradebook
 │   │   └── documents/               # Document AST, LaTeX math & authoring blocks
 │   ├── application/                 # Orchestration services & unified facade
@@ -516,14 +555,15 @@ AcademicCore/
 │   │   ├── assessment.py            # Assessment orchestration service (F9-C)
 │   │   ├── correction.py            # F9 attempts, atomic submit & evidence
 │   │   ├── mastery.py               # F10 mastery apply/rebuild/aggregate
+│   │   ├── adaptive.py              # F11 adaptive engine (LLM=OFF)
 │   │   ├── bank_ingest.py           # D7 ingestion service (plan/dry-run/apply)
 │   │   ├── authoring.py             # Reversible editing commands & undo/redo
 │   │   └── engineering.py           # Circuit simulation orchestration
 │   └── infrastructure/              # Storage, external oracles & file systems
 │       ├── database.py              # SQLite connection, pragmas & schema management
 │       ├── assessment.py            # AssessmentRepository with recovery logic (F9-D)
-│       ├── academic_store.py        # F4.1/D7/F10 repositories (QBank, Mastery, …)
-│       ├── migrations/              # Forward-only SQL migrations (001 through 018)
+│       ├── academic_store.py        # F4.1/D7/F10/F11 repositories (QBank, Mastery, …)
+│       ├── migrations/              # Forward-only SQL migrations (001 through 019)
 │       ├── cas.py                   # Content-Addressable Storage (SHA-256)
 │       └── ngspice.py               # Sandboxed ngspice 47 runner & oracle
 ├── tests/                           # Complete test battery (4,700+ test cases)
