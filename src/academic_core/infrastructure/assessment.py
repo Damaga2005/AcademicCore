@@ -411,93 +411,107 @@ class AssessmentRepository:
 
     def save_session(self, sess: AssessmentSession) -> None:
         """Atomically persist an AssessmentSession, its responses, and result without unsafe REPLACE."""
+        with self._tx(immediate=True) as cx:
+            self._save_session_tx(cx, sess)
+
+    def save_session_cx(self, sess: AssessmentSession, cx) -> None:
+        """Persist inside a caller-owned transaction (F9 atomic submit)."""
+        self._save_session_tx(cx, sess)
+
+    @contextmanager
+    def unit_of_work(self):
+        """One transaction shared by several writes (F9 submit + evidence)."""
+        with self._tx(immediate=True) as cx:
+            yield cx
+
+    def _save_session_tx(self, cx, sess: AssessmentSession) -> None:
+        """Session write body over an explicit connection (same semantics)."""
         item_order_json = json.dumps(list(sess.item_order), ensure_ascii=False, separators=(",", ":"))
         updated_at = datetime.now(timezone.utc).isoformat()
         started_at = sess.started_at.isoformat() if sess.started_at else None
         expires_at = sess.expires_at.isoformat() if sess.expires_at else None
         submitted_at = sess.submitted_at.isoformat() if sess.submitted_at else None
 
-        with self._tx(immediate=True) as cx:
-            existing = cx.execute(
-                "SELECT status FROM assessment_sessions WHERE stable_id = ?",
-                (sess.stable_id,),
-            ).fetchone()
+        existing = cx.execute(
+            "SELECT status FROM assessment_sessions WHERE stable_id = ?",
+            (sess.stable_id,),
+        ).fetchone()
 
-            if existing is None:
-                cx.execute(
-                    """
-                    INSERT INTO assessment_sessions (
-                        stable_id, assessment_id, student_id, attempt_number,
-                        status, duration_seconds, started_at, expires_at,
-                        submitted_at, item_order_json, seed_used, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        sess.stable_id,
-                        sess.assessment_id,
-                        sess.student_id,
-                        sess.attempt_number,
-                        sess.status.value,
-                        sess.duration_seconds,
-                        started_at,
-                        expires_at,
-                        submitted_at,
-                        item_order_json,
-                        sess.seed_used,
-                        updated_at,
-                    ),
+        if existing is None:
+            cx.execute(
+                """
+                INSERT INTO assessment_sessions (
+                    stable_id, assessment_id, student_id, attempt_number,
+                    status, duration_seconds, started_at, expires_at,
+                    submitted_at, item_order_json, seed_used, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sess.stable_id,
+                    sess.assessment_id,
+                    sess.student_id,
+                    sess.attempt_number,
+                    sess.status.value,
+                    sess.duration_seconds,
+                    started_at,
+                    expires_at,
+                    submitted_at,
+                    item_order_json,
+                    sess.seed_used,
+                    updated_at,
+                ),
+            )
+            # Persist responses safely
+            for resp in sess.responses.values():
+                self._save_response_tx(cx, sess.stable_id, resp)
+
+            # Persist result safely if present
+            if sess.result is not None:
+                self._save_result_tx(cx, sess.result)
+        else:
+            old_status = existing["status"]
+            terminal_states = (
+                SessionStatus.SUBMITTED.value,
+                SessionStatus.EXPIRED.value,
+                SessionStatus.CANCELLED.value,
+            )
+            if old_status in terminal_states and sess.status.value != old_status:
+                raise IntegrityError(
+                    f"Cannot transition terminal session '{sess.stable_id}' from {old_status} to {sess.status.value}"
                 )
-                # Persist responses safely
+
+            # If old_status was terminal, check whether caller is attempting to add late responses
+            if old_status in terminal_states:
+                for resp in sess.responses.values():
+                    self._save_response_tx(cx, sess.stable_id, resp)
+            else:
+                # Session transitioning to terminal or in-progress: save responses first
                 for resp in sess.responses.values():
                     self._save_response_tx(cx, sess.stable_id, resp)
 
-                # Persist result safely if present
-                if sess.result is not None:
-                    self._save_result_tx(cx, sess.result)
-            else:
-                old_status = existing["status"]
-                terminal_states = (
-                    SessionStatus.SUBMITTED.value,
-                    SessionStatus.EXPIRED.value,
-                    SessionStatus.CANCELLED.value,
-                )
-                if old_status in terminal_states and sess.status.value != old_status:
-                    raise IntegrityError(
-                        f"Cannot transition terminal session '{sess.stable_id}' from {old_status} to {sess.status.value}"
-                    )
+            cx.execute(
+                """
+                UPDATE assessment_sessions SET
+                    status = ?, duration_seconds = ?, started_at = ?, expires_at = ?,
+                    submitted_at = ?, item_order_json = ?, seed_used = ?, updated_at = ?
+                WHERE stable_id = ?
+                """,
+                (
+                    sess.status.value,
+                    sess.duration_seconds,
+                    started_at,
+                    expires_at,
+                    submitted_at,
+                    item_order_json,
+                    sess.seed_used,
+                    updated_at,
+                    sess.stable_id,
+                ),
+            )
 
-                # If old_status was terminal, check whether caller is attempting to add late responses
-                if old_status in terminal_states:
-                    for resp in sess.responses.values():
-                        self._save_response_tx(cx, sess.stable_id, resp)
-                else:
-                    # Session transitioning to terminal or in-progress: save responses first
-                    for resp in sess.responses.values():
-                        self._save_response_tx(cx, sess.stable_id, resp)
-
-                cx.execute(
-                    """
-                    UPDATE assessment_sessions SET
-                        status = ?, duration_seconds = ?, started_at = ?, expires_at = ?,
-                        submitted_at = ?, item_order_json = ?, seed_used = ?, updated_at = ?
-                    WHERE stable_id = ?
-                    """,
-                    (
-                        sess.status.value,
-                        sess.duration_seconds,
-                        started_at,
-                        expires_at,
-                        submitted_at,
-                        item_order_json,
-                        sess.seed_used,
-                        updated_at,
-                        sess.stable_id,
-                    ),
-                )
-
-                # Persist result safely if present
-                if sess.result is not None:
-                    self._save_result_tx(cx, sess.result)
+            # Persist result safely if present
+            if sess.result is not None:
+                self._save_result_tx(cx, sess.result)
 
     def get_session(self, stable_id: str) -> AssessmentSession | None:
         """Reconstruct an AssessmentSession with full state, responses, and result."""
@@ -625,5 +639,76 @@ class AssessmentRepository:
                 )
             except (DomainError, ValueError, TypeError, KeyError, json.JSONDecodeError, InvalidOperation) as err:
                 raise IntegrityError(f"Corrupted assessment result for '{session_id}': {err}") from err
+        finally:
+            cx.close()
+
+    # -- F9 snapshots & evidence (017, append-only) ---------------------------
+
+    def sessions_of(self, assessment_id: str, student_id: str) -> list[dict]:
+        """Lightweight attempt listing for attempts_allowed enforcement."""
+        cx = self.db.connect()
+        try:
+            rows = cx.execute(
+                "SELECT stable_id, attempt_number, status FROM assessment_sessions"
+                " WHERE assessment_id=? AND student_id=?"
+                " ORDER BY attempt_number, stable_id",
+                (assessment_id, student_id),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            cx.close()
+
+    def save_snapshot_batch(self, session_id: str, snaps: list[dict],
+                            cx=None) -> None:
+        """Freeze examined questions (INSERT OR IGNORE: snapshots never move)."""
+        if cx is not None:
+            for s in snaps:
+                cx.execute(
+                    "INSERT OR IGNORE INTO assessment_item_snapshots(session_id,"
+                    " item_id, question_id, content_version, question_digest,"
+                    " canonical_json, provenance) VALUES (?,?,?,?,?,?,?)",
+                    (session_id, s["item_id"], s["question_id"],
+                     s["content_version"], s["question_digest"],
+                     s["canonical_json"], json.dumps(s.get("provenance", {}),
+                                                     ensure_ascii=False,
+                                                     sort_keys=True)))
+            return
+        with self._tx(immediate=True) as c:
+            self.save_snapshot_batch(session_id, snaps, cx=c)
+
+    def get_snapshots(self, session_id: str) -> list[dict]:
+        cx = self.db.connect()
+        try:
+            rows = cx.execute(
+                "SELECT * FROM assessment_item_snapshots WHERE session_id=?"
+                " ORDER BY item_id", (session_id,)).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            cx.close()
+
+    def save_evidence_batch(self, rows: list[dict], cx=None) -> None:
+        """Store one CorrectionResult per submitted item (immutable)."""
+        if cx is not None:
+            for r in rows:
+                cx.execute(
+                    "INSERT INTO assessment_evidence(session_id, item_id,"
+                    " question_id, qtype, is_correct, ratio, score, reason,"
+                    " engine, given_normalized, evaluated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (r["session_id"], r["item_id"], r["question_id"],
+                     r["qtype"], r["is_correct"], r["ratio"], r["score"],
+                     r["reason"], r["engine"], r["given_normalized"],
+                     r["evaluated_at"]))
+            return
+        with self._tx(immediate=True) as c:
+            self.save_evidence_batch(rows, cx=c)
+
+    def get_evidence(self, session_id: str) -> list[dict]:
+        cx = self.db.connect()
+        try:
+            rows = cx.execute(
+                "SELECT * FROM assessment_evidence WHERE session_id=?"
+                " ORDER BY item_id", (session_id,)).fetchall()
+            return [dict(r) for r in rows]
         finally:
             cx.close()
