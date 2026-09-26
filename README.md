@@ -3,8 +3,8 @@
 <div align="center">
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![Tests Passing](https://img.shields.io/badge/tests-1740%2B%20passing-2ea44f.svg?style=flat-square&logo=pytest&logoColor=white)]()
-[![Status](https://img.shields.io/badge/status-F0--F9--D%20CERTIFIED-0052CC.svg?style=flat-square&logo=academia&logoColor=white)]()
+[![Tests Passing](https://img.shields.io/badge/tests-4700%2B%20passing-2ea44f.svg?style=flat-square&logo=pytest&logoColor=white)]()
+[![Status](https://img.shields.io/badge/status-D6--D7--F9--F10%20CERTIFIED-0052CC.svg?style=flat-square&logo=academia&logoColor=white)]()
 [![Zero-Float Core](https://img.shields.io/badge/arithmetic-zero--float%20core-8A2BE2.svg?style=flat-square)]()
 [![Oracle Verified](https://img.shields.io/badge/oracle-ngspice%2047%20verified-E34F26.svg?style=flat-square)]()
 [![License](https://img.shields.io/badge/license-MIT-informational.svg?style=flat-square)]()
@@ -54,6 +54,13 @@
   - Strict `Decimal` scoring policy supporting positive marks, partial credit, negative penalties, and pass/fail thresholds.
   - SQLite persistence with crash recovery and countdown timer survival across process restarts.
   - Deterministic pseudo-random seed permutations for student exam shuffling.
+  - **Deterministic correction engine** (`f9-correct/1`): all 7 D6 question types — exact-set/bool, `Decimal`+units+tolerance/precision numerics, certified symbolic equivalence, honest `needs_review` for open answers; zero content execution.
+  - **Frozen attempt snapshots**: per-session question digests (`d6-question/1`) + immutable per-item evidence rows; later bank edits never rewrite history.
+- **Neutral Question Bank & Knowledge Ingestion (D6 + D7)**:
+  - Versioned neutral bank schema (`d6-question-bank/1`): 7 question types, closed `answer_spec` contracts, canonical JSON + `sha256(tag‖0x00‖canonical)` digests, strict-core + `x-` extensions, no persistence parallel to the app.
+  - Deterministic ingestion into the existing Knowledge Core: concept reuse via `study_concepts`, formula persistence, idempotent (digest), versioned (create/unchanged/update/conflict), one-transaction applies.
+- **Mastery Model (F10)**:
+  - Beta-Binomial conjugate model over F9 evidence (`f10-beta/1`): `P(mastery)=α/(α+β)` in exact `Decimal`, prior Beta(1,1) configurable, founded Beta variance, topic/subject aggregation from the real D7 hierarchy. LLM = OFF, fully deterministic.
 - **Academic Management & Knowledge Hierarchy**: 7-tier academic curriculum tree (University $\to$ Degree $\to$ Academic Year $\to$ Term $\to$ Subject $\to$ Topic $\to$ Section) with prerequisite DAG validation and weighted gradebooks.
 - **Document & Authoring Engine**: Canonical Document AST with LaTeX math formulas, bidirectional Markdown/HTML roundtrip, native PDF generation, Content-Addressable Storage (CAS SHA-256), and transactional undo/redo commands.
 - **Zero Dynamic Code Execution**: Zero usage of `eval`, `exec`, `compile`, or uncontrolled subprocess calls.
@@ -200,6 +207,15 @@ University (Institution)
 
 ---
 
+### 5. Question Bank, Ingestion & Mastery (D6, D7, F9, F10)
+
+- **Neutral Question Bank (D6)**: versioned schema `d6-question-bank/1` with 7 question types, closed `answer_spec` contracts per type, canonical JSON serialization and reproducible `sha256(tag‖0x00‖canonical)` digests. Strict core + explicit `x-` extensions; no persistence parallel to the application.
+- **Structured Ingestion (D7)**: deterministic bridge into the existing Knowledge Core. Concept reuse via `study_concepts`, formula persistence, idempotent applies (per-bank and per-question digests), explicit versioning (`create`/`unchanged`/`update`/`conflict`), one-transaction applies with post-commit verification.
+- **Formal Assessment (F9)**: deterministic correction engine `f9-correct/1` over all D6 types (exact-set/bool, `Decimal`+units+tolerance/precision, certified symbolic equivalence, honest `needs_review` for open answers). Frozen attempt snapshots (per-question digests) and immutable per-item evidence rows; `GradingPolicy` scoring unchanged.
+- **Mastery Model (F10)**: Beta-Binomial conjugate model (`f10-beta/1`) over F9 evidence — `P(mastery)=α/(α+β)` in exact `Decimal`, configurable prior Beta(1,1), founded Beta variance, idempotent applies and reproducible rebuilds, topic/subject aggregation derived from the real D7 hierarchy. Fully deterministic, LLM = OFF.
+
+---
+
 ## Supported Components & Elements
 
 | Symbol | Name | Operating Domain | Mathematical Model & Stamping Formulation | Reference Report |
@@ -246,8 +262,16 @@ University (Institution)
 | **F9-B** | Assessment Domain Core | Pure Decimal scoring, grading policies, state machine models. | **CERTIFIED** | [`test_f9b`](tests/test_f9b_domain_assessment.py) |
 | **F9-C** | Assessment Orchestration | Session service, lifecycle management, facade integration. | **CERTIFIED** | [`GATE-F9-C.md`](docs/gates/GATE-F9-C.md) |
 | **F9-D** | Assessment Persistence | SQLite migration 011, restart survival, countdown recovery. | **CERTIFIED** | [`GATE-F9-D.md`](docs/gates/GATE-F9-D.md) |
-| **F9-E/F**| Assessment UI & Analytics | Interactive exam player, question editor, psychometric analytics. | *Planned* | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
-| **F10–F15**| Advanced Platform | Transient DAE solver, MOSFETs, Socratic AI Tutor, Cloud Sync. | *Planned* | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
+| **F9** | Assessment & Evaluation Formal | Correction engine `f9-correct/1` (7 D6 types), frozen snapshots (017), per-item immutable evidence, `GradingPolicy` unchanged. | **CERTIFIED** | [`GATE-F9-CERTIFICATION.md`](docs/gates/GATE-F9-CERTIFICATION.md) |
+| **F10** | Mastery & Student Model | Beta-Binomial conjugate model (`f10-beta/1`) over F9 evidence, concept/topic/subject aggregation from D7, idempotent + rebuildable (migration 018). | **CERTIFICADA** | [`GATE-F10-CERTIFICATION.md`](docs/gates/GATE-F10-CERTIFICATION.md) |
+| **F11** | Adaptive Learning | Question selection, adaptive routes — requires F10 mastery; must work with LLM=OFF. | **SIGUIENTE** | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
+| **F12** | Socratic AI Tutor | Conversational tutoring layer with guardrails (LLM as assistance only). | *Pendent* | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
+| **F13** | OneDrive / Cloud Sync | Full cloud sync on top of F13-ext (LWW, two PCs). | *Pendent* | [`ROADMAP.md`](docs/roadmap/ROADMAP.md) |
+| **F13-ext** | Two-PC Sync | Deterministic LWW sync between two personal computers + sync log (no CRDT). | **CERTIFIED** | [`GATE-F13EXT-CERTIFICATION.md`](docs/gates/GATE-F13EXT-CERTIFICATION.md) |
+| **D4** | CI/Build Pipeline | GitHub Actions matrix (Windows/Ubuntu × py3.12/3.13), pinned requirements, no bypasses. | **CERTIFICADA** | [`GATE-D4-CERTIFICATION.md`](docs/gates/GATE-D4-CERTIFICATION.md) |
+| **D5** | Global Test Suite | Consolidated regression suite + markers (`arch`/`repro`/`perf`), canonical `TEST-SUITE.md`. | **CERTIFICADA** | [`GATE-D5-CERTIFICATION.md`](docs/gates/GATE-D5-CERTIFICATION.md) |
+| **D6** | Neutral Question Bank | Versioned neutral schema (`d6-question-bank/1`), canonical digests, strict validation, no persistence parallel. | **CERTIFICADA** | [`GATE-D6-CERTIFICATION.md`](docs/gates/GATE-D6-CERTIFICATION.md) |
+| **D7** | Structured Ingestion | D6→Knowledge Core bridge: idempotent, versioned, one-transaction; concept reuse, formula persistence. | **CERTIFICADA** | [`GATE-D7-CERTIFICATION.md`](docs/gates/GATE-D7-CERTIFICATION.md) |
 
 ---
 
@@ -324,62 +348,66 @@ for f in freqs:
 
 ---
 
-### Recipe 3: Starting & Auto-Grading an Assessment Session
+### Recipe 3: Starting & Auto-Grading an Assessment Session (F9 + F10)
 
 ```python
+from datetime import datetime, timezone
 from decimal import Decimal
-from academic_core.application.facade import AcademicApp
-from academic_core.domain.assessment import GradingPolicy, StudentResponse
+from academic_core.application.assessment import AssessmentService
+from academic_core.application.correction import CorrectionService
+from academic_core.domain.assessment import Assessment, AssessmentItem, GradingPolicy
+from academic_core.infrastructure.academic_store import QBankRepository
+from academic_core.infrastructure.assessment import AssessmentRepository
+from academic_core.infrastructure.database import Database
+from academic_core.infrastructure.repositories import AcademicRepository
 
-# 1. Initialize application with durable SQLite storage
-app = AcademicApp("academic.db")
+# 1. Initialize durable SQLite storage
+db = Database("academic.db")
+acad = AcademicRepository(db)
+repo = AssessmentRepository(db)
+qb = QBankRepository(db)
+svc = AssessmentService(repo)
+corr = CorrectionService(repo, qb)
 
-# 2. Create a graded examination
-assessment = app.assessment.create_assessment(
-    subject_id="sub_circuits_101",
+# 2. Create a graded examination (items reference D6 question ids)
+asmt_id = repo.allocate_assessment_id("circuits")
+asmt = Assessment(
+    stable_id=asmt_id,
+    subject_id="subject:circuits-101",
     title="Midterm Exam: Transistor Biasing",
-    duration_min=45,
-    policy=GradingPolicy(
-        points_per_item=Decimal("2.5"),
-        negative_marking_penalty=Decimal("0.5"),
-        passing_score=Decimal("5.0"),
+    items=(
+        AssessmentItem("i1", "question:circuits:q:00001", "topic:circuits:t01", Decimal("2.5")),
+        AssessmentItem("i2", "question:circuits:q:00002", "topic:circuits:t01", Decimal("2.5")),
     ),
-    items=[
-        {
-            "prompt": "Determine the collector current $I_C$ for $V_{BE} = 0.7\\text{ V}$.",
-            "item_type": "NUMERICAL",
-            "expected_answer": "4.35 mA",
-            "tolerance_percent": Decimal("2.0"),
-        },
-        {
-            "prompt": "Which region is the BJT in when both junctions are forward biased?",
-            "item_type": "SINGLE_CHOICE",
-            "options": ["Cutoff", "Active", "Saturation", "Reverse Active"],
-            "expected_answer": "Saturation",
-        },
-    ]
+    duration_min=45,
+    policy=GradingPolicy(),
+    attempts_allowed=2,
 )
+repo.save_assessment(asmt)
 
-# 3. Start a student session (with persistent countdown timer)
-session = app.assessment.start_session(
-    assessment_id=assessment.stable_id,
-    student_id="student_dmartinez"
-)
-print(f"Session Started: {session.stable_id}, Status: {session.status.value}")
+# 3. Start a student session (persistent countdown timer)
+sess = svc.create_session(asmt, "student_dmartinez", attempt_number=1)
+now = datetime.now(timezone.utc)
+svc.start_session(sess.stable_id, now)
+print(f"Session Started: {sess.stable_id}, Status: {sess.status.value}")
 
-# 4. Record answers and submit
-app.assessment.record_response(
-    session_id=session.stable_id,
-    response=StudentResponse(item_id=session.item_order[0], given_answer="4.34 mA")
-)
-app.assessment.record_response(
-    session_id=session.stable_id,
-    response=StudentResponse(item_id=session.item_order[1], given_answer="Saturation")
-)
+# 4. Freeze the examined D6 questions (requires the bank ingested via D7)
+corr.prepare(sess.stable_id, asmt)
 
-result = app.assessment.submit_session(session.stable_id)
-print(f"Final Score : {result.total_score} / {result.max_score}")
-print(f"Passed      : {result.passed}")
+# 5. Submit answers -> deterministic correction -> result + evidence (1 tx)
+done = corr.submit_with_correction(sess.stable_id, asmt, {
+    "i1": {"value": "4.34 mA"},
+    "i2": {"selected": [2]},
+}, now)
+print(f"Final Score : {done.result.total_score} / {done.result.max_possible}")
+print(f"Passed      : {done.result.passed}")
+
+# 6. Fold the attempt into the F10 mastery model (idempotent)
+from academic_core.application.mastery import MasteryService
+from academic_core.infrastructure.academic_store import MasteryRepository, PersonalRepository
+m10 = MasteryService(MasteryRepository(db), acad, PersonalRepository(db))
+m10.apply_evidence(corr.build_evidence(done.stable_id, asmt))
+print(f"Mastery(c1) : {m10.get_mastery('student_dmartinez', 'concept:circuits:c:00001').probability()}")
 ```
 
 ---
@@ -410,7 +438,7 @@ pip install -r requirements-dev.txt
 ### 2. Running Test Batteries
 
 ```bash
-# 1. Run the entire test battery (1,740+ passing tests)
+# 1. Run the entire test battery (4,700+ passing tests)
 pytest -q
 
 # 2. Run Semiconductor & Nonlinear DC Suite (Shockley + Ebers-Moll: 143 tests)
@@ -424,6 +452,9 @@ pytest tests/test_f9b_domain_assessment.py tests/test_f9c_assessment_orchestrati
 
 # 5. Run AC Phasors, Power & Resonance Suite (F8-D1 → F8-D8: 120+ tests)
 pytest tests/test_f8d*.py -v
+
+# 6. Run Question Bank / Ingestion / Correction / Mastery suites (D6, D7, F9, F10: 67 tests)
+pytest tests/test_d6_question_bank.py tests/test_d7_ingestion.py tests/test_f9_correction.py tests/test_f10_mastery.py -v
 ```
 
 ### 3. Running Static Code & Zero-Float Audits
@@ -471,26 +502,36 @@ AcademicCore/
 │   │   │   ├── ac/                  # Frequency-domain AC phasors, power & Bode sweeps
 │   │   │   │   └── small_signal.py  # Linearized small-signal AC around DC bias (F8-J)
 │   │   │   ├── thevenin/            # DC and AC Thévenin / Norton equivalence reductions
+│   │   │   ├── symbolic/            # Certified symbolic engine (equivalence, solve, proofs)
 │   │   │   └── math/                # Arbitrary-precision Gauss elimination & rank solvers
-│   │   ├── assessment/              # Assessment models, sessions & Decimal grading (F9-B)
-│   │   ├── academic/                # Curriculum hierarchy, subjects, rubrics & gradebook
+│   │   ├── assessment/              # Assessment models, sessions & Decimal grading (F9-B/C/D)
+│   │   ├── question_bank.py        # D6 neutral versioned question-bank contract
+│   │   ├── ingestion.py             # D7 ingestion planner (D6 → Knowledge Core)
+│   │   ├── correction.py            # F9 deterministic correction engine (f9-correct/1)
+│   │   ├── mastery.py               # F10 Beta-Binomial mastery model (f10-beta/1)
+│   │   ├── academic.py              # Curriculum hierarchy, subjects, rubrics & gradebook
 │   │   └── documents/               # Document AST, LaTeX math & authoring blocks
 │   ├── application/                 # Orchestration services & unified facade
 │   │   ├── facade.py                # AcademicApp entry point
 │   │   ├── assessment.py            # Assessment orchestration service (F9-C)
+│   │   ├── correction.py            # F9 attempts, atomic submit & evidence
+│   │   ├── mastery.py               # F10 mastery apply/rebuild/aggregate
+│   │   ├── bank_ingest.py           # D7 ingestion service (plan/dry-run/apply)
 │   │   ├── authoring.py             # Reversible editing commands & undo/redo
 │   │   └── engineering.py           # Circuit simulation orchestration
 │   └── infrastructure/              # Storage, external oracles & file systems
 │       ├── database.py              # SQLite connection, pragmas & schema management
 │       ├── assessment.py            # AssessmentRepository with recovery logic (F9-D)
-│       ├── migrations/              # Forward-only SQL migrations (001 through 011)
+│       ├── academic_store.py        # F4.1/D7/F10 repositories (QBank, Mastery, …)
+│       ├── migrations/              # Forward-only SQL migrations (001 through 018)
 │       ├── cas.py                   # Content-Addressable Storage (SHA-256)
 │       └── ngspice.py               # Sandboxed ngspice 47 runner & oracle
-├── tests/                           # Complete test battery (1,740+ test cases)
+├── tests/                           # Complete test battery (4,700+ test cases)
 ├── docs/
-│   ├── gates/                       # Production gate certification reports (GATE-F1 to GATE-F9-D)
+│   ├── gates/                       # Production gate certification reports (GATE-*)
 │   ├── roadmap/                     # Comprehensive architecture roadmap (ROADMAP.md)
-│   └── adr/                         # Architectural Decision Records (ADR-0001 to ADR-0016)
+│   ├── architecture/                # Subsystem contracts (D6/D7/F9/F10, ERROR-CODES, …)
+│   └── adr/                         # Architectural Decision Records (ADR-0001 to ADR-0020)
 ├── pyproject.toml                   # Project configuration & build metadata
 ├── CHANGELOG.md                     # Semantic versioning history & phase release notes
 └── README.md                        # Project documentation
