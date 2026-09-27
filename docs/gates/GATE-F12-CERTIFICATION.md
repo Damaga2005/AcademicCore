@@ -4,8 +4,11 @@
 > **BASELINE:** `main @ 44a2b7f` (F11 CERTIFICADA); árbol limpio al inicio
 > (salvo `.claude/` local sin trackear, config del agente, intacta).
 > **Rama:** `main`, sin líneas paralelas.
-> **Estado:** local completo; **CI real pendiente** (no marcar CERTIFICADA
-> hasta un run real verde, ver §7).
+> **Implementación:** `35763bc8b09c9f212c1b7389e0ceb8472cb62fe4`
+> `feat(f12): implement Socratic AI tutor with deterministic guardrails`.
+> **Estado:** **F12 CERTIFICADA** — CI real verde, run
+> [`36336990034`](https://github.com/Damaga2005/AcademicCore/actions/runs/36336990034)
+> (ver §7).
 
 ## 1. Baseline pre-F12 (2026-09-27, local win, py 3.14.6)
 
@@ -159,8 +162,18 @@ test_error_codes_unique_and_documented` (pasa, §4).
 - [x] D7 continúa verde (regresión §4)
 - [x] D6 continúa verde (regresión §4)
 - [x] D5 continúa verde (regresión §4)
-- [ ] **CI real verde — PENDIENTE.** Solo evidencia local (§4, §5) en
-      esta fase; sin run de GitHub Actions todavía.
+- [x] **CI real verde.** Run
+      [`36336990034`](https://github.com/Damaga2005/AcademicCore/actions/runs/36336990034)
+      (commit `35763bc`): **4/4 celdas success** (windows-2025 py3.13
+      27m51s, ubuntu-24.04 py3.13 17m31s, ubuntu-24.04 py3.12 19m12s,
+      windows-2025 py3.12 31m18s) + `package (ubuntu, py3.12)` success.
+      Sin reintentos, a la primera. Único aviso: deprecación de Node.js
+      20 en `actions/upload-artifact@v5` (infraestructura de CI, ajeno
+      a F12). **Confirma además, de forma independiente, que los 12
+      fallos CRLF/LF del §5 son un artefacto del checkout Windows
+      local** (config `core.autocrlf` de esta máquina) y no un defecto
+      real: ambas celdas `windows-2025` de CI —que sí ejecutan la
+      misma suite— pasan limpias.
 - [x] Documentación creada (`F12-SOCRATIC-TUTOR.md`)
 - [x] Gate creado (este fichero)
 - [x] F13 no implementado
@@ -168,8 +181,10 @@ test_error_codes_unique_and_documented` (pasa, §4).
 
 ## 8. Certificación
 
-**F12 NO CERTIFICADA todavía.** Toda la evidencia local (§4, §5) es
-verde salvo un fallo preexistente ya explicado (§5) y no relacionado
-con F12; el único criterio pendiente es un run real de CI (§7). No se
-marca `F12 → CERTIFICADA` en el roadmap ni en el README hasta que ese
-run confirme verde, siguiendo el mismo protocolo que F9/F10/F11.
+**F12 CERTIFICADA.** Todos los criterios §7 demostrados con evidencia
+fresca: 35/35 tests F12, regresión curada 306 passed/1 skip ambiental,
+y CI real verde 4/4 + package (run `36336990034`, commit `35763bc`).
+Los 12 fallos CRLF/LF del §5 quedan documentados como preexistentes y
+no relacionados con F12 (verificado por partida doble: `git stash`
+contra `main` limpio en §5, y ahora las celdas Windows del CI real, que
+no los reproducen). Roadmap: `F12 → CERTIFICADA`, `F13 → SIGUIENTE`.
