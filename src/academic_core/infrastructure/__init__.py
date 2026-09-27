@@ -20,7 +20,11 @@ from academic_core.infrastructure.academic_store import (
     CourseMaterialRepository, EvaluationRepository, LegacyRepository,
     MasteryRepository, PersonalRepository,
     QBankRepository, SearchHistoryRepository, SeriesRepository,
-    StudySpaceRepository,
+    StudySpaceRepository, TutorRepository,
+)
+from academic_core.infrastructure.llm import (
+    LLMProvider, LLMRequest, LLMResponse, NullProvider, OllamaProvider,
+    ProviderMetadata,
 )
 from academic_core.infrastructure.sync_store import SyncLogRepository
 from academic_core.infrastructure.sync_transport import FileTransport, SyncRejected
@@ -35,4 +39,6 @@ __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "FtsResourceIndexer", "SqliteResourceRecords",
            "CourseMaterialRepository", "EvaluationRepository", "LegacyRepository",
            "PersonalRepository", "QBankRepository", "SearchHistoryRepository", "SeriesRepository",
-           "StudySpaceRepository", "MasteryRepository", "SyncLogRepository", "FileTransport", "SyncRejected"]
+           "StudySpaceRepository", "MasteryRepository", "SyncLogRepository", "FileTransport", "SyncRejected",
+           "TutorRepository", "LLMProvider", "LLMRequest", "LLMResponse",
+           "NullProvider", "OllamaProvider", "ProviderMetadata"]

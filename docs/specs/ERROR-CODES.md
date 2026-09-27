@@ -40,6 +40,12 @@ data migration, `ICS` calendar interchange.
 | AC-SEC-003 | archive rejected (zip slip / bomb / limits / hash) | ERROR | NONE | generic only | F4.1 |
 | AC-ICS-001 | calendar file rejected (format or limits) | WARNING | CONFIG_CHANGE | yes | F4.1 |
 | AC-SYN-001 | sync snapshot/resource rejected (schema, hash, limits) | ERROR | NONE | generic only | F13-ext |
+| AC-TUT-001 | invalid LLM output (not parseable JSON) | ERROR | NONE | yes | F12 |
+| AC-TUT-002 | schema validation failed | ERROR | NONE | yes | F12 |
+| AC-TUT-003 | claim unverified or rejected by the solver | WARNING | RECOVER | yes | F12 |
+| AC-TUT-004 | policy rejected (socratic reveal too early) | WARNING | RECOVER | yes | F12 |
+| AC-TUT-005 | LLM unavailable (LLM=OFF or no provider) | INFO | RETRY | yes | F12 |
+| AC-TUT-006 | provider error or timeout | ERROR | RETRY | yes | F12 |
 
 Engine status enums map to sub-codes: `AC-DOM-…` + `status.value`
 (e.g. `ControlStatus.DIVERGED`, `ACStatus.SINGULAR`, replay

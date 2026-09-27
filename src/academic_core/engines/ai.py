@@ -49,7 +49,7 @@ class OllamaBackend(ModelBackend):
             data = json.loads(r.read().decode("utf-8"))
         return [m["name"] for m in data.get("models", [])]
 
-    def generate(self, context: str, prompt: str) -> str:
+    def generate(self, context: str, prompt: str, timeout: float = 120.0) -> str:
         import json
         import urllib.request
         payload = json.dumps({
@@ -58,7 +58,7 @@ class OllamaBackend(ModelBackend):
         }).encode()
         req = urllib.request.Request(self.host + "/api/generate", data=payload,
                                      headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8")).get("response", "")
 
 

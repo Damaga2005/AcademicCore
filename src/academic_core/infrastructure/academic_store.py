@@ -776,6 +776,46 @@ class MasteryRepository(_Base):
         return [dict(r) for r in rows]
 
 
+class TutorRepository(_Base):
+    """F12 append-only tutor-turn audit log (verified response only)."""
+
+    def turn_count(self, student_id: str, question_digest: str) -> int:
+        with self._read() as cx:
+            row = cx.execute(
+                "SELECT COUNT(*) AS n FROM tutor_turns"
+                " WHERE student_id=? AND question_digest=?",
+                (student_id, question_digest)).fetchone()
+        return int(row["n"])
+
+    def save_turn(self, *, turn_id: str, student_id: str,
+                  question_digest: str, turn_index: int, response_type: str,
+                  status: str, solver_version: str, schema_version: str,
+                  provider_name: str, provider_model: str = "",
+                  provider_error: str = "", created_at_ms: int,
+                  cx=None) -> bool:
+        """INSERT OR IGNORE by deterministic turn_id (idempotent)."""
+        with self._tx(cx) as c:
+            cur = c.execute(
+                "INSERT OR IGNORE INTO tutor_turns(turn_id, student_id,"
+                " question_digest, turn_index, response_type, status,"
+                " solver_version, schema_version, provider_name,"
+                " provider_model, provider_error, created_at_ms)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (turn_id, student_id, question_digest, turn_index,
+                 response_type, status, solver_version, schema_version,
+                 provider_name, provider_model, provider_error,
+                 created_at_ms))
+            return cur.rowcount == 1
+
+    def turns_of(self, student_id: str, question_digest: str) -> list[dict]:
+        with self._read() as cx:
+            rows = cx.execute(
+                "SELECT * FROM tutor_turns WHERE student_id=?"
+                " AND question_digest=? ORDER BY turn_index",
+                (student_id, question_digest)).fetchall()
+        return [dict(r) for r in rows]
+
+
 # ------------------------------------------------------------------ migration
 
 class LegacyRepository(_Base):

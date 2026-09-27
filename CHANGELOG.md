@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — Fase F12: Tutor Socrático (pendiente CI)
+- Contratos `domain/tutor.py` (puro): `f12-tutor-response/1` (schema cerrado, 6 `response_type`), `Claim`/`TutorProposal`/`VerifiedResponse`, `SOCRATIC_LADDER` (6 etapas derivadas del nº de turnos previos, sin store de política aparte), `verify_claims` — delega en `domain.correction.correct_answer` (F9): ningún segundo motor matemático/simbólico/de unidades/circuitos.
+- `infrastructure/llm.py`: `LLMProvider` (protocolo agnóstico de proveedor), `NullProvider` (LLM=OFF determinista), `OllamaProvider` (adapta el `OllamaBackend` existente; cero dependencia nueva, cero reintentos automáticos). `application/tutor.py`: `TutorService` orquesta sin recalcular F9/F10/F11.
+- Autoridad estricta: LLM propone JSON → validador de schema/política → `correct_answer` decide → `verified`/`unverified`/`rejected`. El LLM no tiene acceso a herramientas/filesystem/red/BD; solo emite texto.
+- Migración 020 aditiva (`tutor_turns`, append-only, solo respuesta verificada — sin texto crudo del LLM) + `TutorRepository`. Errores nuevos `AC-TUT-001..006`. Cambio aditivo mínimo en `engines/ai.py` (`OllamaBackend.generate(timeout=)`, default idéntico, sin ruptura).
+- Nuevos: `test_f12_tutor.py` (35 contractuales: schema, claims/solver routing, autoridad, política socrática, LLM=OFF/timeout/provider-error, persistencia/provenance, seguridad).
+- Docs: `F12-SOCRATIC-TUTOR.md` + `GATE-F12-CERTIFICATION.md` (criterios §28: todo verde salvo CI real, explícitamente pendiente). Tocado certificado: solo pins `19→20` (la 020 los exige).
+- Evidencia local: 35/35 F12 + regresión curada 306 passed / 1 skip ambiental (mismo skip que F11). Suite completa sin filtrar: 13 fallos, 12 preexistentes verificados en `main` limpio (CRLF/LF en fixtures doradas de F8/E0, ajenos a F12) + 1 pin de migración ya corregido. Roadmap: F12 pendiente de CI real antes de certificar.
+
 ## Unreleased — Fase F11: Aprendizaje Adaptativo (CERTIFICADA)
 - Motor `domain/adaptive.py` (`f11-adaptive/1`): `AdaptiveConfig` versionada (pesos 60/20/15/5, umbrales 0.40/0.70, max_per_concept 2, exclude_done), `AdaptiveContext`, `Candidate`/`ScoredCandidate`/`AdaptivePlan` (rationale cerrado + `NO_ELIGIBLE_EXERCISES`/`PREREQUISITE_UNMET`), `target_difficulty`/`difficulty_fit`, `score_candidate`, `rank_candidates` (score DESC, question_id ASC, version ASC), `build_route` (cap por concepto), `plan_digest` (`f11-adaptive-plan/1`).
 - Servicio `application/adaptive.py`: `build_plan` (eligible→filter→score→rank→route→persist), elegibilidad contractual (subject/tipo/difficulty/concept/prerequisites subject-level/historial F10), persistencia idempotente (plan_id = plan_digest). LLM=OFF: sin imports de IA.

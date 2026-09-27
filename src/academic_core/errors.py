@@ -80,6 +80,23 @@ class MigrationError(AcademicCoreError):
     category = "migration"
 
 
+class TutorError(AcademicCoreError):
+    """F12 Socratic tutor pipeline failure (schema/claim/provider)."""
+    code = "AC-TUT-001"
+    category = "tutor"
+
+
+# F12 code registry (documented in docs/specs/ERROR-CODES.md).
+F12_ERROR_CODES: dict[str, str] = {
+    "AC-TUT-001": "invalid LLM output (not parseable JSON)",
+    "AC-TUT-002": "schema validation failed",
+    "AC-TUT-003": "claim unverified or rejected by the solver",
+    "AC-TUT-004": "policy rejected (socratic reveal too early)",
+    "AC-TUT-005": "LLM unavailable (LLM=OFF or no provider)",
+    "AC-TUT-006": "provider error or timeout",
+}
+
+
 # F4.1 code registry (documented in docs/specs/ERROR-CODES.md; uniqueness
 # is enforced by tests/test_f4_security.py).
 F41_ERROR_CODES: dict[str, str] = {
