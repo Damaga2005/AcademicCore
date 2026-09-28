@@ -189,7 +189,7 @@ F12       IA / Tutor Socrático con Guardrails            [CERTIFICADA]
    │
 F13       OneDrive / Cloud Sync completo                 [CERTIFICADA]
    │
-F16       Contenido Aeroespacial / Satélite              [PENDIENTE — ÚLTIMA FASE]
+F16       Contenido Aeroespacial / Satélite              [CERTIFICADA — ÚLTIMA FASE, ROADMAP COMPLETADO]
 ```
 
 ### 5.3 Plan de implementación por fase
@@ -206,7 +206,7 @@ F16       Contenido Aeroespacial / Satélite              [PENDIENTE — ÚLTIMA
 | 8 | F11 | Selección adaptativa de ejercicios y rutas personalizadas, funcional con LLM=OFF | F10 | **CERTIFICADA** |
 | 9 | F12 | Tutor socrático desacoplado: LLM → JSON estructurado → validación → autoridad determinista | F11 | **CERTIFICADA** |
 | 10 | F13 | Sincronización cloud/OneDrive completa, conflictos, versionado y operación offline-first | F13-ext | **CERTIFICADA** |
-| 11 | F16 | Contenido Aeroespacial/Satélite; mecánica orbital básica como fase final de contenido | F13 | Pendiente |
+| 11 | F16 | Contenido Aeroespacial/Satélite; mecánica orbital básica como fase final de contenido | F13 | **CERTIFICADA** |
 
 ### 5.4 Dependencias críticas
 
