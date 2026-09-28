@@ -56,6 +56,7 @@ from academic_core.domain.execution import control as control_trace
 from academic_core.domain.execution import digital as digital_trace
 from academic_core.domain.execution import equation as equation_trace
 from academic_core.domain.execution import newton as newton_trace
+from academic_core.domain.execution import orbital as orbital_trace
 from academic_core.domain.execution import symbolic as symbolic_trace
 from academic_core.domain.execution import uncertainty as gum_trace
 from academic_core.errors import ConfigurationError, IntegrationError, ValidationError
@@ -312,6 +313,18 @@ class ExplainService:
     def explain_margins(self, numerator: str, denominator: str) -> ExplanationView:
         return build_view(self.margins_trace(numerator, denominator))
 
+    # -- F16 orbital mechanics (deterministic two-body, E0-integrated) -----
+    def orbital_trace(self, kind: str, *args: str) -> ExecutionTrace:
+        """Fixed dispatch over the orbital kinds (no dynamic lookup)."""
+        return orbital_trace.explain_orbital(kind, *args)
+
+    def explain_orbital(self, kind: str, *args: str) -> ExplanationView:
+        cid = new_correlation_id()
+        view = build_view(self.orbital_trace(kind, *args))
+        log_event(logger, logging.INFO, "AC-OK-001", "application.explain", "explain_orbital",
+                  f"{kind} {view.outcome}/{view.verification} [cid={cid}]")
+        return view
+
     def explain_transition(self, request: AnalyzerRequest, channel: str, index: int) -> TransitionExplanationView:
         """Explain the ``index``-th transition of ``channel`` in the capture of ``request``.
 
@@ -365,6 +378,8 @@ class ExplainService:
             return detail_trace.replay_detail
         if operation in deep_trace.OPERATIONS:
             return deep_trace.replay_deep
+        if operation in orbital_trace.OPERATIONS:
+            return orbital_trace.replay_orbital
         if operation in (analog_trace.LAB_RUN, detail_trace.LAB_DETAIL, deep_trace.LAB_ANALYSIS):
             raise ValidationError("UNSUPPORTED_OPERATION: a Virtual Lab run is replayed by the lab itself "
                                   "(LabService.replay compares result digests); its explanation is rebuilt from that run")

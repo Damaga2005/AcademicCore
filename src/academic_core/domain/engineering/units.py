@@ -28,12 +28,17 @@ TIME = (0, 0, 1, 0, 0, 0, 0)
 CHARGE = (0, 0, 1, 1, 0, 0, 0)
 ENERGY = (1, 2, -2, 0, 0, 0, 0)
 LENGTH = (0, 1, 0, 0, 0, 0, 0)
+# F16 additive only: mass (kg) and force (N) for orbital mechanics.
+# Appended last so every previously valid parse is untouched.
+MASS = (1, 0, 0, 0, 0, 0, 0)
+FORCE = (1, 1, -2, 0, 0, 0, 0)
 
 DIM_NAMES = {
     DIMENSIONLESS: "dimensionless", VOLTAGE: "voltage", CURRENT: "current",
     RESISTANCE: "resistance", ADMITTANCE: "admittance", POWER: "power", CAPACITANCE: "capacitance",
     INDUCTANCE: "inductance", FREQUENCY: "frequency", TIME: "time",
     CHARGE: "charge", ENERGY: "energy", LENGTH: "length",
+    MASS: "mass", FORCE: "force",
 }
 
 PREFIXES = {"f": "-15", "p": "-12", "n": "-9", "u": "-6", "µ": "-6", "m": "-3", "c": "-2",
@@ -56,13 +61,26 @@ _BASE_UNITS = {
     # stays so); they now correctly parse as millisiemens & co., which is
     # the SI-correct reading. Pinned by D5 regression tests.
     "S": (ADMITTANCE, "1"),
+    # F16 additive only: gram (kg via k-prefix), newton, radian
+    # (dimensionless plane angle). Appended last for the same ordering
+    # reason. Non-decimal time/angle factors (min, h, day, deg) are
+    # deliberately NOT parser units (factors here are decimal prefixes
+    # only); F16 exposes explicit Decimal conversion helpers instead, so
+    # no silent wrong conversion can occur.
+    "g": (MASS, "1"),
+    "N": (FORCE, "1"),
+    "rad": (DIMENSIONLESS, "1"),
 }
 _ALIASES = {"Ω": "ohm", "Ω": "ohm", "Ωs": "ohm", "v": "V", "a": "A", "w": "W",
             "f": "F", "h": "H", "hz": "Hz", "HZ": "Hz", "sec": "s", "volt": "V",
             "volts": "V", "amp": "A", "amps": "A", "watt": "W", "watts": "W",
             "farad": "F", "henry": "H", "hertz": "Hz", "second": "s",
             "seconds": "s", "coulomb": "C", "joule": "J", "ohms": "ohm",
-            "siemens": "S", "Siemens": "S"}
+            "siemens": "S", "Siemens": "S",
+            # F16 additive only.
+            "gram": "g", "grams": "g", "kilogram": "kg", "kilograms": "kg",
+            "newton": "N", "newtons": "N", "radian": "rad", "radians": "rad",
+            "meter": "m", "meters": "m", "metre": "m", "metres": "m"}
 
 
 class UnitError(ValueError):

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Fase F16: Contenido Aeroespacial (IMPLEMENTADA, NO CERTIFICADA — pendiente CI real)
+- Motor `domain/engineering/orbital/` (`f16-orbital/1`): two-body Decimal SI (m, kg, s, rad) con contexto de 50 dígitos; circular/periodo+inversa, vis-viva+inversa, energías (total vs específica), escape, elipses (0 ≤ e < 1), Kepler (M↔E Newton acotado, ν↔E cerradas), elementos clásicos con marcos `ECI/ORBITAL` y digest `f16-elements/1`. Constantes con provenance (G CODATA 2018, Tierra IAU/IERS). Sin persistencia, sin dependencias, sin códigos AC nuevos.
+- Reutilización: `math/` (sqrt/pi/trig), `units.py` extendido aditivamente (MASS/FORCE, g/N/rad + alias; min/h/day/deg como helpers explícitos), traza E0 (`domain/execution/orbital.py` `physics.orbital` + replay + wiring `ExplainService`, aditivo). F8-P5/F9/D7 intactos.
+- Nuevos: `test_f16_orbital.py` (15 contractuales: ISS/GEO/escape, round-trips, dominio, hash-seeds, traza+replay). TDD: RED verificado antes de GREEN.
+- Docs: `F16-AEROSPACE.md` + `GATE-F16-CERTIFICATION.md` (veredicto: NO CERTIFICADA, CI real pendiente). Evidencia local: 16/16 F16 + regresión relevante verde salvo 1 preexistente CRLF (documentado, ajeno a F16).
+
 ## Unreleased — Fase F13: OneDrive / Cloud Sync (CERTIFICADA)
 - Coordinación `application/cloud_sync.py` (`CloudSyncService`) sobre el motor F13-ext intacto (`domain/sync.py` sin cambios): primer push, join bidireccional LWW, VERIFY reutilizado, estados `synced/pending/offline/conflict/error` en tabla aditiva (fuera de digests). Nunca: error cloud → rollback local; nada marcado synced sin escritura confirmada.
 - Transportes `infrastructure/cloud_transport.py` (sin red ni dependencias nuevas, solo pathlib+json): `MemoryCloudTransport` (fake/in-memory para contrato) + `OneDriveFolderTransport` (carpeta local, escritura atómica tmp+replace, `expected_remote_digest` → `AC-SYN-004`). Validación y límites reutilizados F13-ext (`AC-SYN-001`); errores nuevos `AC-SYN-002/003/004`.
