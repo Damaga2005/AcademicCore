@@ -210,6 +210,7 @@ class AcademicMainWindow(QMainWindow):
         self._search_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
         self._search_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self._search_shortcut.activated.connect(self._open_search)
+        self._build_go_menu()
         self._refresh_tree()
         self._refresh_detail()
 
@@ -270,6 +271,50 @@ class AcademicMainWindow(QMainWindow):
             f"GREELEC: no integration (UNKNOWN / REQUIRES INPUT)")
         if hasattr(self, "data_label"):
             self.data_label.setText(str(settings.storage.location))
+
+    def navigate_to(self, key: str) -> None:
+        """Grouped navigation shell: Home/Learn/Practice/Engineering/Settings.
+
+        Maps onto the existing tabs via _navigate(); the 13-tab structure
+        is untouched (pinned by UI tests).
+        """
+        if key == "home":
+            self.tabs.setCurrentIndex(0)
+            return
+        if key in ("overview", "engineering"):
+            for i in range(self.tabs.count()):
+                if self.tabs.tabText(i) == ("Overview" if key == "overview" else "Engineering"):
+                    self.tabs.setCurrentIndex(i)
+                    return
+            return
+        self._navigate(key)
+
+    def _build_go_menu(self) -> None:
+        from PySide6.QtWidgets import QMenu
+        self.go_menu = QMenu("Go", self)
+        self.menuBar().addMenu(self.go_menu)
+        groups: tuple = (
+            ("Home", (("Home", "home"),)),
+            ("Learn", (("Overview", "overview"), ("Resources", "resources"))),
+            ("Practice", (("Exercises", "exercises"),)),
+            ("Engineering", (("Engineering", "engineering"), ("Simulation", "simulation"),
+                             ("Virtual Lab", "lab"), ("Logic Analyzer", "logic"))),
+            ("Settings", (("Settings", "settings"),)),
+        )
+        first = True
+        for group, items in groups:
+            if not first:
+                self.go_menu.addSeparator()
+            first = False
+            for label, key in items:
+                self.go_menu.addAction(f"{group}: {label}",
+                                       lambda _c=False, k=key: self.navigate_to(k))
+        self.go_menu.addSeparator()
+        self.go_menu.addAction("Engineering: Modules…", lambda _c=False: self._open_modules())
+
+    def _open_modules(self) -> None:
+        from academic_core.ui.modules import ModulesDialog
+        ModulesDialog(self.app, self.navigate_to, self).exec()
 
     def _open_search(self) -> None:
         from academic_core.ui.search import SearchDialog
