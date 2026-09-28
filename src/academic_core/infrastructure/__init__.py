@@ -28,6 +28,15 @@ from academic_core.infrastructure.llm import (
 )
 from academic_core.infrastructure.sync_store import SyncLogRepository
 from academic_core.infrastructure.sync_transport import FileTransport, SyncRejected
+from academic_core.infrastructure.cloud_transport import (
+    CloudAuthError,
+    CloudConflict,
+    CloudError,
+    CloudOffline,
+    CloudTransport,
+    MemoryCloudTransport,
+    OneDriveFolderTransport,
+)
 
 __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "GradingRepository", "IntegrityError",
@@ -40,5 +49,7 @@ __all__ = ["Database", "AcademicRepository", "GradebookRepository",
            "CourseMaterialRepository", "EvaluationRepository", "LegacyRepository",
            "PersonalRepository", "QBankRepository", "SearchHistoryRepository", "SeriesRepository",
            "StudySpaceRepository", "MasteryRepository", "SyncLogRepository", "FileTransport", "SyncRejected",
+           "CloudTransport", "MemoryCloudTransport", "OneDriveFolderTransport",
+           "CloudError", "CloudOffline", "CloudAuthError", "CloudConflict",
            "TutorRepository", "LLMProvider", "LLMRequest", "LLMResponse",
            "NullProvider", "OllamaProvider", "ProviderMetadata"]

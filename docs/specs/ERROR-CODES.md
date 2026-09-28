@@ -40,6 +40,9 @@ data migration, `ICS` calendar interchange.
 | AC-SEC-003 | archive rejected (zip slip / bomb / limits / hash) | ERROR | NONE | generic only | F4.1 |
 | AC-ICS-001 | calendar file rejected (format or limits) | WARNING | CONFIG_CHANGE | yes | F4.1 |
 | AC-SYN-001 | sync snapshot/resource rejected (schema, hash, limits) | ERROR | NONE | generic only | F13-ext |
+| AC-SYN-002 | cloud unavailable/offline (retry, local intact) | ERROR | RETRY | generic only | F13 |
+| AC-SYN-003 | cloud auth/permission refused (no secrets in logs) | ERROR | CONFIG_CHANGE | generic only | F13 |
+| AC-SYN-004 | cloud write conflict (remote changed since read) | ERROR | RETRY | generic only | F13 |
 | AC-TUT-001 | invalid LLM output (not parseable JSON) | ERROR | NONE | yes | F12 |
 | AC-TUT-002 | schema validation failed | ERROR | NONE | yes | F12 |
 | AC-TUT-003 | claim unverified or rejected by the solver | WARNING | RECOVER | yes | F12 |

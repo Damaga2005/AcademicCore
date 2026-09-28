@@ -21,8 +21,10 @@ SRC = ROOT / "src" / "academic_core"
 SYNC_D4 = [SRC / p for p in (
     "domain/sync.py",
     "application/sync.py",
+    "application/cloud_sync.py",
     "infrastructure/sync_store.py",
     "infrastructure/sync_transport.py",
+    "infrastructure/cloud_transport.py",
     "application/facade.py",
     "infrastructure/__init__.py",
     "infrastructure/database.py",
@@ -32,6 +34,7 @@ SYNC_D4_TESTS = [ROOT / "tests" / p for p in (
     "test_d4_pipeline.py",
     "test_f13ext_sync.py",
     "test_f13ext_service.py",
+    "test_f13_cloud_sync.py",
     "test_d5_contracts.py",
 )]
 
@@ -81,8 +84,10 @@ def test_sync_d4_no_unsafe_or_network_imports():
     # usa pathlib, no os). `os` sí aparece en tests ajenos: no es este test.
     bad = []
     for path in [SRC / "domain/sync.py", SRC / "application/sync.py",
+                 SRC / "application/cloud_sync.py",
                  SRC / "infrastructure/sync_store.py",
-                 SRC / "infrastructure/sync_transport.py"]:
+                 SRC / "infrastructure/sync_transport.py",
+                 SRC / "infrastructure/cloud_transport.py"]:
         for n in ast.walk(_tree(path)):
             mods = [a.name for a in n.names] if isinstance(n, ast.Import) else (
                 [n.module or ""] if isinstance(n, ast.ImportFrom) else [])

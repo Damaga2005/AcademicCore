@@ -131,6 +131,20 @@ class AcademicApp:
         self.device_id = ensure_device_id(self.personal)
         self.sync = SyncService(self.personal, SearchHistoryRepository(self.db),
                                 self.sync_store, self.device_id)
+        # -- F13 cloud sync (offline-first sobre F13-ext, sin segundo motor) --
+        from academic_core.application.cloud_sync import CloudSyncService
+        from academic_core.infrastructure.cloud_transport import (
+            MemoryCloudTransport,
+            OneDriveFolderTransport,
+        )
+        folder = str(getattr(settings.providers, "onedrive_folder", "") or "")
+        if folder:
+            cloud_transport = OneDriveFolderTransport(folder)
+        else:
+            cloud_transport = MemoryCloudTransport()
+        self.cloud_transport = cloud_transport
+        self.cloud_sync = CloudSyncService(self.sync, self.sync_store,
+                                           self.cloud_transport, self.device_id)
 
     def ensure_demo(self) -> None:
         """Generic, deletable demo hierarchy (never institution-specific)."""
