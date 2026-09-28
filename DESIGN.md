@@ -217,8 +217,12 @@ radii and no arrow buttons.
 
 ### Navigation
 - **Tabs:** clean text tabs, 7px/14px padding; hover shows idle wash; selected tab is semibold ink on blue wash. Thirteen tabs scroll natively with arrow buttons — a pinned product fact, handled by the platform affordance.
+- **Go menu:** grouped shell (Home / Learn / Practice / Engineering / Settings + Engineering modules index) mapping onto the same tabs; adds orientation without touching tab structure.
+- **Search:** Ctrl+K palette over UnifiedSearchService; subject hits select the sidebar node.
 - **Sidebar tree:** transparent rows, 6–8px padding, 7px selection radius; selected item is semibold ink on blue wash.
-- **Menus:** a View → Appearance menu (Follow system / Light / Dark) persists to platform settings and re-applies the world live.
+- **Menus:** a View → Appearance menu (Follow system / Light / Dark) persists to platform settings and re-applies the world live; mirrored in the Settings tab.
+- **Lab workspaces:** Virtual Lab and Simulation group the same pinned controls into Experiment / Inputs / Execution / Results sections; no widget renamed, no text changed.
+- **Motion:** dialog appearance is a 150 ms OutCubic opacity fade (no bounce); scale was deliberately avoided — Qt geometry animation on laid-out dialogs causes relayout jitter.
 
 ### Tables and outputs
 - Headers are semibold secondary text with a hairline underline, no filled header bars; gridlines are hairlines; selection is blue wash with ink text. Read-only outputs sit in 8px cards. The waveform draws lanes in ink, axes and ticks dimmed, trigger as a dashed accent line with text label — color is never the only cue (H/L labels, lane names, trigger text persist).
