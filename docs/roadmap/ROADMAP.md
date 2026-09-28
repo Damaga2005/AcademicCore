@@ -187,7 +187,7 @@ F11       Aprendizaje Adaptativo                         [CERTIFICADA]
    │
 F12       IA / Tutor Socrático con Guardrails            [CERTIFICADA]
    │
-F13       OneDrive / Cloud Sync completo                 [SIGUIENTE]
+F13       OneDrive / Cloud Sync completo                 [CERTIFICADA]
    │
 F16       Contenido Aeroespacial / Satélite              [PENDIENTE — ÚLTIMA FASE]
 ```
@@ -205,7 +205,7 @@ F16       Contenido Aeroespacial / Satélite              [PENDIENTE — ÚLTIMA
 | 7 | F10 | Modelado de mastery y dominio del estudiante a partir de evidencia real de F9 | F9 | **CERTIFICADA** |
 | 8 | F11 | Selección adaptativa de ejercicios y rutas personalizadas, funcional con LLM=OFF | F10 | **CERTIFICADA** |
 | 9 | F12 | Tutor socrático desacoplado: LLM → JSON estructurado → validación → autoridad determinista | F11 | **CERTIFICADA** |
-| 10 | F13 | Sincronización cloud/OneDrive completa, conflictos, versionado y operación offline-first | F13-ext | **SIGUIENTE** |
+| 10 | F13 | Sincronización cloud/OneDrive completa, conflictos, versionado y operación offline-first | F13-ext | **CERTIFICADA** |
 | 11 | F16 | Contenido Aeroespacial/Satélite; mecánica orbital básica como fase final de contenido | F13 | Pendiente |
 
 ### 5.4 Dependencias críticas

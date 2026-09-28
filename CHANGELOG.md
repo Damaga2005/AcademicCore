@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased — Fase F13: OneDrive / Cloud Sync (IMPLEMENTADA, NO CERTIFICADA — pendiente CI real)
+## Unreleased — Fase F13: OneDrive / Cloud Sync (CERTIFICADA)
 - Coordinación `application/cloud_sync.py` (`CloudSyncService`) sobre el motor F13-ext intacto (`domain/sync.py` sin cambios): primer push, join bidireccional LWW, VERIFY reutilizado, estados `synced/pending/offline/conflict/error` en tabla aditiva (fuera de digests). Nunca: error cloud → rollback local; nada marcado synced sin escritura confirmada.
 - Transportes `infrastructure/cloud_transport.py` (sin red ni dependencias nuevas, solo pathlib+json): `MemoryCloudTransport` (fake/in-memory para contrato) + `OneDriveFolderTransport` (carpeta local, escritura atómica tmp+replace, `expected_remote_digest` → `AC-SYN-004`). Validación y límites reutilizados F13-ext (`AC-SYN-001`); errores nuevos `AC-SYN-002/003/004`.
 - Persistencia: migración 021 aditiva (`sync_status` + `cloud_sync_meta`) + métodos `set/get_status`, `all_statuses`, `set/get_meta`; wiring `cloud_sync` en facade (carpeta OneDrive si `providers.onedrive_folder`, si no Memory). Tocado certificado: solo pins `20→21` (la 021 los exige) + extensión aditiva de `test_d5_contracts` a F13.
 - Nuevos: `test_f13_cloud_sync.py` (9 contractuales: primer push, offline-first+reintento, bidireccional, conflicto determinista+log, corrupto intacto, tombstone, sin secretos, carpeta round-trip, auth/límites). TDD: RED 9/9 verificado antes de GREEN.
-- Docs: `F13-CLOUD-SYNC.md` + `GATE-F13-CERTIFICATION.md` (veredicto: NO CERTIFICADA, CI real pendiente; F13 sigue SIGUIENTE, F16 última). Evidencia local: 9/9 F13 + regresión relevante verde. Sin E2E real contra OneDrive/Graph (sin credenciales; no se finge).
+- Docs: `F13-CLOUD-SYNC.md` + `GATE-F13-CERTIFICATION.md` (veredicto: CERTIFICADA con CI real; F13 CERTIFICADA, F16 SIGUIENTE). Evidencia local: 9/9 F13 + regresión 176 passed / 1 skip ambiental. Sin E2E real contra OneDrive/Graph (sin credenciales; no se finge).
+- Commit impl. `f34a9d5`. Run de certificación [`36385930302`](https://github.com/Damaga2005/AcademicCore/actions/runs/36385930302) verde 4/4 celdas + package. Roadmap: **F13 CERTIFICADA, F16 SIGUIENTE**.
 
 ## Unreleased — Fase F12: Tutor Socrático (CERTIFICADA)
 - Contratos `domain/tutor.py` (puro): `f12-tutor-response/1` (schema cerrado, 6 `response_type`), `Claim`/`TutorProposal`/`VerifiedResponse`, `SOCRATIC_LADDER` (6 etapas derivadas del nº de turnos previos, sin store de política aparte), `verify_claims` — delega en `domain.correction.correct_answer` (F9): ningún segundo motor matemático/simbólico/de unidades/circuitos.

@@ -152,4 +152,4 @@ certificadas. Pins actualizados legítimamente: `test_migration` 20→21,
    adapter real queda separado y sin certificar).
 4. Carpeta OneDrive = sincronización del SO; conflictos de escritura
    concurrente se detectan vía `expected_remote_digest`, no se fusionan.
-5. CI real pendiente de push (ver gate); evidencia local incluida.
+5. CI real verde en run 36385930302 (ver gate); evidencia local incluida.

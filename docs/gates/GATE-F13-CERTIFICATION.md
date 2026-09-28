@@ -1,18 +1,19 @@
-# GATE-F13-CERTIFICATION — F13 OneDrive / Cloud Sync (implementación)
+# GATE-F13-CERTIFICATION — F13 OneDrive / Cloud Sync (certificación)
 
 > **FASE:** F13 — OneDrive / Cloud Sync completo (offline-first).
-> **MODO:** implementación + tests + regresión + seguridad (CI real pendiente).
+> **MODO:** implementación + certificación completa, revisión de cierre sobre `main`.
 > **BASELINE:** `main @ e8d8754` (`docs(f12): certificar con run 36336990034 verde`);
-> working tree clean al inicio. Sin ramas permanentes.
-> **VEREDICTO: NO CERTIFICADA — pendiente CI real (§12). No usar como
-> evidencia de certificación.**
+> revisión sin ramas permanentes.
+> **VEREDICTO: F13 CERTIFICADA. Siguiente fase: F16.**
 
 ## 1. Baseline, HEAD, commits, archivos
 
 | | |
 |---|---|
 | baseline | `e8d8754` |
-| HEAD (implementación) | pendiente de commit (ver §13) |
+| commit F13 (implementación) | `f34a9d5` (`feat(f13): implement cloud sync offline-first`, 15 ficheros, +914/-5) |
+| commit F13 (certificación) | este commit (gate + roadmap + changelog + readme) |
+| CI run | [`36385930302`](https://github.com/Damaga2005/AcademicCore/actions/runs/36385930302) sobre `f34a9d5`, `completed success` |
 | migración | `021_cloud_sync.sql` registrada en `infrastructure/database.py:_MIGRATIONS` |
 | producción | `infrastructure/cloud_transport.py` (Memory + OneDriveFolder, sin red), `application/cloud_sync.py` (CloudSyncService sobre F13-ext), `infrastructure/sync_store.py` (+sync_status/meta, aditivo), `infrastructure/__init__.py` (exports), `application/facade.py` (wiring cloud_sync), `infrastructure/database.py` (021), `docs/specs/ERROR-CODES.md` (AC-SYN-002/003/004) |
 | tests | `tests/test_f13_cloud_sync.py` (9 contractuales F13) |
@@ -44,17 +45,19 @@ Transporte cloud desacoplado (`read/write`), offline-first, estados
 TDD: test creado primero, RED 9/9 `ModuleNotFoundError` verificado, luego
 GREEN mínimo, REFACTOR (limpieza de imports).
 
-## 4. Regresión (verde local)
+## 4. Regresión (verde local + CI completo verde)
 
-- `test_f13ext_sync` + `test_f13ext_service` + `test_f13_cloud_sync` +
-  `test_d5_contracts` + `test_architecture` + `test_migration` +
-  `test_persistence`: verde.
-- `test_f4_security` (códigos únicos/documentados) + `test_d4_pipeline` +
-  `test_f15_app` + `test_application` + `test_config`: verde (1 skip
-  ambiental symlink si el SO lo niega).
-- Suite completa `not external` no ejecutada entera por tiempo; subconjunto
-  representativo verde; cambios solo aditivos (2 ficheros nuevos + métodos
-  nuevos + migración aditiva + wiring + pins legítimos 20→21).
+- Local (cierre): 176 passed / 1 skip ambiental symlink en el conjunto
+  `test_f13ext_sync + test_f13ext_service + test_f13_cloud_sync +
+  test_d5_contracts + test_architecture + test_migration + test_persistence +
+  test_f4_security + test_d4_pipeline + test_f15_app + test_application +
+  test_config` (el skip es `test_document_symlink_escape_refused` cuando el
+  SO niega symlinks — sonda `conftest.py`, preexistente y documentado).
+- CI completo `pytest -m "not external"` (run 36385930302): 4/4 celdas
+  `success` (windows-2025 py 3.12, windows-2025 py 3.13, ubuntu-24.04 py
+  3.12, ubuntu-24.04 py 3.13) + job `package` `success`; run `completed
+  success`. Sin bypasses (`|| true`, `continue-on-error`, `--deselect`
+  ausentes del workflow).
 
 ## 5. Seguridad
 
@@ -83,14 +86,14 @@ F4.2/D5).
 ## 8. Limitaciones
 
 Ver `F13-CLOUD-SYNC.md` §11 (reloj wall-clock, tombstones sin GC, sin E2E
-Graph real, carpeta = cliente SO, CI pendiente).
+Graph real, carpeta = cliente SO).
 
 ## 9. CI real
 
-**Pendiente.** No se declara certificación sin evidencia CI real (regla 17
-del prompt). Tras push a `main`, ejecutar el workflow canónico
-(`pytest -m "not external"`, 4 celdas + package) sin bypasses y registrar
-aquí el run verde antes de marcar F13 CERTIFICADA y F16 SIGUIENTE.
+Run [`36385930302`](https://github.com/Damaga2005/AcademicCore/actions/runs/36385930302)
+(`push` de `f34a9d5` en `main`): 4/4 jobs `test` `completed success` +
+job `package` `completed success`; run `completed success`. Workflow
+canónico `.github/workflows/ci.yml` sin bypasses.
 
 ## 10. Criterios de aceptación (§21 del prompt)
 
@@ -112,13 +115,14 @@ aquí el run verde antes de marcar F13 CERTIFICADA y F16 SIGUIENTE.
 - [x] tests F13 verdes (9/9 local)
 - [x] regresiones relevantes verdes (local)
 - [x] documentación completa (F13-CLOUD-SYNC + ERROR-CODES)
-- [ ] gate completo con CI real (**pendiente**)
-- [ ] CI real verde (**pendiente de push**)
-- [ ] roadmap actualizado (**pendiente de CI**: F13 sigue SIGUIENTE)
+- [x] gate completo con CI real (run 36385930302)
+- [x] CI real verde (4/4 celdas + package, `completed success`)
+- [x] roadmap actualizado (F13 CERTIFICADA, F16 SIGUIENTE)
 - [x] F16 permanece como única fase pendiente tras F13
 
 ## 11. Veredicto
 
-**F13 IMPLEMENTADA, NO CERTIFICADA.** Siguiente paso: push + CI real verde
-+ actualizar este gate con el run + marcar `F13 CERTIFICADA, F16 SIGUIENTE`
-en ROADMAP/CHANGELOG. F16 fuera de alcance (no implementada aquí).
+**Veredicto: F13 CERTIFICADA. Siguiente fase: F16.** F16 fuera de alcance
+(no implementada aquí). Limitaciones reales en §8 y `F13-CLOUD-SYNC.md`
+§11 (incluida la ausencia de E2E Graph real: la carpeta local no se
+presenta como integración Graph).
