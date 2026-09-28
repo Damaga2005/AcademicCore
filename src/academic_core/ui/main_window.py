@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QMessageBox, QPushButton, QTabWidget,
@@ -31,6 +31,10 @@ class AcademicMainWindow(QMainWindow):
         self.app = app  # AcademicApp facade
         self.setWindowTitle(f"Academic Core — F4 Academic Management (v{__version__})")
         self.resize(1250, 780)
+        icon = QIcon(str(Path(__file__).resolve().parents[2] / ".." / "packaging"
+                         / "windows" / "academicore.ico"))
+        if not icon.isNull():
+            self.setWindowIcon(icon)
 
         # -- left: hierarchy tree ------------------------------------------------
         self.tree = QTreeWidget()
@@ -111,6 +115,25 @@ class AcademicMainWindow(QMainWindow):
         self.config_label.setWordWrap(True)
         self.config_label.setToolTip("Basic configuration and version/state")
         config_layout.addWidget(self.config_label)
+        from PySide6.QtWidgets import QComboBox, QFormLayout
+        settings_form = QFormLayout()
+        self.appearance_box = QComboBox()
+        self.appearance_box.addItems(["Follow system", "Light", "Dark"])
+        self.appearance_box.setCurrentText(
+            {"system": "Follow system", "light": "Light", "dark": "Dark"}.get(
+                self._appearance_mode(), "Follow system"))
+        self.appearance_box.currentTextChanged.connect(
+            lambda t: self._set_appearance(
+                {"Follow system": "system", "Light": "light"}.get(t, "dark")))
+        settings_form.addRow("Appearance:", self.appearance_box)
+        self.data_label = QLabel()
+        self.data_label.setWordWrap(True)
+        self.data_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        settings_form.addRow("Data folder:", self.data_label)
+        self.btn_open_data = QPushButton("Open data folder")
+        self.btn_open_data.clicked.connect(self._open_data_folder)
+        settings_form.addRow("", self.btn_open_data)
+        config_layout.addLayout(settings_form)
         config_layout.addStretch(1)
         self.tabs.addTab(config_tab, "Settings")
         self._refresh_config()
@@ -184,15 +207,33 @@ class AcademicMainWindow(QMainWindow):
         self.btn_res_export_html.clicked.connect(lambda: self._export_document("html"))
         self.res_search.textChanged.connect(lambda _t: self._refresh_resources())
         self.res_list.currentRowChanged.connect(lambda _i: self._show_resource())
+        self._search_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        self._search_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._search_shortcut.activated.connect(self._open_search)
         self._refresh_tree()
         self._refresh_detail()
 
     # -- tree ---------------------------------------------------------------------
+    @staticmethod
+    def _appearance_mode() -> str:
+        from PySide6.QtCore import QSettings as _QSettings
+        return str(_QSettings("Academic Core", "Academic Core").value("appearance", "system"))
+
+    def _open_data_folder(self) -> None:
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.app.settings.storage.location)))
+
     def _set_appearance(self, mode: str) -> None:
         """Persist the appearance choice and re-apply the world QSS."""
         from PySide6.QtWidgets import QApplication as _QApplication
         save_mode(mode)
         self._tokens = apply_theme(_QApplication.instance(), mode)
+        if hasattr(self, "appearance_box"):
+            self.appearance_box.blockSignals(True)
+            self.appearance_box.setCurrentText(
+                {"system": "Follow system", "light": "Light", "dark": "Dark"}.get(mode, "Dark"))
+            self.appearance_box.blockSignals(False)
         self.statusBar().showMessage(
             f"Academic Core v{__version__} · offline · {self.app.db.path}")
 
@@ -227,6 +268,16 @@ class AcademicMainWindow(QMainWindow):
             f"license: MIT (LICENSE)\n"
             f"lab schema: f8n-lab/1\n"
             f"GREELEC: no integration (UNKNOWN / REQUIRES INPUT)")
+        if hasattr(self, "data_label"):
+            self.data_label.setText(str(settings.storage.location))
+
+    def _open_search(self) -> None:
+        from academic_core.ui.search import SearchDialog
+        dlg = SearchDialog(self.app, self)
+        if dlg.exec() and dlg.chosen() is not None:
+            hit = dlg.chosen()
+            if hit.ref:
+                self._select_subject(hit.ref)
 
     def _refresh_tree(self) -> None:
         self.tree.clear()
@@ -262,6 +313,23 @@ class AcademicMainWindow(QMainWindow):
     def _subject_id(self) -> str | None:
         level, sid = self._selection()
         return sid if level == "subject" else None
+
+    def _select_subject(self, stable_id: str) -> bool:
+        """Select the subject node with this id (search navigation)."""
+        for i in range(self.tree.topLevelItemCount()):
+            if self._select_in(self.tree.topLevelItem(i), stable_id):
+                return True
+        return False
+
+    def _select_in(self, item, stable_id: str) -> bool:
+        if self._index.get(id(item)) == ("subject", stable_id):
+            self.tree.setCurrentItem(item)
+            return True
+        for i in range(item.childCount()):
+            if self._select_in(item.child(i), stable_id):
+                self.tree.expandItem(item)
+                return True
+        return False
 
     def _add_level(self) -> None:
         level, sid = self._selection()
