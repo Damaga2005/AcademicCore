@@ -10,6 +10,7 @@ venv/
 build/
 dist/
 *.spec
+!packaging/windows/*.spec
 *.exe
 
 # Data (never commit user data / DBs / documents)

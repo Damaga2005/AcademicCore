@@ -19,15 +19,34 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     config_path = next((a.split("=", 1)[1] for a in argv if a.startswith("--config=")), None)
     settings = Settings.load(config_path)
-    settings.ensure_dirs()
-    core = AcademicApp(settings)
+    from academic_core import runtime
+    if runtime.is_frozen():
+        # Installed product: user data under %LOCALAPPDATA%/AcademicCore
+        # (Program Files is not writable). Dev behavior unchanged.
+        root = runtime.user_data_dir()
+        settings = Settings.load(config_path, overrides={
+            "storage.location": str(root / "data"),
+            "storage.cas_dir": str(root / "data" / "cas"),
+            "storage.index_dir": str(root / "data" / "index"),
+            "storage.cache_dir": str(root / "data" / "cache"),
+        })
     app = QApplication(argv)
     app.setApplicationName("Academic Core")
     app.setOrganizationName("Academic Core")
+    from academic_core.ui.startup import APP, ORG, FirstRunDialog, is_first_run, make_splash
+    from PySide6.QtCore import QSettings
+    splash = make_splash(app)
+    splash.show()
+    app.processEvents()
+    settings.ensure_dirs()
+    core = AcademicApp(settings)
     from academic_core.ui.theme import apply_saved_theme
     apply_saved_theme(app)
     win = AcademicMainWindow(core)
+    if is_first_run(QSettings(ORG, APP)):
+        FirstRunDialog(QSettings(ORG, APP), win).exec()
     win.show()
+    splash.finish(win)
     return app.exec()
 
 
