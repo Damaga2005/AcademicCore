@@ -273,8 +273,14 @@ Una fase se considera cerrada únicamente cuando:
 
 ## 5.2 E0 — Explainable Execution / Pedagogical Trace
 
-**Estado:** PLANIFICADA / TRANSVERSAL  
-**Implementación:** después de completar y certificar F8-Q.7  
+> **Nota histórica:** esta sección se escribió cuando E0 estaba planificada.
+> **Estado actual: CERTIFICADA** (gates `GATE-E0-FINAL.md`, `GATE-E0.1-FINAL.md`,
+> `GATE-E0.1-R-FINAL.md`, `GATE-E0.2-FINAL.md`, `GATE-E0.3-FINAL.md`,
+> `GATE-E0.4-FINAL.md`; ver §5.2 Orden normativo). El texto conservado abajo
+> describe el diseño original.
+
+**Estado en el diseño original:** PLANIFICADA / TRANSVERSAL
+**Implementación prevista entonces:** después de completar y certificar F8-Q.7
 **Propósito:** convertir la ejecución real de los resolvers en una solución académica completamente trazable, reproducible y visualizable paso a paso.
 
 ### Objetivo obligatorio

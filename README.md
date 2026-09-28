@@ -3,7 +3,7 @@
 <div align="center">
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![Tests Passing](https://img.shields.io/badge/tests-4700%2B%20passing-2ea44f.svg?style=flat-square&logo=pytest&logoColor=white)]()
+[![Tests Passing](https://img.shields.io/badge/tests-4800%2B%20passing-2ea44f.svg?style=flat-square&logo=pytest&logoColor=white)]()
 [![Status](https://img.shields.io/badge/status-D6--D7--F9--F10--F11%20CERTIFIED-0052CC.svg?style=flat-square&logo=academia&logoColor=white)]()
 [![Zero-Float Core](https://img.shields.io/badge/arithmetic-zero--float%20core-8A2BE2.svg?style=flat-square)]()
 [![Oracle Verified](https://img.shields.io/badge/oracle-ngspice%2047%20verified-E34F26.svg?style=flat-square)]()
@@ -477,7 +477,7 @@ pip install -r requirements-dev.txt
 ### 2. Running Test Batteries
 
 ```bash
-# 1. Run the entire test battery (4,700+ passing tests)
+# 1. Run the entire test battery (4,800+ passing tests, 4816 collected)
 pytest -q
 
 # 2. Run Semiconductor & Nonlinear DC Suite (Shockley + Ebers-Moll: 143 tests)
@@ -520,6 +520,13 @@ python -m academic_core
 # or, after `pip install .`:
 academic-core
 ```
+
+Product experience (post-roadmap, no new phase): grouped Go menu
+(Home/Learn/Practice/Engineering/Settings) over the 13 tabs, real-module
+index (Digital Logic/Electronics/Aerospace), Virtual Lab and Simulation
+grouped as Experiment/Inputs/Execution/Results, F16 orbit view with real
+numbers, editorial dashboard with real recents, Ctrl+K global search,
+splash + one-screen first-run, real Appearance/Data/About settings.
 
 F15 capabilities: Dashboard (navigation + version/state), Exercise
 resolution (engineering library via `ExerciseService`), Simulation
@@ -570,10 +577,10 @@ AcademicCore/
 │       ├── database.py              # SQLite connection, pragmas & schema management
 │       ├── assessment.py            # AssessmentRepository with recovery logic (F9-D)
 │       ├── academic_store.py        # F4.1/D7/F10/F11 repositories (QBank, Mastery, …)
-│       ├── migrations/              # Forward-only SQL migrations (001 through 019)
+│       ├── migrations/              # Forward-only SQL migrations (001 through 021)
 │       ├── cas.py                   # Content-Addressable Storage (SHA-256)
 │       └── ngspice.py               # Sandboxed ngspice 47 runner & oracle
-├── tests/                           # Complete test battery (4,700+ test cases)
+├── tests/                           # Complete test battery (4,800+ test cases)
 ├── docs/
 │   ├── gates/                       # Production gate certification reports (GATE-*)
 │   ├── roadmap/                     # Comprehensive architecture roadmap (ROADMAP.md)

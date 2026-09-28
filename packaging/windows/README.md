@@ -46,3 +46,15 @@ Remove-Item -Recurse -Force dist, build
 - **Updater automático**: fuera de alcance (limitación documentada).
   La app muestra su versión en About/Settings; el update es descargar el
   nuevo Setup y reinstalar.
+
+## Validación (runs CI + smoke local)
+
+- CI `release`: build exe + installer + smoke offscreen (DB verificada) +
+  artifact `AcademicCore-Setup` — verde en runs `36416322476`,
+  `36443350048`, `36449517250`.
+- Smoke local: `.exe` vivo 20 s, `academic.db` + migraciones 001–021 en
+  `%LOCALAPPDATA%/AcademicCore` aislado.
+- SHA-256 del Setup reconstruido del árbol final:
+  `359084474C65928F57CFFB963198E3BF039205E8757325D79EFCC31AE474C3F1`.
+- NOT VERIFIED (sin admin ni 2ª máquina): Start Menu, ejecución del
+  uninstall, clean machine, DPI 125/150/200 sistemático.

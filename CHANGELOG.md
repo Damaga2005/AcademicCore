@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased — Windows Product 1.0 (productización)
+- Producto/UX post-roadmap (sin fase nueva): menú Go agrupado sobre los 13 tabs intactos; índice de módulos reales; Virtual Lab/Simulation en secciones Experiment/Inputs/Execution/Results sin renombrar widgets; vista orbital F16 con números reales; dashboard editorial con recents reales; motion 150 ms sin bounce.
+- Validación: exe/installer reconstruidos del árbol final, smoke verde, regresión verde; Start Menu/uninstall-ejecutado/clean-machine/DPI sistemático NOT VERIFIED (sin admin ni 2ª máquina).
 - `AcademicCore.exe` (PyInstaller onedir) + `AcademicCore-1.0.0-Setup.exe` (NSIS 3, Start Menu, desinstalación registrada). Versión única `1.0.0` (`__init__` → pyproject → version_info → installer, pineado por tests).
 - Runtime: `%LOCALAPPDATA%/AcademicCore` solo en bundle (`runtime.py`); dev intacto en `~/.academic-core`. Icono propio generado por render Qt (sin assets de terceros).
 - UX: splash con versión, first-run de una pantalla (sin cuentas ni red), búsqueda global Ctrl+K sobre `UnifiedSearchService` (sin segundo motor), Settings con Appearance/Data/About reales, icono de ventana.
@@ -10,7 +12,7 @@
 ## Unreleased — Fase F16: Contenido Aeroespacial (CERTIFICADA)
 - Motor `domain/engineering/orbital/` (`f16-orbital/1`): two-body Decimal SI (m, kg, s, rad) con contexto de 50 dígitos; circular/periodo+inversa, vis-viva+inversa, energías (total vs específica), escape, elipses (0 ≤ e < 1), Kepler (M↔E Newton acotado, ν↔E cerradas), elementos clásicos con marcos `ECI/ORBITAL` y digest `f16-elements/1`. Constantes con provenance (G CODATA 2018, Tierra IAU/IERS). Sin persistencia, sin dependencias, sin códigos AC nuevos.
 - Reutilización: `math/` (sqrt/pi/trig), `units.py` extendido aditivamente (MASS/FORCE, g/N/rad + alias; min/h/day/deg como helpers explícitos), traza E0 (`domain/execution/orbital.py` `physics.orbital` + replay + wiring `ExplainService`, aditivo). F8-P5/F9/D7 intactos.
-- Nuevos: `test_f16_orbital.py` (15 contractuales: ISS/GEO/escape, round-trips, dominio, hash-seeds, traza+replay). TDD: RED verificado antes de GREEN.
+- Nuevos: `test_f16_orbital.py` (16 contractuales: ISS/GEO/escape, round-trips, dominio, hash-seeds, traza+replay, AST). TDD: RED verificado antes de GREEN.
 - Docs: `F16-AEROSPACE.md` + `GATE-F16-CERTIFICATION.md` (veredicto: CERTIFICADA con CI real; ROADMAP COMPLETADO). Evidencia local: 16/16 F16 + regresión verde salvo 1 preexistente CRLF (documentado, ajeno a F16).
 - Commit impl. `195d3e7`. Run de certificación [`36394085024`](https://github.com/Damaga2005/AcademicCore/actions/runs/36394085024) verde 4/4 celdas + package. Roadmap: **F16 CERTIFICADA, ROADMAP COMPLETADO**.
 
