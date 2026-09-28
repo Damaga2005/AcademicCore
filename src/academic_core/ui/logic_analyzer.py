@@ -40,6 +40,7 @@ from academic_core.application.digital_service import EDGES, MAX_TRACE_FILE_BYTE
 from academic_core.application.explain_service import transition_explanation
 from academic_core.ui.errors import show_ui_error, show_value
 from academic_core.ui.state import UiState
+from academic_core.ui.theme import apply_status_style
 from academic_core.ui.waveform import WaveformWidget
 from academic_core.ui.workers import ServiceWorker
 
@@ -105,6 +106,7 @@ class LogicAnalyzerPanel(QWidget):
 
         buttons = QHBoxLayout()
         self.btn_run = QPushButton("&Capture")
+        self.btn_run.setProperty("class", "primary")
         self.btn_run.setToolTip("Run the circuit and capture (real engine)")
         self.btn_verify = QPushButton("&Verify replay")
         self.btn_verify.setToolTip("Capture again, replay through digital-trace/1 and compare")
@@ -120,6 +122,7 @@ class LogicAnalyzerPanel(QWidget):
 
         self.status = QLabel("IDLE")
         self.status.setAccessibleName("Capture status")
+        apply_status_style(self.status, UiState.IDLE)
         self.status.setWordWrap(True)
         self.trigger_info = QLabel("")
         self.trigger_info.setAccessibleName("Trigger details")
@@ -382,3 +385,4 @@ class LogicAnalyzerPanel(QWidget):
         self.state = state
         if text is not None:
             self.status.setText(text)
+        apply_status_style(self.status, state)

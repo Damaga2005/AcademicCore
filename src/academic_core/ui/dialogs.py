@@ -15,6 +15,7 @@ def prompt_form(parent, title: str, fields: list) -> dict | None:
     from PySide6.QtCore import QDate
     dlg = QDialog(parent)
     dlg.setWindowTitle(title)
+    dlg.setMinimumWidth(400)
     form = QFormLayout(dlg)
     widgets = {}
     for key, label, default, kind in fields:
@@ -43,6 +44,10 @@ def prompt_form(parent, title: str, fields: list) -> dict | None:
                             | QDialogButtonBox.StandardButton.Cancel)
     btns.accepted.connect(dlg.accept)
     btns.rejected.connect(dlg.reject)
+    ok = btns.button(QDialogButtonBox.StandardButton.Ok)
+    if ok is not None:
+        ok.setProperty("class", "primary")
+        ok.setDefault(True)
     form.addRow(btns)
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from academic_core.ui.errors import show_ui_error
 from academic_core.ui.state import UiState
+from academic_core.ui.theme import apply_status_style
 from academic_core.ui.workers import ServiceWorker
 
 
@@ -58,6 +59,7 @@ class ExercisePanel(QWidget):
 
         row = QHBoxLayout()
         self.btn_run = QPushButton("Solve")
+        self.btn_run.setProperty("class", "primary")
         self.btn_run.setToolTip("Execute the exercise through the application service")
         row.addWidget(self.btn_run)
         self.btn_explain = QPushButton("&Explicar")
@@ -69,6 +71,7 @@ class ExercisePanel(QWidget):
                                   "desde la traza pedagógica real (E0.1)")
         row.addWidget(self.btn_steps)
         self.status = QLabel("IDLE")
+        apply_status_style(self.status, UiState.IDLE)
         row.addWidget(self.status)
         layout.addLayout(row)
 
@@ -106,6 +109,7 @@ class ExercisePanel(QWidget):
         layout.addLayout(math)
 
         self.output = QTextEdit(readOnly=True)
+        self.output.setObjectName("Output")
         self.output.setToolTip("Result or UI-safe error")
         layout.addWidget(self.output)
 
@@ -221,3 +225,4 @@ class ExercisePanel(QWidget):
     def _set_state(self, state: UiState, text: str) -> None:
         self.state = state
         self.status.setText(text)
+        apply_status_style(self.status, state)

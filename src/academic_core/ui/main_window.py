@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QMessageBox, QPushButton, QTabWidget,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from academic_core import __version__
 from academic_core.ui.dialogs import confirm, prompt_form
+from academic_core.ui.theme import apply_saved_theme, apply_theme, save_mode
 
 LEVELS = ("university", "degree", "year", "term", "subject")
 
@@ -33,6 +35,8 @@ class AcademicMainWindow(QMainWindow):
         # -- left: hierarchy tree ------------------------------------------------
         self.tree = QTreeWidget()
         self.tree.setHeaderLabel("Academic tree")
+        self.tree.setObjectName("SidebarTree")
+        self.tree.setAccessibleName("Academic tree")
         left = QVBoxLayout()
         left.addWidget(self.tree)
         row = QHBoxLayout()
@@ -42,8 +46,9 @@ class AcademicMainWindow(QMainWindow):
         row.addWidget(self.btn_del)
         left.addLayout(row)
         left_w = QWidget()
+        left_w.setObjectName("Sidebar")
         left_w.setLayout(left)
-        left_w.setFixedWidth(330)
+        left_w.setFixedWidth(300)
 
         # -- center tabs ------------------------------------------------------------
         self.tabs = QTabWidget()
@@ -135,11 +140,30 @@ class AcademicMainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         log = QTextEdit(readOnly=True)
+        log.setObjectName("Output")
         log.setPlainText(f"Academic Core v{__version__} — F4\n"
                          f"db: {app.db.path}\nStirling optional; native PDF default.")
         dock = QDockWidget("Session log")
         dock.setWidget(log)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+
+        # -- appearance (theme world; logic-free wiring) ---------------------------
+        from PySide6.QtWidgets import QApplication as _QApplication
+        self._tokens = apply_saved_theme(_QApplication.instance())
+        view_menu = self.menuBar().addMenu("&View")
+        appearance = view_menu.addMenu("&Appearance")
+        self._appearance_group = QActionGroup(self)
+        self._appearance_group.setExclusive(True)
+        from PySide6.QtCore import QSettings as _QSettings
+        saved = _QSettings("Academic Core", "Academic Core").value("appearance", "system")
+        for label, mode in (("Follow system", "system"), ("Light", "light"), ("Dark", "dark")):
+            action = QAction(label, self, checkable=True)
+            action.setChecked(saved == mode)
+            action.triggered.connect(lambda _c=False, m=mode: self._set_appearance(m))
+            self._appearance_group.addAction(action)
+            appearance.addAction(action)
+        self.statusBar().showMessage(
+            f"Academic Core v{__version__} · offline · {app.db.path}")
 
         # -- wiring ---------------------------------------------------------------
         self.app.ensure_demo()
@@ -164,6 +188,14 @@ class AcademicMainWindow(QMainWindow):
         self._refresh_detail()
 
     # -- tree ---------------------------------------------------------------------
+    def _set_appearance(self, mode: str) -> None:
+        """Persist the appearance choice and re-apply the world QSS."""
+        from PySide6.QtWidgets import QApplication as _QApplication
+        save_mode(mode)
+        self._tokens = apply_theme(_QApplication.instance(), mode)
+        self.statusBar().showMessage(
+            f"Academic Core v{__version__} · offline · {self.app.db.path}")
+
     def _navigate(self, key: str) -> None:
         """Dashboard navigation to a real tab (F15 §8)."""
         targets = {

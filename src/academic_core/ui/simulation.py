@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from academic_core.ui.errors import show_ui_error
 from academic_core.ui.state import UiState
+from academic_core.ui.theme import apply_status_style
 from academic_core.ui.workers import ServiceWorker
 
 
@@ -40,9 +41,11 @@ class SimulationPanel(QWidget):
         self.analysis.addItems(["OP", "TRANSIENT", "AC_POINT", "AC_SWEEP", "DC_SWEEP"])
         row.addWidget(self.analysis)
         self.btn_run = QPushButton("Run")
+        self.btn_run.setProperty("class", "primary")
         self.btn_run.setToolTip("Execute the simulation through the application service")
         row.addWidget(self.btn_run)
         self.status = QLabel("IDLE")
+        apply_status_style(self.status, UiState.IDLE)
         row.addWidget(self.status)
         layout.addLayout(row)
 
@@ -53,6 +56,7 @@ class SimulationPanel(QWidget):
         layout.addWidget(self.detail)
 
         self.output = QTextEdit(readOnly=True)
+        self.output.setObjectName("Output")
         self.output.setToolTip("Simulation result or UI-safe error")
         layout.addWidget(self.output)
 
@@ -151,3 +155,4 @@ class SimulationPanel(QWidget):
     def _set_state(self, state: UiState, text: str) -> None:
         self.state = state
         self.status.setText(text)
+        apply_status_style(self.status, state)

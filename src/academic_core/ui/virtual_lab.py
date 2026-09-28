@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from academic_core.ui.errors import show_ui_error, show_value
 from academic_core.ui.state import UiState
+from academic_core.ui.theme import apply_status_style
 from academic_core.ui.workers import ServiceWorker
 
 
@@ -83,6 +84,7 @@ class VirtualLabPanel(QWidget):
             "Optional function-generator sine frequency, e.g. '1 kHz'")
         erow.addWidget(self.sine_freq)
         self.btn_run = QPushButton("Add + Run")
+        self.btn_run.setProperty("class", "primary")
         self.btn_run.setToolTip("Validate, execute and measure (real engine)")
         erow.addWidget(self.btn_run)
         self.btn_replay = QPushButton("Replay last")
@@ -97,10 +99,12 @@ class VirtualLabPanel(QWidget):
             "integrador), observados al re-ejecutar el run (E0.3)")
         erow.addWidget(self.btn_explain_detail)
         self.status = QLabel("IDLE")
+        apply_status_style(self.status, UiState.IDLE)
         erow.addWidget(self.status)
         layout.addLayout(erow)
 
         self.output = QTextEdit(readOnly=True)
+        self.output.setObjectName("Output")
         self.output.setToolTip("Runs, measurements, instruments, replay")
         layout.addWidget(self.output)
 
@@ -403,3 +407,4 @@ class VirtualLabPanel(QWidget):
     def _set_state(self, state: UiState, text: str) -> None:
         self.state = state
         self.status.setText(text)
+        apply_status_style(self.status, state)

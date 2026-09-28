@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv)
     app.setApplicationName("Academic Core")
     app.setOrganizationName("Academic Core")
+    from academic_core.ui.theme import apply_saved_theme
+    apply_saved_theme(app)
     win = AcademicMainWindow(core)
     win.show()
     return app.exec()

@@ -231,16 +231,18 @@ class WaveformWidget(QWidget):
                     p.drawText(e.x + 3, lane.y_high - 2, f"×{e.count}")
                     p.setFont(QFont())
         axis_y = g.height - AXIS + 6
-        p.setPen(QPen(fg))
+        dim = self.palette().mid().color()
+        p.setPen(QPen(dim))
         p.drawLine(g.x_start, axis_y, g.x_end, axis_y)
         for x, text in g.ticks:
             p.drawLine(x, axis_y, x, axis_y + 4)
             p.drawText(x - 12, axis_y + 18, text)
         p.drawText(8, axis_y + 18, "t (s)")
         if g.trigger_x is not None:
-            dashed = QPen(fg)
+            dashed = QPen(self.palette().highlight().color())
             dashed.setStyle(Qt.PenStyle.DashLine)
             p.setPen(dashed)
             p.drawLine(g.trigger_x, 20, g.trigger_x, axis_y)
+            p.setPen(QPen(fg))
             p.drawText(min(g.trigger_x + 4, max(g.x_end - 360, g.x_start)), 16, g.trigger_label)
         p.end()

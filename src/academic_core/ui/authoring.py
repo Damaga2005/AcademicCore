@@ -82,6 +82,7 @@ class AuthoringPanel(QWidget):
         right.addLayout(meta_row)
         act_row = QHBoxLayout()
         self.btn_save = QPushButton("Save (new version)")
+        self.btn_save.setProperty("class", "primary")
         self.btn_undo = QPushButton("Undo")
         self.btn_redo = QPushButton("Redo")
         self.btn_validate = QPushButton("Validate")
