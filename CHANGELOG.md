@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Windows Product 1.0 (productización)
+- `AcademicCore.exe` (PyInstaller onedir) + `AcademicCore-1.0.0-Setup.exe` (NSIS 3, Start Menu, desinstalación registrada). Versión única `1.0.0` (`__init__` → pyproject → version_info → installer, pineado por tests).
+- Runtime: `%LOCALAPPDATA%/AcademicCore` solo en bundle (`runtime.py`); dev intacto en `~/.academic-core`. Icono propio generado por render Qt (sin assets de terceros).
+- UX: splash con versión, first-run de una pantalla (sin cuentas ni red), búsqueda global Ctrl+K sobre `UnifiedSearchService` (sin segundo motor), Settings con Appearance/Data/About reales, icono de ventana.
+- CI: job `release` (build exe + installer + smoke offscreen con DB verificada + artifact). Sin updater automático (limitación documentada en `packaging/windows/README.md`).
+- Núcleo académico intacto (F9–F13, F15, F16 sin cambios de comportamiento).
+
 ## Unreleased — Fase F16: Contenido Aeroespacial (CERTIFICADA)
 - Motor `domain/engineering/orbital/` (`f16-orbital/1`): two-body Decimal SI (m, kg, s, rad) con contexto de 50 dígitos; circular/periodo+inversa, vis-viva+inversa, energías (total vs específica), escape, elipses (0 ≤ e < 1), Kepler (M↔E Newton acotado, ν↔E cerradas), elementos clásicos con marcos `ECI/ORBITAL` y digest `f16-elements/1`. Constantes con provenance (G CODATA 2018, Tierra IAU/IERS). Sin persistencia, sin dependencias, sin códigos AC nuevos.
 - Reutilización: `math/` (sqrt/pi/trig), `units.py` extendido aditivamente (MASS/FORCE, g/N/rad + alias; min/h/day/deg como helpers explícitos), traza E0 (`domain/execution/orbital.py` `physics.orbital` + replay + wiring `ExplainService`, aditivo). F8-P5/F9/D7 intactos.
