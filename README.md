@@ -506,7 +506,13 @@ pytest tests/test_eng_security.py -k "zero_float"
 pytest tests/test_architecture.py
 ```
 
-### 4. Launching the F15 Application
+### 4. Launching the Application
+
+**End users (no Python needed):** download `AcademicCore-1.0.0-Setup.exe`,
+install, open from the Start Menu. Data lives in `%LOCALAPPDATA%/AcademicCore`
+(database, cache, logs, settings). Uninstall from Settings → Apps.
+
+**Developers:**
 
 ```bash
 # From an installed environment (runtime deps: pip install -r requirements.txt)
