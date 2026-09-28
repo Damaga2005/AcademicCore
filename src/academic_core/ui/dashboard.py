@@ -47,6 +47,16 @@ class DashboardPanel(QWidget):
         self.state_label.setObjectName("Caption")
         self.state_label.setToolTip("Version and state information")
         header.addWidget(self.state_label)
+        self.greeting_label = QLabel("Good morning.")
+        self.greeting_label.setObjectName("SectionTitle")
+        header.addWidget(self.greeting_label)
+        self.greeting_sub = QLabel("Continue where you left off.")
+        self.greeting_sub.setObjectName("Caption")
+        header.addWidget(self.greeting_sub)
+        self.recent_label = QLabel()
+        self.recent_label.setObjectName("Caption")
+        self.recent_label.setWordWrap(True)
+        header.addWidget(self.recent_label)
         layout.addLayout(header)
 
         grid = QGridLayout()
@@ -135,3 +145,13 @@ class DashboardPanel(QWidget):
             f"Academic Core v{__version__} · db: {self.app.db.path}")
         for key, label in self._summaries.items():
             label.setText(self._summary_for(key))
+        self.recent_label.setText(self._recent_text())
+
+    def _recent_text(self) -> str:
+        try:
+            recents = self.app.search_history.list_recents()[:3]
+        except Exception:
+            return "Recent: unavailable"
+        if not recents:
+            return "No recent activity yet — open a subject, run a lab, or search."
+        return "Recent: " + " · ".join(r.label for r in recents)

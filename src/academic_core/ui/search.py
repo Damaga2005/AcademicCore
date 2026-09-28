@@ -32,6 +32,12 @@ class SearchDialog(QDialog):
         self.search_box.textChanged.connect(lambda _t: self.refresh())
         self.search_box.returnPressed.connect(self.accept)
         self._hits: list = []
+        self.search_box.setFocus()
+
+    def showEvent(self, event) -> None:
+        from academic_core.ui.motion import pop_in
+        super().showEvent(event)
+        pop_in(self)
 
     def run_search(self, query: str) -> list:
         """Query the certified service (min 2 chars, enforced there)."""

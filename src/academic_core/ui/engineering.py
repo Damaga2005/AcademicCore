@@ -70,6 +70,9 @@ class EngineeringPanel(QWidget):
         right.addLayout(row3)
         self.status = QLabel("No project")
         right.addWidget(self.status)
+        from academic_core.ui.aerospace import OrbitPanel
+        self.orbit_panel = OrbitPanel(app)
+        right.addWidget(self.orbit_panel)
         right_w = QWidget()
         right_w.setLayout(right)
         layout.addWidget(right_w)

@@ -29,36 +29,48 @@ class SimulationPanel(QWidget):
         self.pool = QThreadPool(self)
 
         layout = QVBoxLayout(self)
+        from PySide6.QtWidgets import QGroupBox
+
+        def _section(title: str) -> QVBoxLayout:
+            box = QGroupBox(title)
+            inner = QVBoxLayout(box)
+            layout.addWidget(box)
+            return inner
+
         row = QHBoxLayout()
         row.addWidget(QLabel("Scenario"))
         self.scenario = QComboBox()
         self.scenario.setToolTip("Demo divider or a saved project circuit")
         self.scenario.addItem("demo: voltage divider")
         row.addWidget(self.scenario)
-        row.addWidget(QLabel("Analysis"))
+        _section("Experiment").addLayout(row)
+        irow = QHBoxLayout()
+        irow.addWidget(QLabel("Analysis"))
         self.analysis = QComboBox()
         self.analysis.setToolTip("Certified analysis kind")
         self.analysis.addItems(["OP", "TRANSIENT", "AC_POINT", "AC_SWEEP", "DC_SWEEP"])
-        row.addWidget(self.analysis)
+        irow.addWidget(self.analysis)
+        _section("Inputs").addLayout(irow)
+        xrow = QHBoxLayout()
         self.btn_run = QPushButton("Run")
         self.btn_run.setProperty("class", "primary")
         self.btn_run.setToolTip("Execute the simulation through the application service")
-        row.addWidget(self.btn_run)
+        xrow.addWidget(self.btn_run)
         self.status = QLabel("IDLE")
         apply_status_style(self.status, UiState.IDLE)
-        row.addWidget(self.status)
-        layout.addLayout(row)
+        xrow.addWidget(self.status)
+        _section("Execution").addLayout(xrow)
 
         self.detail = QTextEdit()
         self.detail.setToolTip("Scenario parameters (optional TRANSIENT t_stop).")
         self.detail.setMaximumHeight(90)
         self.detail.setPlainText("t_stop=0.01 s")
-        layout.addWidget(self.detail)
+        _section("Inputs").addWidget(self.detail)
 
         self.output = QTextEdit(readOnly=True)
         self.output.setObjectName("Output")
         self.output.setToolTip("Simulation result or UI-safe error")
-        layout.addWidget(self.output)
+        _section("Results").addWidget(self.output)
 
         self.btn_run.clicked.connect(self._run)
 

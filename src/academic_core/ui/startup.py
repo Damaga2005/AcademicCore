@@ -48,6 +48,12 @@ class FirstRunDialog(QDialog):
         self.continue_button.setDefault(True)
         self.continue_button.clicked.connect(self.accept)
         layout.addWidget(self.continue_button, alignment=Qt.AlignmentFlag.AlignRight)
+        self.continue_button.setFocus()
+
+    def showEvent(self, event) -> None:
+        from academic_core.ui.motion import pop_in
+        super().showEvent(event)
+        pop_in(self)
 
     def accept(self) -> None:
         mark_seen(self._settings)

@@ -43,6 +43,15 @@ class VirtualLabPanel(QWidget):
 
         layout = QVBoxLayout(self)
 
+        # -- workspace: intent-grouped sections (widgets pinned by tests) --
+        from PySide6.QtWidgets import QGroupBox
+
+        def _section(title: str) -> QVBoxLayout:
+            box = QGroupBox(title)
+            inner = QVBoxLayout(box)
+            layout.addWidget(box)
+            return inner
+
         # -- session -----------------------------------------------------
         srow = QHBoxLayout()
         srow.addWidget(QLabel("Session"))
@@ -64,7 +73,7 @@ class VirtualLabPanel(QWidget):
         self.btn_load = QPushButton("Load…")
         self.btn_load.setToolTip("Load an f8n-lab/1 session file")
         srow.addWidget(self.btn_load)
-        layout.addLayout(srow)
+        _section("Experiment").addLayout(srow)
 
         # -- experiment --------------------------------------------------
         erow = QHBoxLayout()
@@ -83,30 +92,32 @@ class VirtualLabPanel(QWidget):
         self.sine_freq.setToolTip(
             "Optional function-generator sine frequency, e.g. '1 kHz'")
         erow.addWidget(self.sine_freq)
+        _section("Inputs").addLayout(erow)
+        xrow = QHBoxLayout()
         self.btn_run = QPushButton("Add + Run")
         self.btn_run.setProperty("class", "primary")
         self.btn_run.setToolTip("Validate, execute and measure (real engine)")
-        erow.addWidget(self.btn_run)
+        xrow.addWidget(self.btn_run)
         self.btn_replay = QPushButton("Replay last")
         self.btn_replay.setToolTip("Deterministic replay + digest compare")
-        erow.addWidget(self.btn_replay)
+        xrow.addWidget(self.btn_replay)
         self.btn_explain = QPushButton("Explicar último")
         self.btn_explain.setToolTip("Explicación paso a paso del último run, desde el resultado certificado (E0.2)")
-        erow.addWidget(self.btn_explain)
+        xrow.addWidget(self.btn_explain)
         self.btn_explain_detail = QPushButton("Explicar en detalle")
         self.btn_explain_detail.setToolTip(
             "Paso a paso con los datos internos del motor (matriz AC, iteraciones por punto, pasos del "
             "integrador), observados al re-ejecutar el run (E0.3)")
-        erow.addWidget(self.btn_explain_detail)
+        xrow.addWidget(self.btn_explain_detail)
         self.status = QLabel("IDLE")
         apply_status_style(self.status, UiState.IDLE)
-        erow.addWidget(self.status)
-        layout.addLayout(erow)
+        xrow.addWidget(self.status)
+        _section("Execution").addLayout(xrow)
 
         self.output = QTextEdit(readOnly=True)
         self.output.setObjectName("Output")
         self.output.setToolTip("Runs, measurements, instruments, replay")
-        layout.addWidget(self.output)
+        _section("Results").addWidget(self.output)
 
         self.btn_new.clicked.connect(self._new_session)
         self.btn_explain.clicked.connect(self._explain)
