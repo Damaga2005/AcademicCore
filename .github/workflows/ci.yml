@@ -127,7 +127,7 @@ jobs:
         run: python -m PyInstaller --noconfirm --clean packaging/windows/academicore.spec
 
       - name: Build installer (NSIS)
-        run: & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" packaging/windows/installer.nsi
+        run: '& "${env:ProgramFiles(x86)}\NSIS\makensis.exe" packaging/windows/installer.nsi'
 
       - name: Smoke test (offscreen, isolated user data)
         run: |
