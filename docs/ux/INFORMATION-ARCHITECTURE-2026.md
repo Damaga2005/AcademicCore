@@ -384,3 +384,7 @@ Desviaciones deliberadas respecto al diseño:
 ### 14.1 Home (Prompt 5)
 
 Home usa solo datos reales: *Continue* = la actividad más reciente y resoluble entre las asignaturas abiertas (historial certificado `search_history`, tipo `asignatura`) y las secciones visitadas (registro propio de UI en `state_store`, porque el dominio solo admite los tipos de `SEARCH_KINDS`); *Coming up* = `queries.overdue/upcoming_deadlines`; *Tools* = conteos de los servicios. Restaurar la ruta al arrancar no cuenta como actividad. Sin actividad real, Home ofrece el siguiente paso honesto («Add a subject» / «Open Learn»). La nota «GREELEC» sale de Home y permanece en Settings.
+
+### 14.2 Engineering y laboratorios (Prompts 6 y 7)
+
+`engineering/circuits` y `engineering/aerospace` son dos workspaces dentro de la misma página fijada (`EngineeringPanel.set_workspace`), de modo que el número de páginas sigue siendo 13. `engineering/analysis` (Simulation), `engineering/lab` (Virtual Lab) y `engineering/digital-logic` comparten el esqueleto de laboratorio (DESIGN-SYSTEM §11). Corregido en el camino: `SimulationPanel` llamaba a `self.decimal` (inexistente), por lo que el análisis transitorio con su parámetro por defecto siempre fallaba.

@@ -60,6 +60,7 @@ class Tokens:
     pressed: str
     accent_hover: str
     popover: str
+    series: tuple  # categorical data colours (DESIGN-SYSTEM-2026 3.6)
 
 
 LIGHT = Tokens(
@@ -93,6 +94,7 @@ LIGHT = Tokens(
     pressed="#E0E0DC",
     accent_hover="#085A69",
     popover="#FFFFFF",
+    series=("#0A6A7C", "#B45309", "#6D4AAE", "#B4234A", "#2F7D32", "#52616B"),
 )
 
 DARK = Tokens(
@@ -126,6 +128,7 @@ DARK = Tokens(
     pressed="#363636",
     accent_hover="#6ED6EA",
     popover="#262626",
+    series=("#4CC9E0", "#F2A03D", "#B79CF0", "#F27A9A", "#6FD08C", "#9FB0BA"),
 )
 
 _STATE_BG = {

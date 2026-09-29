@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: MIT
-"""Lab workspace contracts: intent-grouped sections, widgets preserved.
+"""Lab workspace contracts (UX 2026 prompt 7): one skeleton for every lab.
 
-Sections (Experiment/Inputs/Execution/Results) only reparent the pinned
-widgets — names, texts and engine behavior are untouched.
+Experiment -> Setup -> (toolbar) -> Visualization -> Instruments -> Results.
+Supersedes the earlier Experiment/Inputs/Execution/Results grouping. Widget
+names, texts and engine behavior stay pinned.
 """
 
 from __future__ import annotations
 
 import os
+
+SECTIONS = ("Experiment", "Setup", "Visualization", "Instruments", "Results")
 
 
 def _core(tmp_path):
@@ -20,8 +23,8 @@ def _core(tmp_path):
 
 
 def _sections(panel):
-    from PySide6.QtWidgets import QGroupBox
-    return {b.title(): b for b in panel.findChildren(QGroupBox)}
+    from academic_core.ui.workspace import Panel
+    return {p.title_label.text(): p for p in panel.findChildren(Panel)}
 
 
 def test_virtual_lab_workspace_sections(qtbot, tmp_path):
@@ -29,13 +32,18 @@ def test_virtual_lab_workspace_sections(qtbot, tmp_path):
     panel = VirtualLabPanel(_core(tmp_path))
     qtbot.addWidget(panel)
     sections = _sections(panel)
-    for title in ("Experiment", "Inputs", "Execution", "Results"):
+    for title in SECTIONS:
         assert title in sections, sorted(sections)
-    # Pinned widgets preserved inside the workspace.
-    assert panel.btn_run.text() == "Add + Run"
-    assert panel.btn_replay.text() == "Replay last"
-    assert sections["Execution"].isAncestorOf(panel.btn_run)
+    # Pinned widgets preserved, each in the zone that owns it.
+    assert panel.btn_run.text() == "Add + Run" and panel.btn_replay.text() == "Replay last"
+    assert sections["Experiment"].isAncestorOf(panel.session_id)
+    assert sections["Experiment"].isAncestorOf(panel.circuit)
+    assert sections["Setup"].isAncestorOf(panel.analysis)
+    assert sections["Setup"].isAncestorOf(panel.dc_value)
     assert sections["Results"].isAncestorOf(panel.output)
+    assert sections["Results"].isAncestorOf(panel.btn_explain)
+    for b in (panel.btn_run, panel.btn_new, panel.btn_replay):
+        assert not any(p.isAncestorOf(b) for p in sections.values())  # tools live in the toolbar
 
 
 def test_simulation_workspace_sections(qtbot, tmp_path):
@@ -43,11 +51,14 @@ def test_simulation_workspace_sections(qtbot, tmp_path):
     panel = SimulationPanel(_core(tmp_path))
     qtbot.addWidget(panel)
     sections = _sections(panel)
-    for title in ("Experiment", "Inputs", "Execution", "Results"):
+    for title in SECTIONS:
         assert title in sections, sorted(sections)
     assert panel.btn_run.text() == "Run"
-    assert sections["Execution"].isAncestorOf(panel.btn_run)
+    assert sections["Setup"].isAncestorOf(panel.analysis)
     assert sections["Results"].isAncestorOf(panel.output)
+    assert not any(p.isAncestorOf(panel.btn_run) for p in sections.values())
+    titles = [p.title_label.text() for p in panel.findChildren(type(sections["Setup"]))]
+    assert len(titles) == len(set(titles))  # no repeated section title (audit H-02)
 
 
 def test_run_transitions_state(qtbot, tmp_path):

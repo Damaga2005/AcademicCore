@@ -375,3 +375,22 @@ Implementado en `ui/workspace.py` y usado por Circuits, Aerospace y Digital Logi
 Modelo de zonas por workspace: **Context** (qué objeto) → **Inputs** → **Tools** (barra superior) → **Visualization** → **Results/Instruments** → **History/Replay**. Los paneles se separan por espacio y tono; los divisores redimensionables (`QSplitter`) solo aparecen donde el usuario reparte espacio entre zonas (Digital Logic).
 
 Casillas (`QCheckBox`/`QListWidget::indicator`): 14 px, borde `border-control`, marcadas en `accent` (relleno; el trazo de check llegará con el conjunto de iconos).
+
+## 11. Laboratorios (Prompt 7)
+
+Un solo esqueleto para Analysis (Simulation), Lab (Virtual Lab), Digital Logic y Aerospace: **Experiment → Setup → (barra de herramientas) → Visualization → Instruments → Results**. Implementado en `ui/lab_view.py` (`LabKit`, `RunPresenter`, `PlotView`) sobre el kit de workspace.
+
+| Zona | Contenido | Fuente |
+|---|---|---|
+| Experiment | Qué se estudia (sesión y circuito; en Analysis, el circuito que fija el análisis, solo lectura) | Servicios |
+| Setup | Análisis y estímulos/parámetros; un parámetro solo aparece si el análisis lo usa | Entrada del usuario |
+| Toolbar | Acciones de sesión y ejecución + **estado** | — |
+| Visualization | Gráficas de datos reales (osciloscopio, Bode ganancia/fase, barrido); si no hay datos dice «Nothing to plot» | `ScopeData`, `BodeData`, `SweepData` |
+| Instruments | Lecturas escalares con unidad (`Metric`) y tabla de mediciones | `Scalar`, `ComplexScalar`, `MeasurementRow` |
+| Results | Cabecera del run (id, estado, motor, digest) y el **log máquina** a un clic | `LabRunSummary` |
+
+**Estados** (texto de la pill; el enum `UiState` no cambia): `READY` · `RUNNING…` (experimento en ejecución) · `COMPUTING…` (re-derivar una traza para explicarla) · `SUCCESS` · `WARNING` · `ERROR <código>`. **Paused** y **Offline** no se muestran: los motores no tienen pausa y los laboratorios corren en el motor certificado del proceso, sin dependencia remota.
+
+**Honestidad de datos:** un valor `None` se muestra `—` con su razón en el tooltip (nunca 0); un estado `UNDEFINED` se muestra tal cual; las gráficas descartan puntos ausentes y, en escala logarítmica, x ≤ 0. Los `Decimal` se muestran con 6 cifras significativas y su valor completo en el tooltip. `PlotView` convierte a `float` solo para pintar.
+
+**Plot:** ejes con ticks «redondos» (`nice_ticks`; décadas en log), rejilla `divider`, series con los colores de datos (§3.6), etiqueta directa de cada serie, descripción accesible («N points; x … y …»).

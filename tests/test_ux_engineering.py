@@ -270,3 +270,140 @@ def test_logic_short_labels_keep_full_accessible_names(qtbot, tmp_path):
     visible = {w.text() for w in panel.findChildren(QLabel)}
     assert {"From (s)", "Until (s)", "Channel", "Edge", "Pre (s)", "Post (s)"} <= visible
 
+
+# -- labs (prompt 7) ----------------------------------------------------------------------------
+def _sim(qtbot, tmp_path):
+    from academic_core.ui.simulation import SimulationPanel
+    panel = SimulationPanel(_core(tmp_path))
+    qtbot.addWidget(panel)
+    return panel
+
+
+def _run_and_wait(qtbot, panel):
+    from academic_core.ui.state import UiState
+    panel._run()
+    qtbot.waitUntil(lambda: panel.state != UiState.RUNNING, timeout=60000)
+
+
+def test_simulation_default_transient_runs_and_plots(qtbot, tmp_path):
+    """Regression: `self.decimal` did not exist, so the default t_stop always failed."""
+    from academic_core.ui.state import UiState
+    panel = _sim(qtbot, tmp_path)
+    panel.analysis.setCurrentText("TRANSIENT")  # default parameters: "t_stop=0.01 s"
+    _run_and_wait(qtbot, panel)
+    assert panel.state == UiState.SUCCESS, panel.output.toPlainText()
+    presenter = panel.kit.presenter
+    assert len(presenter.plots) == 1 and presenter.plots[0].series
+    assert panel.kit.header.rows[0][0] == "Run" and presenter.measure_table.rowCount() == 1
+
+
+def test_simulation_scenario_is_derived_not_a_control(qtbot, tmp_path):
+    panel = _sim(qtbot, tmp_path)
+    assert not panel.scenario.isEnabled()
+    for kind, item in (("OP", "voltage divider"), ("TRANSIENT", "RC step"), ("AC_SWEEP", "RC filter (AC)"),
+                       ("DC_SWEEP", "voltage divider")):
+        panel.analysis.setCurrentText(kind)
+        assert item in panel.scenario.currentText(), kind
+    panel.analysis.setCurrentText("OP")
+    assert panel.detail.isHidden() and panel.detail_label.isHidden()  # t_stop only applies to TRANSIENT
+    panel.analysis.setCurrentText("TRANSIENT")
+    assert not panel.detail.isHidden()
+
+
+def test_simulation_results_are_structured_per_analysis(qtbot, tmp_path):
+    panel = _sim(qtbot, tmp_path)
+    presenter = panel.kit.presenter
+    panel.analysis.setCurrentText("OP")
+    _run_and_wait(qtbot, panel)
+    assert [m.text() for m in presenter.metrics] == ["2.5"] and presenter.metrics[0].unit.text() == "V"
+    assert not presenter.plots  # an operating point has nothing to plot, and says so
+    panel.analysis.setCurrentText("AC_SWEEP")
+    _run_and_wait(qtbot, panel)
+    assert [p.title for p in presenter.plots] == ["Gain", "Phase"] and all(p.x_log for p in presenter.plots)
+    assert presenter.measure_table is None  # no measurement requested: no stale table from the OP run
+    assert not presenter.metrics
+
+
+def test_lab_undefined_measurement_is_shown_honestly(qtbot, tmp_path):
+    from academic_core.ui.state import UiState
+    from academic_core.ui.virtual_lab import VirtualLabPanel
+    panel = VirtualLabPanel(_core(tmp_path))
+    qtbot.addWidget(panel)
+    panel.circuit.setCurrentIndex(2)
+    panel._new_session()
+    panel.analysis.setCurrentText("AC_SWEEP")
+    panel._add_run()
+    qtbot.waitUntil(lambda: panel.state != UiState.RUNNING, timeout=60000)
+    table = panel.kit.presenter.measure_table
+    assert [table.item(0, c).text() for c in (0, 1, 3)] == ["bw", "—", "UNDEFINED"]  # never a fake 0
+    assert "bandwidth not established" in table.item(0, 1).toolTip()
+
+
+def test_lab_result_header_and_log(qtbot, tmp_path):
+    from academic_core.ui.virtual_lab import VirtualLabPanel
+    from academic_core.ui.state import UiState
+    panel = VirtualLabPanel(_core(tmp_path))
+    qtbot.addWidget(panel)
+    assert panel.status.text() == "READY" and panel.output.isHidden()
+    panel.circuit.setCurrentIndex(1)  # the session is built over the selected circuit
+    panel._new_session()
+    panel.analysis.setCurrentText("TRANSIENT")
+    panel._add_run()
+    qtbot.waitUntil(lambda: panel.state != UiState.RUNNING, timeout=60000)
+    rows = dict(panel.kit.header.rows)
+    assert rows["Run"] == panel.last_run_id and rows["Status"] == "COMPLETED"
+    assert rows["Digest"].endswith("…") and len(rows["Digest"]) == 17
+    assert len(panel.kit.presenter.plots) == 1 and panel.kit.presenter.plots[0].series
+    assert panel.output.isHidden()  # the machine log is one click away, not the result
+    panel.kit.log_toggle.click()
+    assert not panel.output.isHidden() and panel.output.toPlainText().startswith("run: exp-")
+
+
+def test_new_session_clears_the_previous_result(qtbot, tmp_path):
+    from academic_core.ui.virtual_lab import VirtualLabPanel
+    from academic_core.ui.state import UiState
+    panel = VirtualLabPanel(_core(tmp_path))
+    qtbot.addWidget(panel)
+    panel._new_session()
+    panel._add_run()
+    qtbot.waitUntil(lambda: panel.state != UiState.RUNNING, timeout=60000)
+    assert panel.kit.header.rows
+    panel._new_session()
+    assert panel.kit.header.rows == [] and panel.status.text() == "READY — session open"
+
+
+def test_explain_shows_computing_and_reveals_the_log(qtbot, tmp_path):
+    from academic_core.ui.virtual_lab import VirtualLabPanel
+    from academic_core.ui.state import UiState
+    panel = VirtualLabPanel(_core(tmp_path))
+    qtbot.addWidget(panel)
+    panel._new_session()
+    panel._add_run()
+    qtbot.waitUntil(lambda: panel.state != UiState.RUNNING, timeout=60000)
+    panel._explain()
+    assert panel.status.text() == "COMPUTING…"  # re-deriving the trace, not running an experiment
+    qtbot.waitUntil(lambda: panel.status.text() != "COMPUTING…", timeout=60000)
+    assert not panel.output.isHidden() and panel.output.toPlainText()
+
+
+# -- plot ---------------------------------------------------------------------------------------
+def test_nice_ticks_and_log_ticks():
+    from academic_core.ui.lab_view import log_ticks, nice_ticks
+    assert nice_ticks(0, 10) == [0, 2, 4, 6, 8, 10]
+    assert nice_ticks(0.0, 0.01)[0] == 0 and nice_ticks(0.0, 0.01)[-1] == 0.01
+    assert log_ticks(50, 20000) == [100.0, 1000.0, 10000.0]
+    assert nice_ticks(3, 3) == [3]
+
+
+def test_plot_drops_missing_points_and_describes_itself(qtbot):
+    from academic_core.ui.lab_view import PlotView
+    plot = PlotView("Gain", "frequency (Hz)", "dB", x_log=True)
+    qtbot.addWidget(plot)
+    plot.set_series([("gain", [Decimal(100), Decimal(1000), Decimal(0), Decimal(10000)],
+                      [Decimal(-1), None, Decimal(-3), Decimal(-9)])])
+    assert plot.series == [("gain", [100.0, 10000.0], [-1.0, -9.0])]  # None and x<=0 (log) dropped
+    assert plot.accessibleDescription().startswith("2 points")
+    plot.resize(400, 240)
+    assert not plot.grab().isNull()  # paints without error
+    plot.set_series([])
+    assert plot.accessibleDescription() == "No data" and not plot.grab().isNull()

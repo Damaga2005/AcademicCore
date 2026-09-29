@@ -41,83 +41,84 @@ class VirtualLabPanel(QWidget):
         self.state = UiState.IDLE
         self.pool = QThreadPool(self)
 
-        layout = QVBoxLayout(self)
+        from PySide6.QtWidgets import QFormLayout
+        from academic_core.ui.lab_view import LabKit
+        self.output = QTextEdit(readOnly=True)
+        self.output.setObjectName("Output")
+        self.output.setToolTip("Runs, measurements, instruments, replay")
+        self.kit = LabKit(self, self.output)
 
-        # -- workspace: intent-grouped sections (widgets pinned by tests) --
-        from PySide6.QtWidgets import QGroupBox
-
-        def _section(title: str) -> QVBoxLayout:
-            box = QGroupBox(title)
-            inner = QVBoxLayout(box)
-            layout.addWidget(box)
-            return inner
-
-        # -- session -----------------------------------------------------
-        srow = QHBoxLayout()
-        srow.addWidget(QLabel("Session"))
+        # -- Experiment: the session and the circuit under study --------------------------
+        form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        form.setVerticalSpacing(6)
         self.session_id = QLineEdit("lab-demo")
         self.session_id.setToolTip("Session id [A-Za-z0-9_.-]{1,64}")
-        srow.addWidget(self.session_id)
-        srow.addWidget(QLabel("Circuit"))
+        self.session_id.setAccessibleName("Session id")
         self.circuit = QComboBox()
         self.circuit.setToolTip("Certified demo circuit backing the session")
+        self.circuit.setAccessibleName("Circuit")
         self.circuit.addItems(["divider (OP/DC_SWEEP)", "rc-step (TRANSIENT)",
                                "rc-ac (AC_POINT/AC_SWEEP)"])
-        srow.addWidget(self.circuit)
-        self.btn_new = QPushButton("New session")
-        self.btn_new.setToolTip("Create a lab session over the demo circuit")
-        srow.addWidget(self.btn_new)
-        self.btn_save = QPushButton("Save…")
-        self.btn_save.setToolTip("Serialize the session to f8n-lab/1 JSON")
-        srow.addWidget(self.btn_save)
-        self.btn_load = QPushButton("Load…")
-        self.btn_load.setToolTip("Load an f8n-lab/1 session file")
-        srow.addWidget(self.btn_load)
-        _section("Experiment").addLayout(srow)
+        form.addRow("Session", self.session_id)
+        form.addRow("Circuit", self.circuit)
+        self.kit.experiment.body.addLayout(form)
 
-        # -- experiment --------------------------------------------------
-        erow = QHBoxLayout()
-        erow.addWidget(QLabel("Analysis"))
+        # -- Setup: analysis and stimuli ------------------------------------------------------
+        setup = QFormLayout()
+        setup.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        setup.setVerticalSpacing(6)
         self.analysis = QComboBox()
         self.analysis.setToolTip("Certified F8-N analysis kind")
-        self.analysis.addItems(["OP", "TRANSIENT", "AC_POINT", "AC_SWEEP",
-                                "DC_SWEEP"])
-        erow.addWidget(self.analysis)
-        erow.addWidget(QLabel("V1 DC (blank=default)"))
+        self.analysis.setAccessibleName("Analysis")
+        self.analysis.addItems(["OP", "TRANSIENT", "AC_POINT", "AC_SWEEP", "DC_SWEEP"])
         self.dc_value = QLineEdit("5 V")
-        self.dc_value.setToolTip("DC stimulus for V1, e.g. '5 V' (OP/DC only)")
-        erow.addWidget(self.dc_value)
-        erow.addWidget(QLabel("Sine f (TRANSIENT/AC)"))
+        self.dc_value.setToolTip("DC stimulus for V1, e.g. '5 V' (OP/DC only). Blank = circuit default")
+        self.dc_value.setAccessibleName("V1 DC (blank = default)")
         self.sine_freq = QLineEdit("")
         self.sine_freq.setToolTip(
-            "Optional function-generator sine frequency, e.g. '1 kHz'")
-        erow.addWidget(self.sine_freq)
-        _section("Inputs").addLayout(erow)
-        xrow = QHBoxLayout()
+            "Optional function-generator sine frequency, e.g. '1 kHz' (TRANSIENT/AC)")
+        self.sine_freq.setAccessibleName("Sine frequency (TRANSIENT/AC)")
+        setup.addRow("Analysis", self.analysis)
+        setup.addRow("V1 DC (OP / DC sweep)", self.dc_value)
+        setup.addRow("Sine f (TRANSIENT / AC)", self.sine_freq)
+        self.kit.setup.body.addLayout(setup)
+
+        # -- Tools: session and run actions -------------------------------------------------------
+        self.btn_new = QPushButton("New session")
+        self.btn_new.setToolTip("Create a lab session over the demo circuit")
+        self.btn_save = QPushButton("Save…")
+        self.btn_save.setToolTip("Serialize the session to f8n-lab/1 JSON")
+        self.btn_load = QPushButton("Load…")
+        self.btn_load.setToolTip("Load an f8n-lab/1 session file")
         self.btn_run = QPushButton("Add + Run")
         self.btn_run.setProperty("class", "primary")
         self.btn_run.setToolTip("Validate, execute and measure (real engine)")
-        xrow.addWidget(self.btn_run)
         self.btn_replay = QPushButton("Replay last")
         self.btn_replay.setToolTip("Deterministic replay + digest compare")
-        xrow.addWidget(self.btn_replay)
         self.btn_explain = QPushButton("Explicar último")
         self.btn_explain.setToolTip("Explicación paso a paso del último run, desde el resultado certificado (E0.2)")
-        xrow.addWidget(self.btn_explain)
         self.btn_explain_detail = QPushButton("Explicar en detalle")
         self.btn_explain_detail.setToolTip(
             "Paso a paso con los datos internos del motor (matriz AC, iteraciones por punto, pasos del "
             "integrador), observados al re-ejecutar el run (E0.3)")
-        xrow.addWidget(self.btn_explain_detail)
-        self.status = QLabel("IDLE")
+        self.status = QLabel("READY")
         apply_status_style(self.status, UiState.IDLE)
-        xrow.addWidget(self.status)
-        _section("Execution").addLayout(xrow)
-
-        self.output = QTextEdit(readOnly=True)
-        self.output.setObjectName("Output")
-        self.output.setToolTip("Runs, measurements, instruments, replay")
-        _section("Results").addWidget(self.output)
+        tb = self.kit.toolbar
+        for b in (self.btn_new, self.btn_save, self.btn_load):
+            tb.addWidget(b)
+        tb.addSpacing(16)
+        for b in (self.btn_run, self.btn_replay):
+            tb.addWidget(b)
+        tb.addStretch(1)
+        tb.addWidget(self.status)
+        explain_row = QHBoxLayout()  # they explain the last run, so they live with its result
+        explain_row.setSpacing(6)
+        for b in (self.btn_explain, self.btn_explain_detail):
+            b.setProperty("class", "subtle")
+            explain_row.addWidget(b)
+        explain_row.addStretch(1)
+        self.kit.results.body.insertLayout(1, explain_row)
 
         self.btn_new.clicked.connect(self._new_session)
         self.btn_explain.clicked.connect(self._explain)
@@ -148,7 +149,8 @@ class VirtualLabPanel(QWidget):
         except Exception as exc:
             show_ui_error(self, exc, "Session")
             return
-        self._set_state(UiState.IDLE, "IDLE — session open")
+        self.kit.presenter.clear()
+        self._set_state(UiState.IDLE, "READY — session open")
         self._render("session open: "
                      f"{self.session.session_id} ({circuit.name})")
 
@@ -301,7 +303,9 @@ class VirtualLabPanel(QWidget):
         for r in summary.readings:
             lines.append(f"• instrument {r.key} ({r.kind}) [{r.status}] "
                          f"{self._reading_brief(r)}")
-        self._render("\n".join(lines))
+        self.output.setPlainText("\n".join(lines))
+        self.kit.notice.setText("")
+        self.kit.presenter.show_run(summary)
         self._set_state(UiState.SUCCESS, "SUCCESS")
 
     @staticmethod
@@ -330,7 +334,7 @@ class VirtualLabPanel(QWidget):
         if self.session is None or self.last_run_id is None:
             show_ui_error(self, ValueError("nothing to explain yet"), "Explicar")
             return
-        self._set_state(UiState.RUNNING, "RUNNING…")
+        self._set_state(UiState.RUNNING, "COMPUTING…")
         worker = ServiceWorker(self.app.explain.explain_lab_run, self.session, self.last_run_id)
         worker.signals.finished.connect(self._on_explanation)
         worker.signals.failed.connect(self._on_error)
@@ -341,7 +345,7 @@ class VirtualLabPanel(QWidget):
         if self.session is None or self.last_run_id is None:
             show_ui_error(self, ValueError("nothing to explain yet"), "Explicar en detalle")
             return
-        self._set_state(UiState.RUNNING, "RUNNING…")
+        self._set_state(UiState.RUNNING, "COMPUTING…")
         worker = ServiceWorker(self.app.explain.explain_lab_run_detail, self.session, self.last_run_id)
         worker.signals.finished.connect(self._on_explanation)
         worker.signals.failed.connect(self._on_error)
@@ -349,7 +353,9 @@ class VirtualLabPanel(QWidget):
 
     def _on_explanation(self, view) -> None:
         self.explanation = view
-        self._render(self.app.explain.text(view))
+        self.output.setPlainText(self.app.explain.text(view))
+        self.kit.notice.setText("")
+        self.kit.show_log()
         self._set_state(UiState.SUCCESS if view.outcome == "SUCCESS" else UiState.WARNING,
                         f"{view.outcome} · verificación {view.verification}")
 
@@ -408,12 +414,14 @@ class VirtualLabPanel(QWidget):
             return
         self.session = result.session
         self.last_run_id = None
+        self.kit.presenter.clear()
         self._render(f"loaded {path}: {len(self.session.experiments)} "
                      f"experiments, status={result.status}")
 
     # -- helpers --------------------------------------------------------------
     def _render(self, text: str) -> None:
         self.output.setPlainText(text)
+        self.kit.notice.setText(text if len(text) < 240 else text[:237] + "…")
 
     def _set_state(self, state: UiState, text: str) -> None:
         self.state = state
