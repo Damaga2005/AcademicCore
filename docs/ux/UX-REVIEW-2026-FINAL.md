@@ -179,7 +179,7 @@ Se corrigieron los hallazgos y se **volvió a medir** con el mismo script (17 ru
 | F-18 Nombres accesibles | Corregido | 0 controles sin nombre en las 17 rutas (antes 8). |
 | F-19 Foco inicial | Sin cambio | Es una decisión de diseño (entrar en la herramienta), no un defecto. |
 
-**Verificación posterior:** scroll horizontal en 0 de 17 rutas (antes 1), controles sin nombre 0 (antes 8), etiquetas o botones recortados 0 (antes 4). 12 tests nuevos en `tests/test_ux_polish.py`; se actualizaron 4 aserciones que fijaban el volcado de texto plano (`subject:fis`, `aprobada`, `complete=True`, `practice: …`) y una etiqueta de preset.
+**Verificación posterior:** scroll horizontal en 0 de 17 rutas (antes 1), controles sin nombre 0 (antes 8), etiquetas o botones recortados 0 (antes 4). 10 tests nuevos en `tests/test_ux_polish.py`; se actualizaron 4 aserciones que fijaban el volcado de texto plano (`subject:fis`, `aprobada`, `complete=True`, `practice: …`) y una etiqueta de preset.
 
 **Límites de esta segunda pasada:** no se repitió el recorrido con teclado ni lector de pantalla, y las capturas en oscuro se revisaron por muestreo, igual que en la primera.
 
