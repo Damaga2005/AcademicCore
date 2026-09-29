@@ -380,3 +380,7 @@ Desviaciones deliberadas respecto al diseño:
 | Estado global en barra inferior | Se mantiene la barra de estado existente | Los estados de ejecución reales llegan con los Prompts 6–7 |
 | Selector de contexto en popover | Chip en la top bar que abre Learn con el árbol como panel de contexto | El popover con búsqueda queda para Learn (Prompt 8) |
 | `Go` menu con Documents/Aerospace | Se mantienen los 10 ítems actuales (test fijado); ambas rutas se alcanzan por la barra de secciones y por Ctrl+K | Evitar cambiar un contrato de test sin necesidad |
+
+### 14.1 Home (Prompt 5)
+
+Home usa solo datos reales: *Continue* = la actividad más reciente y resoluble entre las asignaturas abiertas (historial certificado `search_history`, tipo `asignatura`) y las secciones visitadas (registro propio de UI en `state_store`, porque el dominio solo admite los tipos de `SEARCH_KINDS`); *Coming up* = `queries.overdue/upcoming_deadlines`; *Tools* = conteos de los servicios. Restaurar la ruta al arrancar no cuenta como actividad. Sin actividad real, Home ofrece el siguiente paso honesto («Add a subject» / «Open Learn»). La nota «GREELEC» sale de Home y permanece en Settings.

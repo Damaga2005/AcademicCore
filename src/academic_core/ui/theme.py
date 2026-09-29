@@ -187,6 +187,17 @@ QLabel[objectName="SidebarHeader"] {{ color: {t.secondary}; font-size: 12px; fon
 QLabel[objectName="AppTitle"] {{ color: {t.ink}; font-size: 28px; font-weight: 600; }}
 QLabel[objectName="CardTitle"] {{ color: {t.ink}; font-size: 20px; font-weight: 600; }}
 QLabel[objectName="SectionTitle"] {{ color: {t.ink}; font-size: 20px; font-weight: 600; }}
+QLabel[objectName="Display"] {{ color: {t.ink}; font-size: 40px; font-weight: 600; }}
+QLabel[objectName="Lead"] {{ color: {t.secondary}; font-size: 16px; }}
+QFrame[objectName="ContinueBlock"] {{ background: {t.card}; border-radius: 12px; }}
+QPushButton[role="row"] {{
+    background: transparent; border: 2px solid transparent; border-radius: 8px; text-align: left;
+}}
+QPushButton[role="row"]:hover {{ background: {t.hover}; }}
+QPushButton[role="row"]:focus {{ border: 2px solid {t.accent}; }}
+QPushButton[role="row"]:disabled {{ background: transparent; }}
+QLabel[role="date"] {{ color: {t.ink}; font-weight: 600; }}
+QLabel[role="danger"] {{ color: {t.error_ink}; font-weight: 600; }}
 QLabel[objectName="Caption"] {{ color: {t.secondary}; font-size: 12px; }}
 QLabel[objectName="CardStatus"] {{ color: {t.secondary}; font-size: 13px; }}
 QLabel[objectName="Mono"] {{ font-family: {MONO_STACK}; }}

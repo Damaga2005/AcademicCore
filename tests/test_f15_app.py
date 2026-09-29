@@ -58,7 +58,9 @@ def test_f15_002_dashboard_lists_real_capabilities(qtbot, core):
     qtbot.addWidget(win)
     dash = win.dashboard_panel
     assert "v" in dash.state_label.text()
-    assert "GREELEC" in dash.about_label.text()  # limitation explicit
+    # Limitation stays explicit; UX 2026 moved it from Home to Settings (no gate jargon on Home).
+    assert "GREELEC" in win.config_label.text()
+    assert "GREELEC" not in dash.state_label.text()
 
 
 def test_f15_003_navigation(qtbot, core):

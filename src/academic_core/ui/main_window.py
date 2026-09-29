@@ -22,19 +22,8 @@ from academic_core import __version__
 from academic_core.ui import routes
 from academic_core.ui.dialogs import confirm, prompt_form
 from academic_core.ui.shell import NavRail, SectionBar, TopBar
+from academic_core.ui.state_store import push_recent_route, shell_settings  # noqa: F401 (re-export)
 from academic_core.ui.theme import apply_saved_theme, apply_theme, save_mode
-
-
-def shell_settings():
-    """UI-state store: the app's QSettings, or an .ini in ACORE_DATA_DIR when set
-    (tests and portable runs stay isolated from the user's registry)."""
-    import os
-    from PySide6.QtCore import QSettings
-    data_dir = os.environ.get("ACORE_DATA_DIR")
-    if data_dir:
-        Path(data_dir).mkdir(parents=True, exist_ok=True)
-        return QSettings(str(Path(data_dir) / "ui-state.ini"), QSettings.Format.IniFormat)
-    return QSettings("Academic Core", "Academic Core")
 
 
 LEVELS = ("university", "degree", "year", "term", "subject")
@@ -311,6 +300,10 @@ class AcademicMainWindow(QMainWindow):
             "lab": self.virtual_lab_panel, "digital": self.logic_analyzer_panel,
             "aerospace": self.engineering_panel, "settings": self.settings_panel,
         }
+        self._restoring = True
+        self.dashboard_panel.open_subject.connect(self._open_subject)
+        for page in set(self._pages.values()):
+            page.installEventFilter(self)
         self.rail.route_requested.connect(self._open_area)
         self.section_bar.section_selected.connect(self.navigate_to)
         self.topbar.crumb_clicked.connect(self.navigate_to)
@@ -340,6 +333,20 @@ class AcademicMainWindow(QMainWindow):
             self._select_subject(str(subject))
         start = routes.resolve(str(st.value("shell/route", "home")))
         self._show_route(start or routes.resolve("home"), record=True)
+        self._restoring = False
+
+    def _record_subject(self, sid: str, name: str) -> None:
+        try:
+            self.app.search_history.record_recent("asignatura", sid, name, "learn/subject/summary")
+        except Exception:
+            pass  # recents are a convenience; never block navigation
+
+    def _open_subject(self, stable_id: str) -> None:
+        """Home/recents: select the subject, then show its summary."""
+        if self._select_subject(stable_id):
+            self.navigate_to("learn/subject/summary")
+        else:
+            self.statusBar().showMessage("That subject no longer exists", 4000)
 
     def _focus_context(self) -> None:
         self.navigate_to("learn/subject/summary")
@@ -353,6 +360,8 @@ class AcademicMainWindow(QMainWindow):
         if sid and items:
             name = items[0].text(0)
         self.topbar.set_context(name)
+        if sid and name and not getattr(self, "_restoring", True):
+            self._record_subject(sid, name)
         for b in self._subject_buttons:
             b.setEnabled(bool(sid))
             b.setToolTip("" if sid else "Choose a subject first")
@@ -362,12 +371,22 @@ class AcademicMainWindow(QMainWindow):
     def _show_route(self, route: routes.Route, record: bool = True) -> None:
         page = self._pages[route.target]
         self.tabs.setCurrentWidget(page)
-        self.tabs.setMinimumSize(page.minimumSizeHint().expandedTo(page.minimumSize()))
+        self._fit_page(page)
         self._route = route
         if route.section:
             self._last_section[route.area] = route.id
         if record:
             self._history.push(route.id)
+        if route.target == "dashboard":
+            self.dashboard_panel.refresh_state()
+        elif route.needs_subject and record and not self._restoring:
+            sid = self._subject_id()
+            items = self.tree.selectedItems()
+            if sid and items:
+                self._record_subject(sid, items[0].text(0))
+        elif record and not self._restoring and route.area != "settings":
+            push_recent_route(route.id, f"{routes.area_label(route.area)} › {route.label}",
+                              settings=shell_settings())
         self.rail.set_area(route.area)
         self.section_bar.set_sections(route.area, routes.sections(route.area), route.id)
         self.context_panel.setVisible(route.area == "learn")
@@ -380,6 +399,16 @@ class AcademicMainWindow(QMainWindow):
             st.setValue("shell/route", route.id)
         except Exception:
             pass
+
+    def _fit_page(self, page) -> None:
+        """The scroll area sizes the stack from the visible page's own minimum."""
+        self.tabs.setMinimumSize(page.minimumSizeHint().expandedTo(page.minimumSize()))
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 — Qt override
+        from PySide6.QtCore import QEvent
+        if event.type() == QEvent.Type.LayoutRequest and obj is self.tabs.currentWidget():
+            self._fit_page(obj)  # a page re-laid itself out (e.g. columns restacked)
+        return super().eventFilter(obj, event)
 
     def go_back(self) -> None:
         rid = self._history.back()
