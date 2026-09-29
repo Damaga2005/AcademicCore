@@ -272,3 +272,22 @@ def test_needs_review_answer_is_kept_as_evidence_and_does_not_touch_mastery(core
                                         "question:demo:q:00002": {"answer": True}})
     assert done.mastery_updated is True
     assert [c.observations for c in core.practice.concepts()] == [1]
+
+
+def test_hint_survives_a_restart(core):
+    p = _loaded(core)
+    sid = _corrected(p)
+    p._evidence.clear()  # a new run only has what F9 persisted
+    assert p.hint(sid, "question:demo:q:00003").status == "verified"
+
+
+def test_sample_bank_works_out_of_the_box_and_is_idempotent(core):
+    p = core.practice
+    assert p.import_sample()["outcome"] == "create"
+    assert p.import_sample()["outcome"] == "unchanged"
+    qs = p.questions("bank:sample")
+    assert len(qs) == 4
+    res = p.submit(p.start_attempt([q.question_id for q in qs]),
+                   {qs[0].question_id: {"selected": [1]}, qs[1].question_id: {"answer": True},
+                    qs[2].question_id: {"value": "5", "unit": "V"}, qs[3].question_id: {"text": "ohm"}})
+    assert res.passed and res.mastery_updated

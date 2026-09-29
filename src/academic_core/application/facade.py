@@ -166,7 +166,7 @@ class AcademicApp:
         self.practice = PracticeService(
             qbank=self.qbank, ingest=self.bank_ingest, assessments=self.assessment,
             correction=self.correction, mastery=self.mastery, adaptive=self.adaptive,
-            tutor=self.tutor, personal=self.personal)
+            tutor=self.tutor, personal=self.personal, academic=self.academic)
 
     def ensure_demo(self) -> None:
         """Generic, deletable demo hierarchy (never institution-specific)."""

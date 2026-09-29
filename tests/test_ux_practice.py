@@ -395,3 +395,10 @@ def test_home_lists_sessions_with_the_real_question_count(qtbot, core):
     core.practice.import_bank(_bank())
     dash.refresh_state()
     assert dash._cards["sessions"].caption_label.text() == "4 questions in 1 bank(s)"
+
+
+def test_load_sample_button_makes_practice_usable_from_empty(qtbot, core):
+    panel = _panel(qtbot, core, bank=False)
+    panel.btn_sample.click()
+    assert panel.bank_box.findData("bank:sample") >= 0
+    assert core.practice.questions("bank:sample")

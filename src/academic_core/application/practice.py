@@ -28,6 +28,15 @@ from academic_core.application.correction import _question_from_snapshot
 from academic_core.domain import adaptive as AD
 from academic_core.domain.assessment import AssessmentItem, GradingPolicy
 
+SAMPLE_SUBJECT = "subject:sample"
+SAMPLE_CONCEPTS = (("concept:sample:c:00001", "Ohm's law"), ("concept:sample:c:00002", "Voltage dividers"))
+SAMPLE_STATEMENTS = (
+    "A 10 V source drives two equal resistors in series. What is the voltage across each one?",
+    "In a series circuit the same current flows through every element.",
+    "A 1 kOhm resistor carries 5 mA. What is the voltage across it (in V)?",
+    "Which unit measures electrical resistance? (one word)",
+)
+
 STUDENT_ID = "student:local"  # single-user, offline: one local learner
 
 
@@ -128,10 +137,10 @@ class PracticeService:
     """Bank -> attempt -> evidence -> mastery -> plan -> tutor, as plain values."""
 
     def __init__(self, *, qbank, ingest, assessments, correction, mastery, adaptive,
-                 tutor, personal, student_id: str = STUDENT_ID, clock=None):
+                 tutor, personal, academic=None, student_id: str = STUDENT_ID, clock=None):
         self.qbank, self.ingest, self.assessments = qbank, ingest, assessments
         self.correction, self.mastery, self.adaptive = correction, mastery, adaptive
-        self.tutor, self.personal, self.student_id = tutor, personal, student_id
+        self.tutor, self.personal, self.academic, self.student_id = tutor, personal, academic, student_id
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._attempts: dict[str, tuple] = {}  # session_id -> (Assessment, Attempt)
         self._evidence: dict[str, dict] = {}  # session_id -> {question_id: ItemEvidence}
@@ -178,6 +187,29 @@ class PracticeService:
         report = self.ingest.ingest(data)
         return {"outcome": report.outcome, "bank_id": report.bank_id,
                 "content_version": report.content_version, "counts": dict(report.counts)}
+
+    def import_sample(self) -> dict:
+        """Load a small built-in bank (with its subject and concepts) so Practice works out of the box."""
+        from academic_core.domain import entities as E
+        from academic_core.domain import question_bank as QB
+        from academic_core.domain.planning import StudyConcept
+        if self.academic.get_subject(SAMPLE_SUBJECT) is None:
+            self.academic.add_subject(E.Subject(SAMPLE_SUBJECT, "SAMPLE", "Sample practice", "SAMPLE"))
+        for ref, name in SAMPLE_CONCEPTS:
+            if not any(c.stable_id == ref for c in self.personal.concepts(SAMPLE_SUBJECT)):
+                self.personal.add_concept(StudyConcept(ref, SAMPLE_SUBJECT, name))
+
+        def q(n, qtype, spec, concept, difficulty="easy"):
+            return QB.Question(question_id=f"question:sample:q:{n:05d}", statement=SAMPLE_STATEMENTS[n - 1],
+                               qtype=qtype, answer_spec=spec, owner_slug="sample",
+                               concepts=[concept], difficulty=difficulty)
+        c1, c2 = (r for r, _n in SAMPLE_CONCEPTS)
+        bank = QB.Bank(bank_id="bank:sample", title="Sample bank", content_version=1, questions=(
+            q(1, "multiple_choice", {"options": ["3 V", "5 V", "10 V"], "correct": [1]}, c1),
+            q(2, "true_false", {"answer": True}, c1, "medium"),
+            q(3, "numeric", {"value": "5.0", "unit": "V", "tolerance": "0.05"}, c2),
+            q(4, "short_text", {"expected": "ohm"}, c2, "medium")))
+        return self.import_bank(QB.dumps_bank(bank))
 
     # -- attempt -------------------------------------------------------------------------
     def start_attempt(self, question_ids, subject_id: str = "", title: str = "Practice") -> Attempt:
@@ -261,7 +293,13 @@ class PracticeService:
     # -- F12 tutor --------------------------------------------------------------------------
     def hint(self, session_id: str, question_id: str) -> HintView:
         """Verified tutor response for a question of an already corrected attempt."""
-        item = (self._evidence.get(session_id) or {}).get(question_id)
+        evidence = self._evidence.get(session_id)
+        if evidence is None:  # corrected in an earlier run: F9 persisted the evidence
+            try:
+                evidence = {i.question_id: i for i in self.correction.build_evidence(session_id).items}
+            except Exception:  # unknown or not yet corrected session
+                evidence = {}
+        item = evidence.get(question_id)
         if item is None:
             raise ValueError("ask for a hint after the attempt has been corrected")
         row = self.qbank.get_question(question_id)

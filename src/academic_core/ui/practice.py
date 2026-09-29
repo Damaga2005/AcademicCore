@@ -283,13 +283,15 @@ class PracticePanel(QWidget):
         tools.setSpacing(8)
         self.btn_import = QPushButton("Import bank…")
         self.btn_import.setToolTip("Import a D6 question bank (JSON). It is validated before anything is stored.")
+        self.btn_sample = QPushButton("Load sample")
+        self.btn_sample.setToolTip("Add a small built-in bank so you can try Practice right away")
         self.btn_start = QPushButton("Start attempt")
         self.btn_start.setProperty("class", "primary")
         self.btn_submit = QPushButton("Submit attempt")
         self.btn_submit.setToolTip("Correct every answer with the certified checker")
         self.status = QLabel("READY")
         apply_status_style(self.status, UiState.IDLE)
-        for b in (self.btn_import, self.btn_start, self.btn_submit):
+        for b in (self.btn_import, self.btn_sample, self.btn_start, self.btn_submit):
             tools.addWidget(b)
         tools.addStretch(1)
         tools.addWidget(self.status)
@@ -389,6 +391,7 @@ class PracticePanel(QWidget):
         lower.addWidget(self.tutor_panel, 1)
 
         self.btn_import.clicked.connect(self._import_bank)
+        self.btn_sample.clicked.connect(self._import_sample)
         self.btn_start.clicked.connect(self._start)
         self.btn_submit.clicked.connect(self._submit)
         self.btn_prev.clicked.connect(lambda: self._go(self._current - 1))
@@ -475,9 +478,13 @@ class PracticePanel(QWidget):
         if path:
             self.import_path(path)
 
-    def import_path(self, path: str) -> None:
+    def _import_sample(self) -> None:
+        self.import_path(None)
+
+    def import_path(self, path: str | None) -> None:
+        """``None`` loads the built-in sample bank."""
         try:
-            report = self.svc.import_bank(path)
+            report = self.svc.import_sample() if path is None else self.svc.import_bank(path)
         except Exception as exc:
             ui = show_ui_error(self, exc, "Import bank")
             self._set_state(UiState.ERROR, f"ERROR {ui.error_code}")
