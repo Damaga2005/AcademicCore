@@ -364,3 +364,19 @@ Se guarda en `QSettings`: última ruta, asignatura activa, estado del rail (expa
 | **Abierta:** ¿el rail primario muestra texto siempre o solo iconos al colapsar? | Se resolverá en el Design System (P3) según tamaño tipográfico |
 | **Abierta:** ¿Documents dentro de Learn o área propia? | Se mantiene en Learn (5 áreas fijadas por el brief); revisar tras uso real |
 | **Abierta:** ubicación exacta de Import/Export JSON (Settings › Data vs. menú de contexto) | Por defecto Settings › Data |
+
+---
+
+## 14. Estado de implementación (Prompt 4)
+
+Implementado: rail primario (5 áreas, colapsable, persistente), top bar (migas, chip de contexto, búsqueda), barra de secciones por área, ruteador `ui/routes.py` con historial (`Alt+←/→`), `Ctrl+1…5`, `Ctrl+,`, paleta Ctrl+K con grupo «Go to», menú `New ▾` en Learn, Import/Export JSON en Settings, persistencia de ruta/asignatura/geometría/rail.
+
+Desviaciones deliberadas respecto al diseño:
+
+| Diseño | Implementado | Motivo |
+|---|---|---|
+| El área `Engineering` abre un índice de módulos | Abre la última sección visitada (por defecto *Circuits*); el índice sigue en `Go ▸ Engineering: Modules…` | El índice como página es trabajo del Prompt 6 |
+| Panel lateral Inspector/Actividad | El dock «Session log» queda oculto por defecto (`View ▸ Session log`) | Sin contenido real que mostrar aún |
+| Estado global en barra inferior | Se mantiene la barra de estado existente | Los estados de ejecución reales llegan con los Prompts 6–7 |
+| Selector de contexto en popover | Chip en la top bar que abre Learn con el árbol como panel de contexto | El popover con búsqueda queda para Learn (Prompt 8) |
+| `Go` menu con Documents/Aerospace | Se mantienen los 10 ítems actuales (test fijado); ambas rutas se alcanzan por la barra de secciones y por Ctrl+K | Evitar cambiar un contrato de test sin necesidad |

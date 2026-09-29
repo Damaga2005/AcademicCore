@@ -23,7 +23,7 @@ def module_index(core) -> list[dict]:
         {"id": "electronics", "title": "Electronics",
          "tab": "exercises", "entries": list(core.exercises.library_keys())},
         {"id": "aerospace", "title": "Aerospace",
-         "tab": "simulation", "entries": [EARTH.name]},
+         "tab": "aerospace", "entries": [EARTH.name]},
     ]
 
 
@@ -54,6 +54,6 @@ class ModulesDialog(QDialog):
         self.navigate(["digital-logic", "electronics", "aerospace"][row])
 
     def navigate(self, module_id: str) -> None:
-        tabs = {"digital-logic": "logic", "electronics": "exercises", "aerospace": "simulation"}
+        tabs = {"digital-logic": "logic", "electronics": "exercises", "aerospace": "aerospace"}
         self._navigate(tabs[module_id])
         self.accept()

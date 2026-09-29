@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: MIT
 """AcademicCore visual system (DESIGN.md tokens, Qt binding).
 
-Apple-workbench world, code-led contract ``src-academic-core-ui``:
-Restrained color (neutrals + one accent), system sans, tabular figures for
-data, mono quarantined to netlists/digests/code, 150-250ms state motion.
+DESIGN-SYSTEM-2026: warm neutrals + one cyan accent, Segoe UI Variable,
+mono quarantined to netlists/digests/code, 100-180ms functional motion.
 
 Only PySide6 here — no domain, no infrastructure (architecture boundary).
 """
@@ -19,12 +18,18 @@ ORG = "Academic Core"
 APP = "Academic Core"
 APPEARANCE_KEY = "appearance"  # system | light | dark
 
-FONT_STACK = '"Segoe UI", "SF Pro Text", -apple-system, "Helvetica Neue", Arial, sans-serif'
-MONO_STACK = '"Cascadia Mono", "SF Mono", Consolas, "Courier New", monospace'
+FONT_STACK = '"Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", sans-serif'
+MONO_STACK = '"Cascadia Mono", Consolas, "Courier New", monospace'
 
 
 @dataclass(frozen=True)
 class Tokens:
+    """DESIGN-SYSTEM-2026 tokens. Legacy names kept; see the mapping in §8.
+
+    ground=bg, card=surface, field=elevated, hairline=divider, ink=text,
+    tertiary=text-disabled. ``sidebar`` is the bg tone used by menus/status.
+    """
+
     mode: str  # light | dark
     sidebar: str
     ground: str
@@ -49,60 +54,78 @@ class Tokens:
     idle_bg: str
     idle_ink: str
     shadow: str
+    border_control: str
+    disabled_bg: str
+    hover: str
+    pressed: str
+    accent_hover: str
+    popover: str
 
 
 LIGHT = Tokens(
     mode="light",
-    sidebar="#F5F5F7",
-    ground="#F2F2F6",
+    sidebar="#F7F7F5",
+    ground="#F7F7F5",
     card="#FFFFFF",
-    hairline="#E2E2E8",
-    ink="#1D1D1F",
-    secondary="#6E6E73",
-    tertiary="#AEAEB2",
-    accent="#007AFF",
+    hairline="#E6E6E3",
+    ink="#111111",
+    secondary="#6B6B6B",
+    tertiary="#A3A3A0",
+    accent="#0A6A7C",
     accent_ink="#FFFFFF",
-    accent_soft="#E5F0FF",
-    accent_text="#0066CC",
-    field="#FFFFFF",
-    success_bg="#E3F5E9",
-    success_ink="#187038",
-    warning_bg="#FFF2D2",
-    warning_ink="#8A5A00",
-    error_bg="#FDE7E7",
-    error_ink="#B3261E",
-    info_bg="#E5F0FF",
-    info_ink="#0B5CAD",
-    idle_bg="#E9E9EE",
-    idle_ink="#6E6E73",
-    shadow="rgba(0, 0, 0, 0.08)",
+    accent_soft="#E1F1F4",
+    accent_text="#0A6A7C",
+    field="#F2F2F0",
+    success_bg="#E6F4EA",
+    success_ink="#166534",
+    warning_bg="#FFF1D6",
+    warning_ink="#8A5300",
+    error_bg="#FDE8E6",
+    error_ink="#B42318",
+    info_bg="#E3F3F7",
+    info_ink="#0B6478",
+    idle_bg="#ECECE9",
+    idle_ink="#5C5C5A",
+    shadow="rgba(17, 17, 17, 0.12)",
+    border_control="#949490",
+    disabled_bg="#ECECE9",
+    hover="#E9E9E6",
+    pressed="#E0E0DC",
+    accent_hover="#085A69",
+    popover="#FFFFFF",
 )
 
 DARK = Tokens(
     mode="dark",
-    sidebar="#232328",
-    ground="#1C1C1F",
-    card="#2C2C31",
-    hairline="#3C3C43",
-    ink="#F5F5F7",
-    secondary="#AEAEB2",
-    tertiary="#6E6E73",
-    accent="#0A84FF",
-    accent_ink="#FFFFFF",
-    accent_soft="rgba(10, 132, 255, 0.18)",
-    accent_text="#7AB8FF",
-    field="#2C2C31",
-    success_bg="rgba(52, 199, 89, 0.16)",
-    success_ink="#7EE2A0",
-    warning_bg="rgba(255, 204, 0, 0.14)",
-    warning_ink="#FFD60A",
-    error_bg="rgba(255, 69, 58, 0.16)",
-    error_ink="#FF9D97",
-    info_bg="rgba(10, 132, 255, 0.18)",
-    info_ink="#7AB8FF",
-    idle_bg="#3A3A40",
-    idle_ink="#AEAEB2",
-    shadow="rgba(0, 0, 0, 0.45)",
+    sidebar="#111111",
+    ground="#111111",
+    card="#1A1A1A",
+    hairline="#2E2E2E",
+    ink="#F5F5F5",
+    secondary="#A0A0A0",
+    tertiary="#5A5A5A",
+    accent="#4CC9E0",
+    accent_ink="#0A1A1F",
+    accent_soft="rgba(76, 201, 224, 0.16)",
+    accent_text="#4CC9E0",
+    field="#202020",
+    success_bg="#17301F",
+    success_ink="#6FD08C",
+    warning_bg="#3A2A0B",
+    warning_ink="#F2B84B",
+    error_bg="#3D1917",
+    error_ink="#FF8A80",
+    info_bg="#0F2E36",
+    info_ink="#5CCFE6",
+    idle_bg="#262626",
+    idle_ink="#A0A0A0",
+    shadow="rgba(0, 0, 0, 0.55)",
+    border_control="#6A6A6A",
+    disabled_bg="#1E1E1E",
+    hover="#2C2C2C",
+    pressed="#363636",
+    accent_hover="#6ED6EA",
+    popover="#262626",
 )
 
 _STATE_BG = {
@@ -157,18 +180,18 @@ def stylesheet(tokens: Tokens) -> str:
     """Full application QSS for ``tokens`` (Fusion base)."""
     t = tokens
     return f"""
-* {{ font-family: {FONT_STACK}; font-size: 9pt; }}
+QWidget {{ font-family: {FONT_STACK}; font-size: 14px; }}
 QMainWindow, QDialog {{ background: {t.ground}; }}
-QWidget[objectName="Sidebar"] {{ background: {t.sidebar}; }}
-QLabel[objectName="SidebarHeader"] {{ color: {t.secondary}; font-size: 8pt; font-weight: 600; }}
-QLabel[objectName="AppTitle"] {{ color: {t.ink}; font-size: 15pt; font-weight: 700; }}
-QLabel[objectName="CardTitle"] {{ color: {t.ink}; font-size: 11pt; font-weight: 600; }}
-QLabel[objectName="SectionTitle"] {{ color: {t.ink}; font-size: 10pt; font-weight: 600; }}
-QLabel[objectName="Caption"] {{ color: {t.secondary}; font-size: 8.5pt; }}
-QLabel[objectName="CardStatus"] {{ color: {t.secondary}; font-size: 8.5pt; }}
+QWidget[objectName="Sidebar"] {{ background: {t.ground}; }}
+QLabel[objectName="SidebarHeader"] {{ color: {t.secondary}; font-size: 12px; font-weight: 600; }}
+QLabel[objectName="AppTitle"] {{ color: {t.ink}; font-size: 28px; font-weight: 600; }}
+QLabel[objectName="CardTitle"] {{ color: {t.ink}; font-size: 20px; font-weight: 600; }}
+QLabel[objectName="SectionTitle"] {{ color: {t.ink}; font-size: 20px; font-weight: 600; }}
+QLabel[objectName="Caption"] {{ color: {t.secondary}; font-size: 12px; }}
+QLabel[objectName="CardStatus"] {{ color: {t.secondary}; font-size: 13px; }}
 QLabel[objectName="Mono"] {{ font-family: {MONO_STACK}; }}
 QLabel[role="pill"] {{
-    border-radius: 8px; padding: 3px 10px; font-weight: 600; font-size: 8.5pt;
+    border-radius: 12px; padding: 3px 10px; font-weight: 600; font-size: 12px;
     background: {t.idle_bg}; color: {t.idle_ink};
 }}
 QLabel[role="pill"][state="RUNNING"] {{ background: {t.info_bg}; color: {t.info_ink}; }}
@@ -181,66 +204,71 @@ QFrame[objectName="Card"] {{
 QTabWidget::pane {{ border: 0; background: {t.ground}; }}
 QTabBar::tab {{
     background: transparent; color: {t.secondary};
-    padding: 7px 14px; margin: 4px 2px 0 2px; border-radius: 7px;
+    padding: 8px 14px; margin: 4px 2px 0 2px; border-radius: 8px;
 }}
-QTabBar::tab:hover {{ color: {t.ink}; background: {t.idle_bg}; }}
-QTabBar::tab:selected {{ color: {t.ink}; font-weight: 600; background: {t.accent_soft}; }}
+QTabBar::tab:hover {{ color: {t.ink}; background: {t.hover}; }}
+QTabBar::tab:selected {{ color: {t.accent_text}; font-weight: 600; background: {t.accent_soft}; }}
 QTreeWidget[objectName="SidebarTree"], QListWidget {{
-    background: transparent; border: 0; color: {t.ink}; outline: 0;
+    background: transparent; border: 0; color: {t.ink};
 }}
 QTreeWidget[objectName="SidebarTree"]::item, QListWidget::item {{
-    padding: 6px 8px; border-radius: 7px; color: {t.ink};
+    padding: 6px 8px; border-radius: 8px; color: {t.ink};
 }}
+QTreeWidget[objectName="SidebarTree"]::item:hover, QListWidget::item:hover {{ background: {t.hover}; }}
 QTreeWidget[objectName="SidebarTree"]::item:selected, QListWidget::item:selected {{
     background: {t.accent_soft}; color: {t.ink}; font-weight: 600;
 }}
 QTreeWidget, QTableWidget, QTextEdit[objectName="Output"] {{
     background: {t.card}; border: 1px solid {t.hairline}; border-radius: 8px;
-    color: {t.ink}; selection-background-color: {t.accent_soft};
+    color: {t.ink}; selection-background-color: {t.accent_soft}; selection-color: {t.ink};
 }}
 QLineEdit, QTextEdit, QComboBox, QSpinBox, QDateEdit {{
-    background: {t.field}; border: 1px solid {t.hairline}; border-radius: 7px;
-    padding: 5px 8px; color: {t.ink}; selection-background-color: {t.accent};
+    background: {t.field}; border: 1px solid {t.border_control}; border-radius: 8px;
+    padding: 7px 11px; color: {t.ink}; selection-background-color: {t.accent};
+    selection-color: {t.accent_ink}; min-height: 20px;
 }}
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus, QDateEdit:focus {{
-    border: 1px solid {t.accent};
+    border: 2px solid {t.accent}; padding: 6px 10px;
 }}
 QLineEdit:disabled, QTextEdit:disabled, QComboBox:disabled {{
-    color: {t.tertiary}; background: {t.ground};
+    color: {t.tertiary}; background: {t.disabled_bg}; border-color: {t.hairline};
 }}
 QPushButton {{
-    background: {t.card}; border: 1px solid {t.hairline}; border-radius: 7px;
-    padding: 6px 14px; color: {t.ink};
+    background: {t.field}; border: 2px solid transparent; border-radius: 8px;
+    padding: 6px 14px; color: {t.ink}; min-height: 20px;
 }}
-QPushButton:hover {{ border-color: {t.accent}; }}
-QPushButton:pressed {{ background: {t.accent_soft}; }}
-QPushButton:disabled {{ color: {t.tertiary}; background: {t.ground}; }}
+QPushButton:hover {{ background: {t.hover}; }}
+QPushButton:pressed {{ background: {t.pressed}; }}
+QPushButton:focus {{ border: 2px solid {t.accent}; }}
+QPushButton:disabled {{ color: {t.tertiary}; background: {t.disabled_bg}; }}
 QPushButton[class="primary"] {{
-    background: {t.accent}; border: 1px solid {t.accent}; color: {t.accent_ink};
-    font-weight: 600;
+    background: {t.accent}; color: {t.accent_ink}; font-weight: 600;
 }}
-QPushButton[class="primary"]:hover {{ border-color: {t.accent_ink}; }}
-QPushButton[class="primary"]:disabled {{ background: {t.idle_bg}; border-color: {t.idle_bg}; color: {t.tertiary}; }}
+QPushButton[class="primary"]:hover, QPushButton[class="primary"]:pressed {{ background: {t.accent_hover}; }}
+QPushButton[class="primary"]:focus {{ border: 2px solid {t.ink}; }}
+QPushButton[class="primary"]:disabled {{ background: {t.disabled_bg}; color: {t.tertiary}; }}
 QPushButton[class="subtle"] {{
-    background: transparent; border: 1px solid transparent; color: {t.accent_text}; font-weight: 600;
+    background: transparent; color: {t.accent_text}; font-weight: 600;
 }}
 QPushButton[class="subtle"]:hover {{ background: {t.accent_soft}; }}
 QHeaderView::section {{
-    background: {t.card}; color: {t.secondary}; border: 0;
-    border-bottom: 1px solid {t.hairline}; padding: 6px 8px; font-weight: 600;
+    background: {t.field}; color: {t.secondary}; border: 0;
+    border-bottom: 1px solid {t.hairline}; padding: 6px 8px; font-weight: 600; font-size: 13px;
 }}
 QTableWidget {{ gridline-color: {t.hairline}; }}
 QTableWidget::item:selected {{ background: {t.accent_soft}; color: {t.ink}; }}
-QMenuBar {{ background: {t.sidebar}; color: {t.ink}; }}
-QMenuBar::item:selected {{ background: {t.accent_soft}; border-radius: 6px; }}
-QMenu {{ background: {t.card}; border: 1px solid {t.hairline}; color: {t.ink}; }}
+QMenuBar {{ background: {t.card}; color: {t.ink}; }}
+QMenuBar::item {{ padding: 4px 10px; border-radius: 6px; }}
+QMenuBar::item:selected {{ background: {t.hover}; }}
+QMenu {{ background: {t.popover}; border: 1px solid {t.hairline}; color: {t.ink}; padding: 4px; }}
+QMenu::item {{ padding: 6px 24px 6px 12px; border-radius: 6px; }}
 QMenu::item:selected {{ background: {t.accent_soft}; }}
-QToolTip {{ background: {t.card}; color: {t.ink}; border: 1px solid {t.hairline}; padding: 4px; }}
-QStatusBar {{ background: {t.sidebar}; color: {t.secondary}; }}
+QToolTip {{ background: {t.popover}; color: {t.ink}; border: 1px solid {t.hairline}; padding: 6px 10px; font-size: 12px; }}
+QStatusBar {{ background: {t.card}; color: {t.secondary}; font-size: 12px; }}
 QStatusBar::item {{ border: 0; }}
 QDockWidget {{ color: {t.ink}; }}
 QDockWidget::title {{
-    background: {t.sidebar}; color: {t.secondary}; padding: 6px; font-weight: 600;
+    background: {t.card}; color: {t.secondary}; padding: 6px; font-weight: 600;
 }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
 QScrollBar::handle:vertical {{ background: {t.tertiary}; border-radius: 4px; min-height: 30px; }}
@@ -248,10 +276,59 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
 QScrollBar::handle:horizontal {{ background: {t.tertiary}; border-radius: 4px; min-width: 30px; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
-QCheckBox, QRadioButton {{ color: {t.ink}; spacing: 6px; }}
-QGroupBox {{ color: {t.ink}; border: 1px solid {t.hairline}; border-radius: 10px; margin-top: 12px; }}
-QGroupBox::title {{ subcontrol-origin: margin; left: 10px; color: {t.secondary}; }}
+QCheckBox, QRadioButton {{ color: {t.ink}; spacing: 8px; }}
+QGroupBox {{ color: {t.ink}; border: 1px solid {t.hairline}; border-radius: 12px; margin-top: 14px; padding-top: 6px; }}
+QGroupBox::title {{ subcontrol-origin: margin; left: 12px; color: {t.secondary}; font-weight: 600; }}
+
+/* -- product shell (UX IA 2026 section 4) ------------------------------ */
+QFrame[objectName="NavRail"] {{ background: {t.card}; border-right: 1px solid {t.hairline}; }}
+QLabel[objectName="RailBrand"] {{ color: {t.ink}; font-size: 16px; font-weight: 600; padding: 4px 12px; }}
+QToolButton[role="nav"] {{
+    background: transparent; border: 2px solid transparent; border-radius: 8px;
+    padding: 8px 12px; color: {t.secondary}; font-weight: 600; text-align: left;
+}}
+QToolButton[role="nav"]:hover {{ background: {t.hover}; color: {t.ink}; }}
+QToolButton[role="nav"]:checked {{ background: {t.accent_soft}; color: {t.accent_text}; }}
+QToolButton[role="nav"]:focus {{ border: 2px solid {t.accent}; }}
+QFrame[objectName="TopBar"] {{ background: {t.card}; border-bottom: 1px solid {t.hairline}; }}
+QPushButton[role="crumb"] {{
+    background: transparent; color: {t.secondary}; padding: 4px 6px; border-radius: 6px;
+}}
+QPushButton[role="crumb"]:hover {{ background: {t.hover}; color: {t.ink}; }}
+QLabel[role="crumb-current"] {{ color: {t.ink}; font-weight: 600; font-size: 16px; padding: 4px 6px; }}
+QLabel[role="crumb-sep"] {{ color: {t.secondary}; }}
+QPushButton[objectName="ContextChip"] {{ background: {t.field}; color: {t.ink}; padding: 6px 12px; }}
+QPushButton[objectName="SearchButton"] {{
+    background: {t.field}; color: {t.secondary}; padding: 6px 12px; text-align: left; min-width: 220px;
+}}
+QFrame[objectName="SectionBar"] {{ background: {t.ground}; }}
+QPushButton[role="section"] {{
+    background: transparent; color: {t.secondary}; font-weight: 600; padding: 6px 14px;
+}}
+QPushButton[role="section"]:hover {{ background: {t.hover}; color: {t.ink}; }}
+QPushButton[role="section"]:checked {{ background: {t.accent_soft}; color: {t.accent_text}; }}
+QScrollArea[objectName="PageScroll"], QScrollArea[objectName="PageScroll"] > QWidget > QWidget {{ background: transparent; }}
+QListWidget[objectName="PaletteList"]::item {{ padding: 8px 12px; }}
 """
+
+
+def build_palette(t: Tokens):
+    """Qt palette from tokens, so unstyled widgets and custom painting follow
+    the theme instead of the OS scheme (light theme on a dark Windows)."""
+    from PySide6.QtGui import QColor, QPalette
+
+    pal = QPalette()
+    R = QPalette.ColorRole
+    for role, value in ((R.Window, t.ground), (R.WindowText, t.ink), (R.Base, t.card),
+                        (R.AlternateBase, t.field), (R.Text, t.ink), (R.Button, t.field),
+                        (R.ButtonText, t.ink), (R.ToolTipBase, t.popover), (R.ToolTipText, t.ink),
+                        (R.Highlight, t.accent), (R.HighlightedText, t.accent_ink),
+                        (R.PlaceholderText, t.secondary), (R.Mid, t.secondary),
+                        (R.Link, t.accent_text)):
+        pal.setColor(role, QColor(value))
+    for role in (R.WindowText, R.Text, R.ButtonText):
+        pal.setColor(QPalette.ColorGroup.Disabled, role, QColor(t.tertiary))
+    return pal
 
 
 def apply_theme(qapp, mode: str) -> Tokens:
@@ -262,6 +339,7 @@ def apply_theme(qapp, mode: str) -> Tokens:
     tokens = DARK if concrete == "dark" else LIGHT
     if isinstance(qapp, QApplication):
         qapp.setStyle("Fusion")
+        qapp.setPalette(build_palette(tokens))
         qapp.setStyleSheet(stylesheet(tokens))
     return tokens
 

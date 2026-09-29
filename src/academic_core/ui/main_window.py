@@ -19,8 +19,23 @@ from PySide6.QtWidgets import (
 )
 
 from academic_core import __version__
+from academic_core.ui import routes
 from academic_core.ui.dialogs import confirm, prompt_form
+from academic_core.ui.shell import NavRail, SectionBar, TopBar
 from academic_core.ui.theme import apply_saved_theme, apply_theme, save_mode
+
+
+def shell_settings():
+    """UI-state store: the app's QSettings, or an .ini in ACORE_DATA_DIR when set
+    (tests and portable runs stay isolated from the user's registry)."""
+    import os
+    from PySide6.QtCore import QSettings
+    data_dir = os.environ.get("ACORE_DATA_DIR")
+    if data_dir:
+        Path(data_dir).mkdir(parents=True, exist_ok=True)
+        return QSettings(str(Path(data_dir) / "ui-state.ini"), QSettings.Format.IniFormat)
+    return QSettings("Academic Core", "Academic Core")
+
 
 LEVELS = ("university", "degree", "year", "term", "subject")
 
@@ -29,8 +44,9 @@ class AcademicMainWindow(QMainWindow):
     def __init__(self, app):
         super().__init__()
         self.app = app  # AcademicApp facade
-        self.setWindowTitle(f"Academic Core — F4 Academic Management (v{__version__})")
+        self.setWindowTitle(f"Academic Core (v{__version__})")
         self.resize(1250, 780)
+        self.setMinimumSize(900, 600)
         icon = QIcon(str(Path(__file__).resolve().parents[2] / ".." / "packaging"
                          / "windows" / "academicore.ico"))
         if not icon.isNull():
@@ -86,6 +102,7 @@ class AcademicMainWindow(QMainWindow):
         res_layout.addWidget(self.res_list)
         res_layout.addWidget(self.res_detail)
         self.tabs.addTab(res_tab, "Resources")
+        self.resources_panel = res_tab
         from academic_core.ui.authoring import AuthoringPanel
         self.authoring_panel = AuthoringPanel(app)
         self.tabs.addTab(self.authoring_panel, "Authoring")
@@ -136,39 +153,101 @@ class AcademicMainWindow(QMainWindow):
         config_layout.addLayout(settings_form)
         config_layout.addStretch(1)
         self.tabs.addTab(config_tab, "Settings")
+        self.settings_panel = config_tab
         self._refresh_config()
 
         actions = QHBoxLayout()
-        self.btn_topic = QPushButton("Add topic")
-        self.btn_assignment = QPushButton("Add assignment")
-        self.btn_task = QPushButton("Add task")
-        self.btn_exam = QPushButton("Add exam")
+        # IA §5.3: one "New" menu + the primary grade action, instead of five
+        # always-visible buttons. Actions keep the old attribute names.
+        from PySide6.QtWidgets import QMenu
+        self.btn_topic = QAction("Topic", self)
+        self.btn_assignment = QAction("Assignment", self)
+        self.btn_task = QAction("Task", self)
+        self.btn_exam = QAction("Exam", self)
+        self.new_button = QPushButton("New")
+        self.new_button.setAccessibleName("New in this subject")
+        new_menu = QMenu(self.new_button)
+        for a in (self.btn_topic, self.btn_assignment, self.btn_task, self.btn_exam):
+            new_menu.addAction(a)
+        self.new_button.setMenu(new_menu)
         self.btn_grade = QPushButton("Record grade")
         self.btn_export = QPushButton("Export JSON")
         self.btn_import = QPushButton("Import JSON")
-        for b in (self.btn_topic, self.btn_assignment, self.btn_task, self.btn_exam,
-                  self.btn_grade, self.btn_export, self.btn_import):
-            actions.addWidget(b)
+        self._subject_buttons = (self.btn_topic, self.btn_assignment, self.btn_task,
+                                 self.btn_exam, self.btn_grade, self.new_button)
+        actions.addWidget(self.new_button)
+        actions.addWidget(self.btn_grade)
+        actions.addStretch(1)
+        # Data import/export lives in Settings (IA §5.3), not in a global bar.
+        data_row = QHBoxLayout()
+        data_row.addWidget(self.btn_export)
+        data_row.addWidget(self.btn_import)
+        data_row.addStretch(1)
+        settings_form.addRow("Academic data:", data_row)
+
+        # -- product shell: rail | top bar / sections / page -------------------------
+        self.actions_bar = QWidget()
+        self.actions_bar.setLayout(actions)
+        actions.setContentsMargins(0, 0, 0, 0)
         right = QVBoxLayout()
-        right.addLayout(actions)
-        right.addWidget(self.tabs)
+        right.setContentsMargins(24, 12, 24, 16)
+        right.setSpacing(12)
+        right.addWidget(self.actions_bar)
+        # Pages keep their natural minimum size; a short window scrolls
+        # instead of squashing the controls (audit U-10).
+        from PySide6.QtWidgets import QFrame, QScrollArea
+        self.page_scroll = QScrollArea()
+        self.page_scroll.setObjectName("PageScroll")
+        self.page_scroll.setWidgetResizable(True)
+        self.page_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.page_scroll.setWidget(self.tabs)
+        # The stack's hint is the max of all 13 pages; use the visible page's instead.
+        from PySide6.QtWidgets import QSizePolicy
+        self.tabs.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        right.addWidget(self.page_scroll, 1)
         right_w = QWidget()
         right_w.setLayout(right)
+        # Routing owns navigation: the tab strip stays as the page stack
+        # (13 pinned pages) but is never shown.
+        self.tabs.tabBar().hide()
+        left.setContentsMargins(16, 16, 16, 16)
+        left_w.setFixedWidth(280)
+        self.context_panel = left_w
 
+        self.rail = NavRail()
+        self.topbar = TopBar()
+        self.section_bar = SectionBar()
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        body.addWidget(left_w)
+        body.addWidget(right_w, 1)
+        body_w = QWidget()
+        body_w.setLayout(body)
+        column = QVBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self.topbar)
+        column.addWidget(self.section_bar)
+        column.addWidget(body_w, 1)
         root = QHBoxLayout()
-        root.addWidget(left_w)
-        root.addWidget(right_w)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(self.rail)
+        root.addLayout(column, 1)
         central = QWidget()
         central.setLayout(root)
         self.setCentralWidget(central)
 
         log = QTextEdit(readOnly=True)
         log.setObjectName("Output")
-        log.setPlainText(f"Academic Core v{__version__} — F4\n"
+        log.setPlainText(f"Academic Core v{__version__}\n"
                          f"db: {app.db.path}\nStirling optional; native PDF default.")
-        dock = QDockWidget("Session log")
-        dock.setWidget(log)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.session_dock = QDockWidget("Session log")
+        self.session_dock.setObjectName("SessionDock")
+        self.session_dock.setWidget(log)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.session_dock)
+        self.session_dock.hide()  # opt-in via View > Session log
 
         # -- appearance (theme world; logic-free wiring) ---------------------------
         from PySide6.QtWidgets import QApplication as _QApplication
@@ -185,6 +264,8 @@ class AcademicMainWindow(QMainWindow):
             action.triggered.connect(lambda _c=False, m=mode: self._set_appearance(m))
             self._appearance_group.addAction(action)
             appearance.addAction(action)
+        view_menu.addSeparator()
+        view_menu.addAction(self.session_dock.toggleViewAction())
         self.statusBar().showMessage(
             f"Academic Core v{__version__} · offline · {app.db.path}")
 
@@ -193,10 +274,10 @@ class AcademicMainWindow(QMainWindow):
         self.tree.itemSelectionChanged.connect(self._refresh_detail)
         self.btn_add.clicked.connect(self._add_level)
         self.btn_del.clicked.connect(self._delete_level)
-        self.btn_topic.clicked.connect(self._add_topic)
-        self.btn_assignment.clicked.connect(self._add_assignment)
-        self.btn_task.clicked.connect(self._add_task)
-        self.btn_exam.clicked.connect(self._add_exam)
+        self.btn_topic.triggered.connect(self._add_topic)
+        self.btn_assignment.triggered.connect(self._add_assignment)
+        self.btn_task.triggered.connect(self._add_task)
+        self.btn_exam.triggered.connect(self._add_exam)
         self.btn_grade.clicked.connect(self._record_grade)
         self.btn_export.clicked.connect(self._export_json)
         self.btn_import.clicked.connect(self._import_json)
@@ -213,6 +294,114 @@ class AcademicMainWindow(QMainWindow):
         self._build_go_menu()
         self._refresh_tree()
         self._refresh_detail()
+        self._init_shell()
+
+    # -- shell (UX IA 2026) -------------------------------------------------------
+    def _init_shell(self) -> None:
+        """Wire rail, top bar, section bar, history, shortcuts and restore state."""
+        self._history = routes.History()
+        self._last_section: dict[str, str] = {}
+        self._route: routes.Route = routes.resolve("home")
+        self._pages = {
+            "dashboard": self.dashboard_panel, "overview": self.tab_overview,
+            "activities": self.tab_activities, "grades": self.tab_grades,
+            "planning": self.tab_planning, "library": self.resources_panel,
+            "documents": self.authoring_panel, "exercises": self.exercise_panel,
+            "circuits": self.engineering_panel, "analysis": self.simulation_panel,
+            "lab": self.virtual_lab_panel, "digital": self.logic_analyzer_panel,
+            "aerospace": self.engineering_panel, "settings": self.settings_panel,
+        }
+        self.rail.route_requested.connect(self._open_area)
+        self.section_bar.section_selected.connect(self.navigate_to)
+        self.topbar.crumb_clicked.connect(self.navigate_to)
+        self.topbar.search_clicked.connect(self._open_search)
+        self.topbar.context_clicked.connect(self._focus_context)
+        self.tree.itemSelectionChanged.connect(self._sync_context)
+        self.rail.refresh_icons(self._tokens)
+        for i, (area, _label) in enumerate(routes.AREAS, start=1):
+            sc = QShortcut(QKeySequence(f"Ctrl+{i}"), self)
+            sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            sc.activated.connect(lambda a=area: self._open_area(a))
+        for seq, fn in (("Alt+Left", self.go_back), ("Alt+Right", self.go_forward),
+                        ("Ctrl+,", lambda: self.navigate_to("settings"))):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            sc.activated.connect(fn)
+        self._sync_context()
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # no ring on the rail at startup
+        self.setFocus()
+        st = shell_settings()
+        geometry = st.value("shell/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+        self.rail.set_collapsed(str(st.value("shell/rail_collapsed", "0")) == "1", animate=False)
+        subject = st.value("shell/subject")
+        if subject:
+            self._select_subject(str(subject))
+        start = routes.resolve(str(st.value("shell/route", "home")))
+        self._show_route(start or routes.resolve("home"), record=True)
+
+    def _focus_context(self) -> None:
+        self.navigate_to("learn/subject/summary")
+        self.tree.setFocus()
+
+    def _sync_context(self) -> None:
+        """Top-bar chip + subject-bound actions follow the tree selection."""
+        sid = self._subject_id()
+        name = ""
+        items = self.tree.selectedItems()
+        if sid and items:
+            name = items[0].text(0)
+        self.topbar.set_context(name)
+        for b in self._subject_buttons:
+            b.setEnabled(bool(sid))
+            b.setToolTip("" if sid else "Choose a subject first")
+        if hasattr(self, "_route"):
+            self.topbar.set_crumbs(routes.crumbs(self._route, name or None))
+
+    def _show_route(self, route: routes.Route, record: bool = True) -> None:
+        page = self._pages[route.target]
+        self.tabs.setCurrentWidget(page)
+        self.tabs.setMinimumSize(page.minimumSizeHint().expandedTo(page.minimumSize()))
+        self._route = route
+        if route.section:
+            self._last_section[route.area] = route.id
+        if record:
+            self._history.push(route.id)
+        self.rail.set_area(route.area)
+        self.section_bar.set_sections(route.area, routes.sections(route.area), route.id)
+        self.context_panel.setVisible(route.area == "learn")
+        self.actions_bar.setVisible(route.needs_subject)
+        self._sync_context()
+        if route.target == "aerospace":
+            self.engineering_panel.orbit_panel.altitude_km.setFocus()
+        try:
+            st = shell_settings()
+            st.setValue("shell/route", route.id)
+        except Exception:
+            pass
+
+    def go_back(self) -> None:
+        rid = self._history.back()
+        if rid:
+            self._show_route(routes.resolve(rid), record=False)
+
+    def go_forward(self) -> None:
+        rid = self._history.forward()
+        if rid:
+            self._show_route(routes.resolve(rid), record=False)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — Qt override
+        try:
+            st = shell_settings()
+            st.setValue("shell/geometry", self.saveGeometry())
+            st.setValue("shell/rail_collapsed", "1" if self.rail.collapsed else "0")
+            sid = self._subject_id()
+            st.setValue("shell/subject", sid or "")
+            st.sync()
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     # -- tree ---------------------------------------------------------------------
     @staticmethod
@@ -230,6 +419,8 @@ class AcademicMainWindow(QMainWindow):
         from PySide6.QtWidgets import QApplication as _QApplication
         save_mode(mode)
         self._tokens = apply_theme(_QApplication.instance(), mode)
+        if hasattr(self, "rail"):
+            self.rail.refresh_icons(self._tokens)
         if hasattr(self, "appearance_box"):
             self.appearance_box.blockSignals(True)
             self.appearance_box.setCurrentText(
@@ -239,26 +430,8 @@ class AcademicMainWindow(QMainWindow):
             f"Academic Core v{__version__} · offline · {self.app.db.path}")
 
     def _navigate(self, key: str) -> None:
-        """Dashboard navigation to a real tab (F15 §8)."""
-        targets = {
-            "exercises": self.exercise_panel,
-            "simulation": self.simulation_panel,
-            "lab": self.virtual_lab_panel,
-            "logic": self.logic_analyzer_panel,
-            "resources": None,  # resource browser lives in the Resources tab
-            "settings": None,  # last tab
-        }
-        if key == "resources":
-            for i in range(self.tabs.count()):
-                if self.tabs.tabText(i) == "Resources":
-                    self.tabs.setCurrentIndex(i)
-                    return
-        elif key == "settings":
-            self.tabs.setCurrentIndex(self.tabs.count() - 1)
-            return
-        panel = targets.get(key)
-        if panel is not None:
-            self.tabs.setCurrentWidget(panel)
+        """Dashboard/legacy navigation: same entry point as the shell."""
+        self.navigate_to(key)
 
     def _refresh_config(self) -> None:
         from academic_core import __version__ as _v
@@ -273,21 +446,18 @@ class AcademicMainWindow(QMainWindow):
             self.data_label.setText(str(settings.storage.location))
 
     def navigate_to(self, key: str) -> None:
-        """Grouped navigation shell: Home/Learn/Practice/Engineering/Settings.
+        """Go to a route id or a legacy key (home, overview, lab, logic ...).
 
-        Maps onto the existing tabs via _navigate(); the 13-tab structure
-        is untouched (pinned by UI tests).
+        Unknown keys are ignored. The 13-page structure is untouched
+        (pinned by UI tests); routing only picks the visible page.
         """
-        if key == "home":
-            self.tabs.setCurrentIndex(0)
-            return
-        if key in ("overview", "engineering"):
-            for i in range(self.tabs.count()):
-                if self.tabs.tabText(i) == ("Overview" if key == "overview" else "Engineering"):
-                    self.tabs.setCurrentIndex(i)
-                    return
-            return
-        self._navigate(key)
+        route = routes.resolve(key)
+        if route is not None:
+            self._show_route(route)
+
+    def _open_area(self, area: str) -> None:
+        """Rail/Ctrl+N: land on the area's last visited section."""
+        self._show_route(routes.area_default(area, self._last_section.get(area)))
 
     def _build_go_menu(self) -> None:
         from PySide6.QtWidgets import QMenu
@@ -318,11 +488,19 @@ class AcademicMainWindow(QMainWindow):
 
     def _open_search(self) -> None:
         from academic_core.ui.search import SearchDialog
-        dlg = SearchDialog(self.app, self)
-        if dlg.exec() and dlg.chosen() is not None:
-            hit = dlg.chosen()
-            if hit.ref:
-                self._select_subject(hit.ref)
+        dlg = SearchDialog(self.app, self, goto=routes.goto_entries())
+        if not dlg.exec():
+            return
+        picked = dlg.selection()
+        if picked is None:
+            return
+        kind, value = picked
+        if kind == "route":
+            self.navigate_to(value)
+        elif value.ref and self._select_subject(value.ref):
+            self.navigate_to("learn/subject/summary")
+        else:
+            self.statusBar().showMessage(f"No destination yet for {value.kind} results", 4000)
 
     def _refresh_tree(self) -> None:
         self.tree.clear()

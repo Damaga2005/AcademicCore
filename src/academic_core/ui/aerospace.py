@@ -52,16 +52,18 @@ class OrbitView(QWidget):
         a = (rp + ra) / 2 * scale
         c = (ra - rp) / 2 * scale
         b = max((a * a - c * c) ** 0.5, 1.0)
+        from academic_core.ui.theme import current_tokens
+        tk = current_tokens()
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(QPen(QColor("#007AFF"), 2))
+        p.setPen(QPen(QColor(tk.accent), 2))
         p.drawEllipse(int(cx - a), int(cy - b), int(2 * a), int(2 * b))
-        p.setPen(QPen(QColor("#6E6E73"), 1))
+        p.setPen(QPen(QColor(tk.secondary), 1))
         body_r = max(float(EARTH.radius_m) * scale, 3.0)
         p.drawEllipse(int(cx - body_r), int(cy - body_r),
                       int(2 * body_r), int(2 * body_r))
         # Focus marker at pericenter side (c from center toward +x).
-        p.setPen(QPen(QColor("#FF9F0A"), 3))
+        p.setPen(QPen(QColor(tk.warning_ink), 3))
         p.drawPoint(int(cx + c), int(cy))
         p.end()
 
