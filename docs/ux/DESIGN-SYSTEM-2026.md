@@ -358,3 +358,20 @@ Todo con `reduce-motion` → `instant`.
 | **Abierta:** Fluent System Icons vs Lucide (ISC) | Decidir al implementar; ambos permisivos |
 | **Abierta:** modo *Compact* global o por vista | Por defecto por vista (tablas/instrumentos) |
 | **Abierta:** escala de texto del sistema de Windows (Settings › Accessibility) | Qt no la lee; evaluar en el Prompt 11 |
+
+---
+
+## 10. Kit de workspace (Prompt 6)
+
+Implementado en `ui/workspace.py` y usado por Circuits, Aerospace y Digital Logic.
+
+| Componente | Uso | Notas |
+|---|---|---|
+| `Panel` | Zona titulada de un workspace (Setup, Waveform, Results…) | Superficie `card`, radio 12, sin borde; título 14/600 (rol *PanelTitle*, entre Body y Section); `actions` aloja controles propios de la zona |
+| `Metric` | Un valor medido con su unidad | Etiqueta 12, cifra 24/600 con `tnum`, unidad 13; nombre accesible «Etiqueta: valor unidad»; `—` cuando no hay valor |
+| `KeyValueList` | Hechos alineados (contexto, topología) | Clave secundaria 13, valor seleccionable |
+| `EmptyState` | Estado vacío con siguiente paso | Título Section + una línea |
+
+Modelo de zonas por workspace: **Context** (qué objeto) → **Inputs** → **Tools** (barra superior) → **Visualization** → **Results/Instruments** → **History/Replay**. Los paneles se separan por espacio y tono; los divisores redimensionables (`QSplitter`) solo aparecen donde el usuario reparte espacio entre zonas (Digital Logic).
+
+Casillas (`QCheckBox`/`QListWidget::indicator`): 14 px, borde `border-control`, marcadas en `accent` (relleno; el trazo de check llegará con el conjunto de iconos).

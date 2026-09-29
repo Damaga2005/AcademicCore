@@ -288,6 +288,10 @@ QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
 QScrollBar::handle:horizontal {{ background: {t.tertiary}; border-radius: 4px; min-width: 30px; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 QCheckBox, QRadioButton {{ color: {t.ink}; spacing: 8px; }}
+QCheckBox::indicator, QListWidget::indicator {{
+    width: 14px; height: 14px; border: 2px solid {t.border_control}; border-radius: 4px; background: {t.card};
+}}
+QCheckBox::indicator:checked, QListWidget::indicator:checked {{ background: {t.accent}; border-color: {t.accent}; }}
 QGroupBox {{ color: {t.ink}; border: 1px solid {t.hairline}; border-radius: 12px; margin-top: 14px; padding-top: 6px; }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 12px; color: {t.secondary}; font-weight: 600; }}
 
@@ -319,6 +323,19 @@ QPushButton[role="section"] {{
 QPushButton[role="section"]:hover {{ background: {t.hover}; color: {t.ink}; }}
 QPushButton[role="section"]:checked {{ background: {t.accent_soft}; color: {t.accent_text}; }}
 QScrollArea[objectName="PageScroll"], QScrollArea[objectName="PageScroll"] > QWidget > QWidget {{ background: transparent; }}
+/* -- engineering workspace kit (DESIGN-SYSTEM-2026 section 4.4) ---------- */
+QFrame[objectName="Panel"] {{ background: {t.card}; border-radius: 12px; }}
+QLabel[objectName="PanelTitle"] {{ color: {t.ink}; font-size: 14px; font-weight: 600; }}
+QFrame[objectName="Metric"] {{ background: {t.field}; border-radius: 8px; }}
+QLabel[role="metric-label"] {{ color: {t.secondary}; font-size: 12px; }}
+QLabel[role="metric-value"] {{ color: {t.ink}; font-size: 24px; font-weight: 600; }}
+QLabel[role="metric-unit"] {{ color: {t.secondary}; font-size: 13px; }}
+QLabel[role="key"] {{ color: {t.secondary}; font-size: 13px; }}
+QLabel[role="value"] {{ color: {t.ink}; }}
+QFrame[objectName="EmptyState"] {{ background: transparent; }}
+QSplitter::handle {{ background: transparent; }}
+QSplitter::handle:hover {{ background: {t.hover}; }}
+QTextEdit[objectName="Mono"], QTextEdit[role="mono"] {{ font-family: {MONO_STACK}; font-size: 13px; }}
 QListWidget[objectName="PaletteList"]::item {{ padding: 8px 12px; }}
 """
 

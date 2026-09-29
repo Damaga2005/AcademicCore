@@ -45,6 +45,9 @@ from academic_core.ui.waveform import WaveformWidget
 from academic_core.ui.workers import ServiceWorker
 
 NO_TRIGGER = "(none — capture the window)"
+SHORT_LABEL = {"Start / arm from (s)": "From (s)", "End / arm until (s)": "Until (s)",
+               "Trigger channel": "Channel", "Trigger edge": "Edge",
+               "Pre-trigger (s)": "Pre (s)", "Post-trigger (s)": "Post (s)"}
 COLUMNS = ("#", "time (s)", "channel", "net", "previous", "new", "same-time")
 STATUS_TEXT = {
     "TRIGGERED": "TRIGGERED — trigger edge found; window captured around it",
@@ -62,49 +65,23 @@ class LogicAnalyzerPanel(QWidget):
         self.view = None
         self.state = UiState.IDLE
         self.pool = QThreadPool(self)
+        from PySide6.QtWidgets import QSplitter
+        from academic_core.ui.workspace import Panel
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
-        # -- circuit + channels -----------------------------------------------
-        top = QHBoxLayout()
-        top.addWidget(QLabel("Circuit"))
+        # -- tools: circuit + capture actions ----------------------------------------
+        tools = QHBoxLayout()
+        tools.setSpacing(8)
+        tools.addWidget(QLabel("Circuit"))
         self.demo = QComboBox()
         self.demo.setAccessibleName("Circuit")
         self.demo.setToolTip("Digital demo circuit (built fresh by the application service)")
         for info in self.digital.demos():
             self.demo.addItem(info.title, info.key)
             self.demo.setItemData(self.demo.count() - 1, info.description, Qt.ItemDataRole.ToolTipRole)
-        top.addWidget(self.demo, 1)
-        layout.addLayout(top)
-
-        self.channel_list = QListWidget()
-        self.channel_list.setAccessibleName("Channels")
-        self.channel_list.setToolTip("Tick the channels (probes) to capture")
-        self.channel_list.setMaximumHeight(120)
-        layout.addWidget(QLabel("Channels (probe → net, state at start)"))
-        layout.addWidget(self.channel_list)
-
-        # -- capture + trigger ------------------------------------------------
-        form = QFormLayout()
-        self.start = QLineEdit("0")
-        self.end = QLineEdit("4")
-        self.trigger_channel = QComboBox()
-        self.edge = QComboBox()
-        self.edge.addItems(EDGES)
-        self.pre = QLineEdit("0.5")
-        self.post = QLineEdit("1")
-        for widget, label, tip in (
-                (self.start, "Start / arm from (s)", "Capture window start, or trigger arming start"),
-                (self.end, "End / arm until (s)", "Capture window end, or trigger arming end"),
-                (self.trigger_channel, "Trigger channel", "Channel whose edge starts the capture"),
-                (self.edge, "Trigger edge", "RISING = LOW→HIGH, FALLING = HIGH→LOW, BOTH = either"),
-                (self.pre, "Pre-trigger (s)", "Time kept before the trigger"),
-                (self.post, "Post-trigger (s)", "Time kept after the trigger")):
-            widget.setToolTip(tip)
-            widget.setAccessibleName(label)
-            form.addRow(label, widget)
-        layout.addLayout(form)
-
-        buttons = QHBoxLayout()
+        tools.addWidget(self.demo, 1)
         self.btn_run = QPushButton("&Capture")
         self.btn_run.setProperty("class", "primary")
         self.btn_run.setToolTip("Run the circuit and capture (real engine)")
@@ -117,23 +94,69 @@ class LogicAnalyzerPanel(QWidget):
         self.btn_replay = QPushButton("&Replay trace")
         self.btn_replay.setToolTip("Replay the shown trace and compare digests")
         for b in (self.btn_run, self.btn_verify, self.btn_save, self.btn_load, self.btn_replay):
-            buttons.addWidget(b)
-        layout.addLayout(buttons)
+            tools.addWidget(b)
+        layout.addLayout(tools)
 
+        self.context_label = QLabel("")  # what the selected circuit is (from the service)
+        self.context_label.setObjectName("CardStatus")
+        self.context_label.setWordWrap(True)
+        layout.addWidget(self.context_label)
         self.status = QLabel("IDLE")
         self.status.setAccessibleName("Capture status")
         apply_status_style(self.status, UiState.IDLE)
         self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+
+        # -- setup (inputs): channels, capture window, trigger --------------------------
+        setup = Panel("Setup")
+        channels_label = QLabel("Channels (probe → net, state at start)")
+        channels_label.setProperty("role", "key")
+        setup.add(channels_label)
+        self.channel_list = QListWidget()
+        self.channel_list.setAccessibleName("Channels")
+        self.channel_list.setToolTip("Tick the channels (probes) to capture")
+        self.channel_list.setMaximumHeight(160)
+        setup.add(self.channel_list)
+        self.start = QLineEdit("0")
+        self.end = QLineEdit("4")
+        self.trigger_channel = QComboBox()
+        self.edge = QComboBox()
+        self.edge.addItems(EDGES)
+        self.pre = QLineEdit("0.5")
+        self.post = QLineEdit("1")
+        window_form, trigger_form = QFormLayout(), QFormLayout()
+        for f in (window_form, trigger_form):
+            f.setVerticalSpacing(8)
+        for form, widget, label, tip in (
+                (window_form, self.start, "Start / arm from (s)", "Capture window start, or trigger arming start"),
+                (window_form, self.end, "End / arm until (s)", "Capture window end, or trigger arming end"),
+                (trigger_form, self.trigger_channel, "Trigger channel", "Channel whose edge starts the capture"),
+                (trigger_form, self.edge, "Trigger edge", "RISING = LOW→HIGH, FALLING = HIGH→LOW, BOTH = either"),
+                (trigger_form, self.pre, "Pre-trigger (s)", "Time kept before the trigger"),
+                (trigger_form, self.post, "Post-trigger (s)", "Time kept after the trigger")):
+            widget.setToolTip(tip)
+            widget.setAccessibleName(label)
+            form.addRow(SHORT_LABEL.get(label, label), widget)
+        for title, form in (("Capture window", window_form), ("Trigger", trigger_form)):
+            head = QLabel(title)
+            head.setObjectName("PanelTitle")
+            setup.add(head)
+            setup.body.addLayout(form)
+        setup.body.addStretch(1)
+
+        # -- visualization + instruments: waveform and trigger readout ------------------
+        wave = Panel("Waveform")
         self.trigger_info = QLabel("")
         self.trigger_info.setAccessibleName("Trigger details")
         self.trigger_info.setWordWrap(True)
+        self.trigger_info.setObjectName("CardStatus")
         self.trigger_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(self.status)
-        layout.addWidget(self.trigger_info)
-
+        wave.add(self.trigger_info)
         self.waveform = WaveformWidget()
-        layout.addWidget(self.waveform, 2)
+        wave.add(self.waveform, 1)
 
+        # -- results: transitions and their explanation --------------------------------
+        transitions = Panel("Transitions")
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setAccessibleName("Transitions")
@@ -141,14 +164,41 @@ class LogicAnalyzerPanel(QWidget):
                               "individually in engine order")
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        layout.addWidget(self.table, 1)
-
+        self.table.verticalHeader().hide()
+        self.table.setShowGrid(False)
+        transitions.add(self.table, 1)
+        why = Panel("Why it changed")
         self.explanation = QTextEdit(readOnly=True)
         self.explanation.setAccessibleName("Transition explanation")
         self.explanation.setToolTip("Por qué cambió la transición seleccionada (de la traza de ejecución real)")
-        self.explanation.setMaximumHeight(170)
         self.explanation.setPlaceholderText("Selecciona una transición para ver por qué cambió.")
-        layout.addWidget(self.explanation)
+        why.add(self.explanation, 1)
+
+        results = QSplitter(Qt.Orientation.Horizontal)
+        results.setChildrenCollapsible(False)
+        results.addWidget(transitions)
+        results.addWidget(why)
+        results.setStretchFactor(0, 3)
+        results.setStretchFactor(1, 2)
+        right = QSplitter(Qt.Orientation.Vertical)
+        right.setChildrenCollapsible(False)
+        right.addWidget(wave)
+        right.addWidget(results)
+        right.setStretchFactor(0, 3)
+        right.setStretchFactor(1, 2)
+        right.setSizes([360, 280])
+        transitions.setMinimumHeight(190)
+        why.setMinimumHeight(190)
+        main = QSplitter(Qt.Orientation.Horizontal)
+        main.setChildrenCollapsible(False)
+        main.addWidget(setup)
+        main.addWidget(right)
+        main.setStretchFactor(0, 0)
+        main.setStretchFactor(1, 1)
+        main.setSizes([340, 800])
+        setup.setMinimumWidth(300)
+        self.workspace = main
+        layout.addWidget(main, 1)
         self._request = None  # request of the shown capture (None for a loaded file)
         self._trace = None  # cached pedagogical ExecutionTrace of that capture
         self._pending_row = None
@@ -164,6 +214,8 @@ class LogicAnalyzerPanel(QWidget):
 
     # -- channels ---------------------------------------------------------------
     def _refresh_channels(self) -> None:
+        self.context_label.setText(
+            str(self.demo.itemData(self.demo.currentIndex(), Qt.ItemDataRole.ToolTipRole) or ""))
         self.channel_list.clear()
         self.trigger_channel.clear()
         self.trigger_channel.addItem(NO_TRIGGER, "")

@@ -371,6 +371,8 @@ class AcademicMainWindow(QMainWindow):
     def _show_route(self, route: routes.Route, record: bool = True) -> None:
         page = self._pages[route.target]
         self.tabs.setCurrentWidget(page)
+        if route.target in ("circuits", "aerospace"):
+            self.engineering_panel.set_workspace(route.target)
         self._fit_page(page)
         self._route = route
         if route.section:
