@@ -9,9 +9,9 @@ with their units, ``KeyValueList`` for facts. Presentation only.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QVBoxLayout, QWidget,
 )
 
 
@@ -142,19 +142,59 @@ class EmptyState(QFrame):
         super().__init__(parent)
         self.setObjectName("EmptyState")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 48, 24, 48)
+        lay.setContentsMargins(24, 20, 24, 20)
         lay.setSpacing(8)
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title = QLabel(title)
         self.title.setObjectName("SectionTitle")
         self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title.setWordWrap(True)
         self.text = QLabel(text)
         self.text.setObjectName("CardStatus")
         self.text.setWordWrap(True)
-        self.text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.text.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        # Word-wrapped text needs its height reserved: a scroll area or panel does not ask for
+        # height-for-width, and the last line would be cut (audit F-05).
+        self.text.setMinimumHeight(self.text.fontMetrics().height() * 3)
         lay.addWidget(self.title)
         lay.addWidget(self.text)
 
     def set(self, title: str, text: str = "") -> None:
         self.title.setText(title)
         self.text.setText(text)
+
+
+class HintList(QListWidget):
+    """A list that says what it is for while it is empty, instead of a blank box (audit F-09)."""
+
+    def __init__(self, hint: str = "", parent=None):
+        super().__init__(parent)
+        self._hint = hint
+
+    def set_hint(self, hint: str) -> None:
+        self._hint = hint
+        self.viewport().update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 — Qt override
+        super().paintEvent(event)
+        if self.count() == 0 and self._hint:
+            from academic_core.ui.theme import current_tokens
+            p = QPainter(self.viewport())
+            p.setPen(QColor(current_tokens().secondary))
+            p.drawText(self.viewport().rect().adjusted(12, 12, -12, -12),
+                       int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap), self._hint)
+            p.end()
+
+
+class Notice(QLabel):
+    """One-line status under a toolbar; takes no room while it is empty (audit F-13)."""
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__("", parent)
+        self.setObjectName("CardStatus")
+        self.setWordWrap(True)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:  # noqa: N802 — Qt override
+        super().setText(text)
+        self.setVisible(bool(text))

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QButtonGroup, QHBoxLayout, QLabel, QListWidget,
+    QAbstractItemView, QButtonGroup, QHBoxLayout, QHeaderView, QLabel, QListWidget,
     QListWidgetItem, QPushButton, QStackedWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget,
 )
@@ -23,7 +23,7 @@ from academic_core.ui.dialogs import prompt_form
 from academic_core.ui.errors import show_ui_error
 from academic_core.ui.state import UiState
 from academic_core.ui.theme import apply_status_style
-from academic_core.ui.workspace import EmptyState, KeyValueList, Metric, Panel
+from academic_core.ui.workspace import EmptyState, HintList, KeyValueList, Metric, Panel
 
 COMPONENT_COLUMNS = ("Ref", "Type", "Value", "Pins")
 CALC_COLUMNS = ("Name", "Value", "Unit", "Digest")
@@ -37,7 +37,8 @@ def _table(columns: tuple[str, ...], name: str) -> QTableWidget:
     t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     t.verticalHeader().hide()
     t.verticalHeader().setDefaultSectionSize(32)
-    t.horizontalHeader().setStretchLastSection(True)
+    t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+    t.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     t.setShowGrid(False)
     return t
 
@@ -105,12 +106,12 @@ class EngineeringPanel(QWidget):
         self.btn_del_proj = QPushButton("Delete")
         self.btn_del_proj.setProperty("class", "subtle")
         proj.actions.addWidget(self.btn_del_proj)
-        self.projects = QListWidget()
+        self.projects = HintList("No projects yet. Use New project.")
         self.projects.setAccessibleName("Projects")
         proj.add(self.projects, 1)
         explorer.addWidget(proj, 1)
         ckt = Panel("Circuits")
-        self.circuits = QListWidget()
+        self.circuits = HintList("Select a project to see its circuits.")
         self.circuits.setAccessibleName("Circuits")
         ckt.add(self.circuits, 1)
         explorer.addWidget(ckt, 1)
@@ -345,8 +346,6 @@ class EngineeringPanel(QWidget):
             for col, text in enumerate((c.ref.upper(), c.type.upper(),
                                         c.value.compact() if c.value else "—", pins)):
                 self.components_table.setItem(r, col, QTableWidgetItem(text))
-        self.components_table.resizeColumnsToContents()
-        self.components_table.horizontalHeader().setStretchLastSection(True)
 
     def _fill_calculations(self) -> None:
         calcs = self.eng.repo.calculations_of(self.project)[-10:]
@@ -354,8 +353,6 @@ class EngineeringPanel(QWidget):
         for r, c in enumerate(calcs):
             for col, text in enumerate((c["name"], str(c["value"]), c["unit"], c["digest"][:8])):
                 self.calc_table.setItem(r, col, QTableWidgetItem(text))
-        self.calc_table.resizeColumnsToContents()
-        self.calc_table.horizontalHeader().setStretchLastSection(True)
 
     # -- calculations ------------------------------------------------------------------------------
     def _calculate(self) -> None:

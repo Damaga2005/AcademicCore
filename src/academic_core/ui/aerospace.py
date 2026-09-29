@@ -31,9 +31,9 @@ from academic_core.ui.state import UiState
 from academic_core.ui.theme import apply_status_style
 from academic_core.ui.workspace import KeyValueList, Metric, Panel
 
-PRESETS = (("420", "420", "420 km: low Earth orbit (ISS-class altitude)"),
-           ("20 200", "20200", "20 200 km: navigation satellites (GPS-class altitude)"),
-           ("35 786", "35786", "35 786 km: geostationary orbit"))
+PRESETS = (("LEO 420", "420", "420 km: low Earth orbit (ISS-class altitude)"),
+           ("MEO 20 200", "20200", "20 200 km: navigation satellites (GPS-class altitude)"),
+           ("GEO 35 786", "35786", "35 786 km: geostationary orbit"))
 
 
 def _spaced(value: Decimal, places: int = 0) -> str:
@@ -60,6 +60,11 @@ class OrbitView(QWidget):
 
     def paintEvent(self, _event) -> None:
         if self.last_rp_m is None or self.last_ra_m is None:
+            from academic_core.ui.theme import current_tokens
+            p = QPainter(self)
+            p.setPen(QColor(current_tokens().secondary))
+            p.drawText(self.rect(), int(Qt.AlignmentFlag.AlignCenter), "Compute an orbit to see it here.")
+            p.end()
             return
         rp, ra = float(self.last_rp_m), float(self.last_ra_m)
         if not (rp > 0 and ra >= rp):
@@ -143,17 +148,17 @@ class OrbitPanel(QWidget):
         row.addWidget(self.altitude_km, 1)
         row.addWidget(unit)
         inputs.body.addLayout(row)
-        presets = QHBoxLayout()
+        presets = QGridLayout()
         presets.setSpacing(6)
         self.preset_buttons: list[QPushButton] = []
-        for text, value, tip in PRESETS:
+        for i, (text, value, tip) in enumerate(PRESETS):
             b = QPushButton(text)
             b.setProperty("class", "subtle")
             b.setToolTip(tip)
             b.clicked.connect(lambda _c=False, v=value: self._preset(v))
             self.preset_buttons.append(b)
-            presets.addWidget(b)
-        presets.addStretch(1)
+            presets.addWidget(b, i // 2, i % 2)
+        presets.setColumnStretch(2, 1)
         inputs.body.addLayout(presets)
         tool = QHBoxLayout()
         self.btn_compute = QPushButton("Compute orbit")

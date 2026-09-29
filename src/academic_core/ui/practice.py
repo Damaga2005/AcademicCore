@@ -20,13 +20,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QPushButton, QRadioButton, QSpinBox,
-    QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QHeaderView, QStackedWidget, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from academic_core.ui.errors import show_ui_error
 from academic_core.ui.state import UiState
 from academic_core.ui.theme import apply_status_style
-from academic_core.ui.workspace import EmptyState, KeyValueList, Metric, Panel
+from academic_core.ui.workspace import EmptyState, KeyValueList, Metric, Notice, Panel
 
 RATIONALE_TEXT = {
     "LOW_MASTERY": "your mastery of this concept is low",
@@ -236,6 +236,33 @@ class AnswerForm(QWidget):
         return None
 
 
+class MasteryBarDelegate(QStyledItemDelegate):
+    """Mastery as a bar plus the figure, so the level reads at a glance (audit F-10)."""
+
+    def paint(self, painter, option, index) -> None:
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QColor
+        from academic_core.ui.theme import current_tokens
+        ratio = index.data(Qt.ItemDataRole.UserRole)
+        if ratio is None:
+            return super().paint(painter, option, index)
+        t = current_tokens()
+        painter.save()
+        painter.setRenderHint(painter.RenderHint.Antialiasing)
+        r = option.rect.adjusted(8, 0, -8, 0)
+        text_w = 44
+        track = QRectF(r.left(), r.center().y() - 4, r.width() - text_w - 8, 8)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(t.field))
+        painter.drawRoundedRect(track, 4, 4)
+        painter.setBrush(QColor(t.accent))
+        painter.drawRoundedRect(QRectF(track.left(), track.top(), track.width() * max(0.0, min(1.0, ratio)), 8), 4, 4)
+        painter.setPen(QColor(t.ink))
+        painter.drawText(r.adjusted(r.width() - text_w, 0, 0, 0), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                         index.data(Qt.ItemDataRole.DisplayRole))
+        painter.restore()
+
+
 class PracticePanel(QWidget):
     """Sessions, adaptive plan and mastery over the certified F9-F12 loop."""
 
@@ -296,9 +323,7 @@ class PracticePanel(QWidget):
         tools.addStretch(1)
         tools.addWidget(self.status)
         root.addLayout(tools)
-        self.notice = QLabel("")
-        self.notice.setObjectName("CardStatus")
-        self.notice.setWordWrap(True)
+        self.notice = Notice("")
         root.addWidget(self.notice)
 
         body = QHBoxLayout()
@@ -311,6 +336,8 @@ class PracticePanel(QWidget):
         left.add(self.bank_box)
         self.question_list = QListWidget()
         self.question_list.setAccessibleName("Questions")
+        self.question_list.setTextElideMode(Qt.TextElideMode.ElideRight)  # a long statement ends in "…"
+        self.question_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         left.add(self.question_list, 1)
         self.selection_note = QLabel("")
         self.selection_note.setObjectName("CardStatus")
@@ -430,7 +457,7 @@ class PracticePanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, q.question_id)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
-            item.setToolTip(f"{QTYPE_LABEL.get(q.qtype, q.qtype)} · {q.difficulty}")
+            item.setToolTip(f"{q.statement}\n\n{QTYPE_LABEL.get(q.qtype, q.qtype)} · {q.difficulty}")
             self.question_list.addItem(item)
         self.question_list.blockSignals(False)
         if not self._questions:
@@ -695,6 +722,7 @@ class PracticePanel(QWidget):
         snap_title.setObjectName("PanelTitle")
         left.add(snap_title)
         left.add(self.plan_snapshot)
+        self.plan_snapshot.set_rows([("—", "Build a plan to see the mastery it is based on.")])
         left.body.addStretch(1)
         left.setFixedWidth(340)
         root.addWidget(left)
@@ -788,7 +816,14 @@ class PracticePanel(QWidget):
         self.concept_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.concept_table.verticalHeader().hide()
         self.concept_table.setShowGrid(False)
-        self.concept_table.horizontalHeader().setStretchLastSection(True)
+        head = self.concept_table.horizontalHeader()
+        head.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        head.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        head.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        head.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.concept_table.setColumnWidth(1, 200)
+        self.concept_table.setItemDelegateForColumn(1, MasteryBarDelegate(self.concept_table))
+        self.concept_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.mastery_empty = EmptyState("No practice yet", "Correct an attempt and your mastery profile appears here.")
         self.concept_stack = QStackedWidget()
         self.concept_stack.addWidget(self.mastery_empty)
@@ -819,9 +854,10 @@ class PracticePanel(QWidget):
                 item = QTableWidgetItem(text)
                 if col == 1:
                     item.setToolTip(str(c.probability))
+                    item.setData(Qt.ItemDataRole.UserRole, float(c.probability))
+                if col == 2:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.concept_table.setItem(r, col, item)
-        self.concept_table.resizeColumnsToContents()
-        self.concept_table.horizontalHeader().setStretchLastSection(True)
         self.concept_stack.setCurrentWidget(self.concept_table if concepts else self.mastery_empty)
         pooled = self.svc.subject_mastery(subject) if subject else None
         if pooled:

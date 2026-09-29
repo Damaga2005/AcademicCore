@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from academic_core.ui.workspace import EmptyState, KeyValueList, Metric, Panel
+from academic_core.ui.workspace import EmptyState, KeyValueList, Metric, Notice, Panel
 
 LEFT_WIDTH = 340
 
@@ -303,9 +303,7 @@ class LabKit:
         self.toolbar = QHBoxLayout()
         self.toolbar.setSpacing(8)
         root.addLayout(self.toolbar)
-        self.notice = QLabel("")
-        self.notice.setObjectName("CardStatus")
-        self.notice.setWordWrap(True)
+        self.notice = Notice("")
         root.addWidget(self.notice)
         body = QHBoxLayout()
         body.setSpacing(16)
@@ -337,6 +335,7 @@ class LabKit:
         body.addLayout(right, 1)
 
         self.header = KeyValueList()
+        self.header.set_rows([("Status", "No run yet. Results appear here.")])  # F-09: never an empty box
         self.results.add(self.header)
         self.log_toggle = QPushButton("Run log")
         self.log_toggle.setProperty("class", "subtle")

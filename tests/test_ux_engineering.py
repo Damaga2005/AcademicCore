@@ -90,7 +90,7 @@ def test_aerospace_presets_and_enter_compute(qtbot, tmp_path):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     panel = _orbit(qtbot, tmp_path)
-    geo = next(b for b in panel.preset_buttons if b.text() == "35 786")
+    geo = next(b for b in panel.preset_buttons if b.text().endswith("35 786"))
     geo.click()
     assert panel.altitude_km.text() == "35786" and panel.last["h_m"] == Decimal(35786000)
     panel.altitude_km.setText("200")

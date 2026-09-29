@@ -130,6 +130,7 @@ class ExercisePanel(QWidget):
                                       (self.btn_solve_eq, "Ecuación lineal: despeje paso a paso y verificación"),
                                       (self.btn_simplify, "Simplificación: antes → regla → después"))):
             b.setToolTip(tip)
+            b.setMinimumHeight(34)
             actions.addWidget(b, i // 2, i % 2)
         maths.body.addLayout(actions)
         left.addWidget(maths)

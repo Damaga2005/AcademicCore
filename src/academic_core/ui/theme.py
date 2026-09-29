@@ -60,6 +60,7 @@ class Tokens:
     pressed: str
     accent_hover: str
     popover: str
+    selection: str  # opaque twin of accent_soft: a translucent fill doubles up where two parts overlap
     series: tuple  # categorical data colours (DESIGN-SYSTEM-2026 3.6)
 
 
@@ -75,6 +76,7 @@ LIGHT = Tokens(
     accent="#0A6A7C",
     accent_ink="#FFFFFF",
     accent_soft="#E1F1F4",
+    selection="#E1F1F4",
     accent_text="#0A6A7C",
     field="#F2F2F0",
     success_bg="#E6F4EA",
@@ -90,7 +92,7 @@ LIGHT = Tokens(
     shadow="rgba(17, 17, 17, 0.12)",
     border_control="#949490",
     disabled_bg="#ECECE9",
-    hover="#E9E9E6",
+    hover="#EDEDEA",
     pressed="#E0E0DC",
     accent_hover="#085A69",
     popover="#FFFFFF",
@@ -109,6 +111,7 @@ DARK = Tokens(
     accent="#4CC9E0",
     accent_ink="#0A1A1F",
     accent_soft="rgba(76, 201, 224, 0.16)",
+    selection="#1B2F32",
     accent_text="#4CC9E0",
     field="#202020",
     success_bg="#17301F",
@@ -183,9 +186,49 @@ def apply_status_style(label, state) -> None:
             motion.flash(label)
 
 
+def _glyph_urls(t: Tokens) -> dict:
+    """Chevrons and a tick drawn from the tokens. QSS can only point at image files, so they are
+    written once per colour to the temp folder (with an @2x twin for high-DPI). Empty on failure."""
+    import tempfile
+    from pathlib import Path
+
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QColor, QImage, QPainter, QPen
+
+    shapes = {"down": ((0.2, 0.35), (0.5, 0.65), (0.8, 0.35)), "up": ((0.2, 0.65), (0.5, 0.35), (0.8, 0.65)),
+              "check": ((0.2, 0.55), (0.42, 0.75), (0.8, 0.28))}
+    colours = {"down": t.secondary, "up": t.secondary, "check": t.accent_ink}
+    urls: dict = {}
+    try:
+        folder = Path(tempfile.gettempdir()) / "academiccore-glyphs"
+        folder.mkdir(exist_ok=True)
+        for name, pts in shapes.items():
+            tag = f"{name}-{colours[name].lstrip('#')}"
+            for scale, suffix in ((24, ""), (48, "@2x")):
+                path = folder / f"{tag}{suffix}.png"
+                if not path.exists():
+                    img = QImage(scale, scale, QImage.Format.Format_ARGB32)
+                    img.fill(0)
+                    painter = QPainter(img)
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    pen = QPen(QColor(colours[name]), scale / 10)
+                    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                    painter.setPen(pen)
+                    painter.drawPolyline([QPointF(x * scale, y * scale) for x, y in pts])
+                    painter.end()
+                    img.save(str(path))
+            urls[name] = f"url({(folder / (tag + '.png')).as_posix()})"
+    except Exception:
+        return {}
+    return urls
+
+
 def stylesheet(tokens: Tokens) -> str:
     """Full application QSS for ``tokens`` (Fusion base)."""
     t = tokens
+    g = _glyph_urls(t)
+    down, up, tick = (f"image: {g[k]};" if k in g else "" for k in ("down", "up", "check"))
     return f"""
 QWidget {{ font-family: {FONT_STACK}; font-size: 14px; }}
 QMainWindow, QDialog {{ background: {t.ground}; }}
@@ -233,8 +276,10 @@ QTreeWidget[objectName="SidebarTree"]::item, QListWidget::item {{
     padding: 6px 8px; border-radius: 8px; color: {t.ink};
 }}
 QTreeWidget[objectName="SidebarTree"]::item:hover, QListWidget::item:hover {{ background: {t.hover}; }}
+QTreeWidget::branch:selected {{ background: {t.selection}; }}
+QTreeWidget::branch:hover {{ background: {t.hover}; }}
 QTreeWidget[objectName="SidebarTree"]::item:selected, QListWidget::item:selected {{
-    background: {t.accent_soft}; color: {t.ink}; font-weight: 600;
+    background: {t.selection}; color: {t.ink}; font-weight: 600;
 }}
 QTreeWidget, QTableWidget, QTextEdit[objectName="Output"] {{
     background: {t.card}; border: 1px solid {t.hairline}; border-radius: 8px;
@@ -294,16 +339,32 @@ QDockWidget::title {{
     background: {t.card}; color: {t.secondary}; padding: 6px; font-weight: 600;
 }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
-QScrollBar::handle:vertical {{ background: {t.tertiary}; border-radius: 4px; min-height: 30px; }}
+QScrollBar::handle:vertical {{ background: {t.secondary}; border-radius: 4px; min-height: 30px; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
-QScrollBar::handle:horizontal {{ background: {t.tertiary}; border-radius: 4px; min-width: 30px; }}
+QScrollBar::handle:horizontal {{ background: {t.secondary}; border-radius: 4px; min-width: 30px; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 QCheckBox, QRadioButton {{ color: {t.ink}; spacing: 8px; }}
 QCheckBox::indicator, QListWidget::indicator {{
     width: 14px; height: 14px; border: 2px solid {t.border_control}; border-radius: 4px; background: {t.card};
 }}
-QCheckBox::indicator:checked, QListWidget::indicator:checked {{ background: {t.accent}; border-color: {t.accent}; }}
+QCheckBox::indicator:checked, QListWidget::indicator:checked {{
+    background: {t.accent}; border-color: {t.accent}; {tick}
+}}
+QComboBox {{ padding-right: 30px; }}
+QComboBox::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; width: 28px; border: 0; }}
+QComboBox::down-arrow {{ {down} width: 12px; height: 12px; }}
+QComboBox QAbstractItemView {{
+    background: {t.popover}; color: {t.ink}; border: 1px solid {t.hairline}; outline: 0;
+    selection-background-color: {t.accent_soft}; selection-color: {t.ink};
+}}
+QSpinBox {{ padding-right: 28px; }}
+QSpinBox::up-button {{ subcontrol-origin: border; subcontrol-position: top right; width: 24px; border: 0; }}
+QSpinBox::down-button {{ subcontrol-origin: border; subcontrol-position: bottom right; width: 24px; border: 0; }}
+QSpinBox::up-arrow {{ {up} width: 10px; height: 10px; }}
+QSpinBox::down-arrow {{ {down} width: 10px; height: 10px; }}
+QDateEdit::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; width: 28px; border: 0; }}
+QDateEdit::down-arrow {{ {down} width: 12px; height: 12px; }}
 QGroupBox {{ color: {t.ink}; border: 1px solid {t.hairline}; border-radius: 12px; margin-top: 14px; padding-top: 6px; }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 12px; color: {t.secondary}; font-weight: 600; }}
 

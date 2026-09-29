@@ -62,35 +62,57 @@ class AcademicMainWindow(QMainWindow):
 
         # -- center tabs ------------------------------------------------------------
         self.tabs = QTabWidget()
-        self.tab_overview = QTextEdit(readOnly=True)
-        self.tab_activities = QTextEdit(readOnly=True)
-        self.tab_grades = QTextEdit(readOnly=True)
-        self.tab_planning = QTextEdit(readOnly=True)
+        from academic_core.ui.subject_views import ActivitiesView, GradesView, OverviewView, PlanningView
+        self.tab_overview = OverviewView()
+        self.tab_activities = ActivitiesView()
+        self.tab_grades = GradesView()
+        self.tab_planning = PlanningView()
+        self.tab_overview.open_sessions.connect(lambda: self.navigate_to("practice/sessions"))
         self.tabs.addTab(self.tab_overview, "Overview")
         self.tabs.addTab(self.tab_activities, "Activities")
         self.tabs.addTab(self.tab_grades, "Grades")
         self.tabs.addTab(self.tab_planning, "Planning")
+        from academic_core.ui.workspace import EmptyState, KeyValueList, Panel
         res_tab = QWidget()
         res_layout = QVBoxLayout(res_tab)
+        res_layout.setContentsMargins(0, 0, 0, 0)
+        res_layout.setSpacing(12)
         res_row = QHBoxLayout()
         self.res_search = QLineEdit()
-        self.res_search.setPlaceholderText("Search resources (FTS5)…")
+        self.res_search.setPlaceholderText("Search resources…")
+        self.res_search.setAccessibleName("Search resources")
+        self.res_search.setClearButtonEnabled(True)
         self.btn_res_import = QPushButton("Import file…")
         self.btn_res_reindex = QPushButton("Reindex")
         self.btn_res_build = QPushButton("Build document")
         self.btn_res_export_md = QPushButton("Export MD")
         self.btn_res_export_html = QPushButton("Export HTML")
+        self.btn_res_import.setProperty("class", "primary")
         for b in (self.btn_res_import, self.btn_res_reindex, self.btn_res_build,
                   self.btn_res_export_md, self.btn_res_export_html):
             res_row.addWidget(b)
+        res_row.addStretch(1)
         res_layout.addWidget(self.res_search)
         res_layout.addLayout(res_row)
-        self.stirling_label = QLabel()
+        self.stirling_label = QLabel("PDF export: built-in engine")
+        self.stirling_label.setObjectName("CardStatus")
         res_layout.addWidget(self.stirling_label)
+        res_body = QHBoxLayout()
+        res_body.setSpacing(12)
+        list_panel = Panel("Resources")
         self.res_list = QListWidget()
+        self.res_list.setAccessibleName("Resources")
+        self.res_empty = EmptyState("No resources yet", "Import a file to start your library.")
+        list_panel.add(self.res_list, 1)
+        list_panel.add(self.res_empty, 1)
+        detail_panel = Panel("Details")
         self.res_detail = QTextEdit(readOnly=True)
-        res_layout.addWidget(self.res_list)
-        res_layout.addWidget(self.res_detail)
+        self.res_detail.setAccessibleName("Resource details")
+        self.res_detail.setPlaceholderText("Select a resource to see where it came from.")
+        detail_panel.add(self.res_detail, 1)
+        res_body.addWidget(list_panel, 1)
+        res_body.addWidget(detail_panel, 1)
+        res_layout.addLayout(res_body, 1)
         self.tabs.addTab(res_tab, "Resources")
         self.resources_panel = res_tab
         from academic_core.ui.authoring import AuthoringPanel
@@ -120,14 +142,30 @@ class AcademicMainWindow(QMainWindow):
         self.tabs.addTab(self.logic_analyzer_panel, "Logic Analyzer")
         self.dashboard_panel.navigate.connect(self._navigate)
         config_tab = QWidget()
-        config_layout = QVBoxLayout(config_tab)
+        config_outer = QVBoxLayout(config_tab)
+        config_outer.setContentsMargins(0, 0, 0, 0)
+        config_col = QWidget()
+        config_col.setMaximumWidth(720)
+        config_layout = QVBoxLayout(config_col)
+        config_layout.setContentsMargins(0, 0, 0, 0)
+        config_layout.setSpacing(12)
+        config_outer.addWidget(config_col, 0, Qt.AlignmentFlag.AlignLeft)
+        config_outer.addStretch(1)
         self.config_label = QLabel()
         self.config_label.setWordWrap(True)
-        self.config_label.setToolTip("Basic configuration and version/state")
-        config_layout.addWidget(self.config_label)
-        from PySide6.QtWidgets import QComboBox, QFormLayout
-        settings_form = QFormLayout()
+        self.config_label.setObjectName("CardStatus")
+        self.config_label.setToolTip("Limitations and optional components")
+        from PySide6.QtWidgets import QComboBox
+        look_panel = Panel("Appearance")
+        self._data_panel = Panel("Data")
+        about_panel = Panel("About")
+        self.about_list = KeyValueList()
+        about_panel.add(self.about_list)
+        diag_panel = Panel("Diagnostics")
+        diag_panel.add(self.config_label)
         self.appearance_box = QComboBox()
+        self.appearance_box.setAccessibleName("Appearance")
+        self.appearance_box.setFixedWidth(220)
         self.appearance_box.addItems(["Follow system", "Light", "Dark"])
         self.appearance_box.setCurrentText(
             {"system": "Follow system", "light": "Light", "dark": "Dark"}.get(
@@ -135,16 +173,21 @@ class AcademicMainWindow(QMainWindow):
         self.appearance_box.currentTextChanged.connect(
             lambda t: self._set_appearance(
                 {"Follow system": "system", "Light": "light"}.get(t, "dark")))
-        settings_form.addRow("Appearance:", self.appearance_box)
+        look_row = QHBoxLayout()
+        look_row.addWidget(self.appearance_box)
+        look_row.addStretch(1)
+        look_panel.body.addLayout(look_row)
+        look_hint = QLabel("Follow system uses your Windows light or dark setting.")
+        look_hint.setObjectName("CardStatus")
+        look_panel.add(look_hint)
         self.data_label = QLabel()
         self.data_label.setWordWrap(True)
         self.data_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        settings_form.addRow("Data folder:", self.data_label)
+        self._data_panel.add(self.data_label)
         self.btn_open_data = QPushButton("Open data folder")
         self.btn_open_data.clicked.connect(self._open_data_folder)
-        settings_form.addRow("", self.btn_open_data)
-        config_layout.addLayout(settings_form)
-        config_layout.addStretch(1)
+        for panel in (look_panel, self._data_panel, about_panel, diag_panel):
+            config_layout.addWidget(panel)
         self.tabs.addTab(config_tab, "Settings")
         self.settings_panel = config_tab
         self._refresh_config()
@@ -175,8 +218,9 @@ class AcademicMainWindow(QMainWindow):
         data_row = QHBoxLayout()
         data_row.addWidget(self.btn_export)
         data_row.addWidget(self.btn_import)
+        data_row.insertWidget(0, self.btn_open_data)
         data_row.addStretch(1)
-        settings_form.addRow("Academic data:", data_row)
+        self._data_panel.body.addLayout(data_row)
 
         # -- product shell: rail | top bar / sections / page -------------------------
         self.actions_bar = QWidget()
@@ -414,7 +458,7 @@ class AcademicMainWindow(QMainWindow):
         self.section_bar.set_sections(route.area, routes.sections(route.area), route.id)
         # The subject tree is context for subject work and the library; Mastery has its own filter.
         self.context_panel.setVisible(route.area == "learn" and route.target != "mastery")
-        self.actions_bar.setVisible(route.needs_subject)
+        self.actions_bar.setVisible(route.needs_subject and route.target != "overview")  # nothing to add from a summary
         self._sync_context()
         if route.target == "aerospace":
             self.engineering_panel.orbit_panel.altitude_km.setFocus()
@@ -515,11 +559,15 @@ class AcademicMainWindow(QMainWindow):
     def _refresh_config(self) -> None:
         from academic_core import __version__ as _v
         settings = self.app.settings
+        self.about_list.set_rows([("Version", f"v{_v}"), ("License", "MIT")])
+        try:
+            pdf = self.app.stirling.detect()["state"].replace("_", " ").lower()
+        except Exception:
+            pdf = "unknown"
         self.config_label.setText(
-            f"Academic Core v{_v}\n"
-            f"storage: {settings.storage.location}\n"
-            f"license: MIT (LICENSE)\n"
-            f"lab schema: f8n-lab/1\n"
+            "Optional components and known limits.\n"
+            f"Lab schema: f8n-lab/1\n"
+            f"PDF engine: built-in. Stirling PDF (optional, external): {pdf}.\n"
             f"GREELEC: no integration (UNKNOWN / REQUIRES INPUT)")
         if hasattr(self, "data_label"):
             self.data_label.setText(str(settings.storage.location))
@@ -808,41 +856,41 @@ class AcademicMainWindow(QMainWindow):
         if not sid:
             for tab in (self.tab_overview, self.tab_activities,
                         self.tab_grades, self.tab_planning):
-                tab.setPlainText("Select a subject in the tree")
+                tab.show_none()
             self._refresh_resources()
             return
         acts = self.app.queries.activities_by_subject(sid)
         staff = self.app.academic.staff_of(sid)
-        self.tab_overview.setPlainText(
-            f"subject: {sid}\n"
-            f"topics: {len(acts['topics'])} | refs: {len(acts['refs'])}\n"
-            f"staff: {', '.join(p.name for p, _ in staff) or '(none)'}\n"
-            f"prerequisites: {', '.join(self.app.academic.prerequisites_of(sid)) or '(none)'}\n"
-            f"practice: {self._practice_line(sid)}")
-        lines = []
-        for label, items in (("assignments", acts["assignments"]), ("exams", acts["exams"]),
-                             ("projects", acts["projects"]), ("labs", acts["labs"]),
-                             ("tasks", acts["tasks"]), ("topics", acts["topics"])):
-            lines.append(f"== {label} ({len(items)}) ==")
-            for it in items:
-                state = getattr(it, "status", getattr(it, "state", ""))
-                lines.append(f"• {getattr(it, 'title', '?')} [{state}] "
-                             f"{getattr(it, 'stable_id', '')}")
-        self.tab_activities.setPlainText("\n".join(lines))
+        subject = self.app.academic.get_subject(sid)
+        self.tab_overview.show_subject(
+            name=subject.name if subject else sid, code=(subject.acronym or subject.code) if subject else "",
+            topics=len(acts["topics"]), refs=len(acts["refs"]),
+            staff=", ".join(p.name for p, _ in staff),
+            prerequisites=", ".join(self.app.academic.prerequisites_of(sid)),
+            practice=self._practice_pooled(sid))
+        self.tab_activities.show_activities({
+            kind: [(getattr(it, "title", "?"), getattr(it, "status", getattr(it, "state", "")))
+                   for it in acts[kind]]
+            for kind in ("assignments", "exams", "projects", "labs", "tasks", "topics")})
         verdict = self.app.grading.calculate(sid)
         result = self.app.results.result(sid)
-        self.tab_grades.setPlainText(
-            f"scheme(0-10): grade={verdict.grade} evaluated={verdict.evaluated} "
-            f"state={verdict.state}\n"
-            f"gradebook: ratio={result.ratio} evaluated={result.evaluated_weight}/"
-            f"{result.total_weight} state={result.state} complete={result.complete}")
+        self.tab_grades.show_grades(
+            grade=verdict.grade, evaluated=verdict.evaluated, state=verdict.state, ratio=result.ratio,
+            evaluated_weight=result.evaluated_weight, total_weight=result.total_weight,
+            gradebook_state=result.state, complete=result.complete)
         today = date.today()
         up = self.app.queries.upcoming_deadlines(today, 10)
         over = self.app.queries.overdue_deadlines(today, 10)
-        self.tab_planning.setPlainText(
-            "upcoming:\n" + "\n".join(f"• {d.title} [{d.kind}] {d.due}" for d in up) +
-            "\n\noverdue:\n" + "\n".join(f"• {d.title} [{d.kind}] {d.due}" for d in over))
+        self.tab_planning.show_planning([(d.title, d.kind, d.due) for d in up],
+                                        [(d.title, d.kind, d.due) for d in over])
         self._refresh_resources()
+
+    def _practice_pooled(self, sid: str):
+        """(mastery, observations) for the subject, or None when there is nothing to show."""
+        try:
+            return self.app.practice.subject_mastery(sid)
+        except Exception:
+            return None
 
     def _practice_line(self, sid: str) -> str:
         """Real mastery progress for the subject (F10), or an honest none."""
@@ -859,12 +907,6 @@ class AcademicMainWindow(QMainWindow):
         query = self.res_search.text().strip()
         self.res_list.clear()
         self._res_cache = []
-        try:
-            state = self.app.stirling.detect()
-            self.stirling_label.setText(
-                f"Stirling: {state['state']} ({state['url']}) · native PDF ready")
-        except Exception:
-            self.stirling_label.setText("Stirling: UNKNOWN · native PDF ready")
         if query:
             for h in self.app.fts.search(query, limit=50):
                 self._res_cache.append(h["stable_id"])
@@ -876,6 +918,11 @@ class AcademicMainWindow(QMainWindow):
                 self._res_cache.append(sid)
                 self.res_list.addItem(QListWidgetItem(
                     f"{res.title} [{res.kind}] v{res.current_version} {sid}"))
+        empty = self.res_list.count() == 0
+        self.res_list.setVisible(not empty)
+        self.res_empty.setVisible(empty)
+        self.res_empty.set("No matches" if query else "No resources yet",
+                           "Try another search." if query else "Import a file to start your library.")
 
     def _selected_resource_id(self) -> str | None:
         i = self.res_list.currentRow()

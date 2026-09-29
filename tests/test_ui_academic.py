@@ -34,7 +34,8 @@ def test_tree_navigation_and_subject_detail(qtbot, tmp_path, monkeypatch):
     found = win.tree.findItems("Fisica", MATCH)  # recursive match
     assert found and win._index[id(found[0])] == ("subject", "subject:fis")
     win.tree.setCurrentItem(found[0])
-    assert "subject:fis" in win.tab_overview.toPlainText()
+    assert "Fisica (FIS)" in win.tab_overview.toPlainText()  # the name, never the internal id
+    assert "subject:fis" not in win.tab_overview.toPlainText()
 
 
 def test_grades_and_planning_tabs(qtbot, tmp_path, monkeypatch):
@@ -46,8 +47,8 @@ def test_grades_and_planning_tabs(qtbot, tmp_path, monkeypatch):
     win._refresh_tree()
     found = win.tree.findItems("Mates", MATCH)
     win.tree.setCurrentItem(found[0])
-    assert "aprobada" in win.tab_grades.toPlainText()
-    assert "complete=True" in win.tab_grades.toPlainText()
+    assert "Passed" in win.tab_grades.toPlainText()
+    assert "Complete: Yes" in win.tab_grades.toPlainText()
 
 
 def test_facade_is_only_wiring():

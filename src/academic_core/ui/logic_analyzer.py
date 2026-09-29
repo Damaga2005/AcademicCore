@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QThreadPool, Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractItemView, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -105,7 +105,7 @@ class LogicAnalyzerPanel(QWidget):
         self.status.setAccessibleName("Capture status")
         apply_status_style(self.status, UiState.IDLE)
         self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        layout.addWidget(self.status, 0, Qt.AlignmentFlag.AlignLeft)  # a pill like the other labs, not a full-width band
 
         # -- setup (inputs): channels, capture window, trigger --------------------------
         setup = Panel("Setup")
@@ -166,6 +166,8 @@ class LogicAnalyzerPanel(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.verticalHeader().hide()
         self.table.setShowGrid(False)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
         transitions.add(self.table, 1)
         why = Panel("Why it changed")
         self.explanation = QTextEdit(readOnly=True)
@@ -180,6 +182,7 @@ class LogicAnalyzerPanel(QWidget):
         results.addWidget(why)
         results.setStretchFactor(0, 3)
         results.setStretchFactor(1, 2)
+        results.setSizes([620, 380])  # the table has six columns; the explanation reads fine narrower
         right = QSplitter(Qt.Orientation.Vertical)
         right.setChildrenCollapsible(False)
         right.addWidget(wave)
@@ -313,7 +316,6 @@ class LogicAnalyzerPanel(QWidget):
             values = (str(t.index), t.time, t.channel_id, t.net_id, t.previous, t.new, same)
             for c, value in enumerate(values):
                 self.table.setItem(r, c, QTableWidgetItem(value))
-        self.table.resizeColumnsToContents()
 
     def inspect(self, row: int) -> dict:
         """Exact data of one table row (time, channel, net, previous, new)."""

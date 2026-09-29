@@ -379,7 +379,7 @@ def test_learn_summary_shows_real_mastery_progress(qtbot, core):
             subject = it.value()
         it += 1
     win.tree.setCurrentItem(subject)
-    assert "practice: no attempts yet" in win.tab_overview.toPlainText()
+    assert "Practice: no attempts yet" in win.tab_overview.toPlainText()
     assert win._practice_line("subject:al") == "no attempts yet (Practice > Sessions)"
     core.practice.import_bank(_bank())
     attempt = core.practice.start_attempt([q.question_id for q in core.practice.questions()])

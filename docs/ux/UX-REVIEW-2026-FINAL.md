@@ -152,3 +152,34 @@ Nota: los botones no llevan borde y su relleno frente a la tarjeta es 1,07–1,1
 4. **Después:** F-10, F-11, F-13 a F-17.
 
 Si no se corrigen, deben figurar como **limitaciones conocidas** en `GATE-UX-2026-CERTIFICATION.md`; no se pueden omitir.
+
+## 7. Correcciones aplicadas (tras la auditoría)
+
+Se corrigieron los hallazgos y se **volvió a medir** con el mismo script (17 rutas × claro/oscuro con datos) y a revisar las capturas.
+
+| Hallazgo | Estado | Qué se hizo |
+|---|---|---|
+| F-01 Learn (Summary/Activities/Grades/Planning) | Corregido | Nuevo `ui/subject_views.py` con `Panel`, `Metric`, `KeyValueList` y estados vacíos; nombre de asignatura en vez de `subject:c1`; códigos traducidos (`sin_evaluar` → "Not evaluated"); cada vista es enfocable con teclado; la barra "New / Record grade" ya no aparece en Summary. `toPlainText()` se mantiene para copiar y para los tests. |
+| F-02 Documents | Corregido | `QSplitter` de tres paneles con anchos mínimos bajos y rejillas de botones; mínimo de la página **1164 → 754 px**; ya no hay scroll horizontal a 1250 px. |
+| F-03 Settings | Corregido | Paneles Appearance, Data, About y Diagnostics; controles de ancho natural; columna de 720 px. La limitación GREELEC sigue visible (la fija un test) en Diagnostics. |
+| F-04 Library | Corregido | Ya no muestra la URL ni `NOT_INSTALLED`: "PDF export: built-in engine"; el estado de Stirling pasó a Settings › Diagnostics; paneles Resources/Details con estado vacío. |
+| F-05 Sessions | Corregido | `EmptyState` reserva la altura de su texto; enunciados con puntos suspensivos y tooltip; sin barra horizontal. |
+| F-06 Idioma mezclado | **No corregido** | Las etiquetas en español (`Explicar`, `Paso a paso`, `Derivar`…) abren explicaciones cuyo contenido es español y está fijado por tests de los motores certificados E0–E3. Traducir solo las etiquetas dejaría botón en inglés y resultado en español. Es una decisión de producto (idioma de la interfaz o i18n completo); no se tomó. |
+| F-07 Selección del árbol | Corregido | Token `selection` (opaco); la rama y la fila usan el mismo color. Antes el fondo translúcido se sumaba dos veces en oscuro. |
+| F-08 Tablas | Corregido | Columnas que se reparten el ancho y sin barra horizontal (Circuits › Results, Mastery). Digital Logic › Transitions mantiene scroll horizontal (7 columnas) pero ya no recorta cabeceras. |
+| F-09 Paneles vacíos | Corregido | `HintList` y textos guía en Projects, Circuits, Documents, "Mastery used", Results del laboratorio y vista de órbita. |
+| F-10 Mastery | Corregido | Columna de dominio con barra (delegado), columnas repartidas, cabeceras alineadas. |
+| F-11 Desplegables y spinboxes | Corregido | Flechas dibujadas desde los tokens (PNG con `@2x`) y sub-controles estilizados. |
+| F-12 Casillas | Corregido | Marca de verificación dibujada; el estado ya no depende solo del color. |
+| F-13 Ritmo vertical | Corregido | `Notice` sin altura cuando está vacío (compartido por labs y Practice). |
+| F-14 Digital Logic estado | Corregido | Pastilla de estado en lugar de banda a todo el ancho. |
+| F-15 Exercises › Mathematics | Corregido | Botones con altura mínima. |
+| F-16 Aerospace | Corregido | Presets "LEO 420 / MEO 20 200 / GEO 35 786" en rejilla; texto guía en la vista de órbita. |
+| F-17 Contraste | Corregido parcial | Asa de scroll pasa a `secondary` (≥ 3:1 en ambos temas) y el *hover* claro sube a 4,5:1. Sigue igual: los botones sin borde se distinguen por su etiqueta (relleno 1,07–1,12:1). |
+| F-18 Nombres accesibles | Corregido | 0 controles sin nombre en las 17 rutas (antes 8). |
+| F-19 Foco inicial | Sin cambio | Es una decisión de diseño (entrar en la herramienta), no un defecto. |
+
+**Verificación posterior:** scroll horizontal en 0 de 17 rutas (antes 1), controles sin nombre 0 (antes 8), etiquetas o botones recortados 0 (antes 4). 12 tests nuevos en `tests/test_ux_polish.py`; se actualizaron 4 aserciones que fijaban el volcado de texto plano (`subject:fis`, `aprobada`, `complete=True`, `practice: …`) y una etiqueta de preset.
+
+**Límites de esta segunda pasada:** no se repitió el recorrido con teclado ni lector de pantalla, y las capturas en oscuro se revisaron por muestreo, igual que en la primera.
+
