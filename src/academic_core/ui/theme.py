@@ -171,12 +171,16 @@ def apply_status_style(label, state) -> None:
     from PySide6.QtWidgets import QWidget
 
     name = state.value if hasattr(state, "value") else str(state)
+    changed = label.property("state") not in (None, name.upper())
     label.setProperty("role", "pill")
     label.setProperty("state", name.upper())
     if isinstance(label, QWidget):
         label.style().unpolish(label)
         label.style().polish(label)
         label.update()
+        if changed and label.isVisible():
+            from academic_core.ui import motion
+            motion.flash(label)
 
 
 def stylesheet(tokens: Tokens) -> str:

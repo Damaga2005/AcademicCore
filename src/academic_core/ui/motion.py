@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: MIT
-"""Dialog motion: one bounded pop-in (UI only, no engine involved)."""
+"""Functional motion (UI only, no engine involved).
+
+Every animation here says something: a dialog appearing, the context changing (page), a state
+changing (status pill). All of them are one-shot, 100-180 ms, ease-out with no overshoot, and all
+of them collapse to nothing when the user asked for reduced motion. Nothing loops.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ import os
 import sys
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation
+from PySide6.QtWidgets import QGraphicsOpacityEffect
 
 # Motion tokens (DESIGN-SYSTEM-2026 §2.4), milliseconds.
 FAST, BASE, SLOW = 100, 140, 180
@@ -42,10 +48,43 @@ def pop_in(dialog, duration_ms: int = 150) -> QPropertyAnimation:
     the same appearance transition inside the same motion budget.
     """
     anim = QPropertyAnimation(dialog, b"windowOpacity", dialog)
-    anim.setDuration(duration_ms)
+    anim.setDuration(duration(duration_ms))
     anim.setStartValue(0.85)
     anim.setEndValue(1.0)
     anim.setEasingCurve(QEasingCurve.Type.OutCubic)
     anim.start()
     dialog._pop_anim = anim  # keep alive for the dialog lifetime
     return anim
+
+
+def _fade(widget, start: float, ms: int) -> QPropertyAnimation | None:
+    """Opacity ``start`` -> 1 on a child widget; the effect is removed when done (no idle cost)."""
+    ms = duration(ms)
+    if ms == 0 or widget.graphicsEffect() is not None:
+        return None
+    effect = QGraphicsOpacityEffect(widget)
+    effect.setOpacity(start)
+    widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", effect)
+    anim.setDuration(ms)
+    anim.setStartValue(start)
+    anim.setEndValue(1.0)
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def _done() -> None:
+        if widget.graphicsEffect() is effect:
+            widget.setGraphicsEffect(None)
+    anim.finished.connect(_done)
+    anim.start()
+    widget._fade_anim = anim
+    return anim
+
+
+def fade_in(widget, ms: int = SLOW) -> QPropertyAnimation | None:
+    """The context changed (a new page): the incoming content eases in instead of snapping."""
+    return _fade(widget, 0.0, ms)
+
+
+def flash(widget, ms: int = BASE) -> QPropertyAnimation | None:
+    """A state changed (status pill): a brief settle so the change is noticed, not a loop."""
+    return _fade(widget, 0.35, ms)

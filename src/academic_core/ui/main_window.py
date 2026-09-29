@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from academic_core import __version__
-from academic_core.ui import routes
+from academic_core.ui import motion, routes
 from academic_core.ui import dialogs
 from academic_core.ui.errors import show_ui_error
 from academic_core.ui.dialogs import confirm, prompt_form
@@ -377,7 +377,10 @@ class AcademicMainWindow(QMainWindow):
 
     def _show_route(self, route: routes.Route, record: bool = True) -> None:
         page = self._pages[route.target]
+        changed_page = self.tabs.currentWidget() is not page
         self.tabs.setCurrentWidget(page)
+        if changed_page and self.isVisible():
+            motion.fade_in(page)  # the context changed: ease in, never snap
         if route.target in ("circuits", "aerospace"):
             self.engineering_panel.set_workspace(route.target)
         elif route.target in ("sessions", "plan", "mastery"):

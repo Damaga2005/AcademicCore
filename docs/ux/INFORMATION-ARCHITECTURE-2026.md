@@ -420,3 +420,18 @@ Limitación conocida: un intento vive en memoria mientras la app está abierta (
 **Migración.** `QMessageBox` ya no aparece fuera de `dialogs.py` (lo fija un test). Los errores de excepción pasan por `show_ui_error`. Los archivos nativos de Windows (`QFileDialog`) se mantienen: son el estándar de la plataforma. Los tests que interceptaban `QMessageBox` ahora interceptan `dialogs.show_message`.
 
 **Fuera de alcance / pendiente.** Tablas y tooltips ya heredan los tokens del Design System (§10); no se rediseñaron. La validación en línea de formularios (marcar el campo) no existe todavía: hoy el error se comunica con un aviso tras enviar.
+
+### 14.5 Movimiento y estados (Prompt 10)
+
+**Regla.** Solo se anima lo que comunica un estado o una relación espacial; todo es de un solo disparo, 100–180 ms (`motion.FAST/BASE/SLOW`), *ease-out* sin rebote, y colapsa a 0 con "reducir animaciones" de Windows o `ACORE_REDUCE_MOTION=1`. No hay animaciones en bucle: `RUNNING` no late ni gira.
+
+| Qué | Qué comunica | Dónde |
+|---|---|---|
+| Diálogo aparece (fade 0.85→1) | Aparición | `motion.pop_in` (ahora respeta reduced-motion; antes lo ignoraba) |
+| Página entrante (fade 0→1, 180 ms) | Cambio de contexto | `_show_route`, solo si cambia la página |
+| Pastilla de estado (0.35→1, 140 ms) | Cambio de estado | `apply_status_style`, solo si el estado cambió: cubre las 7 vistas con `_set_state` |
+| Carril colapsa/expande | Relación espacial | `NavRail` (ya existía) |
+
+El efecto de opacidad se retira al terminar (sin coste en reposo).
+
+**Estados.** Mientras un panel está en `RUNNING` se bloquean los botones que iniciarían otra ejecución (`state.set_busy`): Exercises, Virtual Lab y Simulation. Antes se podía lanzar la misma ejecución dos veces. Solo se rehabilitan los botones que `set_busy` bloqueó, no los desactivados por otro motivo. Los estados siguen siendo los cinco de `UiState`; *Paused* y *Offline* no se muestran porque el motor no los soporta.

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from academic_core.ui.errors import show_ui_error
-from academic_core.ui.state import UiState
+from academic_core.ui.state import UiState, set_busy
 from academic_core.ui.theme import apply_status_style
 from academic_core.ui.workers import ServiceWorker
 
@@ -198,3 +198,4 @@ class SimulationPanel(QWidget):
         self.state = state
         self.status.setText(text)
         apply_status_style(self.status, state)
+        set_busy(state, self.btn_run)
