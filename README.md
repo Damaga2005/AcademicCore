@@ -3,7 +3,7 @@
 <div align="center">
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![Tests Passing](https://img.shields.io/badge/tests-4800%2B%20passing-2ea44f.svg?style=flat-square&logo=pytest&logoColor=white)]()
+[![Tests Passing](https://img.shields.io/badge/tests-4900%2B%20passing-2ea44f.svg?style=flat-square&logo=pytest&logoColor=white)]()
 [![Status](https://img.shields.io/badge/status-D6--D7--F9--F10--F11%20CERTIFIED-0052CC.svg?style=flat-square&logo=academia&logoColor=white)]()
 [![Zero-Float Core](https://img.shields.io/badge/arithmetic-zero--float%20core-8A2BE2.svg?style=flat-square)]()
 [![Oracle Verified](https://img.shields.io/badge/oracle-ngspice%2047%20verified-E34F26.svg?style=flat-square)]()
@@ -239,6 +239,37 @@ University (Institution)
 
 ---
 
+## Desktop Application (UX 2026)
+
+A PySide6 desktop app over the same certified core. The redesign changed how the product is organised and
+presented, not what it computes: `domain/`, `engines/` and `infrastructure/` are untouched.
+
+| Area | Screens |
+|---|---|
+| **Home** | Continue where you left off, deadlines, recent work, tools with real counts |
+| **Learn** | Summary · Activities · Grades · Planning · Mastery · Library · Documents |
+| **Practice** | Exercises · Sessions (question banks, attempts, tutor) · Plan |
+| **Engineering** | Circuits · Analysis · Lab · Digital Logic · Aerospace |
+| **Settings** | Appearance (system / light / dark) · Data · About · Diagnostics |
+
+- **Keyboard:** `Ctrl+K` search and jump · `Ctrl+1…4` areas · `Ctrl+,` settings · `Alt+←/→` history · `F11` full screen.
+- **Practice loop (F9 → F12):** import a D6 question bank or press *Load sample*; answers are graded by the F9 checker,
+  fold into F10 mastery, feed the F11 plan, and the F12 tutor gives hints. The model is off by default; the hint is then
+  static and verified. The interface never receives the correct answer, and an LLM is never the academic authority.
+- **Windows:** one window per user (a second launch brings the first forward), the window yields to small screens
+  (200 % on 1080p), the navigation rail folds under 1100 px, light/dark/system theme, and Windows' *reduce animations*
+  setting is honoured. All motion is a single 100–180 ms transition.
+- **Errors and dialogs:** every notice goes through one contextual dialog (title, context, primary and secondary action,
+  Escape, initial focus); only the safe fields of a `UiError` are shown.
+
+Design and verification live in [`docs/ux/`](docs/ux/): [audit](docs/ux/UX-AUDIT-2026.md),
+[information architecture](docs/ux/INFORMATION-ARCHITECTURE-2026.md), [design system](docs/ux/DESIGN-SYSTEM-2026.md),
+[final visual review](docs/ux/UX-REVIEW-2026-FINAL.md) and the
+[certification gate](docs/gates/GATE-UX-2026-CERTIFICATION.md), which also lists what was **not** verified
+(installer execution, physical HiDPI monitors, screen reader) and the open product decision on the interface language.
+
+---
+
 ## Phase Ledger & Certification Status
 
 | Phase | Subsystem | Key Deliverables & Scope | Status | Verification Gate |
@@ -276,6 +307,7 @@ University (Institution)
 | **D5** | Global Test Suite | Consolidated regression suite + markers (`arch`/`repro`/`perf`), canonical `TEST-SUITE.md`. | **CERTIFICADA** | [`GATE-D5-CERTIFICATION.md`](docs/gates/GATE-D5-CERTIFICATION.md) |
 | **D6** | Neutral Question Bank | Versioned neutral schema (`d6-question-bank/1`), canonical digests, strict validation, no persistence parallel. | **CERTIFICADA** | [`GATE-D6-CERTIFICATION.md`](docs/gates/GATE-D6-CERTIFICATION.md) |
 | **D7** | Structured Ingestion | D6→Knowledge Core bridge: idempotent, versioned, one-transaction; concept reuse, formula persistence. | **CERTIFICADA** | [`GATE-D7-CERTIFICATION.md`](docs/gates/GATE-D7-CERTIFICATION.md) |
+| **UX 2026** | Product redesign | Shell, Home, engineering and lab workspaces, Practice loop (F9–F12), contextual dialogs, motion, Windows experience. Core untouched; installer and screen-reader checks not executed. | **CERTIFICADO CON LIMITACIONES** | [`GATE-UX-2026-CERTIFICATION.md`](docs/gates/GATE-UX-2026-CERTIFICATION.md) |
 
 ---
 
@@ -477,7 +509,7 @@ pip install -r requirements-dev.txt
 ### 2. Running Test Batteries
 
 ```bash
-# 1. Run the entire test battery (4,800+ passing tests, 4816 collected)
+# 1. Run the entire test battery (4,970 tests collected on the UX 2026 tree)
 pytest -q
 
 # 2. Run Semiconductor & Nonlinear DC Suite (Shockley + Ebers-Moll: 143 tests)
@@ -521,12 +553,10 @@ python -m academic_core
 academic-core
 ```
 
-Product experience (post-roadmap, no new phase): grouped Go menu
-(Home/Learn/Practice/Engineering/Settings) over the 13 tabs, real-module
-index (Digital Logic/Electronics/Aerospace), Virtual Lab and Simulation
-grouped as Experiment/Inputs/Execution/Results, F16 orbit view with real
-numbers, editorial dashboard with real recents, Ctrl+K global search,
-splash + one-screen first-run, real Appearance/Data/About settings.
+Product experience: see [Desktop Application (UX 2026)](#desktop-application-ux-2026).
+The 14 pages remain a hidden page stack (`QTabWidget`) under a navigation rail, so widget
+attributes and tests are stable. Ctrl+K global search, splash + one-screen first-run and
+the Appearance/Data/About/Diagnostics settings are unchanged in purpose.
 
 F15 capabilities: Dashboard (navigation + version/state), Exercise
 resolution (engineering library via `ExerciseService`), Simulation

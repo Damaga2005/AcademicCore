@@ -40,7 +40,7 @@ Cambio total frente a la base: 56 ficheros, +8270 / −833 líneas (21 ficheros 
 | Sin arquitectura paralela ni reescritura del core | Cumple | El rediseño vive en `src/academic_core/ui/`; el `QTabWidget` se conserva como pila de páginas |
 | Sin port web | Cumple | — |
 | No modificar core, F0–F16, cálculos, contratos, backend, persistencia certificada | **Cumple con dos matices (§3)** | `git diff d5650c5 HEAD -- src/academic_core/domain src/academic_core/engines src/academic_core/infrastructure` está vacío |
-| `main` como fuente canónica | Cumple | Rama local única de trabajo: `main`. Sin ramas nuevas |
+| `main` como fuente canónica | Cumple | `main` es la única rama (local y remota); sin ramas nuevas |
 | No declarar certificación sin evidencia | Cumple | §6 y §7 |
 
 ## 3. Cambios fuera de `ui/` (declarados)
@@ -102,7 +102,7 @@ Clasificación de todo lo que no fue verde:
 | Ambiental (previo a esta fase) | `test_conversor_equiv` | `markdownify` no instalado | Instalado `markdownify==1.2.3`; pasa |
 | Ambiental (previo) | 5 *golden* (`test_e0_g01_…`, 4 × `test_q5_g01_…`) | Fixtures con CRLF de un checkout anterior; `.gitattributes` exige LF | Reextraídos con `git checkout`; pasan |
 | Omitido, sin causa de código | 2 × `test_pdf.py:35` | `reportlab` ausente (no está en los requisitos) | Sigue *skipped* |
-| Preexistente / no relacionado | Rama local `pr-1` y `stash@{0}` ("temp", 18-sep, toca `domain/engineering/units.py`) | Anteriores al rediseño; no se han tocado | Se dejan como están |
+| Preexistente / no relacionado | Rama local `pr-1` y `stash@{0}` ("temp", 18-sep, `domain/engineering/units.py`) | Anteriores al rediseño | Retirados después a petición: la rama estaba integrada en `main` y el contenido del stash (unidad `S`/`ADMITTANCE`) ya está en `main` |
 
 **Fallos nuevos atribuibles al rediseño tras corregir: 0. Fallos de código preexistentes: 0. No se ocultó ningún fallo.**
 
@@ -136,7 +136,7 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests -p no:cacheprovider
 8. **Movimiento.** Se verificó que se dispara, dura 100–180 ms y se retira; no se midió cómo se percibe el fundido en pantalla.
 9. **Ejecución como EXE empaquetado.** Las rutas de recursos (icono) siguen `runtime.resource_path`, pero no se ha ejecutado el bundle congelado.
 10. **Menú Go** conserva 10 entradas porque los tests las fijan.
-11. **Sin `push`.** `main` va 15 commits por delante de `origin/main`.
+11. **Publicación.** Los commits se subieron uno a uno a `origin/main` y `main` es la única rama, local y remota. Se borraron las ramas `pr-1`, `f4.1-closure` y las cuatro `claude/*` (todas ya integradas en `main`; el único commit de `f4.1-closure`, un cambio de `.gitignore`, se conservó con `cherry-pick`).
 12. La limitación de producto **GREELEC** (sin integración) se conserva y sigue visible en Settings › Diagnostics.
 
 ## 8. Criterios de aceptación

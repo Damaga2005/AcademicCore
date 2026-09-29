@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — UX 2026 redesign (CERTIFICADO CON LIMITACIONES)
+- Rediseño de la interfaz en 13 prompts (15 commits sobre `d5650c5`). Solo `ui/` cambia de forma sustancial; `domain/`, `engines/` e `infrastructure/` sin diff. Tres cambios declarados en `application/`: cableado F9–F12 en la fachada, `practice.py` nuevo (orquesta, no calcula) y un arreglo de 2 líneas en `mastery.py` para respuestas `needs_review` (F10 lanzaba `DomainError` contra su propio comentario).
+- Producto: carril de navegación + barra superior + secciones sobre rutas `area/seccion` (14 páginas ocultas en un `QTabWidget`); Home editorial con datos reales; espacios de trabajo de Ingeniería y laboratorio sobre un kit común (`Panel`, `Metric`, `KeyValueList`); página **Practice** (sesiones, plan, dominio, tutor con el modelo apagado por defecto); páginas de Learn, Documents, Library y Settings reconstruidas.
+- Diálogos y errores: un único `DialogFrame`/`show_message`; sin `QMessageBox` fuera de `ui/dialogs.py`; sin texto crudo de excepción (D2).
+- Movimiento (100–180 ms, un disparo, respeta "reducir animaciones") y estados (`RUNNING` bloquea el doble lanzamiento).
+- Windows: ventana que cede ante pantallas pequeñas, carril que se pliega bajo 1100 px, instancia única, icono como recurso, `AppUserModelID`, F11. DPI medido con el factor de escala de Qt (100/125/150/200 %).
+- Auditoría visual final: 19 hallazgos, corregidos salvo el idioma de la interfaz (decisión de producto) — `docs/ux/UX-REVIEW-2026-FINAL.md`.
+- Tests: suite completa 4962 recogidos + 8 del recorrido de certificación; 136 tests nuevos de UX. Sin fallos de código; 5 fallos ambientales por `pypdf` ausente (resueltos instalando el lock) y 2 omitidos por `reportlab`. Gate: `docs/gates/GATE-UX-2026-CERTIFICATION.md`.
+- NOT VERIFIED: instalador/EXE ejecutados, monitor físico a 125/150/200 %, lector de pantalla.
+- Sin cambios de comportamiento en F0–F16; `main` como única rama.
+
 ## Unreleased — Windows Product 1.0 (productización)
 - Producto/UX post-roadmap (sin fase nueva): menú Go agrupado sobre los 13 tabs intactos; índice de módulos reales; Virtual Lab/Simulation en secciones Experiment/Inputs/Execution/Results sin renombrar widgets; vista orbital F16 con números reales; dashboard editorial con recents reales; motion 150 ms sin bounce.
 - Validación: exe/installer reconstruidos del árbol final, smoke verde, regresión verde; Start Menu/uninstall-ejecutado/clean-machine/DPI sistemático NOT VERIFIED (sin admin ni 2ª máquina).

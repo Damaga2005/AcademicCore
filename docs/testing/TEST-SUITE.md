@@ -106,6 +106,12 @@ Nada más se salta, silencia o excluye.
 | Perf (presupuesto temporal) | 3 | 5 | perf | sí |
 | External/misc (Stirling, reproducibilidad) | 2 | 7 | external+repro | parcial |
 
+**Actualización UX 2026:** el árbol actual tiene 168 ficheros de test y 4962 tests (más 8 del recorrido de
+certificación, `test_ux_certification.py`). El rediseño añadió 136 tests en 10 ficheros (`test_practice_service`,
+`test_ux_routes`, `test_ux_shell`, `test_ux_engineering`, `test_ux_practice`, `test_ux_dialogs`, `test_ux_motion`,
+`test_ux_windows`, `test_ux_polish`, `test_ux_certification`) y actualizó los que fijaban 13 páginas o el volcado de texto
+plano. Resultado y clasificación de fallos en `docs/gates/GATE-UX-2026-CERTIFICATION.md` §5.
+
 Conversor §4 D5: headings/párrafos/listas (`TestHTML`, `test_headings_paragraphs_lists`),
 enlaces/imágenes (`test_links_exact_and_dangerous`, `test_images_become_cas_references`,
 `test_data_uri_and_remote`), tablas (`test_table_grid_equivalence`, `TestTabular`,

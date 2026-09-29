@@ -88,6 +88,10 @@ components:
 
 # Design System: AcademicCore
 
+> **Histórico.** Este documento describe el sistema visual anterior (acento azul Apple). El sistema vigente
+> desde el rediseño UX 2026 (neutros cálidos, un único acento cian, tokens claro/oscuro, kit de workspace) es
+> [`docs/ux/DESIGN-SYSTEM-2026.md`](docs/ux/DESIGN-SYSTEM-2026.md).
+
 ## Overview
 
 **Creative North Star: "The Calm Instrument"**
