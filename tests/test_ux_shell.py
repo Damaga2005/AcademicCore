@@ -41,7 +41,7 @@ def _pick_subject(win):
 
 def test_pages_stay_pinned_and_tab_strip_is_hidden(qtbot, tmp_path):
     win = _win(qtbot, _core(tmp_path))
-    assert win.tabs.count() == 13
+    assert win.tabs.count() == 14
     assert win.tabs.tabBar().isHidden()
     assert win.tabs.currentWidget() is win.dashboard_panel  # starts on Home
 
@@ -75,14 +75,16 @@ def test_sections_context_panel_and_actions_follow_the_area(qtbot, tmp_path):
     win.navigate_to("home")
     assert win.section_bar.isHidden() and win.context_panel.isHidden() and win.actions_bar.isHidden()
     win.navigate_to("learn/subject/grades")
-    assert len(win.section_bar.buttons) == 6 and win.section_bar.buttons["learn/subject/grades"].isChecked()
+    assert len(win.section_bar.buttons) == 7 and win.section_bar.buttons["learn/subject/grades"].isChecked()
     assert win.context_panel.isVisible() and win.actions_bar.isVisible()
     win.navigate_to("learn/library")
     assert win.context_panel.isVisible() and win.actions_bar.isHidden()
     win.navigate_to("engineering/lab")
     assert len(win.section_bar.buttons) == 5 and win.context_panel.isHidden()
     win.navigate_to("practice/exercises")
-    assert win.section_bar.isHidden()  # one section: no bar
+    assert len(win.section_bar.buttons) == 3 and not win.section_bar.isHidden()
+    win.navigate_to("settings")
+    assert win.section_bar.isHidden()  # no sections: no bar
 
 
 def test_rail_returns_to_last_visited_section(qtbot, tmp_path):

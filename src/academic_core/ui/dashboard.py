@@ -370,6 +370,7 @@ class DashboardPanel(QWidget):
         return [
             ("exercises", "Exercises",
              _safe(lambda: f"{len(list(app.exercises.library_keys()))} in the library", "Engineering library")),
+            ("sessions", "Sessions", self._sessions_caption()),
             ("simulation", "Analysis", "OP, transient, AC, DC sweep"),
             ("lab", "Lab", "Sessions, instruments, replay"),
             ("logic", "Digital Logic",
@@ -381,6 +382,12 @@ class DashboardPanel(QWidget):
              _safe(lambda: f"{len(app.authoring_store.authored_ids())} authored", "Notes and write-ups")),
             ("settings", "Settings", "Appearance and data"),
         ]
+
+    def _sessions_caption(self) -> str:
+        banks = _safe(lambda: self.app.practice.banks(), [])
+        if not banks:
+            return "Import a question bank"
+        return f"{sum(b['question_count'] for b in banks)} questions in {len(banks)} bank(s)"
 
     def _render_tools(self) -> None:
         _clear(self.tools_box)

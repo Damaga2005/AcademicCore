@@ -111,6 +111,9 @@ class AcademicMainWindow(QMainWindow):
         self.logic_analyzer_panel = LogicAnalyzerPanel(app)
         self.tabs.insertTab(0, self.dashboard_panel, "Dashboard")
         self.tabs.addTab(self.exercise_panel, "Exercises")
+        from academic_core.ui.practice import PracticePanel
+        self.practice_panel = PracticePanel(app)  # F9-F12: sessions, plan, mastery, tutor
+        self.tabs.addTab(self.practice_panel, "Practice")
         self.tabs.addTab(self.simulation_panel, "Simulation")
         self.tabs.addTab(self.virtual_lab_panel, "Virtual Lab")
         self.tabs.addTab(self.logic_analyzer_panel, "Logic Analyzer")
@@ -296,6 +299,8 @@ class AcademicMainWindow(QMainWindow):
             "activities": self.tab_activities, "grades": self.tab_grades,
             "planning": self.tab_planning, "library": self.resources_panel,
             "documents": self.authoring_panel, "exercises": self.exercise_panel,
+            "sessions": self.practice_panel, "plan": self.practice_panel,
+            "mastery": self.practice_panel,
             "circuits": self.engineering_panel, "analysis": self.simulation_panel,
             "lab": self.virtual_lab_panel, "digital": self.logic_analyzer_panel,
             "aerospace": self.engineering_panel, "settings": self.settings_panel,
@@ -373,6 +378,8 @@ class AcademicMainWindow(QMainWindow):
         self.tabs.setCurrentWidget(page)
         if route.target in ("circuits", "aerospace"):
             self.engineering_panel.set_workspace(route.target)
+        elif route.target in ("sessions", "plan", "mastery"):
+            self.practice_panel.set_workspace(route.target)
         self._fit_page(page)
         self._route = route
         if route.section:
@@ -391,7 +398,8 @@ class AcademicMainWindow(QMainWindow):
                               settings=shell_settings())
         self.rail.set_area(route.area)
         self.section_bar.set_sections(route.area, routes.sections(route.area), route.id)
-        self.context_panel.setVisible(route.area == "learn")
+        # The subject tree is context for subject work and the library; Mastery has its own filter.
+        self.context_panel.setVisible(route.area == "learn" and route.target != "mastery")
         self.actions_bar.setVisible(route.needs_subject)
         self._sync_context()
         if route.target == "aerospace":
@@ -768,7 +776,8 @@ class AcademicMainWindow(QMainWindow):
             f"subject: {sid}\n"
             f"topics: {len(acts['topics'])} | refs: {len(acts['refs'])}\n"
             f"staff: {', '.join(p.name for p, _ in staff) or '(none)'}\n"
-            f"prerequisites: {', '.join(self.app.academic.prerequisites_of(sid)) or '(none)'}")
+            f"prerequisites: {', '.join(self.app.academic.prerequisites_of(sid)) or '(none)'}\n"
+            f"practice: {self._practice_line(sid)}")
         lines = []
         for label, items in (("assignments", acts["assignments"]), ("exams", acts["exams"]),
                              ("projects", acts["projects"]), ("labs", acts["labs"]),
@@ -793,6 +802,16 @@ class AcademicMainWindow(QMainWindow):
             "upcoming:\n" + "\n".join(f"• {d.title} [{d.kind}] {d.due}" for d in up) +
             "\n\noverdue:\n" + "\n".join(f"• {d.title} [{d.kind}] {d.due}" for d in over))
         self._refresh_resources()
+
+    def _practice_line(self, sid: str) -> str:
+        """Real mastery progress for the subject (F10), or an honest none."""
+        try:
+            pooled = self.app.practice.subject_mastery(sid)
+        except Exception:
+            return "unavailable"
+        if pooled is None:
+            return "no attempts yet (Practice > Sessions)"
+        return f"mastery {pooled[0]:.0%} over {pooled[1]} observations"
 
     # -- resources (facade-backed; same behavior as F3) -----------------------------------
     def _refresh_resources(self) -> None:

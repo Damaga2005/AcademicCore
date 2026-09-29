@@ -14,9 +14,9 @@ widget never differentiates, integrates or solves anything itself.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QThreadPool
+from PySide6.QtCore import QThreadPool, Qt
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QVBoxLayout,
+    QComboBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QVBoxLayout,
     QWidget,
 )
 
@@ -34,84 +34,120 @@ class ExercisePanel(QWidget):
         self.state = UiState.IDLE
         self.pool = QThreadPool(self)
 
-        layout = QVBoxLayout(self)
-        top = QHBoxLayout()
-        top.addWidget(QLabel("Exercise"))
-        self.selector = QComboBox()
-        self.selector.setToolTip("Library exercise backed by the domain")
-        top.addWidget(self.selector)
-        self.btn_refresh = QPushButton("Reload")
-        self.btn_refresh.setToolTip("Reload the exercise library")
-        top.addWidget(self.btn_refresh)
-        layout.addLayout(top)
+        from academic_core.ui.workspace import Panel
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(12)
 
-        self.desc = QLabel("")
-        self.desc.setWordWrap(True)
-        layout.addWidget(self.desc)
-
-        mid = QHBoxLayout()
-        mid.addWidget(QLabel("Inputs (VAR=value; VAR2=value2)"))
-        self.inputs = QTextEdit()
-        self.inputs.setToolTip("One VAR=value pair per ';'. Units required, e.g. V=5 V")
-        self.inputs.setMaximumHeight(80)
-        mid.addWidget(self.inputs)
-        layout.addLayout(mid)
-
-        row = QHBoxLayout()
+        # -- tools: run, explain, step by step ---------------------------------------------
+        tools = QHBoxLayout()
+        tools.setSpacing(8)
         self.btn_run = QPushButton("Solve")
         self.btn_run.setProperty("class", "primary")
         self.btn_run.setToolTip("Execute the exercise through the application service")
-        row.addWidget(self.btn_run)
         self.btn_explain = QPushButton("&Explicar")
         self.btn_explain.setToolTip("Run the exercise and explain it step by step from its real "
                                     "execution trace (E0)")
-        row.addWidget(self.btn_explain)
         self.btn_steps = QPushButton("&Paso a paso")
         self.btn_steps.setToolTip("Datos → fórmula → sustitución → cálculo → resultado → verificación, "
                                   "desde la traza pedagógica real (E0.1)")
-        row.addWidget(self.btn_steps)
-        self.status = QLabel("IDLE")
+        self.status = QLabel("READY")
         apply_status_style(self.status, UiState.IDLE)
-        row.addWidget(self.status)
-        layout.addLayout(row)
+        for b in (self.btn_run, self.btn_explain, self.btn_steps):
+            tools.addWidget(b)
+        tools.addStretch(1)
+        tools.addWidget(self.status)
+        root.addLayout(tools)
 
-        math = QHBoxLayout()
-        math.addWidget(QLabel("Matemáticas"))
+        body = QHBoxLayout()
+        body.setSpacing(16)
+        root.addLayout(body, 1)
+
+        # -- the problem and the student's work ------------------------------------------------
+        left = QVBoxLayout()
+        left.setSpacing(16)
+        problem = Panel("Problem")
+        pick = QHBoxLayout()
+        self.selector = QComboBox()
+        self.selector.setToolTip("Library exercise backed by the domain")
+        self.selector.setAccessibleName("Exercise")
+        self.btn_refresh = QPushButton("Reload")
+        self.btn_refresh.setToolTip("Reload the exercise library")
+        pick.addWidget(self.selector, 1)
+        pick.addWidget(self.btn_refresh)
+        problem.body.addLayout(pick)
+        self.desc = QLabel("")
+        self.desc.setWordWrap(True)
+        self.desc.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        problem.add(self.desc)
+        left.addWidget(problem)
+
+        work = Panel("Your inputs")
+        self.inputs = QTextEdit()
+        self.inputs.setToolTip("One VAR=value pair per ';'. Units required, e.g. V=5 V")
+        self.inputs.setAccessibleName("Inputs (VAR=value; VAR2=value2)")
+        self.inputs.setMaximumHeight(96)
+        work.add(self.inputs)
+        fmt = QLabel("VAR=value pairs separated by ';', with units, e.g. V=5 V; R=1 kohm")
+        fmt.setObjectName("CardStatus")
+        fmt.setWordWrap(True)
+        work.add(fmt)
+        left.addWidget(work)
+
+        maths = Panel("Mathematics")
         self.math_expr = QLineEdit()
         self.math_expr.setPlaceholderText("x^2*sin(x)   ·   3*x + 2 = x - 4")
         self.math_expr.setToolTip("Expresión (derivar, integrar, simplificar) o ecuación lineal con '='. "
                                   "Productos explícitos: 2*x. Funciones: sin, cos, tan, exp, log, sqrt, abs.")
-        math.addWidget(self.math_expr, 3)
+        self.math_expr.setAccessibleName("Expression")
+        maths.add(self.math_expr)
+        limits = QHBoxLayout()
         self.math_var = QLineEdit("x")
         self.math_var.setToolTip("Variable")
-        self.math_var.setMaximumWidth(48)
-        math.addWidget(self.math_var)
+        self.math_var.setAccessibleName("Variable")
         self.math_lower = QLineEdit()
         self.math_lower.setPlaceholderText("a")
         self.math_lower.setToolTip("Límite inferior (integral definida; vacío = indefinida)")
-        self.math_lower.setMaximumWidth(56)
-        math.addWidget(self.math_lower)
+        self.math_lower.setAccessibleName("Lower limit")
         self.math_upper = QLineEdit()
         self.math_upper.setPlaceholderText("b")
         self.math_upper.setToolTip("Límite superior (integral definida; vacío = indefinida)")
-        self.math_upper.setMaximumWidth(56)
-        math.addWidget(self.math_upper)
+        self.math_upper.setAccessibleName("Upper limit")
+        for label, w in (("var", self.math_var), ("from", self.math_lower), ("to", self.math_upper)):
+            cap = QLabel(label)
+            cap.setProperty("role", "key")
+            limits.addWidget(cap)
+            limits.addWidget(w, 1)
+        maths.body.addLayout(limits)
+        actions = QGridLayout()
+        actions.setSpacing(6)
         self.btn_derive = QPushButton("Derivar")
         self.btn_integrate = QPushButton("Integrar")
         self.btn_solve_eq = QPushButton("Resolver ecuación")
         self.btn_simplify = QPushButton("Simplificar")
-        for b, tip in ((self.btn_derive, "Derivada paso a paso (reglas reales aplicadas)"),
-                       (self.btn_integrate, "Integral paso a paso; con límites a y b, integral definida"),
-                       (self.btn_solve_eq, "Ecuación lineal: despeje paso a paso y verificación"),
-                       (self.btn_simplify, "Simplificación: antes → regla → después")):
+        for i, (b, tip) in enumerate(((self.btn_derive, "Derivada paso a paso (reglas reales aplicadas)"),
+                                      (self.btn_integrate, "Integral paso a paso; con límites a y b, integral definida"),
+                                      (self.btn_solve_eq, "Ecuación lineal: despeje paso a paso y verificación"),
+                                      (self.btn_simplify, "Simplificación: antes → regla → después"))):
             b.setToolTip(tip)
-            math.addWidget(b)
-        layout.addLayout(math)
+            actions.addWidget(b, i // 2, i % 2)
+        maths.body.addLayout(actions)
+        left.addWidget(maths)
+        left.addStretch(1)
+        left_w = QWidget()
+        left_w.setLayout(left)
+        left_w.setFixedWidth(400)
+        body.addWidget(left_w)
 
+        # -- feedback and result ---------------------------------------------------------------
+        result = Panel("Result")
         self.output = QTextEdit(readOnly=True)
         self.output.setObjectName("Output")
         self.output.setToolTip("Result or UI-safe error")
-        layout.addWidget(self.output)
+        self.output.setAccessibleName("Result")
+        self.output.setPlaceholderText("Solve, explain or step through the exercise to see the result here.")
+        result.add(self.output, 1)
+        body.addWidget(result, 1)
 
         self.btn_refresh.clicked.connect(self.refresh_library)
         self.selector.currentTextChanged.connect(self._show_selected)
@@ -186,7 +222,7 @@ class ExercisePanel(QWidget):
         inputs = self._read_inputs() if key else None
         if inputs is None:
             return
-        self._set_state(UiState.RUNNING, "RUNNING…")
+        self._set_state(UiState.RUNNING, "COMPUTING…")
         worker = ServiceWorker(self.app.explain.explain_exercise, key, inputs, pedagogical)
         worker.signals.finished.connect(self._on_explanation)
         worker.signals.failed.connect(self._on_error)
@@ -200,7 +236,7 @@ class ExercisePanel(QWidget):
             return
         lower = self.math_lower.text().strip() or None
         upper = self.math_upper.text().strip() or None
-        self._set_state(UiState.RUNNING, "RUNNING…")
+        self._set_state(UiState.RUNNING, "COMPUTING…")
         worker = ServiceWorker(self.app.explain.explain_math, kind, expression,
                                self.math_var.text().strip() or "x", lower, upper)
         worker.signals.finished.connect(self._on_explanation)

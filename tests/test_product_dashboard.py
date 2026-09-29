@@ -172,8 +172,9 @@ def test_deadlines_come_from_the_planning_queries(qtbot, tmp_path):
 def test_tools_list_real_capabilities_and_navigate(qtbot, tmp_path):
     core = _core(tmp_path)
     dash = _dash(qtbot, core)
-    assert set(dash._cards) == {"exercises", "simulation", "lab", "logic", "aerospace",
+    assert set(dash._cards) == {"exercises", "sessions", "simulation", "lab", "logic", "aerospace",
                                 "resources", "documents", "settings"}
+    assert dash._cards["sessions"].caption_label.text() == "Import a question bank"  # no bank yet, said plainly
     assert f"{len(list(core.exercises.library_keys()))} in the library" == \
         dash._cards["exercises"].caption_label.text()
     assert f"{len(tuple(core.digital.demos()))} demo circuits" == \

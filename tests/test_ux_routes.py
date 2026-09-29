@@ -15,15 +15,16 @@ def test_legacy_keys_resolve_to_known_routes():
 
 def test_every_page_of_the_ia_is_reachable():
     targets = {r.target for r in routes.ROUTES}
-    assert targets == {"dashboard", "overview", "activities", "grades", "planning", "library",
-                       "documents", "exercises", "circuits", "analysis", "lab", "digital",
-                       "aerospace", "settings"}
+    assert targets == {"dashboard", "overview", "activities", "grades", "planning", "mastery", "library",
+                       "documents", "exercises", "sessions", "plan", "circuits", "analysis", "lab",
+                       "digital", "aerospace", "settings"}
 
 
 def test_areas_and_sections():
     assert [a for a, _ in routes.AREAS] == ["home", "learn", "practice", "engineering", "settings"]
     assert [r.label for r in routes.sections("learn")] == [
-        "Summary", "Activities", "Grades", "Planning", "Library", "Documents"]
+        "Summary", "Activities", "Grades", "Planning", "Mastery", "Library", "Documents"]
+    assert [r.label for r in routes.sections("practice")] == ["Exercises", "Sessions", "Plan"]
     assert [r.label for r in routes.sections("engineering")] == [
         "Circuits", "Analysis", "Lab", "Digital Logic", "Aerospace"]
     assert routes.sections("home") == ()
@@ -46,7 +47,7 @@ def test_crumbs_only_where_they_orient():
     assert [t for t, _ in subject] == ["Learn", "Circuitos I", "Grades"]
     assert subject[-1][1] is None and subject[0][1] == "learn/subject/summary"
     assert [t for t, _ in routes.crumbs(routes.resolve("engineering/lab"))] == ["Engineering", "Lab"]
-    assert routes.crumbs(routes.resolve("practice/exercises")) == [("Practice", None)]
+    assert [t for t, _ in routes.crumbs(routes.resolve("practice/sessions"))] == ["Practice", "Sessions"]
     assert routes.crumbs(routes.resolve("home")) == [("Home", None)]
 
 

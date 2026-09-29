@@ -388,3 +388,22 @@ Home usa solo datos reales: *Continue* = la actividad más reciente y resoluble 
 ### 14.2 Engineering y laboratorios (Prompts 6 y 7)
 
 `engineering/circuits` y `engineering/aerospace` son dos workspaces dentro de la misma página fijada (`EngineeringPanel.set_workspace`), de modo que el número de páginas sigue siendo 13. `engineering/analysis` (Simulation), `engineering/lab` (Virtual Lab) y `engineering/digital-logic` comparten el esqueleto de laboratorio (DESIGN-SYSTEM §11). Corregido en el camino: `SimulationPanel` llamaba a `self.decimal` (inexistente), por lo que el análisis transitorio con su parámetro por defecto siempre fallaba.
+
+### 14.3 Learn, Practice y Tutor (Prompt 8)
+
+**F9–F12 ya están en la fachada** (`AcademicApp.qbank`, `bank_ingest`, `correction`, `mastery`, `adaptive`, `tutor`, `practice`), sin tocar dominio ni motores. `application/practice.py` (`PracticeService`) solo orquesta y devuelve valores planos.
+
+Nueva página **Practice** (la 14.ª; los tests que fijaban 13 se actualizan) con tres workspaces: `practice/sessions`, `practice/plan` y `learn/mastery` (Mastery aparece en Learn, la página es la misma).
+
+| Zona | Contenido | Autoridad |
+|---|---|---|
+| Sessions | Banco → preguntas → intento (formulario por tipo D6) → corrección → resultado | F9 `correct_answer`; la UI **nunca** recibe la respuesta correcta |
+| Tutor | Panel dentro del flujo, sobre una pregunta ya corregida; no es un chat | F12: propuesta del LLM → validación → política → F9 → verificación → `VerifiedResponse`; sin LLM (`NullProvider`) devuelve la guía estática verificable |
+| Plan | Recomendación con motivos legibles y «Practise these» | F11, determinista |
+| Mastery | Dominio por concepto y por asignatura, «Recompute from evidence» | F10; recomputar debe dar lo mismo |
+
+Learn › Summary muestra ahora el progreso real de práctica de la asignatura. Los tipos `structured` y `circuit` no son evaluables automáticamente (F9 los marca *needs review*): la UI lo dice y no los cuenta como error.
+
+**Hallazgo en el núcleo (no modificado):** `MasteryService.apply_evidence` documenta «needs_review → no_update» pero construye una observación sin masa y lanza `DomainError` (`application/mastery.py`, alrededor de la línea 80). `PracticeService.submit` evita el fallo sin cambiar la semántica, no entregándole esos ítems. Decisión pendiente: corregir el núcleo con un `continue`.
+
+Limitación conocida: un intento vive en memoria mientras la app está abierta (la corrección y la evidencia sí se guardan).

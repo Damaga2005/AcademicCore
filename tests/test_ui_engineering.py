@@ -14,7 +14,7 @@ def test_engineering_tab_boots(qtbot, tmp_path, monkeypatch):
     core.settings.ensure_dirs()
     win = AcademicMainWindow(core)
     qtbot.addWidget(win)
-    assert win.tabs.count() == 13  # F15: Dashboard + legacy + Exercises + Simulation + Virtual Lab + Logic Analyzer (F8-Q.6) + Settings
+    assert win.tabs.count() == 14  # 14 pages: the 13 F15 pages + Practice (F9-F12 sessions, plan, mastery)
     assert win.engineering_panel.projects.count() == 0
     core.engineering.create_project("demo")
     win.engineering_panel.refresh_projects()

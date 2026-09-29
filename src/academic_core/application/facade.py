@@ -146,6 +146,28 @@ class AcademicApp:
         self.cloud_sync = CloudSyncService(self.sync, self.sync_store,
                                            self.cloud_transport, self.device_id)
 
+        # -- F9-F12 learning loop, exposed for the UI (no new domain logic) --
+        from academic_core.application.adaptive import AdaptiveService
+        from academic_core.application.bank_ingest import BankIngestionService
+        from academic_core.application.correction import CorrectionService
+        from academic_core.application.mastery import MasteryService
+        from academic_core.application.practice import PracticeService
+        from academic_core.application.tutor import TutorService
+        from academic_core.infrastructure import (
+            MasteryRepository, NullProvider, QBankRepository, TutorRepository,
+        )
+        self.qbank = QBankRepository(self.db)
+        self.bank_ingest = BankIngestionService(self.academic, self.personal, self.qbank)
+        self.correction = CorrectionService(self.assessment_repo, self.qbank, self.assessment)
+        self.mastery_repo = MasteryRepository(self.db)
+        self.mastery = MasteryService(self.mastery_repo, self.academic, self.personal)
+        self.adaptive = AdaptiveService(self.qbank, self.mastery_repo, self.academic)
+        self.tutor = TutorService(NullProvider(), TutorRepository(self.db))  # LLM=OFF by default
+        self.practice = PracticeService(
+            qbank=self.qbank, ingest=self.bank_ingest, assessments=self.assessment,
+            correction=self.correction, mastery=self.mastery, adaptive=self.adaptive,
+            tutor=self.tutor, personal=self.personal)
+
     def ensure_demo(self) -> None:
         """Generic, deletable demo hierarchy (never institution-specific)."""
         from datetime import date as _date
