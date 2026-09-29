@@ -495,10 +495,9 @@ def test_e03_g01_service_registry_and_replay(core):
 @pytest.mark.parametrize("circuit, kind", [(0, "OP"), (0, "DC_SWEEP"), (1, "TRANSIENT"), (2, "AC_POINT"),
                                            (2, "AC_SWEEP")])
 def test_e03_g02_virtual_lab_explains_the_last_run_in_detail(qtbot, core, monkeypatch, circuit, kind):
-    from academic_core.ui import errors as ui_errors
+    from academic_core.ui import dialogs as ui_dialogs
     from academic_core.ui.virtual_lab import VirtualLabPanel
-    for name in ("warning", "information", "critical"):
-        monkeypatch.setattr(ui_errors.QMessageBox, name, staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(ui_dialogs, "show_message", lambda *a, **k: None)
     panel = VirtualLabPanel(core)
     qtbot.addWidget(panel)
     panel.circuit.setCurrentIndex(circuit)

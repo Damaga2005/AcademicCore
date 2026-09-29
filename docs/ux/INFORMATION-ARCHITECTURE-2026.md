@@ -407,3 +407,16 @@ Learn › Summary muestra ahora el progreso real de práctica de la asignatura. 
 **Hallazgo en el núcleo (no modificado):** `MasteryService.apply_evidence` documenta «needs_review → no_update» pero construye una observación sin masa y lanza `DomainError` (`application/mastery.py`, alrededor de la línea 80). `PracticeService.submit` evita el fallo sin cambiar la semántica, no entregándole esos ítems. Decisión pendiente: corregir el núcleo con un `continue`.
 
 Limitación conocida: un intento vive en memoria mientras la app está abierta (la corrección y la evidencia sí se guardan).
+
+### 14.4 Diálogos, formularios y componentes (Prompt 9)
+
+**Auditoría.** Había ~50 `QMessageBox` genéricos (títulos de una palabra, sin contexto) en `main_window.py` y `authoring.py`, y 11 sitios que mostraban `f"{type(e).__name__}: {e}"`, es decir, texto crudo de la excepción, contra la regla D2. `prompt_form` y `confirm` eran mínimos (sin contexto, botón "OK", sin foco definido); `ModulesDialog` no tenía título ni botones.
+
+**Componente único** (`ui/dialogs.py`): `DialogFrame` (título, una línea de contexto, contenido, secundaria + primaria, Escape, foco inicial explícito, Enter = primaria). Sobre él:
+- `MessageDialog` / `show_message(parent, level, title, message)`: un solo punto por el que un aviso llega a pantalla; `errors.show_ui_error` pasa por aquí. Separa el mensaje seguro del "qué hacer" y muestra el nivel como pill.
+- `confirm(..., confirm_text, destructive)`: la acción se nombra en el botón ("Delete"); las destructivas arrancan con el foco en Cancelar y usan `class="danger"`.
+- `prompt_form(...)`: foco en el primer campo, etiquetas con *buddy*, y `FORM_COPY` da a cada formulario título de acción, contexto y verbo primario.
+
+**Migración.** `QMessageBox` ya no aparece fuera de `dialogs.py` (lo fija un test). Los errores de excepción pasan por `show_ui_error`. Los archivos nativos de Windows (`QFileDialog`) se mantienen: son el estándar de la plataforma. Los tests que interceptaban `QMessageBox` ahora interceptan `dialogs.show_message`.
+
+**Fuera de alcance / pendiente.** Tablas y tooltips ya heredan los tokens del Design System (§10); no se rediseñaron. La validación en línea de formularios (marcar el campo) no existe todavía: hoy el error se comunica con un aviso tras enviar.

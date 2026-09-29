@@ -27,12 +27,10 @@ def test_authoring_tab_present_and_empty_state(qtbot, tmp_path, monkeypatch):
 
 
 def test_create_edit_undo_save_flow(qtbot, tmp_path, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
+    from academic_core.ui import dialogs
     seen = []
-    monkeypatch.setattr(QMessageBox, "information",
-                        lambda *a, **k: seen.append(("info", a[1] if len(a) > 1 else "")))
-    monkeypatch.setattr(QMessageBox, "warning",
-                        lambda *a, **k: seen.append(("warn", a[1] if len(a) > 1 else "")))
+    monkeypatch.setattr(dialogs, "show_message", lambda parent, level, title, body: seen.append(
+        ({"information": "info", "warning": "warn"}.get(level, level), title)))
     win, core = _win(qtbot, tmp_path, monkeypatch)
     panel = win.authoring_panel
     sid = core.authoring.create_from_template("lecture-notes")

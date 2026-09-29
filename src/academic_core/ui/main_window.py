@@ -14,12 +14,14 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMessageBox, QPushButton, QTabWidget,
+    QListWidgetItem, QMainWindow, QPushButton, QTabWidget,
     QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from academic_core import __version__
 from academic_core.ui import routes
+from academic_core.ui import dialogs
+from academic_core.ui.errors import show_ui_error
 from academic_core.ui.dialogs import confirm, prompt_form
 from academic_core.ui.shell import NavRail, SectionBar, TopBar
 from academic_core.ui.state_store import push_recent_route, shell_settings  # noqa: F401 (re-export)
@@ -631,16 +633,17 @@ class AcademicMainWindow(QMainWindow):
                                        acronym=v["acronym"],
                                        credits=float(v["credits"] or 0))
             else:
-                QMessageBox.information(self, "Add", "Use the action row for subject items")
+                dialogs.information(self, "Add", "Use the action row for subject items")
                 return
         except Exception as e:
-            QMessageBox.warning(self, "Add", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Add")
             return
         self._refresh_tree()
 
     def _delete_level(self) -> None:
         level, sid = self._selection()
-        if not sid or not confirm(self, f"Delete {level} {sid}?"):
+        if not sid or not confirm(self, f"Delete {level} {sid}? Everything inside it is removed too.",
+                                     title=f"Delete {level}", confirm_text="Delete", destructive=True):
             return
         fn = {"university": self.app.svc.delete_university,
               "degree": self.app.svc.delete_degree,
@@ -652,7 +655,7 @@ class AcademicMainWindow(QMainWindow):
         try:
             fn(sid)
         except Exception as e:
-            QMessageBox.warning(self, "Delete", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Delete")
             return
         self._refresh_tree()
 
@@ -660,7 +663,7 @@ class AcademicMainWindow(QMainWindow):
     def _need_subject(self) -> str | None:
         sid = self._subject_id()
         if not sid:
-            QMessageBox.warning(self, "Subject", "Select a subject in the tree first")
+            dialogs.warning(self, "Subject", "Select a subject in the tree first")
         return sid
 
     def _add_topic(self) -> None:
@@ -673,7 +676,7 @@ class AcademicMainWindow(QMainWindow):
             try:
                 self.app.svc.create_topic(sid, v["index"], v["title"])
             except Exception as e:
-                QMessageBox.warning(self, "Topic", str(e))
+                show_ui_error(self, e, "Topic")
         self._refresh_detail()
 
     def _add_assignment(self) -> None:
@@ -685,7 +688,7 @@ class AcademicMainWindow(QMainWindow):
             try:
                 self.app.svc.create_assignment(self.app.planning, sid, v["title"])
             except Exception as e:
-                QMessageBox.warning(self, "Assignment", str(e))
+                show_ui_error(self, e, "Assignment")
         self._refresh_detail()
 
     def _add_task(self) -> None:
@@ -703,7 +706,7 @@ class AcademicMainWindow(QMainWindow):
                 self.app.svc.create_task(self.app.planning, self.app.study, sid,
                                          v["title"], kind=v["kind"])
             except Exception as e:
-                QMessageBox.warning(self, "Task", str(e))
+                show_ui_error(self, e, "Task")
         self._refresh_detail()
 
     def _add_exam(self) -> None:
@@ -716,7 +719,7 @@ class AcademicMainWindow(QMainWindow):
             try:
                 self.app.svc.create_exam(self.app.planning, sid, v["title"], day=v["day"])
             except Exception as e:
-                QMessageBox.warning(self, "Exam", str(e))
+                show_ui_error(self, e, "Exam")
         self._refresh_detail()
 
     def _record_grade(self) -> None:
@@ -736,7 +739,7 @@ class AcademicMainWindow(QMainWindow):
             self.app.results.record_grade(
                 sid, v["key"], v["value"], v["scale"], v["weight"])
         except Exception as e:
-            QMessageBox.warning(self, "Grade", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Grade")
         self._refresh_detail()
 
     def _export_json(self) -> None:
@@ -744,7 +747,7 @@ class AcademicMainWindow(QMainWindow):
                                               "JSON (*.json)")
         if path:
             n = self.app.io.export_file(path)
-            QMessageBox.information(self, "Export", f"{n} bytes written")
+            dialogs.information(self, "Export", f"{n} bytes written")
 
     def _import_json(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Import academic JSON", "",
@@ -754,10 +757,10 @@ class AcademicMainWindow(QMainWindow):
         try:
             rep = self.app.io.import_file(path)
         except Exception as e:
-            QMessageBox.warning(self, "Import", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Import")
             return
         errs = "\n".join(rep["errors"][:10])
-        QMessageBox.information(self, "Import",
+        dialogs.information(self, "Import",
                                 f"imported: {rep['imported']}\nerrors: {len(rep['errors'])}\n{errs}")
         self._refresh_tree()
 
@@ -865,38 +868,38 @@ class AcademicMainWindow(QMainWindow):
         try:
             rep = self.app.ingest.import_file(path, subject_id=self._subject_id())
         except Exception as e:
-            QMessageBox.warning(self, "Import", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Import")
             return
-        QMessageBox.information(self, "Import", f"{rep.outcome}: {rep.stable_id} v{rep.version}")
+        dialogs.information(self, "Import", f"{rep.outcome}: {rep.stable_id} v{rep.version}")
         self._refresh_resources()
 
     def _reindex_resources(self) -> None:
         n = self.app.ingest.reindex()
-        QMessageBox.information(self, "Reindex", f"{n} entries rebuilt")
+        dialogs.information(self, "Reindex", f"{n} entries rebuilt")
         self._refresh_resources()
 
     def _build_document(self) -> None:
         sid = self._selected_resource_id()
         if not sid:
-            QMessageBox.warning(self, "Document", "Select a resource first")
+            dialogs.warning(self, "Document", "Select a resource first")
             return
         try:
             summary = self.app.documents.build(sid)
         except Exception as e:
-            QMessageBox.warning(self, "Document", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Document")
             return
-        QMessageBox.information(self, "Document",
+        dialogs.information(self, "Document",
                                 f"{summary['parser']}: {summary['blocks']} blocks")
         self._show_resource()
 
     def _export_document(self, fmt: str) -> None:
         sid = self._selected_resource_id()
         if not sid:
-            QMessageBox.warning(self, "Export", "Select a resource first")
+            dialogs.warning(self, "Export", "Select a resource first")
             return
         rows = self.app.documents.list(sid)
         if not rows:
-            QMessageBox.warning(self, "Export", "Build a document first")
+            dialogs.warning(self, "Export", "Build a document first")
             return
         row = rows[0]
         if fmt == "md":

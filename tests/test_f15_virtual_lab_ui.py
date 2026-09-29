@@ -31,10 +31,9 @@ def panel(qtbot, tmp_path, monkeypatch):
     core = AcademicApp(Settings.load())
     core.settings.ensure_dirs()
     shown = []
-    from academic_core.ui import errors as ui_errors
-    for name in ("warning", "information", "critical"):
-        monkeypatch.setattr(ui_errors.QMessageBox, name,
-                            staticmethod(lambda parent, title, body, _n=name: shown.append((_n, title, body))))
+    from academic_core.ui import dialogs as ui_dialogs
+    monkeypatch.setattr(ui_dialogs, "show_message",
+                        lambda parent, level, title, body: shown.append((level, title, body)))
     widget = VirtualLabPanel(core)
     qtbot.addWidget(widget)
     widget.dialogs = shown

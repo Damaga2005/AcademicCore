@@ -261,6 +261,11 @@ QPushButton[class="primary"] {{
 QPushButton[class="primary"]:hover, QPushButton[class="primary"]:pressed {{ background: {t.accent_hover}; }}
 QPushButton[class="primary"]:focus {{ border: 2px solid {t.ink}; }}
 QPushButton[class="primary"]:disabled {{ background: {t.disabled_bg}; color: {t.tertiary}; }}
+QPushButton[class="danger"] {{ background: {t.error_ink}; color: {t.ground}; font-weight: 600; }}
+QPushButton[class="danger"]:hover, QPushButton[class="danger"]:pressed {{ background: {t.error_ink}; border: 2px solid {t.ink}; }}
+QPushButton[class="danger"]:focus {{ border: 2px solid {t.ink}; }}
+QLabel[objectName="DialogTitle"] {{ color: {t.ink}; font-size: 18px; font-weight: 600; }}
+QLabel[objectName="DialogContext"] {{ color: {t.secondary}; font-size: 13px; }}
 QPushButton[class="subtle"] {{
     background: transparent; color: {t.accent_text}; font-weight: 600;
 }}

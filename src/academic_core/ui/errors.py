@@ -9,8 +9,9 @@ invents its own mapping; raw ``str(exc)`` never reaches the user.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtWidgets import QWidget
 
+from academic_core.ui import dialogs
 from academic_core.errors import UiError, to_ui_error
 
 
@@ -28,9 +29,5 @@ def show_value(parent: QWidget | None, ui: UiError,
     body = ui.safe_message
     if ui.user_action:
         body += f"\n\n{ui.user_action}"
-    if ui.severity == "WARNING":
-        QMessageBox.warning(parent, title, body)
-    elif ui.severity == "INFO":
-        QMessageBox.information(parent, title, body)
-    else:
-        QMessageBox.critical(parent, title, body)
+    level = {"WARNING": "warning", "INFO": "information"}.get(ui.severity, "critical")
+    dialogs.show_message(parent, level, title, body)

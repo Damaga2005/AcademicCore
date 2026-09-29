@@ -11,10 +11,12 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QTextEdit, QTreeWidget,
+    QListWidgetItem, QPushButton, QTextEdit, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+from academic_core.ui import dialogs
+from academic_core.ui.errors import show_ui_error
 from academic_core.ui.dialogs import prompt_form
 
 
@@ -143,7 +145,7 @@ class AuthoringPanel(QWidget):
         try:
             sid = self.app.authoring.create_from_template(v["t"])
         except Exception as e:
-            QMessageBox.warning(self, "New", str(e))
+            show_ui_error(self, e, "New")
             return
         self.refresh_browser()
         self._open(sid)
@@ -160,7 +162,7 @@ class AuthoringPanel(QWidget):
         try:
             self.state = self.app.authoring.open(sid)
         except Exception as e:
-            QMessageBox.warning(self, "Open", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Open")
             return
         self.sid = sid
         self.refresh_all()
@@ -209,7 +211,7 @@ class AuthoringPanel(QWidget):
             return
         path = self._current_path()
         if path is None:
-            QMessageBox.warning(self, "Block", "Select a block in the outline")
+            dialogs.warning(self, "Block", "Select a block in the outline")
             return
         kind, _text, _display = self.app.authoring.block_editor_text(self.state, path)
         try:
@@ -224,7 +226,7 @@ class AuthoringPanel(QWidget):
                 self.app.authoring.apply_markdown(
                     self.state, path, self.block_edit.toPlainText())
         except Exception as e:
-            QMessageBox.warning(self, "Block", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Block")
             return
         self.refresh_all()
 
@@ -237,7 +239,7 @@ class AuthoringPanel(QWidget):
         try:
             self.app.authoring.delete_block(self.state, path)
         except Exception as e:
-            QMessageBox.warning(self, "Block", str(e))
+            show_ui_error(self, e, "Block")
         self.refresh_all()
 
     def _insert_block(self) -> None:
@@ -250,7 +252,7 @@ class AuthoringPanel(QWidget):
         try:
             svc.insert_paragraph(self.state, anchor)
         except Exception as e:
-            QMessageBox.warning(self, "Block", str(e))
+            show_ui_error(self, e, "Block")
         self.refresh_all()
 
     def _set_title(self) -> None:
@@ -265,7 +267,7 @@ class AuthoringPanel(QWidget):
             return
         ok = self.state.undo() if op == "undo" else self.state.redo()
         if not ok:
-            QMessageBox.information(self, op.title(), f"Nothing to {op}")
+            dialogs.information(self, op.title(), f"Nothing to {op}")
         self.refresh_all()
 
     def _save(self) -> None:
@@ -274,9 +276,9 @@ class AuthoringPanel(QWidget):
         try:
             rep = self.app.authoring.save(self.state, self.sid)
         except Exception as e:
-            QMessageBox.warning(self, "Save", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Save")
             return
-        QMessageBox.information(self, "Save", f"{rep.outcome}: v{rep.version}")
+        dialogs.information(self, "Save", f"{rep.outcome}: v{rep.version}")
         self.refresh_browser()
         self.refresh_all()
 
@@ -285,10 +287,10 @@ class AuthoringPanel(QWidget):
             return
         issues = self.app.authoring.validate(self.state)
         if not issues:
-            QMessageBox.information(self, "Validate", "No issues")
+            dialogs.information(self, "Validate", "No issues")
             return
         lines = [f"[{i.severity}] {i.path} {i.code}: {i.message}" for i in issues[:30]]
-        QMessageBox.warning(self, "Validate", "\n".join(lines))
+        dialogs.warning(self, "Validate", "\n".join(lines))
 
     def _link(self) -> None:
         if self.sid is None:
@@ -304,7 +306,7 @@ class AuthoringPanel(QWidget):
         try:
             self.app.authoring.link(self.sid, v["kind"], v["id"])
         except Exception as e:
-            QMessageBox.warning(self, "Link", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Link")
 
     def _lifecycle(self) -> None:
         if self.sid is None:
@@ -319,7 +321,7 @@ class AuthoringPanel(QWidget):
         try:
             self.app.authoring.set_lifecycle(self.sid, v["to"])
         except Exception as e:
-            QMessageBox.warning(self, "Lifecycle", f"{type(e).__name__}: {e}")
+            show_ui_error(self, e, "Lifecycle")
             return
         self.refresh_browser()
         self.refresh_all()

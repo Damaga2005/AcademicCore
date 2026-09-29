@@ -11,7 +11,7 @@ The dialog navigates to the owning tab; entries are display only.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QDialog, QListWidget, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout
 
 
 def module_index(core) -> list[dict]:
@@ -36,11 +36,34 @@ class ModulesDialog(QDialog):
         self.setWindowTitle("Engineering modules")
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+        title = QLabel("Engineering modules")
+        title.setObjectName("DialogTitle")
+        layout.addWidget(title)
+        context = QLabel("Pick a module to open its workspace. Double-click or press Enter.")
+        context.setObjectName("DialogContext")
+        layout.addWidget(context)
         self.entry_list = QListWidget()
+        self.entry_list.setAccessibleName("Modules")
         for mod in module_index(core):
             self.entry_list.addItem(f"{mod['title']} ({len(mod['entries'])} entries)")
+        self.entry_list.setCurrentRow(0)
         layout.addWidget(self.entry_list)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        close = QPushButton("Close")
+        close.clicked.connect(self.reject)
+        self.btn_open = QPushButton("Open")
+        self.btn_open.setProperty("class", "primary")
+        self.btn_open.setDefault(True)
+        self.btn_open.clicked.connect(self.open_current)
+        row.addWidget(close)
+        row.addWidget(self.btn_open)
+        layout.addLayout(row)
         self.entry_list.itemDoubleClicked.connect(lambda _i: self.open_current())
+        self.entry_list.itemActivated.connect(lambda _i: self.open_current())
+        self.entry_list.setFocus()
 
     def showEvent(self, event) -> None:
         from academic_core.ui.motion import pop_in
