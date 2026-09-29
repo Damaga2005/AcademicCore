@@ -73,7 +73,9 @@ class MasteryService:
             concepts = self._resolve_concepts(item)
             if not concepts:
                 continue  # unmappable question → no_update (never invented)
-            correct = item.is_correct  # None → needs_review → no_update
+            correct = item.is_correct
+            if correct is None:
+                continue  # needs_review → no_update (no verdict, no mass)
             n = len(concepts)
             delta = M.split_weight(Decimal(1), n, self.config)
             for ref in concepts:

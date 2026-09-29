@@ -210,14 +210,7 @@ class PracticeService:
         by_item = {known.item_ids[q]: payload for q, payload in answers.items()}
         self.correction.submit_with_correction(attempt.session_id, asmt, by_item, self._clock())
         evidence = self.correction.build_evidence(attempt.session_id, asmt)
-        # A "needs_review" item carries no verdict, so it must not move mastery. F10 documents
-        # that ("None -> needs_review -> no_update") but MasteryService.apply_evidence builds a
-        # zero-mass Observation for it and raises. The core is not touched here; the
-        # equivalent no-update is applied by not handing it that item.
-        scorable = tuple(i for i in evidence.items if not (i.is_correct is None and i.reason == "needs_review"))
-        applied = 0
-        if scorable:
-            applied = self.mastery.apply_evidence(replace(evidence, items=scorable)).get("applied", 0)
+        applied = self.mastery.apply_evidence(evidence).get("applied", 0)
         self._attempts.pop(attempt.session_id, None)
         self._evidence[attempt.session_id] = {i.question_id: i for i in evidence.items}
         return AttemptResult(
