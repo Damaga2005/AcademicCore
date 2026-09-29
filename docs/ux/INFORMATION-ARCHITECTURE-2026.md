@@ -435,3 +435,24 @@ Limitación conocida: un intento vive en memoria mientras la app está abierta (
 El efecto de opacidad se retira al terminar (sin coste en reposo).
 
 **Estados.** Mientras un panel está en `RUNNING` se bloquean los botones que iniciarían otra ejecución (`state.set_busy`): Exercises, Virtual Lab y Simulation. Antes se podía lanzar la misma ejecución dos veces. Solo se rehabilitan los botones que `set_busy` bloqueó, no los desactivados por otro motivo. Los estados siguen siendo los cinco de `UiState`; *Paused* y *Offline* no se muestran porque el motor no los soporta.
+
+### 14.6 Experiencia Windows (Prompt 11)
+
+Se mantiene PySide6, el EXE (PyInstaller onedir), el instalador NSIS, `%LOCALAPPDATA%/AcademicCore` y el core. Nuevo: `ui/windows.py`.
+
+**Medido (no supuesto).** Se renderizó la ventana real con `QT_SCALE_FACTOR` 1, 1.25, 1.5 y 2 sobre una pantalla de 1920×1080 (área útil lógica 1920×1032 · 1536×826 · 1280×688 · 960×516) y se midió si aparece scroll horizontal en Home, Circuits, Aerospace, Library y Sessions.
+
+| Hallazgo | Evidencia | Corrección |
+|---|---|---|
+| A 200 % la ventana (mín. 900×600) era más alta que la pantalla (516): controles inalcanzables | área útil 960×516 | `fit_to_screen`: el mínimo y el tamaño inicial ceden ante el área disponible |
+| A 200 % las páginas de ingeniería (mín. 775 px) y Library (tree 280 + página) desbordaban junto al carril de 216 px | scroll horizontal en Circuits/Aerospace/Logic/Library | por debajo de 1100 px el carril se pliega solo y el árbol pasa de 280 a 220 px; al ensanchar vuelve a lo que eligió la persona (la elección manual nunca se pisa ni se persiste como automática) |
+| El icono de la ventana se buscaba en `packaging/`, inexistente en el bundle | ruta relativa al árbol de fuentes | el `.ico` viaja como recurso (`resources/`, incluido en el `.spec`); un test lo fija idéntico al del instalador |
+| La barra de tareas se agrupaba bajo el host de Python en desarrollo | sin AppUserModelID | `SetCurrentProcessExplicitAppUserModelID("AcademicCore.Desktop")` |
+| Dos lanzamientos abrían dos ventanas sobre la misma SQLite | sin control de instancia | `SingleInstance`: el segundo lanzamiento despierta al primero (restaura si estaba minimizado) y sale |
+| No había pantalla completa | menú View sin acción | `View › Full screen` (F11) |
+
+Sin scroll horizontal en ninguna de las 20 combinaciones página × escala tras las correcciones. El cierre y reapertura conserva geometría, ruta y carril (test); el tamaño restaurado nunca excede la pantalla actual.
+
+**Instalador / desinstalación.** Un test estático fija: entrada de Start Menu, clave de desinstalación con icono, y que el desinstalador **no** borra los datos del estudiante en `%LOCALAPPDATA%`.
+
+**Sin verificar (honestidad).** No se construyó ni ejecutó el instalador en esta sesión (requiere PyInstaller + NSIS y administrador para HKLM), así que Start Menu y desinstalación siguen sin ejecución real, como ya constaba en `packaging/windows/README.md`. El DPI se verificó con factor de escala de Qt sobre una pantalla de 100 %, no con un monitor físico de 125/150/200 %; el DPI mixto entre monitores tampoco se probó.

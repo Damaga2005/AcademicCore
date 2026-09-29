@@ -23,6 +23,8 @@ a = Analysis(
     datas=[
         (str(SRC / "academic_core" / "infrastructure" / "migrations"),
          "academic_core/infrastructure/migrations"),
+        (str(SRC / "academic_core" / "resources" / "academicore.ico"),
+         "academic_core/resources"),
     ],
     hiddenimports=[],
     hookspath=[],

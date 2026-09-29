@@ -56,5 +56,8 @@ Remove-Item -Recurse -Force dist, build
   `%LOCALAPPDATA%/AcademicCore` aislado.
 - SHA-256 del Setup reconstruido del árbol final:
   `359084474C65928F57CFFB963198E3BF039205E8757325D79EFCC31AE474C3F1`.
+- UX 2026 (prompt 11): DPI 100/125/150/200 % medido con `QT_SCALE_FACTOR`
+  (sin scroll horizontal; ver `docs/ux/INFORMATION-ARCHITECTURE-2026.md` §14.6),
+  instancia única, icono como recurso, AppUserModelID.
 - NOT VERIFIED (sin admin ni 2ª máquina): Start Menu, ejecución del
-  uninstall, clean machine, DPI 125/150/200 sistemático.
+  uninstall, clean machine, monitor físico a 125/150/200 % y DPI mixto.

@@ -36,10 +36,9 @@ class AcademicMainWindow(QMainWindow):
         super().__init__()
         self.app = app  # AcademicApp facade
         self.setWindowTitle(f"Academic Core (v{__version__})")
-        self.resize(1250, 780)
-        self.setMinimumSize(900, 600)
-        icon = QIcon(str(Path(__file__).resolve().parents[2] / ".." / "packaging"
-                         / "windows" / "academicore.ico"))
+        from academic_core.ui import windows
+        windows.fit_to_screen(self)
+        icon = windows.app_icon()
         if not icon.isNull():
             self.setWindowIcon(icon)
 
@@ -259,6 +258,11 @@ class AcademicMainWindow(QMainWindow):
             self._appearance_group.addAction(action)
             appearance.addAction(action)
         view_menu.addSeparator()
+        self.fullscreen_action = QAction("&Full screen", self, checkable=True)
+        self.fullscreen_action.setShortcut(QKeySequence("F11"))
+        self.fullscreen_action.toggled.connect(
+            lambda on: self.showFullScreen() if on else self.showNormal())
+        view_menu.addAction(self.fullscreen_action)
         view_menu.addAction(self.session_dock.toggleViewAction())
         self.statusBar().showMessage(
             f"Academic Core v{__version__} · offline · {app.db.path}")
@@ -334,7 +338,12 @@ class AcademicMainWindow(QMainWindow):
         geometry = st.value("shell/geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
-        self.rail.set_collapsed(str(st.value("shell/rail_collapsed", "0")) == "1", animate=False)
+        self._rail_pref = str(st.value("shell/rail_collapsed", "0")) == "1"  # what the user chose
+        self._adapting_rail = False
+        self._narrow: bool | None = None
+        self.rail.collapsed_changed.connect(self._on_rail_toggled)
+        self.rail.set_collapsed(self._rail_pref, animate=False)
+        self._adapt_rail()
         subject = st.value("shell/subject")
         if subject:
             self._select_subject(str(subject))
@@ -415,6 +424,32 @@ class AcademicMainWindow(QMainWindow):
         except Exception:
             pass
 
+    NARROW_WIDTH = 1100  # below this the engineering pages (775 px minimum) no longer fit beside the rail
+
+    def _on_rail_toggled(self, collapsed: bool) -> None:
+        if not self._adapting_rail:
+            self._rail_pref = collapsed  # a deliberate choice, remembered across sizes and runs
+
+    def _adapt_rail(self) -> None:
+        """On a narrow window (200 % on a laptop) the rail gives its width to the page."""
+        narrow = self.width() < self.NARROW_WIDTH
+        if narrow == self._narrow:
+            return  # only act when crossing the threshold, so a manual toggle is never fought
+        self._narrow = narrow
+        self.context_panel.setFixedWidth(220 if narrow else 280)
+        want = True if narrow else self._rail_pref
+        if self.rail.collapsed != want:
+            self._adapting_rail = True
+            try:
+                self.rail.set_collapsed(want, animate=False)
+            finally:
+                self._adapting_rail = False
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt override
+        super().resizeEvent(event)
+        if hasattr(self, "_narrow"):
+            self._adapt_rail()
+
     def _fit_page(self, page) -> None:
         """The scroll area sizes the stack from the visible page's own minimum."""
         self.tabs.setMinimumSize(page.minimumSizeHint().expandedTo(page.minimumSize()))
@@ -439,7 +474,7 @@ class AcademicMainWindow(QMainWindow):
         try:
             st = shell_settings()
             st.setValue("shell/geometry", self.saveGeometry())
-            st.setValue("shell/rail_collapsed", "1" if self.rail.collapsed else "0")
+            st.setValue("shell/rail_collapsed", "1" if self._rail_pref else "0")
             sid = self._subject_id()
             st.setValue("shell/subject", sid or "")
             st.sync()

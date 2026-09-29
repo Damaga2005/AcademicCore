@@ -30,8 +30,13 @@ def main(argv: list[str] | None = None) -> int:
             "storage.index_dir": str(root / "data" / "index"),
             "storage.cache_dir": str(root / "data" / "cache"),
         })
+    from academic_core.ui import windows
+    windows.set_app_user_model_id()
     app = QApplication(argv)
     app.setApplicationName("Academic Core")
+    instance = windows.SingleInstance()
+    if not instance.claim():
+        return 0  # already running: the first window was asked to come forward
     app.setOrganizationName("Academic Core")
     from academic_core.ui.startup import APP, ORG, FirstRunDialog, is_first_run, make_splash
     from PySide6.QtCore import QSettings
@@ -43,11 +48,14 @@ def main(argv: list[str] | None = None) -> int:
     from academic_core.ui.theme import apply_saved_theme
     apply_saved_theme(app)
     win = AcademicMainWindow(core)
+    instance.activated.connect(lambda: windows.bring_to_front(win))
     if is_first_run(QSettings(ORG, APP)):
         FirstRunDialog(QSettings(ORG, APP), win).exec()
     win.show()
     splash.finish(win)
-    return app.exec()
+    code = app.exec()
+    instance.release()
+    return code
 
 
 if __name__ == "__main__":
