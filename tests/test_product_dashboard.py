@@ -38,9 +38,9 @@ def _rows(box):
 
 
 # -- pure helpers -------------------------------------------------------------
-@pytest.mark.parametrize("hour,text", [(0, "Good morning"), (11, "Good morning"),
-                                       (12, "Good afternoon"), (17, "Good afternoon"),
-                                       (18, "Good evening"), (23, "Good evening")])
+@pytest.mark.parametrize("hour,text", [(0, "Buenos días"), (11, "Buenos días"),
+                                       (12, "Buenas tardes"), (17, "Buenas tardes"),
+                                       (18, "Buenas noches"), (23, "Buenas noches")])
 def test_greeting_follows_the_hour(hour, text):
     from academic_core.ui.dashboard import greeting_for
     assert greeting_for(hour) == text
@@ -50,35 +50,35 @@ def test_relative_time_and_due_text():
     from academic_core.ui.dashboard import ago, due_text
     now = datetime(2026, 10, 14, 12, 0, 0, tzinfo=timezone.utc)
     iso = lambda **kw: (now - timedelta(**kw)).isoformat()
-    assert ago(iso(seconds=10), now) == "just now"
-    assert ago(iso(minutes=5), now) == "5 min ago"
-    assert ago(iso(hours=3), now) == "3 h ago"
-    assert ago(iso(hours=30), now) == "yesterday"
+    assert ago(iso(seconds=10), now) == "ahora mismo"
+    assert ago(iso(minutes=5), now) == "hace 5 min"
+    assert ago(iso(hours=3), now) == "hace 3 h"
+    assert ago(iso(hours=30), now) == "ayer"
     assert ago("not-a-date", now) == ""
     today = date(2026, 10, 14)
-    assert due_text(today, today) == "today"
-    assert due_text(today + timedelta(days=1), today) == "tomorrow"
-    assert due_text(today + timedelta(days=5), today) == "in 5 days"
-    assert due_text(today - timedelta(days=1), today) == "1 day overdue"
-    assert due_text(today - timedelta(days=3), today) == "3 days overdue"
+    assert due_text(today, today) == "hoy"
+    assert due_text(today + timedelta(days=1), today) == "mañana"
+    assert due_text(today + timedelta(days=5), today) == "en 5 días"
+    assert due_text(today - timedelta(days=1), today) == "1 día de retraso"
+    assert due_text(today - timedelta(days=3), today) == "3 días de retraso"
 
 
 # -- header + honest empty states ------------------------------------------------
 def test_greeting_uses_the_clock_not_a_constant(qtbot, tmp_path):
     core = _core(tmp_path)
-    assert _dash(qtbot, core, datetime(2026, 10, 14, 9)).greeting_label.text() == "Good morning"
-    assert _dash(qtbot, core, datetime(2026, 10, 14, 20)).greeting_label.text() == "Good evening"
+    assert _dash(qtbot, core, datetime(2026, 10, 14, 9)).greeting_label.text() == "Buenos días"
+    assert _dash(qtbot, core, datetime(2026, 10, 14, 20)).greeting_label.text() == "Buenas noches"
 
 
 def test_first_run_offers_to_add_a_subject(qtbot, tmp_path):
     dash = _dash(qtbot, _core(tmp_path))
     got = []
     dash.navigate.connect(got.append)
-    assert dash.continue_title.text() == "Set up your first subject"
-    assert dash.continue_button.text() == "Add a subject"
-    assert "Continue where you left off" not in dash.greeting_sub.text()  # nothing to continue
-    assert "No recent activity yet" in dash.recent_label.text()
-    assert "No subjects yet" in dash.deadlines_empty.text()
+    assert dash.continue_title.text() == "Crea tu primera asignatura"
+    assert dash.continue_button.text() == "Añadir una asignatura"
+    assert "Continúa donde lo dejaste" not in dash.greeting_sub.text()  # nothing to continue
+    assert "Sin actividad reciente" in dash.recent_label.text()
+    assert "Aún no hay asignaturas" in dash.deadlines_empty.text()
     dash.continue_button.click()
     assert got == ["learn/subject/summary"]
 
@@ -87,10 +87,10 @@ def test_subject_without_activity_says_nothing_to_continue(qtbot, tmp_path):
     core = _core(tmp_path)
     _with_subject(core)
     dash = _dash(qtbot, core)
-    assert dash.continue_title.text() == "Nothing to continue yet"
-    assert dash.continue_button.text() == "Open Learn"
-    assert "Nothing due" in dash.deadlines_empty.text()
-    assert "No recent activity yet" in dash.recent_label.text()
+    assert dash.continue_title.text() == "Nada que continuar todavía"
+    assert dash.continue_button.text() == "Abrir Aprender"
+    assert "Nada pendiente" in dash.deadlines_empty.text()
+    assert "Sin actividad reciente" in dash.recent_label.text()
 
 
 # -- continue + recent are real -----------------------------------------------------
@@ -103,8 +103,8 @@ def test_continue_is_the_last_opened_subject(qtbot, tmp_path):
     got = []
     dash.open_subject.connect(got.append)
     assert dash.continue_title.text() == "Circuitos I"
-    assert dash.continue_caption.text().startswith("Subject · opened")
-    assert dash.greeting_sub.text() == "Continue where you left off."
+    assert dash.continue_caption.text().startswith("Asignatura · abierta")
+    assert dash.greeting_sub.text() == "Continúa donde lo dejaste."
     dash.continue_button.click()
     assert got == [subject.stable_id]
 
@@ -112,12 +112,12 @@ def test_continue_is_the_last_opened_subject(qtbot, tmp_path):
 def test_continue_can_be_a_section_from_the_ui_log(qtbot, tmp_path):
     from academic_core.ui import state_store
     core = _core(tmp_path)
-    state_store.push_recent_route("engineering/digital-logic", "Engineering › Digital Logic")
+    state_store.push_recent_route("engineering/digital-logic", "Circuitos electrónicos › Lógica digital")
     dash = _dash(qtbot, core)
     got = []
     dash.navigate.connect(got.append)
-    assert dash.continue_title.text() == "Digital Logic"
-    assert dash.continue_caption.text().startswith("Engineering · opened")
+    assert dash.continue_title.text() == "Lógica digital"
+    assert dash.continue_caption.text().startswith("Circuitos electrónicos · abierta")
     dash.continue_button.click()
     assert got == ["engineering/digital-logic"]
 
@@ -129,12 +129,12 @@ def test_newest_activity_wins_and_recent_lists_the_rest(qtbot, tmp_path):
     old = (datetime.now(timezone.utc) - timedelta(hours=2)).replace(microsecond=0).isoformat()
     core.search_history.record_recent("asignatura", subject.stable_id, subject.name,
                                       "learn/subject/summary", accessed=old)
-    state_store.push_recent_route("practice/exercises", "Practice › Exercises")
+    state_store.push_recent_route("practice/exercises", "Practicar › Ejercicios")
     dash = _dash(qtbot, core, now=datetime.now().astimezone())
-    assert dash.continue_title.text() == "Exercises"
+    assert dash.continue_title.text() == "Ejercicios"
     rows = _rows(dash.recent_box)
     assert [r.title_label.text() for r in rows] == ["Circuitos I"]
-    assert rows[0].caption_label.text() == "2 h ago"
+    assert rows[0].caption_label.text() == "hace 2 h"
     assert dash.recent_label.isHidden()
 
 
@@ -145,7 +145,7 @@ def test_unresolvable_recent_is_shown_but_not_clickable(qtbot, tmp_path):
     rows = _rows(dash.recent_box)
     assert [r.title_label.text() for r in rows] == ["Álgebra"]
     assert not rows[0].isEnabled()
-    assert dash.continue_title.text() == "Set up your first subject"  # nothing real to continue
+    assert dash.continue_title.text() == "Crea tu primera asignatura"  # nothing real to continue
 
 
 # -- coming up ------------------------------------------------------------------------
@@ -162,7 +162,7 @@ def test_deadlines_come_from_the_planning_queries(qtbot, tmp_path):
     rows = _rows(dash.deadlines_box)
     texts = [[lbl.text() for lbl in r.findChildren(QLabel)] for r in rows]
     assert [t[1] for t in texts] == ["Entrega 1", "Parcial"]  # overdue first
-    assert "2 days overdue" in texts[0] and "in 3 days" in texts[1]
+    assert "2 días de retraso" in texts[0] and "en 3 días" in texts[1]
     assert any(lbl.property("role") == "danger" for lbl in rows[0].findChildren(QLabel))
     assert not any(lbl.property("role") == "danger" for lbl in rows[1].findChildren(QLabel))
     assert dash.deadlines_empty.isHidden()
@@ -174,10 +174,10 @@ def test_tools_list_real_capabilities_and_navigate(qtbot, tmp_path):
     dash = _dash(qtbot, core)
     assert set(dash._cards) == {"exercises", "sessions", "simulation", "lab", "logic", "aerospace",
                                 "resources", "documents", "settings"}
-    assert dash._cards["sessions"].caption_label.text() == "Import a question bank"  # no bank yet, said plainly
-    assert f"{len(list(core.exercises.library_keys()))} in the library" == \
+    assert dash._cards["sessions"].caption_label.text() == "Importar un banco de preguntas"  # no bank yet, said plainly
+    assert f"{len(list(core.exercises.library_keys()))} en la biblioteca" == \
         dash._cards["exercises"].caption_label.text()
-    assert f"{len(tuple(core.digital.demos()))} demo circuits" == \
+    assert f"{len(tuple(core.digital.demos()))} circuitos de ejemplo" == \
         dash._cards["logic"].caption_label.text()
     got = []
     dash.navigate.connect(got.append)
@@ -220,10 +220,10 @@ def _win(qtbot, core):
 def test_visiting_a_section_makes_it_continuable(qtbot, tmp_path):
     core = _core(tmp_path)
     win = _win(qtbot, core)
-    assert win.dashboard_panel.continue_title.text() == "Set up your first subject"
+    assert win.dashboard_panel.continue_title.text() == "Crea tu primera asignatura"
     win.navigate_to("engineering/lab")
     win.navigate_to("home")
-    assert win.dashboard_panel.continue_title.text() == "Lab"
+    assert win.dashboard_panel.continue_title.text() == "Laboratorio"
     win.dashboard_panel.continue_button.click()
     assert win.tabs.currentWidget() is win.virtual_lab_panel
 

@@ -44,16 +44,16 @@ from academic_core.ui.theme import apply_status_style
 from academic_core.ui.waveform import WaveformWidget
 from academic_core.ui.workers import ServiceWorker
 
-NO_TRIGGER = "(none — capture the window)"
-SHORT_LABEL = {"Start / arm from (s)": "From (s)", "End / arm until (s)": "Until (s)",
-               "Trigger channel": "Channel", "Trigger edge": "Edge",
-               "Pre-trigger (s)": "Pre (s)", "Post-trigger (s)": "Post (s)"}
-COLUMNS = ("#", "time (s)", "channel", "net", "previous", "new", "same-time")
+NO_TRIGGER = "(ninguno — capturar la ventana)"
+SHORT_LABEL = {"Inicio / armar desde (s)": "Desde (s)", "Fin / armar hasta (s)": "Hasta (s)",
+               "Canal de disparo": "Canal", "Flanco de disparo": "Flanco",
+               "Pre-disparo (s)": "Pre (s)", "Post-disparo (s)": "Post (s)"}
+COLUMNS = ("#", "tiempo (s)", "canal", "nodo", "anterior", "nuevo", "simultánea")
 STATUS_TEXT = {
-    "TRIGGERED": "TRIGGERED — trigger edge found; window captured around it",
-    "NOT_TRIGGERED": "NOT_TRIGGERED — no qualifying edge in the arming window; nothing captured",
-    "CAPTURED": "CAPTURED — window captured (no trigger configured)",
-    "LOADED": "LOADED — trace opened from file (no circuit was run)",
+    "TRIGGERED": "TRIGGERED — se encontró el flanco de disparo; ventana capturada a su alrededor",
+    "NOT_TRIGGERED": "NOT_TRIGGERED — ningún flanco válido en la ventana de armado; no se capturó nada",
+    "CAPTURED": "CAPTURED — ventana capturada (sin disparo configurado)",
+    "LOADED": "LOADED — traza abierta desde archivo (no se ejecutó ningún circuito)",
 }
 
 
@@ -74,25 +74,23 @@ class LogicAnalyzerPanel(QWidget):
         # -- tools: circuit + capture actions ----------------------------------------
         tools = QHBoxLayout()
         tools.setSpacing(8)
-        tools.addWidget(QLabel("Circuit"))
+        tools.addWidget(QLabel("Circuito"))
         self.demo = QComboBox()
-        self.demo.setAccessibleName("Circuit")
-        self.demo.setToolTip("Digital demo circuit (built fresh by the application service)")
-        for info in self.digital.demos():
-            self.demo.addItem(info.title, info.key)
-            self.demo.setItemData(self.demo.count() - 1, info.description, Qt.ItemDataRole.ToolTipRole)
+        self.demo.setAccessibleName("Circuito")
+        self.demo.setToolTip("Circuito digital de ejemplo (construido de nuevo por el servicio de aplicación)")
+        self._fill_demos()
         tools.addWidget(self.demo, 1)
-        self.btn_run = QPushButton("&Capture")
+        self.btn_run = QPushButton("&Capturar")
         self.btn_run.setProperty("class", "primary")
-        self.btn_run.setToolTip("Run the circuit and capture (real engine)")
-        self.btn_verify = QPushButton("&Verify replay")
-        self.btn_verify.setToolTip("Capture again, replay through digital-trace/1 and compare")
-        self.btn_save = QPushButton("&Save trace…")
-        self.btn_save.setToolTip("Save the captured trace as digital-trace/1 JSON")
-        self.btn_load = QPushButton("&Load trace…")
-        self.btn_load.setToolTip("Open a digital-trace/1 file (no circuit is run)")
-        self.btn_replay = QPushButton("&Replay trace")
-        self.btn_replay.setToolTip("Replay the shown trace and compare digests")
+        self.btn_run.setToolTip("Ejecuta el circuito y captura (motor real)")
+        self.btn_verify = QPushButton("&Verificar repetición")
+        self.btn_verify.setToolTip("Captura de nuevo, repite con digital-trace/1 y compara")
+        self.btn_save = QPushButton("&Guardar traza…")
+        self.btn_save.setToolTip("Guarda la traza capturada como JSON digital-trace/1")
+        self.btn_load = QPushButton("&Cargar traza…")
+        self.btn_load.setToolTip("Abre un archivo digital-trace/1 (no se ejecuta ningún circuito)")
+        self.btn_replay = QPushButton("&Repetir traza")
+        self.btn_replay.setToolTip("Repite la traza mostrada y compara digests")
         for b in (self.btn_run, self.btn_verify, self.btn_save, self.btn_load, self.btn_replay):
             tools.addWidget(b)
         layout.addLayout(tools)
@@ -101,20 +99,20 @@ class LogicAnalyzerPanel(QWidget):
         self.context_label.setObjectName("CardStatus")
         self.context_label.setWordWrap(True)
         layout.addWidget(self.context_label)
-        self.status = QLabel("IDLE")
-        self.status.setAccessibleName("Capture status")
+        self.status = QLabel("EN ESPERA")
+        self.status.setAccessibleName("Estado de la captura")
         apply_status_style(self.status, UiState.IDLE)
         self.status.setWordWrap(True)
         layout.addWidget(self.status, 0, Qt.AlignmentFlag.AlignLeft)  # a pill like the other labs, not a full-width band
 
         # -- setup (inputs): channels, capture window, trigger --------------------------
-        setup = Panel("Setup")
-        channels_label = QLabel("Channels (probe → net, state at start)")
+        setup = Panel("Configuración")
+        channels_label = QLabel("Canales (sonda → nodo, estado inicial)")
         channels_label.setProperty("role", "key")
         setup.add(channels_label)
         self.channel_list = QListWidget()
-        self.channel_list.setAccessibleName("Channels")
-        self.channel_list.setToolTip("Tick the channels (probes) to capture")
+        self.channel_list.setAccessibleName("Canales")
+        self.channel_list.setToolTip("Marca los canales (sondas) que capturar")
         self.channel_list.setMaximumHeight(160)
         setup.add(self.channel_list)
         self.start = QLineEdit("0")
@@ -128,16 +126,16 @@ class LogicAnalyzerPanel(QWidget):
         for f in (window_form, trigger_form):
             f.setVerticalSpacing(8)
         for form, widget, label, tip in (
-                (window_form, self.start, "Start / arm from (s)", "Capture window start, or trigger arming start"),
-                (window_form, self.end, "End / arm until (s)", "Capture window end, or trigger arming end"),
-                (trigger_form, self.trigger_channel, "Trigger channel", "Channel whose edge starts the capture"),
-                (trigger_form, self.edge, "Trigger edge", "RISING = LOW→HIGH, FALLING = HIGH→LOW, BOTH = either"),
-                (trigger_form, self.pre, "Pre-trigger (s)", "Time kept before the trigger"),
-                (trigger_form, self.post, "Post-trigger (s)", "Time kept after the trigger")):
+                (window_form, self.start, "Inicio / armar desde (s)", "Inicio de la ventana de captura o del armado del disparo"),
+                (window_form, self.end, "Fin / armar hasta (s)", "Fin de la ventana de captura o del armado del disparo"),
+                (trigger_form, self.trigger_channel, "Canal de disparo", "Canal cuyo flanco inicia la captura"),
+                (trigger_form, self.edge, "Flanco de disparo", "RISING = BAJO→ALTO, FALLING = ALTO→BAJO, BOTH = cualquiera"),
+                (trigger_form, self.pre, "Pre-disparo (s)", "Tiempo que se conserva antes del disparo"),
+                (trigger_form, self.post, "Post-disparo (s)", "Tiempo que se conserva después del disparo")):
             widget.setToolTip(tip)
             widget.setAccessibleName(label)
             form.addRow(SHORT_LABEL.get(label, label), widget)
-        for title, form in (("Capture window", window_form), ("Trigger", trigger_form)):
+        for title, form in (("Ventana de captura", window_form), ("Disparo", trigger_form)):
             head = QLabel(title)
             head.setObjectName("PanelTitle")
             setup.add(head)
@@ -145,9 +143,9 @@ class LogicAnalyzerPanel(QWidget):
         setup.body.addStretch(1)
 
         # -- visualization + instruments: waveform and trigger readout ------------------
-        wave = Panel("Waveform")
+        wave = Panel("Forma de onda")
         self.trigger_info = QLabel("")
-        self.trigger_info.setAccessibleName("Trigger details")
+        self.trigger_info.setAccessibleName("Detalles del disparo")
         self.trigger_info.setWordWrap(True)
         self.trigger_info.setObjectName("CardStatus")
         self.trigger_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -156,12 +154,12 @@ class LogicAnalyzerPanel(QWidget):
         wave.add(self.waveform, 1)
 
         # -- results: transitions and their explanation --------------------------------
-        transitions = Panel("Transitions")
+        transitions = Panel("Transiciones")
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.setAccessibleName("Transitions")
-        self.table.setToolTip("Every transition with its exact time; same-time transitions are listed "
-                              "individually in engine order")
+        self.table.setAccessibleName("Transiciones")
+        self.table.setToolTip("Cada transición con su tiempo exacto; las simultáneas se listan "
+                              "una a una en el orden del motor")
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.verticalHeader().hide()
@@ -169,11 +167,11 @@ class LogicAnalyzerPanel(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
         transitions.add(self.table, 1)
-        why = Panel("Why it changed")
+        why = Panel("Por qué cambió")
         self.explanation = QTextEdit(readOnly=True)
-        self.explanation.setAccessibleName("Transition explanation")
+        self.explanation.setAccessibleName("Explicación de la transición")
         self.explanation.setToolTip("Por qué cambió la transición seleccionada (de la traza de ejecución real)")
-        self.explanation.setPlaceholderText("Selecciona una transición para ver por qué cambió.")
+        self.explanation.setPlaceholderText("Elige una transición de la tabla.")
         why.add(self.explanation, 1)
 
         results = QSplitter(Qt.Orientation.Horizontal)
@@ -201,7 +199,14 @@ class LogicAnalyzerPanel(QWidget):
         main.setSizes([340, 800])
         setup.setMinimumWidth(300)
         self.workspace = main
-        layout.addWidget(main, 1)
+        from PySide6.QtWidgets import QTabWidget
+        from academic_core.ui.digital_editor import DigitalEditorPage
+        self.editor = DigitalEditorPage(self.digital)
+        self.editor.applied.connect(self._design_applied)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(main, "Captura")
+        self.tabs.addTab(self.editor, "Editor de circuito")
+        layout.addWidget(self.tabs, 1)
         self._request = None  # request of the shown capture (None for a loaded file)
         self._trace = None  # cached pedagogical ExecutionTrace of that capture
         self._pending_row = None
@@ -215,6 +220,20 @@ class LogicAnalyzerPanel(QWidget):
         self.table.itemSelectionChanged.connect(self._on_selection)
         self._refresh_channels()
 
+    def _fill_demos(self) -> None:
+        self.demo.blockSignals(True)
+        self.demo.clear()
+        for info in self.digital.demos():
+            self.demo.addItem(info.title, info.key)
+            self.demo.setItemData(self.demo.count() - 1, info.description, Qt.ItemDataRole.ToolTipRole)
+        self.demo.blockSignals(False)
+
+    def _design_applied(self, key: str) -> None:
+        self._fill_demos()
+        self.demo.setCurrentIndex(self.demo.findData(key))
+        self._refresh_channels()
+        self.tabs.setCurrentIndex(0)
+
     # -- channels ---------------------------------------------------------------
     def _refresh_channels(self) -> None:
         self.context_label.setText(
@@ -225,10 +244,10 @@ class LogicAnalyzerPanel(QWidget):
         try:
             infos = self.digital.channels(self.demo.currentData())
         except Exception as exc:
-            show_ui_error(self, exc, "Channels")
+            show_ui_error(self, exc, "Canales")
             return
         for info in infos:
-            item = QListWidgetItem(f"{info.channel_id} → net {info.net_id} (start: {info.initial})")
+            item = QListWidgetItem(f"{info.channel_id} → nodo {info.net_id} (inicio: {info.initial})")
             item.setData(Qt.ItemDataRole.UserRole, info.channel_id)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
@@ -271,7 +290,7 @@ class LogicAnalyzerPanel(QWidget):
         except Exception as exc:
             self._on_error(exc)
             return
-        self._set_state(UiState.RUNNING, "RUNNING — capturing…")
+        self._set_state(UiState.RUNNING, "EJECUTANDO — capturando…")
         self.btn_run.setEnabled(False)
         self._request, self._trace = request, None
         worker = ServiceWorker(self.digital.capture, request)
@@ -286,7 +305,7 @@ class LogicAnalyzerPanel(QWidget):
         self.btn_run.setEnabled(True)
         self.waveform.set_view(view)
         self._fill_table(view)
-        self.status.setText(f"Status: {STATUS_TEXT.get(view.status, view.status)}")
+        self.status.setText(f"Estado: {STATUS_TEXT.get(view.status, view.status)}")
         self.trigger_info.setText(self._trigger_text(view))
         self._set_state(UiState.WARNING if view.status == "NOT_TRIGGERED" else UiState.SUCCESS, None)
 
@@ -294,16 +313,16 @@ class LogicAnalyzerPanel(QWidget):
     def _trigger_text(view) -> str:
         parts = []
         if view.trigger_channel:
-            parts.append(f"Trigger: channel {view.trigger_channel}, edge {view.trigger_edge}, "
+            parts.append(f"Disparo: canal {view.trigger_channel}, flanco {view.trigger_edge}, "
                          f"pre {view.pre_trigger} s, post {view.post_trigger} s")
         if view.status == "TRIGGERED":
-            parts.append(f"Fired: {view.fired_edge} at t = {view.trigger_time} s "
-                         f"(transition #{view.trigger_index} of {view.trigger_channel})")
+            parts.append(f"Disparó: {view.fired_edge} en t = {view.trigger_time} s "
+                         f"(transición #{view.trigger_index} de {view.trigger_channel})")
         if view.window is not None:
-            parts.append(f"Window: [{view.window[0]}, {view.window[1]}] s")
+            parts.append(f"Ventana: [{view.window[0]}, {view.window[1]}] s")
         if view.requested_window is not None and view.requested_window != view.window:
-            parts.append(f"requested [{view.requested_window[0]}, {view.requested_window[1]}] s "
-                         "(clipped to the simulated range)")
+            parts.append(f"pedida [{view.requested_window[0]}, {view.requested_window[1]}] s "
+                         "(recortada al rango simulado)")
         if view.digest:
             parts.append(f"digest {view.digest[:16]}…")
         return " · ".join(parts)
@@ -334,8 +353,8 @@ class LogicAnalyzerPanel(QWidget):
         from academic_core.errors import ui_error_for_code
         show_value(self, ui_error_for_code(
             result.status, severity="INFO" if result.status == "EQUIVALENT" else "WARNING",
-            action="Replay re-runs digital-trace/1 through the engine and compares exactly."), "Verify")
-        self.status.setText(f"Verify: {result.status}")
+            action="La repetición vuelve a ejecutar digital-trace/1 en el motor y compara de forma exacta."), "Verificar")
+        self.status.setText(f"Verificación: {result.status}")
 
     def trace_text(self) -> str | None:
         return None if self.view is None else self.view.trace_json
@@ -394,35 +413,35 @@ class LogicAnalyzerPanel(QWidget):
     def replay(self) -> None:
         text = self.trace_text()
         if not text:
-            show_ui_error(self, ValueError("nothing to replay yet"), "Replay")
+            show_ui_error(self, ValueError("aún no hay nada que repetir"), "Repetir")
             return
         try:
             result = self.digital.replay_trace(text)
         except Exception as exc:
             self._on_error(exc)
             return
-        self.status.setText(f"Replay: {result.status} (digest {result.digest[:16]}…)")
+        self.status.setText(f"Repetición: {result.status} (digest {result.digest[:16]}…)")
 
     def _save(self) -> None:
         text = self.trace_text()
         if not text:
-            show_ui_error(self, ValueError("nothing captured to save"), "Save")
+            show_ui_error(self, ValueError("no hay nada capturado que guardar"), "Guardar")
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Save digital trace", "", "Digital trace (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar traza digital", "", "Traza digital (*.json)")
         if not path:
             return
         from pathlib import Path
         Path(path).write_text(text + "\n", encoding="utf-8")
-        self.status.setText(f"Saved {len(text)} bytes (digital-trace/1)")
+        self.status.setText(f"Guardados {len(text)} bytes (digital-trace/1)")
 
     def _load(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Load digital trace", "", "Digital trace (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, "Cargar traza digital", "", "Traza digital (*.json)")
         if not path:
             return
         from pathlib import Path
         try:
             if Path(path).stat().st_size > MAX_TRACE_FILE_BYTES:
-                raise ValueError(f"TRACE_LIMIT: file exceeds {MAX_TRACE_FILE_BYTES} bytes")
+                raise ValueError(f"TRACE_LIMIT: el archivo supera {MAX_TRACE_FILE_BYTES} bytes")
             data = Path(path).read_bytes()
         except (OSError, ValueError) as exc:
             self._on_error(exc)
@@ -432,7 +451,7 @@ class LogicAnalyzerPanel(QWidget):
     # -- helpers --------------------------------------------------------------------
     def _on_error(self, exc) -> None:
         self.btn_run.setEnabled(True)
-        ui = show_ui_error(self, exc, "Logic Analyzer")
+        ui = show_ui_error(self, exc, "Analizador lógico")
         self._set_state(UiState.ERROR, f"ERROR {ui.error_code}: {ui.safe_message}")
 
     def _set_state(self, state: UiState, text: str | None) -> None:

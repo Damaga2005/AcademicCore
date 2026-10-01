@@ -26,9 +26,9 @@ def _win(qtbot, tmp_path):
 def test_go_menu_exists_with_groups(qtbot, tmp_path):
     win = _win(qtbot, tmp_path)
     names = [a.text() for a in win.menuBar().actions()]
-    assert "Go" in names
+    assert "Ir" in names
     actions = [a.text() for a in win.go_menu.actions() if not a.isSeparator()]
-    for expected in ("Home", "Learn", "Practice", "Engineering", "Settings"):
+    for expected in ("Inicio", "Aprender", "Practicar", "Circuitos electrónicos", "Ajustes"):
         assert any(expected in t for t in actions), actions
 
 

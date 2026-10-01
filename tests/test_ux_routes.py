@@ -23,10 +23,10 @@ def test_every_page_of_the_ia_is_reachable():
 def test_areas_and_sections():
     assert [a for a, _ in routes.AREAS] == ["home", "learn", "practice", "engineering", "settings"]
     assert [r.label for r in routes.sections("learn")] == [
-        "Summary", "Activities", "Grades", "Planning", "Mastery", "Library", "Documents"]
-    assert [r.label for r in routes.sections("practice")] == ["Exercises", "Sessions", "Plan"]
+        "Resumen", "Actividades", "Notas", "Planificación", "Dominio", "Biblioteca", "Documentos"]
+    assert [r.label for r in routes.sections("practice")] == ["Ejercicios", "Sesiones", "Plan"]
     assert [r.label for r in routes.sections("engineering")] == [
-        "Circuits", "Analysis", "Lab", "Digital Logic", "Aerospace"]
+        "Circuitos", "Análisis", "Laboratorio", "Lógica digital", "Aeroespacial"]
     assert routes.sections("home") == ()
 
 
@@ -44,18 +44,18 @@ def test_aerospace_is_its_own_route_not_simulation():
 
 def test_crumbs_only_where_they_orient():
     subject = routes.crumbs(routes.resolve("learn/subject/grades"), "Circuitos I")
-    assert [t for t, _ in subject] == ["Learn", "Circuitos I", "Grades"]
+    assert [t for t, _ in subject] == ["Aprender", "Circuitos I", "Notas"]
     assert subject[-1][1] is None and subject[0][1] == "learn/subject/summary"
-    assert [t for t, _ in routes.crumbs(routes.resolve("engineering/lab"))] == ["Engineering", "Lab"]
-    assert [t for t, _ in routes.crumbs(routes.resolve("practice/sessions"))] == ["Practice", "Sessions"]
-    assert routes.crumbs(routes.resolve("home")) == [("Home", None)]
+    assert [t for t, _ in routes.crumbs(routes.resolve("engineering/lab"))] == ["Circuitos electrónicos", "Laboratorio"]
+    assert [t for t, _ in routes.crumbs(routes.resolve("practice/sessions"))] == ["Practicar", "Sesiones"]
+    assert routes.crumbs(routes.resolve("home")) == [("Inicio", None)]
 
 
 def test_goto_entries_cover_every_section():
     labels = [label for label, _ in routes.goto_entries()]
     ids = {rid for _, rid in routes.goto_entries()}
     assert ids == {r.id for r in routes.ROUTES}
-    assert "Go to Engineering: Digital Logic" in labels
+    assert "Ir a Circuitos electrónicos: Lógica digital" in labels
 
 
 def test_history_back_forward_and_truncation():

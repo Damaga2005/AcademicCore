@@ -84,7 +84,7 @@ class NavRail(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("NavRail")
-        self.setAccessibleName("Primary navigation")
+        self.setAccessibleName("Navegación principal")
         self._collapsed = False
         self._anim: QVariantAnimation | None = None
         self.setFixedWidth(RAIL_EXPANDED)
@@ -117,11 +117,11 @@ class NavRail(QFrame):
             layout.addWidget(btn)
         self.toggle = QToolButton()
         self.toggle.setProperty("role", "nav")
-        self.toggle.setAccessibleName("Collapse navigation")
-        self.toggle.setToolTip("Collapse navigation")
+        self.toggle.setAccessibleName("Contraer navegación")
+        self.toggle.setToolTip("Contraer navegación")
         self.toggle.setIconSize(QSize(ICON_PX, ICON_PX))
         self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.toggle.setText("Collapse")
+        self.toggle.setText("Contraer")
         self.toggle.setMinimumHeight(40)
         self.toggle.clicked.connect(lambda _c=False: self.set_collapsed(not self._collapsed))
         layout.addWidget(self.toggle)
@@ -155,7 +155,7 @@ class NavRail(QFrame):
         for btn in (*self.buttons.values(), self.toggle):
             btn.setToolButtonStyle(style)
         self.brand.setVisible(not collapsed)
-        self.toggle.setToolTip("Expand navigation" if collapsed else "Collapse navigation")
+        self.toggle.setToolTip("Expandir navegación" if collapsed else "Contraer navegación")
         self.toggle.setAccessibleName(self.toggle.toolTip())
         self.toggle.setIcon(make_icon(
             "chevron-right" if collapsed else "chevron-left",
@@ -186,7 +186,7 @@ class SectionBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("SectionBar")
-        self.setAccessibleName("Sections")
+        self.setAccessibleName("Secciones")
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(24, 8, 24, 0)
         self._layout.setSpacing(4)
@@ -244,16 +244,16 @@ class TopBar(QFrame):
         self._crumbs.setSpacing(2)
         layout.addLayout(self._crumbs)
         layout.addStretch(1)
-        self.context_chip = QPushButton("No subject")
+        self.context_chip = QPushButton("Sin asignatura")
         self.context_chip.setObjectName("ContextChip")
-        self.context_chip.setAccessibleName("Active subject")
-        self.context_chip.setToolTip("Active subject: click to choose in Learn")
+        self.context_chip.setAccessibleName("Asignatura activa")
+        self.context_chip.setToolTip("Asignatura activa: clic para elegirla en Aprender")
         self.context_chip.clicked.connect(self.context_clicked)
         layout.addWidget(self.context_chip)
-        self.search_button = QPushButton("Search   Ctrl+K")
+        self.search_button = QPushButton("Buscar   Ctrl+K")
         self.search_button.setObjectName("SearchButton")
-        self.search_button.setAccessibleName("Search and commands")
-        self.search_button.setToolTip("Search and go to… (Ctrl+K)")
+        self.search_button.setAccessibleName("Buscar y comandos")
+        self.search_button.setToolTip("Buscar e ir a… (Ctrl+K)")
         self.search_button.clicked.connect(self.search_clicked)
         layout.addWidget(self.search_button)
         self.crumb_texts: list[str] = []
@@ -273,7 +273,7 @@ class TopBar(QFrame):
                 w: QWidget = QLabel(text)
                 w.setProperty("role", "crumb-current")
                 if last:
-                    w.setAccessibleName(f"Current: {text}")
+                    w.setAccessibleName(f"Actual: {text}")
             else:
                 w = QPushButton(text)
                 w.setProperty("role", "crumb")
@@ -286,7 +286,7 @@ class TopBar(QFrame):
                 self._crumbs.addWidget(sep)
 
     def set_context(self, text: str) -> None:
-        self.context_chip.setText(text or "No subject")
+        self.context_chip.setText(text or "Sin asignatura")
 
 
 __all__ = ["NavRail", "SectionBar", "TopBar", "make_icon", "area_default", "area_label"]

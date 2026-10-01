@@ -47,8 +47,8 @@ def test_grades_and_planning_tabs(qtbot, tmp_path, monkeypatch):
     win._refresh_tree()
     found = win.tree.findItems("Mates", MATCH)
     win.tree.setCurrentItem(found[0])
-    assert "Passed" in win.tab_grades.toPlainText()
-    assert "Complete: Yes" in win.tab_grades.toPlainText()
+    assert "Aprobada" in win.tab_grades.toPlainText()
+    assert "Completa: Sí" in win.tab_grades.toPlainText()
 
 
 def test_facade_is_only_wiring():

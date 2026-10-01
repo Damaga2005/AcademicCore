@@ -23,7 +23,7 @@ def test_authoring_tab_present_and_empty_state(qtbot, tmp_path, monkeypatch):
     assert win.tabs.count() == 14  # 14 pages: the 13 F15 pages + Practice (F9-F12 sessions, plan, mastery)
     panel = win.authoring_panel
     assert panel.browser.count() == 0
-    assert panel.status.text() == "No document open"
+    assert panel.status.text() == "Ningún documento abierto"
 
 
 def test_create_edit_undo_save_flow(qtbot, tmp_path, monkeypatch):
@@ -44,7 +44,7 @@ def test_create_edit_undo_save_flow(qtbot, tmp_path, monkeypatch):
     panel.block_edit.setPlainText("# Nou títol")
     panel._apply_block()
     assert "rev 1" in panel.status.text()
-    assert "dirty" in panel.status.text()
+    assert "sin guardar" in panel.status.text()
     panel._hist("undo")
     assert "rev 2" in panel.status.text()
     panel._hist("redo")

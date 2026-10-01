@@ -40,44 +40,44 @@ class AuthoringPanel(QWidget):
         layout.addWidget(split)
 
         # -- browser ----------------------------------------------------------
-        docs = Panel("Documents")
+        docs = Panel("Documentos")
         docs.setMinimumWidth(180)
-        self.browser = HintList("No documents yet. Create one with New.")
-        self.browser.setAccessibleName("Documents")
+        self.browser = HintList("Aún no hay documentos. Crea uno con Nuevo.")
+        self.browser.setAccessibleName("Documentos")
         docs.add(self.browser, 1)
         row = QHBoxLayout()
-        self.btn_new = QPushButton("New…")
+        self.btn_new = QPushButton("Nuevo…")
         self.btn_new.setProperty("class", "primary")
-        self.btn_open = QPushButton("Open")
+        self.btn_open = QPushButton("Abrir")
         row.addWidget(self.btn_new)
         row.addWidget(self.btn_open)
         docs.body.addLayout(row)
         split.addWidget(docs)
 
         # -- outline -------------------------------------------------------------
-        outline = Panel("Outline")
+        outline = Panel("Esquema")
         outline.setMinimumWidth(150)
         self.outline = QTreeWidget()
-        self.outline.setHeaderLabel("Structure")
-        self.outline.setAccessibleName("Document outline")
+        self.outline.setHeaderLabel("Estructura")
+        self.outline.setAccessibleName("Esquema del documento")
         outline.add(self.outline, 1)
         split.addWidget(outline)
 
         # -- editor -----------------------------------------------------------------
-        editor = Panel("Block editor")
+        editor = Panel("Editor de bloques")
         editor.setMinimumWidth(300)
-        self.block_kind = QLabel("(no block)")
+        self.block_kind = QLabel("(sin bloque)")
         self.block_kind.setObjectName("CardStatus")
         editor.add(self.block_kind)
         self.block_edit = QTextEdit()
-        self.block_edit.setAccessibleName("Block text")
+        self.block_edit.setAccessibleName("Texto del bloque")
         self.block_edit.setMinimumHeight(120)
         editor.add(self.block_edit, 1)
-        self.eq_display = QCheckBox("Display equation")
+        self.eq_display = QCheckBox("Ecuación destacada")
         editor.add(self.eq_display)
-        self.btn_apply = QPushButton("Apply block")
-        self.btn_delete = QPushButton("Delete block")
-        self.btn_insert = QPushButton("Insert paragraph after")
+        self.btn_apply = QPushButton("Aplicar bloque")
+        self.btn_delete = QPushButton("Eliminar bloque")
+        self.btn_insert = QPushButton("Insertar párrafo después")
         edit_grid = QGridLayout()
         edit_grid.setSpacing(6)
         edit_grid.addWidget(self.btn_apply, 0, 0)
@@ -86,32 +86,32 @@ class AuthoringPanel(QWidget):
         editor.body.addLayout(edit_grid)
         meta_row = QHBoxLayout()
         self.meta_title = QLineEdit()
-        self.meta_title.setPlaceholderText("Document title")
-        self.meta_title.setAccessibleName("Document title")
-        self.btn_meta = QPushButton("Set title")
+        self.meta_title.setPlaceholderText("Título del documento")
+        self.meta_title.setAccessibleName("Título del documento")
+        self.btn_meta = QPushButton("Fijar título")
         meta_row.addWidget(self.meta_title, 1)
         meta_row.addWidget(self.btn_meta)
         editor.body.addLayout(meta_row)
-        self.btn_save = QPushButton("Save (new version)")
+        self.btn_save = QPushButton("Guardar (nueva versión)")
         self.btn_save.setProperty("class", "primary")
-        self.btn_undo = QPushButton("Undo")
-        self.btn_redo = QPushButton("Redo")
-        self.btn_validate = QPushButton("Validate")
-        self.btn_link = QPushButton("Link…")
-        self.btn_life = QPushButton("Lifecycle…")
+        self.btn_undo = QPushButton("Deshacer")
+        self.btn_redo = QPushButton("Rehacer")
+        self.btn_validate = QPushButton("Validar")
+        self.btn_link = QPushButton("Vincular…")
+        self.btn_life = QPushButton("Ciclo de vida…")
         act_grid = QGridLayout()
         act_grid.setSpacing(6)
         act_grid.addWidget(self.btn_save, 0, 0, 1, 2)
         for i, b in enumerate((self.btn_undo, self.btn_redo, self.btn_validate, self.btn_link, self.btn_life)):
             act_grid.addWidget(b, 1 + i // 2, i % 2)
         editor.body.addLayout(act_grid)
-        self.btn_exp_md = QPushButton("Export MD")
-        self.btn_exp_html = QPushButton("Export HTML")
+        self.btn_exp_md = QPushButton("Exportar MD")
+        self.btn_exp_html = QPushButton("Exportar HTML")
         exp_row = QHBoxLayout()
         exp_row.addWidget(self.btn_exp_md)
         exp_row.addWidget(self.btn_exp_html)
         editor.body.addLayout(exp_row)
-        self.status = QLabel("No document open")
+        self.status = QLabel("Ningún documento abierto")
         self.status.setObjectName("CardStatus")
         editor.add(self.status)
         split.addWidget(editor)
@@ -153,13 +153,13 @@ class AuthoringPanel(QWidget):
 
     def _new(self) -> None:
         names = [(n, n) for n in self.app.authoring.template_names()]
-        v = prompt_form(self, "New document", [("t", "Template", names, "combo")])
+        v = prompt_form(self, "New document", [("t", "Plantilla", names, "combo")])
         if not v:
             return
         try:
             sid = self.app.authoring.create_from_template(v["t"])
         except Exception as e:
-            show_ui_error(self, e, "New")
+            show_ui_error(self, e, "Nuevo")
             return
         self.refresh_browser()
         self._open(sid)
@@ -176,7 +176,7 @@ class AuthoringPanel(QWidget):
         try:
             self.state = self.app.authoring.open(sid)
         except Exception as e:
-            show_ui_error(self, e, "Open")
+            show_ui_error(self, e, "Abrir")
             return
         self.sid = sid
         self.refresh_all()
@@ -194,7 +194,7 @@ class AuthoringPanel(QWidget):
         revision, dirty, _n = self.app.authoring.doc_status(self.state)
         self.status.setText(
             f"{self.sid} · v{res.current_version} · rev {revision} · "
-            f"{life} · {'dirty' if dirty else 'clean'}")
+            f"{life} · {'sin guardar' if dirty else 'guardado'}")
         self.outline.clear()
         self._paths: dict[int, tuple] = {}
         for i, label in enumerate(self.app.authoring.top_block_labels(self.state)):
@@ -225,7 +225,7 @@ class AuthoringPanel(QWidget):
             return
         path = self._current_path()
         if path is None:
-            dialogs.warning(self, "Block", "Select a block in the outline")
+            dialogs.warning(self, "Bloque", "Elige un bloque en el esquema")
             return
         kind, _text, _display = self.app.authoring.block_editor_text(self.state, path)
         try:
@@ -240,7 +240,7 @@ class AuthoringPanel(QWidget):
                 self.app.authoring.apply_markdown(
                     self.state, path, self.block_edit.toPlainText())
         except Exception as e:
-            show_ui_error(self, e, "Block")
+            show_ui_error(self, e, "Bloque")
             return
         self.refresh_all()
 
@@ -253,7 +253,7 @@ class AuthoringPanel(QWidget):
         try:
             self.app.authoring.delete_block(self.state, path)
         except Exception as e:
-            show_ui_error(self, e, "Block")
+            show_ui_error(self, e, "Bloque")
         self.refresh_all()
 
     def _insert_block(self) -> None:
@@ -266,7 +266,7 @@ class AuthoringPanel(QWidget):
         try:
             svc.insert_paragraph(self.state, anchor)
         except Exception as e:
-            show_ui_error(self, e, "Block")
+            show_ui_error(self, e, "Bloque")
         self.refresh_all()
 
     def _set_title(self) -> None:
@@ -281,7 +281,8 @@ class AuthoringPanel(QWidget):
             return
         ok = self.state.undo() if op == "undo" else self.state.redo()
         if not ok:
-            dialogs.information(self, op.title(), f"Nothing to {op}")
+            verb = {"undo": "deshacer", "redo": "rehacer"}.get(op, op)
+            dialogs.information(self, verb.capitalize(), f"Nada que {verb}")
         self.refresh_all()
 
     def _save(self) -> None:
@@ -290,9 +291,9 @@ class AuthoringPanel(QWidget):
         try:
             rep = self.app.authoring.save(self.state, self.sid)
         except Exception as e:
-            show_ui_error(self, e, "Save")
+            show_ui_error(self, e, "Guardar")
             return
-        dialogs.information(self, "Save", f"{rep.outcome}: v{rep.version}")
+        dialogs.information(self, "Guardar", f"{rep.outcome}: v{rep.version}")
         self.refresh_browser()
         self.refresh_all()
 
@@ -301,41 +302,41 @@ class AuthoringPanel(QWidget):
             return
         issues = self.app.authoring.validate(self.state)
         if not issues:
-            dialogs.information(self, "Validate", "No issues")
+            dialogs.information(self, "Validar", "Sin problemas")
             return
         lines = [f"[{i.severity}] {i.path} {i.code}: {i.message}" for i in issues[:30]]
-        dialogs.warning(self, "Validate", "\n".join(lines))
+        dialogs.warning(self, "Validar", "\n".join(lines))
 
     def _link(self) -> None:
         if self.sid is None:
             return
         v = prompt_form(self, "Academic link",
-                        [("kind", "Kind",
-                          [("Subject", "subject"), ("Topic", "topic"),
-                           ("Assignment", "assignment"), ("Project", "project"),
-                           ("Lab", "lab"), ("Exam", "exam")], "combo"),
-                         ("id", "Stable id", "", "text")])
+                        [("kind", "Tipo",
+                          [("Asignatura", "subject"), ("Tema", "topic"),
+                           ("Entrega", "assignment"), ("Proyecto", "project"),
+                           ("Laboratorio", "lab"), ("Examen", "exam")], "combo"),
+                         ("id", "Id estable", "", "text")])
         if not v:
             return
         try:
             self.app.authoring.link(self.sid, v["kind"], v["id"])
         except Exception as e:
-            show_ui_error(self, e, "Link")
+            show_ui_error(self, e, "Vincular")
 
     def _lifecycle(self) -> None:
         if self.sid is None:
             return
         v = prompt_form(self, "Lifecycle",
-                        [("to", "State",
-                          [("DRAFT", "DRAFT"), ("REVIEW", "REVIEW"),
-                           ("PUBLISHED", "PUBLISHED"), ("ARCHIVED", "ARCHIVED")],
+                        [("to", "Estado",
+                          [("Borrador", "DRAFT"), ("Revisión", "REVIEW"),
+                           ("Publicado", "PUBLISHED"), ("Archivado", "ARCHIVED")],
                           "combo")])
         if not v:
             return
         try:
             self.app.authoring.set_lifecycle(self.sid, v["to"])
         except Exception as e:
-            show_ui_error(self, e, "Lifecycle")
+            show_ui_error(self, e, "Ciclo de vida")
             return
         self.refresh_browser()
         self.refresh_all()
@@ -349,6 +350,6 @@ class AuthoringPanel(QWidget):
             out, filtr = self.app.authoring.export_markdown(self.state), "Markdown (*.md)"
         else:
             out, filtr = self.app.authoring.export_html(self.state), "HTML (*.html)"
-        path, _ = QFileDialog.getSaveFileName(self, f"Export {fmt.upper()}", "", filtr)
+        path, _ = QFileDialog.getSaveFileName(self, f"Exportar {fmt.upper()}", "", filtr)
         if path:
             _P(path).write_text(out, encoding="utf-8")

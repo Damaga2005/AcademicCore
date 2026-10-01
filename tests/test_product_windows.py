@@ -55,4 +55,4 @@ def test_go_menu_complete(qtbot, tmp_path):
     win = _win(qtbot, tmp_path)
     actions = [a.text() for a in win.go_menu.actions() if not a.isSeparator()]
     assert len(actions) == 10
-    assert any("Modules" in t for t in actions)
+    assert any("Módulos" in t for t in actions)

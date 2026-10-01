@@ -74,7 +74,7 @@ class AcademicApp:
         from academic_core.application.exercise_service import ExerciseService
         from academic_core.application.lab_service import LabService
         from academic_core.application.simulation_service import SimulationService
-        self.lab = LabService()
+        self.lab = LabService(settings.simulation.ngspice_path)
         self.exercises = ExerciseService(self.engineering)
         self.simulation = SimulationService(self.lab)
         # -- F8-Q.6 digital logic analyzer (application boundary, no Qt) --

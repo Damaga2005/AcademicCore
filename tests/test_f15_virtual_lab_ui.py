@@ -1,4 +1,4 @@
-"""F15 Virtual Lab widget regression: the real "Add + Run" button path.
+"""F15 Virtual Lab widget regression: the real "Añadir y ejecutar" button path.
 
 Earlier F15 tests exercised ``LabService`` directly, never the widget. Two
 defects hid there:
@@ -49,11 +49,11 @@ def test_f15_vl_add_run_button_end_to_end(qtbot, panel, circuit, kind):
     qtbot.waitUntil(lambda: panel.state.value != "RUNNING", timeout=60000)
     assert panel.state.value == "SUCCESS", (kind, panel.status.text(), panel.dialogs)
     text = panel.output.toPlainText()
-    assert text.startswith("run: exp-") and "status: COMPLETED" in text and "digest: " in text
+    assert text.startswith("ejecución: exp-") and "estado: COMPLETED" in text and "digest: " in text
     assert panel.last_run_id and panel.dialogs == []
     panel.btn_replay.click()
-    assert panel.dialogs and "identical result" in panel.dialogs[-1][2]
-    assert f"replay {panel.last_run_id}: EQUIVALENT" in panel.output.toPlainText()
+    assert panel.dialogs and "resultado idéntico" in panel.dialogs[-1][2]
+    assert f"repetición {panel.last_run_id}: EQUIVALENT" in panel.output.toPlainText()
 
 
 def test_f15_vl_incompatible_analysis_is_a_d2_dialog_not_a_crash(qtbot, panel):
@@ -62,4 +62,4 @@ def test_f15_vl_incompatible_analysis_is_a_d2_dialog_not_a_crash(qtbot, panel):
     panel.analysis.setCurrentText("TRANSIENT")  # needs rc-step
     panel.btn_run.click()
     assert panel.state.value == "IDLE" and panel.dialogs
-    assert panel.dialogs[-1][1] == "Experiment" and "NameError" not in panel.dialogs[-1][2]
+    assert panel.dialogs[-1][1] == "Experimento" and "NameError" not in panel.dialogs[-1][2]

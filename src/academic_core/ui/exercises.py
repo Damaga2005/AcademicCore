@@ -33,6 +33,7 @@ class ExercisePanel(QWidget):
         self.svc = app.exercises
         self.state = UiState.IDLE
         self.pool = QThreadPool(self)
+        self._auto_hint = ""
 
         from academic_core.ui.workspace import Panel
         root = QVBoxLayout(self)
@@ -42,16 +43,16 @@ class ExercisePanel(QWidget):
         # -- tools: run, explain, step by step ---------------------------------------------
         tools = QHBoxLayout()
         tools.setSpacing(8)
-        self.btn_run = QPushButton("Solve")
+        self.btn_run = QPushButton("Resolver")
         self.btn_run.setProperty("class", "primary")
-        self.btn_run.setToolTip("Execute the exercise through the application service")
+        self.btn_run.setToolTip("Ejecuta el ejercicio con el servicio de aplicación")
         self.btn_explain = QPushButton("&Explicar")
-        self.btn_explain.setToolTip("Run the exercise and explain it step by step from its real "
-                                    "execution trace (E0)")
+        self.btn_explain.setToolTip("Ejecuta el ejercicio y lo explica paso a paso desde su "
+                                    "traza real de ejecución (E0)")
         self.btn_steps = QPushButton("&Paso a paso")
         self.btn_steps.setToolTip("Datos → fórmula → sustitución → cálculo → resultado → verificación, "
                                   "desde la traza pedagógica real (E0.1)")
-        self.status = QLabel("READY")
+        self.status = QLabel("LISTO")
         apply_status_style(self.status, UiState.IDLE)
         for b in (self.btn_run, self.btn_explain, self.btn_steps):
             tools.addWidget(b)
@@ -66,13 +67,13 @@ class ExercisePanel(QWidget):
         # -- the problem and the student's work ------------------------------------------------
         left = QVBoxLayout()
         left.setSpacing(16)
-        problem = Panel("Problem")
+        problem = Panel("Problema")
         pick = QHBoxLayout()
         self.selector = QComboBox()
-        self.selector.setToolTip("Library exercise backed by the domain")
-        self.selector.setAccessibleName("Exercise")
-        self.btn_refresh = QPushButton("Reload")
-        self.btn_refresh.setToolTip("Reload the exercise library")
+        self.selector.setToolTip("Ejercicio de la biblioteca respaldado por el dominio")
+        self.selector.setAccessibleName("Ejercicio")
+        self.btn_refresh = QPushButton("Recargar")
+        self.btn_refresh.setToolTip("Recarga la biblioteca de ejercicios")
         pick.addWidget(self.selector, 1)
         pick.addWidget(self.btn_refresh)
         problem.body.addLayout(pick)
@@ -82,24 +83,24 @@ class ExercisePanel(QWidget):
         problem.add(self.desc)
         left.addWidget(problem)
 
-        work = Panel("Your inputs")
+        work = Panel("Tus datos")
         self.inputs = QTextEdit()
-        self.inputs.setToolTip("One VAR=value pair per ';'. Units required, e.g. V=5 V")
-        self.inputs.setAccessibleName("Inputs (VAR=value; VAR2=value2)")
+        self.inputs.setToolTip("Un par VAR=valor por ';'. Unidades obligatorias, p. ej. V=5 V")
+        self.inputs.setAccessibleName("Datos (VAR=valor; VAR2=valor2)")
         self.inputs.setMaximumHeight(96)
         work.add(self.inputs)
-        fmt = QLabel("VAR=value pairs separated by ';', with units, e.g. V=5 V; R=1 kohm")
+        fmt = QLabel("Pares VAR=valor separados por ';', con unidades, p. ej. V=5 V; R=1 kohm")
         fmt.setObjectName("CardStatus")
         fmt.setWordWrap(True)
         work.add(fmt)
         left.addWidget(work)
 
-        maths = Panel("Mathematics")
+        maths = Panel("Matemáticas")
         self.math_expr = QLineEdit()
         self.math_expr.setPlaceholderText("x^2*sin(x)   ·   3*x + 2 = x - 4")
         self.math_expr.setToolTip("Expresión (derivar, integrar, simplificar) o ecuación lineal con '='. "
                                   "Productos explícitos: 2*x. Funciones: sin, cos, tan, exp, log, sqrt, abs.")
-        self.math_expr.setAccessibleName("Expression")
+        self.math_expr.setAccessibleName("Expresión")
         maths.add(self.math_expr)
         limits = QHBoxLayout()
         self.math_var = QLineEdit("x")
@@ -108,11 +109,11 @@ class ExercisePanel(QWidget):
         self.math_lower = QLineEdit()
         self.math_lower.setPlaceholderText("a")
         self.math_lower.setToolTip("Límite inferior (integral definida; vacío = indefinida)")
-        self.math_lower.setAccessibleName("Lower limit")
+        self.math_lower.setAccessibleName("Límite inferior")
         self.math_upper = QLineEdit()
         self.math_upper.setPlaceholderText("b")
         self.math_upper.setToolTip("Límite superior (integral definida; vacío = indefinida)")
-        self.math_upper.setAccessibleName("Upper limit")
+        self.math_upper.setAccessibleName("Límite superior")
         for label, w in (("var", self.math_var), ("from", self.math_lower), ("to", self.math_upper)):
             cap = QLabel(label)
             cap.setProperty("role", "key")
@@ -141,12 +142,12 @@ class ExercisePanel(QWidget):
         body.addWidget(left_w)
 
         # -- feedback and result ---------------------------------------------------------------
-        result = Panel("Result")
+        result = Panel("Resultado")
         self.output = QTextEdit(readOnly=True)
         self.output.setObjectName("Output")
-        self.output.setToolTip("Result or UI-safe error")
-        self.output.setAccessibleName("Result")
-        self.output.setPlaceholderText("Solve, explain or step through the exercise to see the result here.")
+        self.output.setToolTip("Resultado o error seguro para la interfaz")
+        self.output.setAccessibleName("Resultado")
+        self.output.setPlaceholderText("Resuelve, explica o recorre el ejercicio paso a paso para ver aquí el resultado.")
         result.add(self.output, 1)
         body.addWidget(result, 1)
 
@@ -174,21 +175,35 @@ class ExercisePanel(QWidget):
         try:
             info = self.svc.describe(key)
         except Exception as exc:
-            show_ui_error(self, exc, "Exercise")
+            show_ui_error(self, exc, "Ejercicio")
             return
         self.desc.setText(f"{info['key']}: {info['equation']}")
-        if not self.inputs.toPlainText().strip():
-            self.inputs.setPlainText(self._hint_for(key))
+        current = self.inputs.toPlainText().strip()
+        if not current or current == self._auto_hint:  # never overwrite what the student typed
+            self._auto_hint = self._hint_for(key)
+            self.inputs.setPlainText(self._auto_hint)
 
-    @staticmethod
-    def _hint_for(key: str) -> str:
-        hints = {
-            "ohm-v": "I=0.005 A; R=1000 ohm",
-            "ohm-i": "V=5 V; R=1000 ohm",
-            "ohm-r": "V=5 V; I=0.005 A",
-            "power-vi": "V=5 V; I=0.5 A",
-        }
-        return hints.get(key, "V=5 V; R=1000 ohm")
+    _HINTS = {
+        "ohm-v": "I=0.005 A; R=1000 ohm",
+        "ohm-i": "V=5 V; R=1000 ohm",
+        "ohm-r": "V=5 V; I=0.005 A",
+        "power-vi": "V=5 V; I=0.5 A",
+        "power-i2r": "I=0.005 A; R=1000 ohm",
+        "power-v2r": "V=5 V; R=1000 ohm",
+        "charge-qcv": "C=10 uF; V=5 V",
+        "energy-cap": "C=10 uF; V=5 V",
+        "energy-ind": "L=10 mH; I=0.5 A",
+        "freq-period": "T=1 ms",
+        "voltage-divider": "Vi=5 V; R1=1 kohm; R2=2 kohm",
+        "pt100-cvd": "R0=100 ohm; A=3.9083e-3; B=-5.775e-7; T=100",
+        "ntc-beta": "R0=10 kohm; B=3950; T=298.15; T0=298.15",
+        "ad620-rg": "G=10",
+        "wheatstone": "Vs=5 V; K=2; eps=0.001",
+    }
+
+    @classmethod
+    def _hint_for(cls, key: str) -> str:
+        return cls._HINTS.get(key, "")
 
     # -- execution: worker -> service -> UI thread -----------------------
     def _read_inputs(self) -> dict | None:
@@ -198,9 +213,9 @@ class ExercisePanel(QWidget):
                       for part in raw.split(";") if "=" in part
                       for k, v in [part.split("=", 1)] if k.strip()}
             if not inputs:
-                raise ValueError("no inputs given (expected VAR=value pairs)")
+                raise ValueError("no se dieron datos (se esperan pares VAR=valor)")
         except Exception as exc:
-            show_ui_error(self, exc, "Inputs")
+            show_ui_error(self, exc, "Datos")
             return None
         return inputs
 
@@ -211,7 +226,7 @@ class ExercisePanel(QWidget):
         inputs = self._read_inputs()
         if inputs is None:
             return
-        self._set_state(UiState.RUNNING, "RUNNING…")
+        self._set_state(UiState.RUNNING, "EJECUTANDO…")
         worker = ServiceWorker(self.svc.solve, key, inputs)
         worker.signals.finished.connect(self._on_result)
         worker.signals.failed.connect(self._on_error)
@@ -223,7 +238,7 @@ class ExercisePanel(QWidget):
         inputs = self._read_inputs() if key else None
         if inputs is None:
             return
-        self._set_state(UiState.RUNNING, "COMPUTING…")
+        self._set_state(UiState.RUNNING, "CALCULANDO…")
         worker = ServiceWorker(self.app.explain.explain_exercise, key, inputs, pedagogical)
         worker.signals.finished.connect(self._on_explanation)
         worker.signals.failed.connect(self._on_error)
@@ -237,7 +252,7 @@ class ExercisePanel(QWidget):
             return
         lower = self.math_lower.text().strip() or None
         upper = self.math_upper.text().strip() or None
-        self._set_state(UiState.RUNNING, "COMPUTING…")
+        self._set_state(UiState.RUNNING, "CALCULANDO…")
         worker = ServiceWorker(self.app.explain.explain_math, kind, expression,
                                self.math_var.text().strip() or "x", lower, upper)
         worker.signals.finished.connect(self._on_explanation)
@@ -252,11 +267,12 @@ class ExercisePanel(QWidget):
 
     def _on_result(self, result) -> None:
         self.output.setPlainText(f"{result.text}\ndigest {result.digest[:16]}")
-        self._set_state(UiState.SUCCESS, "SUCCESS")
+        self._set_state(UiState.SUCCESS, "ÉXITO")
 
     def _on_error(self, exc) -> None:
-        ui = show_ui_error(self, exc, "Solve")
-        self.output.setPlainText(f"{ui.error_code}: {ui.safe_message}")
+        ui = show_ui_error(self, exc, "Resolver")
+        body = "\n\n".join(t for t in (ui.safe_message, ui.user_action) if t)
+        self.output.setPlainText(f"{body}\n\n(código {ui.error_code})")
         self._set_state(UiState.ERROR, f"ERROR {ui.error_code}")
 
     def _set_state(self, state: UiState, text: str) -> None:

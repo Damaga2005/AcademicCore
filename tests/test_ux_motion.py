@@ -42,7 +42,7 @@ def test_fade_in_is_one_shot_and_cleans_up(qtbot, motion_on):
 
 
 def test_status_pill_flashes_only_when_the_state_changes(qtbot, motion_on):
-    lab = QLabel("READY")
+    lab = QLabel("LISTO")
     qtbot.addWidget(lab)
     lab.show()
     apply_status_style(lab, UiState.IDLE)
@@ -55,7 +55,7 @@ def test_status_pill_flashes_only_when_the_state_changes(qtbot, motion_on):
 
 def test_running_locks_only_what_it_disabled(qtbot):
     a, b = QPushButton("run"), QPushButton("replay")
-    b.setEnabled(False)  # disabled for its own reason: nothing to replay yet
+    b.setEnabled(False)  # disabled for its own reason: aún no hay nada que repetir
     set_busy(UiState.RUNNING, a, b)
     assert not a.isEnabled() and not b.isEnabled()
     set_busy(UiState.SUCCESS, a, b)
@@ -71,9 +71,9 @@ def test_a_run_cannot_be_started_twice(qtbot, tmp_path, monkeypatch):
     core.settings.ensure_dirs()
     panel = ExercisePanel(core)
     qtbot.addWidget(panel)
-    panel._set_state(UiState.RUNNING, "COMPUTING…")
+    panel._set_state(UiState.RUNNING, "CALCULANDO…")
     assert not panel.btn_run.isEnabled() and not panel.btn_explain.isEnabled()
-    panel._set_state(UiState.SUCCESS, "SUCCESS")
+    panel._set_state(UiState.SUCCESS, "ÉXITO")
     assert panel.btn_run.isEnabled() and panel.btn_explain.isEnabled()
 
 

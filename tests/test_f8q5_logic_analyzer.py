@@ -591,7 +591,7 @@ GOLDEN_META = {  # status, trigger time, trigger index, SHA-256 of the captured 
 def test_q5_g01_golden_captures(name):
     build, config = GOLDEN[name]
     r = LA.capture(build(), config)
-    raw = (FIXTURES / f"{name}.json").read_bytes()
+    raw = (FIXTURES / f"{name}.json").read_bytes().replace(b"\r\n", b"\n")
     assert raw == r.trace.canonical_bytes() + b"\n"
     status, t, index, digest = GOLDEN_META[name]
     assert (r.status.value, str(r.trigger_time), r.trigger_index) == (status, t, index)

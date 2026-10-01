@@ -850,7 +850,7 @@ def test_e0_p01_properties_round_trip_digest_order_refs():
 # =============================================================== golden
 
 def test_e0_g01_golden_voltage_divider():
-    raw = (FIXTURES / "voltage_divider.json").read_bytes()
+    raw = (FIXTURES / "voltage_divider.json").read_bytes().replace(b"\r\n", b"\n")
     t = divider()
     assert raw == t.to_json().encode("utf-8") + b"\n"
     assert hashlib.sha256(semantic_json(t).encode("utf-8")).hexdigest() == t.digest() == "57ec3ab4318964831e1798a34a0b71437fd8ccc6c46adbd08b5a5f511cba60c7"

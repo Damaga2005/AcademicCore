@@ -46,7 +46,7 @@ def test_subject_pages_are_structured_not_debug_dumps(qtbot, tmp_path, monkeypat
         for raw in ("== ", "grade=", "evaluated=", "state=sin_", "subject:", "refs:"):
             assert raw not in text, (view.accessibleName(), raw)
         assert view.focusPolicy() == Qt.FocusPolicy.StrongFocus  # reachable by keyboard
-    assert "Not evaluated" in win.tab_grades.toPlainText()  # the Spanish domain code, translated
+    assert "Sin evaluar" in win.tab_grades.toPlainText()  # the Spanish domain code, translated
     win.show()
     win.navigate_to("learn/subject/summary")
     assert win.actions_bar.isHidden()  # nothing to add from a summary
@@ -58,7 +58,7 @@ def test_no_subject_says_what_to_do(qtbot, tmp_path, monkeypatch):
     win, _ = _win(qtbot, tmp_path, monkeypatch, subject=False)
     win.tree.clearSelection()
     win._refresh_detail()
-    assert "Select a subject" in win.tab_overview.toPlainText()
+    assert "Elige una asignatura" in win.tab_overview.toPlainText()
 
 
 def test_documents_fit_a_normal_window(qtbot, tmp_path, monkeypatch):
@@ -70,9 +70,9 @@ def test_settings_is_grouped_and_has_no_internal_jargon(qtbot, tmp_path, monkeyp
     from academic_core.ui.workspace import Panel
     win, _ = _win(qtbot, tmp_path, monkeypatch, subject=False)
     titles = {p.title_label.text() for p in win.settings_panel.findChildren(Panel)}
-    assert {"Appearance", "Data", "About", "Diagnostics"} <= titles
+    assert {"Apariencia", "Datos", "Acerca de", "Diagnóstico"} <= titles
     about = dict(win.about_list.rows)
-    assert about["Version"].startswith("v") and about["License"] == "MIT"
+    assert about["Versión"].startswith("v") and about["Licencia"] == "MIT"
     assert win.appearance_box.maximumWidth() == 220
     assert "GREELEC" in win.config_label.text()  # the explicit limitation stays visible
 
@@ -102,9 +102,9 @@ def test_every_control_has_an_accessible_name(qtbot, tmp_path, monkeypatch):
 def test_empty_lists_and_tables_explain_themselves(qtbot, tmp_path, monkeypatch):
     win, _ = _win(qtbot, tmp_path, monkeypatch, subject=False)
     eng = win.engineering_panel
-    assert "No projects" in eng.projects._hint and "project" in eng.circuits._hint
+    assert "Aún no hay proyectos" in eng.projects._hint and "proyecto" in eng.circuits._hint
     assert eng.calc_table.horizontalHeader().sectionResizeMode(0) == QHeaderView.ResizeMode.Stretch
-    assert win.practice_panel.plan_snapshot.rows[0][1].startswith("Build a plan")
+    assert win.practice_panel.plan_snapshot.rows[0][1].startswith("Crea un plan")
 
 
 def test_lab_notice_takes_no_room_when_empty(qtbot, tmp_path, monkeypatch):

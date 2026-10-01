@@ -128,6 +128,42 @@ class Circuit:
         lines.append(".end")
         return "\n".join(lines) + "\n"
 
+    # -- storage: the netlist plus each component's model data ----------------------------------
+    # ``to_netlist`` is the readable SPICE-like text and stays exactly as it is (digests and golden
+    # tests read it). It has no room for ``parameters`` / ``metadata`` (diode and transistor models,
+    # controlled-source data, source waveforms), so storage appends them as ``*@`` comment lines:
+    # any reader of the old format simply skips them.
+    def to_storage(self) -> str:
+        import json
+        text = self.to_netlist()
+        extra = []
+        for c in sorted(self.components, key=lambda c: c.ref.upper()):
+            if c.parameters or c.metadata:
+                blob = {"p": _enc(c.parameters), "m": _enc(c.metadata)}
+                extra.append(f"*@ {c.ref.upper()} {json.dumps(blob, sort_keys=True, separators=(',', ':'))}")
+        if not extra:
+            return text
+        return text.removesuffix(".end\n") + "\n".join(extra) + "\n.end\n"
+
+    @classmethod
+    def from_storage(cls, text: str, name: str = "imported") -> "Circuit":
+        import json
+        from dataclasses import replace
+        base = cls.from_netlist(text, name)
+        blobs = {}
+        for line in text.splitlines():
+            if line.startswith("*@ "):
+                _, ref, payload = line.split(" ", 2)
+                blobs[ref.upper()] = json.loads(payload)
+        if not blobs:
+            return base
+        out = cls(base.name)
+        out.notes = base.notes
+        for c in base.components:
+            b = blobs.get(c.ref.upper())
+            out.add(replace(c, parameters=_dec(b["p"]), metadata=_dec(b["m"])) if b else c)
+        return out
+
     @classmethod
     def from_netlist(cls, text: str, name: str = "imported") -> "Circuit":
         for header in text.splitlines():
@@ -159,6 +195,36 @@ class Circuit:
             circuit.add(Component(ref.upper(), ctype, value,
                                   dict(zip(want, nets))))
         return circuit
+
+
+def _enc(value):
+    """JSON-safe form of a parameter tree (str, int, Decimal, Quantity, dict, list)."""
+    from decimal import Decimal
+    if isinstance(value, Quantity):
+        u = value.unit
+        return {"$q": [str(value.value), u.symbol, u.base, u.prefix, list(u.dimension), str(u.factor)]}
+    if isinstance(value, Decimal):
+        return {"$d": str(value)}
+    if isinstance(value, dict):
+        return {str(k): _enc(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_enc(v) for v in value]
+    return value
+
+
+def _dec(value):
+    from decimal import Decimal
+    from academic_core.domain.engineering.units import Unit
+    if isinstance(value, dict):
+        if set(value) == {"$q"}:
+            v, symbol, base, prefix, dim, factor = value["$q"]
+            return Quantity(Decimal(v), Unit(symbol, base, prefix, tuple(dim), Decimal(factor)))
+        if set(value) == {"$d"}:
+            return Decimal(value["$d"])
+        return {k: _dec(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_dec(v) for v in value]
+    return value
 
 
 @dataclass

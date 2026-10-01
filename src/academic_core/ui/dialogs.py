@@ -17,15 +17,15 @@ from PySide6.QtWidgets import (
 from academic_core.ui.theme import apply_status_style
 
 # level -> (pill state, pill text). "question" has no pill: it is the user's own action.
-_LEVELS = {"critical": ("ERROR", "Error"), "warning": ("WARNING", "Needs attention"),
-           "information": ("SUCCESS", "Done")}
+_LEVELS = {"critical": ("ERROR", "Error"), "warning": ("WARNING", "Requiere atención"),
+           "information": ("SUCCESS", "Hecho")}
 
 
 class DialogFrame(QDialog):
     """Title + context on top, content in the middle, secondary/primary buttons at the bottom."""
 
     def __init__(self, parent, title: str, context: str = "", primary: str = "OK",
-                 secondary: str | None = "Cancel", destructive: bool = False, min_width: int = 420):
+                 secondary: str | None = "Cancelar", destructive: bool = False, min_width: int = 420):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(min_width)
@@ -111,8 +111,8 @@ def critical(parent, title: str, message: str) -> None:
     show_message(parent, "critical", title, message)
 
 
-def confirm(parent, text: str, *, title: str = "Confirm", confirm_text: str = "Confirm",
-            cancel_text: str = "Cancel", destructive: bool = False, context: str = "") -> bool:
+def confirm(parent, text: str, *, title: str = "Confirmar", confirm_text: str = "Confirmar",
+            cancel_text: str = "Cancelar", destructive: bool = False, context: str = "") -> bool:
     """Ask before acting. Name the action on the button; destructive ones start on Cancel."""
     dlg = DialogFrame(parent, title, context, primary=confirm_text, secondary=cancel_text,
                       destructive=destructive)
@@ -124,23 +124,24 @@ def confirm(parent, text: str, *, title: str = "Confirm", confirm_text: str = "C
 
 # Copy for the forms the app opens: window title, one line of context, primary action.
 FORM_COPY = {
-    "University": ("New university", "Top of your academic tree.", "Create"),
-    "Degree": ("New degree", "Added under the selected university.", "Create"),
-    "Academic year": ("New academic year", "Added under the selected degree.", "Create"),
-    "Term": ("New term", "Added under the selected year.", "Create"),
-    "Subject": ("New subject", "Added under the selected term.", "Create"),
-    "Topic": ("New topic", "Added to the selected subject.", "Add topic"),
-    "Assignment": ("New assignment", "Added to the selected subject.", "Add assignment"),
-    "Task": ("New task", "Added to the selected subject.", "Add task"),
-    "Exam": ("New exam", "Added to the selected subject.", "Add exam"),
-    "Grade": ("Record a grade", "Recorded for the selected subject.", "Record"),
-    "New document": ("New document", "Start from a template; you can edit everything afterwards.", "Create"),
-    "Academic link": ("Link to your studies", "Connect this document to a subject, topic or task.", "Link"),
-    "Lifecycle": ("Change document state", "Moves the document through draft, review and publication.", "Apply"),
-    "Project": ("New project", "Holds the circuits you draw.", "Create"),
-    "Circuit": ("New circuit", "Added to the selected project.", "Create"),
-    "Component": ("Add component", "Placed in the selected circuit.", "Add"),
-    "Calculate": ("Calculate", "Solves the equation with the inputs you give.", "Calculate"),
+    "University": ("Nueva universidad", "Raíz de tu árbol académico.", "Crear"),
+    "Degree": ("Nuevo grado", "Se añade bajo la universidad seleccionada.", "Crear"),
+    "Academic year": ("Nuevo curso académico", "Se añade bajo el grado seleccionado.", "Crear"),
+    "Term": ("Nuevo cuatrimestre", "Se añade bajo el curso seleccionado.", "Crear"),
+    "Subject": ("Nueva asignatura", "Se añade bajo el cuatrimestre seleccionado.", "Crear"),
+    "Topic": ("Nuevo tema", "Se añade a la asignatura seleccionada.", "Añadir tema"),
+    "Assignment": ("Nueva entrega", "Se añade a la asignatura seleccionada.", "Añadir entrega"),
+    "Task": ("Nueva tarea", "Se añade a la asignatura seleccionada.", "Añadir tarea"),
+    "Exam": ("Nuevo examen", "Se añade a la asignatura seleccionada.", "Añadir examen"),
+    "Grade": ("Registrar una nota", "Se registra en la asignatura seleccionada.", "Registrar"),
+    "New document": ("Nuevo documento", "Empieza desde una plantilla; luego puedes editarlo todo.", "Crear"),
+    "Academic link": ("Vincular con tus estudios", "Conecta este documento con una asignatura, tema o tarea.", "Vincular"),
+    "Lifecycle": ("Cambiar el estado del documento", "Lleva el documento por borrador, revisión y publicación.", "Aplicar"),
+    "Project": ("Nuevo proyecto", "Reúne los circuitos que dibujas.", "Crear"),
+    "Circuit": ("Nuevo circuito", "Se añade al proyecto seleccionado.", "Crear"),
+    "Component": ("Añadir componente", "Se coloca en el circuito seleccionado.", "Añadir"),
+    "Puerto": ("Equivalente Thévenin/Norton", "Nodos entre los que se ve el equivalente.", "Calcular"),
+    "Calculate": ("Calcular", "Resuelve la ecuación con los datos que das.", "Calcular"),
 }
 
 
@@ -149,7 +150,7 @@ def prompt_form(parent, title: str, fields: list, *, context: str = "", primary:
     Returns {key: value} with dates as date|None, or None when cancelled."""
     from PySide6.QtCore import QDate
     from PySide6.QtWidgets import QDateEdit
-    copy = FORM_COPY.get(title, (title, "", "Save"))
+    copy = FORM_COPY.get(title, (title, "", "Guardar"))
     dlg = DialogFrame(parent, copy[0], context or copy[1], primary=primary or copy[2])
     form = QFormLayout()
     form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)

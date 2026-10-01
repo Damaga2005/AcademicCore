@@ -1,4 +1,4 @@
-"""F8-Q.6 F15 integration + Logic Analyzer UI -- test suite.
+"""F8-Q.6 F15 integration + Analizador lógico UI -- test suite.
 
 Sections: application service (config, invocation, mapping, errors,
 serialization/replay) / UI (channels, capture controls, trigger,
@@ -190,7 +190,7 @@ def test_q6_a08_error_conversion_is_d2():
     assert to_ui_error(info.value).error_code == "AC-SER-001"
     with pytest.raises(ValidationError) as info:
         SVC.load_trace('{"schema":"other","version":1,"window":{},"channels":[]}')
-    assert "unrecognized format" in to_ui_error(info.value).safe_message
+    assert "formato desconocido" in to_ui_error(info.value).safe_message
 
 
 def test_q6_a09_serialization_load_replay(monkeypatch):
@@ -230,7 +230,7 @@ def test_q6_u01_tab_and_navigation(qtbot, core, dialogs):
     win = AcademicMainWindow(core)
     qtbot.addWidget(win)
     titles = [win.tabs.tabText(i) for i in range(win.tabs.count())]
-    assert "Logic Analyzer" in titles
+    assert "Analizador lógico" in titles
     win.dashboard_panel.navigate.emit("logic")
     assert win.tabs.currentWidget() is win.logic_analyzer_panel
     assert win.dashboard_panel._cards["logic"].isEnabled()
@@ -238,7 +238,7 @@ def test_q6_u01_tab_and_navigation(qtbot, core, dialogs):
 
 def test_q6_u02_channel_selection(panel):
     labels = [panel.channel_list.item(k).text() for k in range(panel.channel_list.count())]
-    assert all("→ net" in t and "start:" in t for t in labels)
+    assert all("→ nodo" in t and "inicio:" in t for t in labels)
     panel.demo.setCurrentIndex(panel.demo.findData("xor3_glitch"))
     assert panel.selected_channels() == ("a", "b", "c", "y")
     panel.set_channels(["y"])
@@ -279,7 +279,7 @@ def test_q6_u04_triggered_capture_end_to_end(qtbot, panel):
     assert panel.state.value == "SUCCESS"
     assert "TRIGGERED" in panel.status.text() and "NOT_TRIGGERED" not in panel.status.text()
     info = panel.trigger_info.text()
-    assert "Fired: FALLING at t = 1 s" in info and "transition #1 of y" in info and "Window: [0.5, 2] s" in info
+    assert "Disparó: FALLING en t = 1 s" in info and "transición #1 de y" in info and "Ventana: [0.5, 2] s" in info
     assert panel.view == SVC.capture(panel.request())  # the UI shows exactly the service's view
     g = panel.waveform.geometry_cache
     assert g.trigger_x is not None and g.pre_region and g.post_region and "FALLING" in g.trigger_label
@@ -295,7 +295,7 @@ def test_q6_u05_not_triggered_is_explicit(qtbot, panel, dialogs):
     panel.start_capture()
     _wait(qtbot, panel)
     assert panel.state.value == "WARNING" and dialogs == []  # a result, not an error
-    assert "NOT_TRIGGERED" in panel.status.text() and "nothing captured" in panel.status.text()
+    assert "NOT_TRIGGERED" in panel.status.text() and "no se capturó nada" in panel.status.text()
     assert panel.table.rowCount() == 0
     assert "NOT_TRIGGERED" in panel.waveform.summary()
 
@@ -329,7 +329,7 @@ def test_q6_u07_same_timestamp_rows_and_inspection(qtbot, panel):
     lane = panel.waveform.geometry_cache.lanes[0]
     assert len(lane.edges) == 1 and lane.edges[0].count == 3  # one column, three transitions, flagged
     assert panel.waveform.geometry_cache.merged_columns == 1
-    assert "hold several transitions" in panel.waveform.summary()
+    assert "agrupan varias transiciones" in panel.waveform.summary()
 
 
 def test_q6_u08_load_and_replay_in_ui(qtbot, panel):
@@ -338,7 +338,7 @@ def test_q6_u08_load_and_replay_in_ui(qtbot, panel):
     assert panel.view.status == "LOADED" and "LOADED" in panel.status.text()
     assert panel.table.rowCount() == len(v.transitions)
     panel.replay()
-    assert "Replay: EQUIVALENT" in panel.status.text()
+    assert "Repetición: EQUIVALENT" in panel.status.text()
     panel.load_text('{"schema":"digital-trace","version":2}')
     assert panel.state.value == "ERROR"
 
@@ -357,7 +357,7 @@ def test_q6_u09_renderer_deterministic_and_exact():
     assert g1.transitions_total == sum(len(c.transitions) for c in v.channels)
     nt = SVC.capture(req(start="9", end="9", trigger="a", edge="RISING", pre="0", post="0"))
     assert "NOT_TRIGGERED" in layout_waveform(nt).message and layout_waveform(nt).lanes == ()
-    assert layout_waveform(None).message == "No capture yet."
+    assert layout_waveform(None).message == "Aún sin captura."
 
 
 def test_q6_u10_widget_paint_is_deterministic_and_does_not_mutate(qtbot, panel):

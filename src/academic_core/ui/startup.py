@@ -39,9 +39,9 @@ class FirstRunDialog(QDialog):
         title = QLabel("AcademicCore")
         title.setObjectName("AppTitle")
         layout.addWidget(title)
-        body = QLabel("Your academic workspace.\n\n"
-                      "Everything you need to learn, solve and explore engineering.\n"
-                      "Everything stays on this computer.")
+        body = QLabel("Tu espacio académico.\n\n"
+                      "Todo lo que necesitas para aprender, resolver y explorar ingeniería.\n"
+                      "Todo se queda en este equipo.")
         body.setWordWrap(True)
         layout.addWidget(body)
         self.continue_button = QPushButton("Continue →")

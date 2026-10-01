@@ -49,7 +49,7 @@ class EngineeringRepository:
         cx = self.db.connect()
         cx.execute("INSERT OR REPLACE INTO circuits(project, name, netlist, notes)"
                    " VALUES (?,?,?,?)",
-                   (project, circuit.name, circuit.to_netlist(), notes))
+                   (project, circuit.name, circuit.to_storage(), notes))
         cx.commit(); cx.close()
 
     def load_circuit(self, project: str, name: str) -> Circuit | None:
@@ -59,7 +59,7 @@ class EngineeringRepository:
         cx.close()
         if not r:
             return None
-        return Circuit.from_netlist(r["netlist"], name)
+        return Circuit.from_storage(r["netlist"], name)
 
     def circuits_of(self, project: str) -> list[str]:
         cx = self.db.connect()

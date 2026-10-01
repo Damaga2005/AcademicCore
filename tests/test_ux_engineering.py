@@ -22,11 +22,11 @@ def _core(tmp_path):
 # -- kit ------------------------------------------------------------------------------------
 def test_metric_shows_value_with_unit_and_accessible_name(qtbot):
     from academic_core.ui.workspace import Metric
-    m = Metric("Period", "min")
+    m = Metric("Periodo", "min")
     qtbot.addWidget(m)
-    assert m.text() == "—" and "no value" in m.accessibleName()
+    assert m.text() == "—" and "sin valor" in m.accessibleName()
     m.set_value("92.8")
-    assert m.accessibleName() == "Period: 92.8 min"
+    assert m.accessibleName() == "Periodo: 92.8 min"
     m.clear()
     assert m.text() == "—"
 
@@ -38,10 +38,10 @@ def test_key_value_list_and_panel(qtbot):
     kv.set_rows([("a", "1"), ("b", "2")])
     kv.set_rows([("c", "3")])  # replaces, does not append
     assert kv.rows == [("c", "3")]
-    panel = Panel("Results")
+    panel = Panel("Resultados")
     qtbot.addWidget(panel)
     panel.add(kv)
-    assert panel.title_label.text() == "Results" and panel.accessibleName() == "Results"
+    assert panel.title_label.text() == "Resultados" and panel.accessibleName() == "Resultados"
 
 
 # -- aerospace -------------------------------------------------------------------------------
@@ -64,16 +64,16 @@ def test_aerospace_metrics_are_the_engine_values(qtbot, tmp_path):
     assert panel.metrics["vesc"].text() == f"{escape_velocity_m_s(r, EARTH.mu_m3_s2) / km:.3f}"
     assert panel.metrics["T"].text().replace(" ", "") == f"{circular_period_s(r, EARTH.mu_m3_s2) / 60:.1f}"
     assert panel.metrics["h"].text() == "420.0" and panel.metrics["v"].unit.text() == "km/s"
-    assert panel.status.text() == "SUCCESS"
+    assert panel.status.text() == "ÉXITO"
 
 
 def test_aerospace_context_shows_real_body_constants(qtbot, tmp_path):
     from academic_core.domain.engineering.orbital import EARTH
     panel = _orbit(qtbot, tmp_path)
     facts = dict(panel.body_facts.rows)
-    assert facts["Body"] == EARTH.name
+    assert facts["Cuerpo"] == "Tierra"
     assert facts["μ"].startswith(f"{EARTH.mu_m3_s2:.6e}")
-    assert facts["Radius"].replace(" ", "").startswith(f"{EARTH.radius_m / 1000:.3f}")
+    assert facts["Radio"].replace(" ", "").startswith(f"{EARTH.radius_m / 1000:.3f}")
 
 
 def test_aerospace_bad_input_clears_results_and_flags_error(qtbot, tmp_path):
@@ -108,7 +108,7 @@ def test_aerospace_runs_history_and_exact_replay(qtbot, tmp_path):
     panel.history_list.setCurrentRow(0)
     assert panel.btn_replay.isEnabled()
     panel.replay()
-    assert panel.altitude_km.text() == "420" and panel.status.text() == "EQUIVALENT"
+    assert panel.altitude_km.text() == "420" and panel.status.text() == "EQUIVALENTE"
     assert panel.last == panel._runs[0]["state"]  # identical Decimals, not approximately equal
 
 
@@ -131,20 +131,23 @@ def _eng(qtbot, tmp_path):
 
 def test_circuits_empty_states_lead_to_the_next_step(qtbot, tmp_path):
     core, panel = _eng(qtbot, tmp_path)
-    assert panel.empty.title.text() == "No projects yet"
+    assert panel.empty.title.text() == "Aún no hay proyectos"
     assert not panel.btn_new_ckt.isEnabled() and not panel.btn_add_comp.isEnabled()
     assert panel.view_stack.currentWidget() is panel.empty
     core.engineering.create_project("Demo")
     panel.refresh_projects()
-    assert panel.empty.title.text() == "Select a project"
+    assert panel.empty.title.text() == "Elige un proyecto"
     panel.projects.setCurrentRow(0)
-    assert panel.empty.title.text() == "This project has no circuits"
+    assert panel.empty.title.text() == "Este proyecto no tiene circuitos"
     assert panel.btn_new_ckt.isEnabled() and not panel.btn_add_comp.isEnabled()
     core.engineering.save_circuit("Demo", core.engineering.new_circuit("Divisor"))
     panel._select_project()
-    assert panel.empty.title.text() == "Select a circuit"
+    assert panel.empty.title.text() == "Elige un circuito"
     panel.circuits.setCurrentRow(0)
-    assert panel.btn_add_comp.isEnabled() and panel.view_stack.currentWidget() is panel.components_table
+    # the drawing is the main view of a circuit; the table is one click away
+    assert panel.btn_add_comp.isEnabled() and panel.view_stack.currentWidget() is panel.schematic
+    panel.btn_view_components.click()
+    assert panel.view_stack.currentWidget() is panel.components_table
 
 
 def _with_circuit(core, panel):
@@ -167,8 +170,8 @@ def test_components_table_lists_the_real_circuit(qtbot, tmp_path):
     assert [r[0] for r in rows] == ["R1", "R2", "V1"]  # sorted by reference
     assert rows[0][2] == "1kohm" and rows[2][2] == "5V"
     facts = dict(panel.facts.rows)
-    assert facts["Components"] == "3" and facts["Topology"] == "clean"
-    assert facts["Structure"] == "RESISTIVE"
+    assert facts["Componentes"] == "3" and facts["Topología"] == "correcta"
+    assert facts["Estructura"] == "RESISTIVE"
     assert "R1 " in panel.detail.toPlainText() and panel.status.text() == "Demo / Divisor"
 
 
@@ -189,7 +192,7 @@ def test_calculation_lands_in_results_not_a_popup(qtbot, tmp_path, monkeypatch):
         "equation": "I = V / R", "inputs": "V=5 V; R=1 kohm", "name": "corriente"})
     panel._calculate()
     assert panel.last_calc.text() == "I = 0.005 A" and not panel.last_calc.isHidden()
-    assert panel.pill.text() == "SUCCESS"
+    assert panel.pill.text() == "ÉXITO"
     assert panel.calc_table.rowCount() == 1 and panel.calc_table.item(0, 0).text() == "I"
     assert panel.calc_table.item(0, 2).text() == "A"
 
@@ -204,12 +207,12 @@ def test_calculation_error_goes_through_the_single_converter(qtbot, tmp_path, mo
                         lambda parent, exc, title="Error": shown.append(title) or type(
                             "U", (), {"error_code": "E-TEST"})())
     panel._calculate()
-    assert shown == ["Calculate"] and panel.pill.text() == "ERROR E-TEST"
+    assert shown == ["Calcular"] and panel.pill.text() == "ERROR E-TEST"
 
 
 def test_backend_status_is_shown_in_results(qtbot, tmp_path):
     core, panel = _eng(qtbot, tmp_path)
-    assert panel.backend_label.text() == "Backends: not checked"
+    assert panel.backend_label.text() == "Motores: sin comprobar"
     panel._backend_status()
     for line in core.engineering.backend_status_lines():
         assert line in panel.backend_label.text()
@@ -251,24 +254,24 @@ def test_logic_zones_are_separated_and_pinned_widgets_kept(qtbot, tmp_path):
     from academic_core.ui.workspace import Panel
     _core_, panel = _logic(qtbot, tmp_path)
     titles = {p.title_label.text(): p for p in panel.findChildren(Panel)}
-    assert {"Setup", "Waveform", "Transitions", "Why it changed"} <= set(titles)
-    assert titles["Setup"].isAncestorOf(panel.channel_list) and titles["Setup"].isAncestorOf(panel.pre)
-    assert titles["Waveform"].isAncestorOf(panel.waveform)
-    assert titles["Transitions"].isAncestorOf(panel.table)
-    assert titles["Why it changed"].isAncestorOf(panel.explanation)
+    assert {"Configuración", "Forma de onda", "Transiciones", "Por qué cambió"} <= set(titles)
+    assert titles["Configuración"].isAncestorOf(panel.channel_list) and titles["Configuración"].isAncestorOf(panel.pre)
+    assert titles["Forma de onda"].isAncestorOf(panel.waveform)
+    assert titles["Transiciones"].isAncestorOf(panel.table)
+    assert titles["Por qué cambió"].isAncestorOf(panel.explanation)
     assert isinstance(panel.workspace, QSplitter) and panel.workspace.count() == 2
     assert not panel.workspace.childrenCollapsible()
     for b in (panel.btn_run, panel.btn_verify, panel.btn_save, panel.btn_load, panel.btn_replay):
-        assert not titles["Setup"].isAncestorOf(b)  # tools stay in the toolbar
+        assert not titles["Configuración"].isAncestorOf(b)  # tools stay in the toolbar
 
 
 def test_logic_short_labels_keep_full_accessible_names(qtbot, tmp_path):
     _core_, panel = _logic(qtbot, tmp_path)
-    assert panel.start.accessibleName() == "Start / arm from (s)"
-    assert panel.trigger_channel.accessibleName() == "Trigger channel"
+    assert panel.start.accessibleName() == "Inicio / armar desde (s)"
+    assert panel.trigger_channel.accessibleName() == "Canal de disparo"
     from PySide6.QtWidgets import QLabel
     visible = {w.text() for w in panel.findChildren(QLabel)}
-    assert {"From (s)", "Until (s)", "Channel", "Edge", "Pre (s)", "Post (s)"} <= visible
+    assert {"Desde (s)", "Hasta (s)", "Canal", "Flanco", "Pre (s)", "Post (s)"} <= visible
 
 
 # -- labs (prompt 7) ----------------------------------------------------------------------------
@@ -294,14 +297,14 @@ def test_simulation_default_transient_runs_and_plots(qtbot, tmp_path):
     assert panel.state == UiState.SUCCESS, panel.output.toPlainText()
     presenter = panel.kit.presenter
     assert len(presenter.plots) == 1 and presenter.plots[0].series
-    assert panel.kit.header.rows[0][0] == "Run" and presenter.measure_table.rowCount() == 1
+    assert panel.kit.header.rows[0][0] == "Ejecución" and presenter.measure_table.rowCount() == 1
 
 
 def test_simulation_scenario_is_derived_not_a_control(qtbot, tmp_path):
     panel = _sim(qtbot, tmp_path)
     assert not panel.scenario.isEnabled()
-    for kind, item in (("OP", "voltage divider"), ("TRANSIENT", "RC step"), ("AC_SWEEP", "RC filter (AC)"),
-                       ("DC_SWEEP", "voltage divider")):
+    for kind, item in (("OP", "divisor de tensión"), ("TRANSIENT", "escalón RC"), ("AC_SWEEP", "filtro RC (AC)"),
+                       ("DC_SWEEP", "divisor de tensión")):
         panel.analysis.setCurrentText(kind)
         assert item in panel.scenario.currentText(), kind
     panel.analysis.setCurrentText("OP")
@@ -319,7 +322,9 @@ def test_simulation_results_are_structured_per_analysis(qtbot, tmp_path):
     assert not presenter.plots  # an operating point has nothing to plot, and says so
     panel.analysis.setCurrentText("AC_SWEEP")
     _run_and_wait(qtbot, panel)
-    assert [p.title for p in presenter.plots] == ["Gain", "Phase"] and all(p.x_log for p in presenter.plots)
+    # gain and phase share one dual-axis Bode plot with a logarithmic frequency axis
+    assert [p.title for p in presenter.plots] == ["Bode"] and all(p.x_log for p in presenter.plots)
+    assert [label for label, _xs, _ys in presenter.plots[0].series] == ["Ganancia", "Fase"]
     assert presenter.measure_table is None  # no measurement requested: no stale table from the OP run
     assert not presenter.metrics
 
@@ -344,19 +349,19 @@ def test_lab_result_header_and_log(qtbot, tmp_path):
     from academic_core.ui.state import UiState
     panel = VirtualLabPanel(_core(tmp_path))
     qtbot.addWidget(panel)
-    assert panel.status.text() == "READY" and panel.output.isHidden()
+    assert panel.status.text() == "LISTO" and panel.output.isHidden()
     panel.circuit.setCurrentIndex(1)  # the session is built over the selected circuit
     panel._new_session()
     panel.analysis.setCurrentText("TRANSIENT")
     panel._add_run()
     qtbot.waitUntil(lambda: panel.state != UiState.RUNNING, timeout=60000)
     rows = dict(panel.kit.header.rows)
-    assert rows["Run"] == panel.last_run_id and rows["Status"] == "COMPLETED"
+    assert rows["Ejecución"] == panel.last_run_id and rows["Estado"] == "COMPLETED"
     assert rows["Digest"].endswith("…") and len(rows["Digest"]) == 17
     assert len(panel.kit.presenter.plots) == 1 and panel.kit.presenter.plots[0].series
     assert panel.output.isHidden()  # the machine log is one click away, not the result
     panel.kit.log_toggle.click()
-    assert not panel.output.isHidden() and panel.output.toPlainText().startswith("run: exp-")
+    assert not panel.output.isHidden() and panel.output.toPlainText().startswith("ejecución: exp-")
 
 
 def test_new_session_clears_the_previous_result(qtbot, tmp_path):
@@ -369,7 +374,7 @@ def test_new_session_clears_the_previous_result(qtbot, tmp_path):
     qtbot.waitUntil(lambda: panel.state != UiState.RUNNING, timeout=60000)
     assert panel.kit.header.rows
     panel._new_session()
-    assert panel.kit.header.rows == [] and panel.status.text() == "READY — session open"
+    assert panel.kit.header.rows == [] and panel.status.text() == "LISTO — sesión abierta"
 
 
 def test_explain_shows_computing_and_reveals_the_log(qtbot, tmp_path):
@@ -381,8 +386,8 @@ def test_explain_shows_computing_and_reveals_the_log(qtbot, tmp_path):
     panel._add_run()
     qtbot.waitUntil(lambda: panel.state != UiState.RUNNING, timeout=60000)
     panel._explain()
-    assert panel.status.text() == "COMPUTING…"  # re-deriving the trace, not running an experiment
-    qtbot.waitUntil(lambda: panel.status.text() != "COMPUTING…", timeout=60000)
+    assert panel.status.text() == "CALCULANDO…"  # re-deriving the trace, not running an experiment
+    qtbot.waitUntil(lambda: panel.status.text() != "CALCULANDO…", timeout=60000)
     assert not panel.output.isHidden() and panel.output.toPlainText()
 
 
@@ -402,8 +407,8 @@ def test_plot_drops_missing_points_and_describes_itself(qtbot):
     plot.set_series([("gain", [Decimal(100), Decimal(1000), Decimal(0), Decimal(10000)],
                       [Decimal(-1), None, Decimal(-3), Decimal(-9)])])
     assert plot.series == [("gain", [100.0, 10000.0], [-1.0, -9.0])]  # None and x<=0 (log) dropped
-    assert plot.accessibleDescription().startswith("2 points")
+    assert plot.accessibleDescription().startswith("2 puntos")
     plot.resize(400, 240)
     assert not plot.grab().isNull()  # paints without error
     plot.set_series([])
-    assert plot.accessibleDescription() == "No data" and not plot.grab().isNull()
+    assert plot.accessibleDescription() == "Sin datos" and not plot.grab().isNull()

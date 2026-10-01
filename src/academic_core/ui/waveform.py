@@ -102,10 +102,10 @@ def layout_waveform(view, width: int = 900) -> WaveformGeometry:
     x0, x1 = LEFT, width - RIGHT
     plot = x1 - x0
     if view is None or view.window is None:
-        message = "No capture yet."
+        message = "Aún sin captura."
         if view is not None and view.status == "NOT_TRIGGERED":
-            message = ("NOT_TRIGGERED — no qualifying edge on channel "
-                       f"{view.trigger_channel} in the arming window. Nothing was captured.")
+            message = ("NOT_TRIGGERED — ningún flanco válido en el canal "
+                       f"{view.trigger_channel} en la ventana de armado. No se capturó nada.")
         return WaveformGeometry(width, TOP + AXIS, x0, x1, (), (), None, "", None, None, 0, 0, 0, message)
     ws, we = Decimal(view.window[0]), Decimal(view.window[1])
     span = we - ws
@@ -140,11 +140,11 @@ def layout_waveform(view, width: int = 900) -> WaveformGeometry:
     label = ""
     if view.status == "TRIGGERED" and view.trigger_time is not None:
         trigger_x = _x(Decimal(view.trigger_time), ws, span, x0, plot)
-        label = (f"T {view.fired_edge} on {view.trigger_channel} @ {view.trigger_time} s "
-                 f"(transition #{view.trigger_index})")
+        label = (f"T {view.fired_edge} en {view.trigger_channel} @ {view.trigger_time} s "
+                 f"(transición #{view.trigger_index})")
         pre, post = (x0, trigger_x), (trigger_x, x1)
     height = TOP + len(lanes) * LANE_HEIGHT + AXIS
-    message = "" if lanes else "The capture has no channels."
+    message = "" if lanes else "La captura no tiene canales."
     return WaveformGeometry(width, height, x0, x1, tuple(lanes), ticks, trigger_x, label, pre, post,
                             total, drawn, merged, message)
 
@@ -158,8 +158,8 @@ class WaveformWidget(QWidget):
         self.geometry_cache: WaveformGeometry | None = None
         self.setMinimumHeight(TOP + AXIS + LANE_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.setAccessibleName("Logic analyzer waveform")
-        self.setAccessibleDescription("Digital channels over time; exact transitions are listed in the table")
+        self.setAccessibleName("Forma de onda del analizador lógico")
+        self.setAccessibleDescription("Canales digitales a lo largo del tiempo; las transiciones exactas están en la tabla")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def set_view(self, view) -> None:
@@ -174,10 +174,10 @@ class WaveformWidget(QWidget):
         g = self._geometry()
         if g.message:
             return g.message
-        text = f"{len(g.lanes)} channels, {g.transitions_total} transitions"
+        text = f"{len(g.lanes)} canales, {g.transitions_total} transiciones"
         if g.merged_columns:
-            text += (f"; {g.merged_columns} display column(s) hold several transitions "
-                     "(all listed in the table)")
+            text += (f"; {g.merged_columns} columna(s) de pantalla agrupan varias transiciones "
+                     "(todas figuran en la tabla)")
         return text
 
     def _geometry(self) -> WaveformGeometry:

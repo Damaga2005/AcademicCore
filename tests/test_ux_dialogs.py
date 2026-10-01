@@ -27,9 +27,9 @@ def _shown(qtbot, build):
 
 def test_frame_has_title_context_and_two_actions(qtbot):
     dlg = _shown(qtbot, lambda: dialogs.DialogFrame(None, "Delete term", "Removes its subjects.",
-                                                    primary="Delete", secondary="Keep"))
+                                                    primary="Eliminar", secondary="Keep"))
     assert dlg.windowTitle() == "Delete term" and dlg.title_label.text() == "Delete term"
-    assert not dlg.context_label.isHidden() and dlg.btn_primary.text() == "Delete"
+    assert not dlg.context_label.isHidden() and dlg.btn_primary.text() == "Eliminar"
     assert dlg.btn_secondary.text() == "Keep" and dlg.btn_primary.isDefault()
 
 
@@ -56,13 +56,13 @@ def test_confirm_returns_the_choice(qtbot):
             QTest.keyClick(dlg.focusWidget(), key)
         QTimer.singleShot(50, go)
     press(Qt.Key.Key_Space)  # focus starts on the primary button
-    assert dialogs.confirm(None, "Go?", confirm_text="Go") is True
+    assert dialogs.confirm(None, "Go?", confirm_text="Ir") is True
     press(Qt.Key.Key_Space)  # destructive: focus starts on Cancel, so Space cancels
     assert dialogs.confirm(None, "Delete?", destructive=True) is False
 
 
 def test_message_splits_the_safe_message_from_the_next_step(qtbot):
-    dlg = _shown(qtbot, lambda: dialogs.MessageDialog(None, "warning", "Import", "It failed.\n\nTry another file."))
+    dlg = _shown(qtbot, lambda: dialogs.MessageDialog(None, "warning", "Importar", "It failed.\n\nTry another file."))
     assert dlg.message_label.text() == "It failed." and dlg.action_label.text() == "Try another file."
     assert dlg.level_label.property("state") == "WARNING" and dlg.focusWidget() is dlg.btn_primary
     plain = _shown(qtbot, lambda: dialogs.MessageDialog(None, "critical", "X", "Boom"))
@@ -72,14 +72,14 @@ def test_message_splits_the_safe_message_from_the_next_step(qtbot):
 def test_prompt_form_focuses_first_field_labels_it_and_returns_values(qtbot):
     def fill():
         dlg = QApplication.activeModalWidget()
-        assert isinstance(dlg.focusWidget(), QLineEdit) and dlg.title_label.text() == "New university"
-        assert dlg.btn_primary.text() == "Create"
+        assert isinstance(dlg.focusWidget(), QLineEdit) and dlg.title_label.text() == "Nueva universidad"
+        assert dlg.btn_primary.text() == "Crear"
         dlg.focusWidget().setText("UPM")
         QTest.keyClick(dlg.focusWidget(), Qt.Key.Key_Return)  # Enter submits from a field
     QTimer.singleShot(50, fill)
-    assert dialogs.prompt_form(None, "University", [("name", "Name", "", "text")]) == {"name": "UPM"}
+    assert dialogs.prompt_form(None, "University", [("name", "Nombre", "", "text")]) == {"name": "UPM"}
     QTimer.singleShot(50, lambda: QTest.keyClick(QApplication.activeModalWidget(), Qt.Key.Key_Escape))
-    assert dialogs.prompt_form(None, "University", [("name", "Name", "", "text")]) is None
+    assert dialogs.prompt_form(None, "University", [("name", "Nombre", "", "text")]) is None
 
 
 def test_every_form_the_app_opens_has_copy():

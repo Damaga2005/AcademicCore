@@ -11,7 +11,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QVBoxLayout, QWidget,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout, QWidget,
 )
 
 
@@ -100,7 +100,7 @@ class Metric(QFrame):
     def _sync_name(self) -> None:
         shown = self.value.text()
         self.setAccessibleName(f"{self._label_text}: {shown} {self._unit}".strip()
-                               if shown != self.EMPTY else f"{self._label_text}: no value")
+                               if shown != self.EMPTY else f"{self._label_text}: sin valor")
 
 
 class KeyValueList(QWidget):
@@ -158,10 +158,94 @@ class EmptyState(QFrame):
         self.text.setMinimumHeight(self.text.fontMetrics().height() * 3)
         lay.addWidget(self.title)
         lay.addWidget(self.text)
+        # The one next step lives inside the empty state, not in a toolbar the user must find.
+        self._action_connected = False
+        self.action = QPushButton()
+        self.action.setProperty("class", "primary")
+        self.action.hide()
+        lay.addWidget(self.action, 0, Qt.AlignmentFlag.AlignHCenter)
 
     def set(self, title: str, text: str = "") -> None:
         self.title.setText(title)
         self.text.setText(text)
+
+    def set_action(self, label: str = "", callback=None) -> None:
+        """Show a primary button that performs the next step; an empty label hides it."""
+        if self._action_connected:
+            self.action.clicked.disconnect()
+            self._action_connected = False
+        self.action.setText(label)
+        self.action.setVisible(bool(label and callback))
+        if label and callback:
+            self.action.clicked.connect(lambda _=False: callback())
+            self._action_connected = True
+
+
+class VerificationCard(QFrame):
+    """The seal of a run: did the engine's own conservation checks (KCL, KVL, Tellegen) pass?
+
+    Presentation only. It shows the figures the engine produced and says plainly when a run has
+    none; it never decides a verdict the engine did not give.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("VerificationCard")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        self.seal = QLabel()  # a pill: one line, so the wording stays short
+        self.rows = KeyValueList()
+        lay.addWidget(self.seal, 0, Qt.AlignmentFlag.AlignLeft)
+        lay.addWidget(self.rows)
+        self.clear()
+
+    def _seal(self, text: str, state: str) -> None:
+        from academic_core.ui.theme import apply_status_style
+        self.seal.setText(text)
+        self.seal.setAccessibleName(f"Verificación: {text}")
+        apply_status_style(self.seal, state)
+
+    def clear(self) -> None:
+        self._seal("Sin ejecución todavía", "IDLE")
+        self.seal.setToolTip("")
+        self.rows.set_rows([])
+
+    def show_oracle(self, oracle) -> None:
+        """Add ngspice's independent verdict under the conservation figures (``None`` = not asked)."""
+        if oracle is None:
+            return
+        name = f"ngspice {oracle.version}".strip()
+        text = {
+            "match": f"coincide (Δ máx. {oracle.max_abs_diff} V)",
+            "differs": f"DIFIERE: {oracle.detail}",
+            "unavailable": "no disponible",
+            "unsupported": f"no comparable: {oracle.detail}",
+        }.get(oracle.status, oracle.detail)
+        self.rows.set_rows([*self.rows.rows, (name, text)])
+        if oracle.status == "differs":
+            self._seal("Difiere de ngspice", "ERROR")
+
+    def show_conservation(self, cons) -> None:
+        """``cons`` is an application ``ConservationView`` or ``None``."""
+        if cons is None:
+            self._seal("Conservación no comprobada", "IDLE")
+            self.seal.setToolTip("El motor no registra comprobaciones de conservación para este análisis.")
+            self.rows.set_rows([])
+            return
+        if cons.passed is True:
+            self._seal("Núcleo determinista verificado", "SUCCESS")
+        elif cons.passed is False:
+            self._seal("Conservación fuera de tolerancia", "ERROR")
+        else:
+            self._seal("Residuos sin veredicto", "WARNING")
+        rows = [("KCL (máx.)", cons.kcl), ("KVL (máx.)", cons.kvl)]
+        if cons.power_balance != "—":
+            rows.append(("Balance de potencia (Tellegen)", cons.power_balance))
+        if cons.points > 1:
+            rows.append(("Puntos resueltos", str(cons.points)))
+        self.seal.setToolTip(f"Tolerancia del motor: {cons.tolerance}" if cons.tolerance else "")
+        self.rows.set_rows(rows)
 
 
 class HintList(QListWidget):

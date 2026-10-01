@@ -135,10 +135,10 @@ class UiError:
 
 _FALLBACK = UiError(
     error_code="AC-APP-000",
-    safe_message="The operation could not be completed.",
+    safe_message="No se pudo completar la operación.",
     severity="ERROR",
     recoverability="RECOVER",
-    user_action="Check the highlighted values and try again.",
+    user_action="Revisa los valores resaltados e inténtalo de nuevo.",
 )
 
 
@@ -163,54 +163,54 @@ def to_ui_error(exc: BaseException) -> UiError:
     ):
         if "VERSION_MISMATCH" in str(exc) or "VersionMismatch" in name:
             return UiError(code if code != "AC-APP-000" else "AC-VER-001",
-                           "This file was created by a different version and cannot be opened.",
+                           "Este archivo se creó con otra versión y no se puede abrir.",
                            "ERROR", "CONFIG_CHANGE",
-                           "Re-export from the current version or pick a compatible file.")
+                           "Expórtalo de nuevo desde la versión actual o elige un archivo compatible.")
         if "SCHEMA_MISMATCH" in str(exc) or "SCHEMA" in str(exc):
             return UiError(code if code != "AC-APP-000" else "AC-SER-002",
-                           "This file has an unrecognized format and was rejected.",
+                           "Este archivo tiene un formato desconocido y se rechazó.",
                            "ERROR", "CONFIG_CHANGE",
-                           "Select a file exported by this application.")
+                           "Elige un archivo exportado por esta aplicación.")
         if any(k in str(exc) for k in ("INVALID_SERIALIZATION", "tamper", "INCONSISTENT")):
             return UiError(code if code != "AC-APP-000" else "AC-SER-001",
-                           "The file is invalid or damaged and was rejected. Nothing was changed.",
+                           "El archivo no es válido o está dañado y se rechazó. No se cambió nada.",
                            "ERROR", "NONE",
-                           "Pick a valid exported file.")
+                           "Elige un archivo exportado válido.")
         if "UNSUPPORTED" in str(exc) or isinstance(exc, UnsupportedError):
             return UiError(code if code != "AC-APP-000" else "AC-UNS-001",
-                           "This request is not supported in the current version.",
+                           "Esta petición no se admite en la versión actual.",
                            "WARNING", "CONFIG_CHANGE",
-                           "Change the request to a supported configuration.")
-        return UiError(code, "The value is invalid. Check the highlighted field and try again.",
-                       "WARNING", "RECOVER", "Correct the highlighted value and retry.")
+                           "Cambia la petición a una configuración admitida.")
+        return UiError(code, "El valor no es válido. Revisa el campo resaltado e inténtalo de nuevo.",
+                       "WARNING", "RECOVER", "Corrige el valor resaltado y vuelve a intentarlo.")
     if name in ("SecurityError",) or "Security" in name:
-        return UiError("AC-SEC-001", "The input was rejected. Nothing was stored.",
-                       "ERROR", "NONE", "Use a different file or value.")
+        return UiError("AC-SEC-001", "Se rechazó la entrada. No se guardó nada.",
+                       "ERROR", "NONE", "Usa otro archivo u otro valor.")
     if name in ("ApplicationError",):
         return UiError(code if code != "AC-APP-000" else "AC-APP-001",
-                       "The operation could not be completed.",
-                       "ERROR", "RECOVER", "Check the inputs and try again.")
+                       "No se pudo completar la operación.",
+                       "ERROR", "RECOVER", "Revisa los datos e inténtalo de nuevo.")
     if name in ("AdapterError", "PDFError", "StirlingError"):
-        return UiError("AC-ADP-001", "An external tool failed. Details were logged.",
-                       "ERROR", "RETRY", "Try again; if it persists, check the external tool.")
+        return UiError("AC-ADP-001", "Falló una herramienta externa. Los detalles quedaron registrados.",
+                       "ERROR", "RETRY", "Inténtalo de nuevo; si persiste, revisa la herramienta externa.")
     if name in ("InfrastructureError", "TooLarge", "BlobNotFound") or "sqlite3" in name.lower():
-        return UiError("AC-INF-001", "Storage failed. Details were logged.",
-                       "ERROR", "RETRY", "Free disk space and try again.")
+        return UiError("AC-INF-001", "Falló el almacenamiento. Los detalles quedaron registrados.",
+                       "ERROR", "RETRY", "Libera espacio en disco e inténtalo de nuevo.")
     if isinstance(exc, (ValueError,)):
-        return UiError(code, "The value is invalid. Check the highlighted field and try again.",
-                       "WARNING", "RECOVER", "Correct the highlighted value and retry.")
+        return UiError(code, "El valor no es válido. Revisa el campo resaltado e inténtalo de nuevo.",
+                       "WARNING", "RECOVER", "Corrige el valor resaltado y vuelve a intentarlo.")
     return _FALLBACK
 
 
 def ui_error_for_code(code: str, *, severity: str = "ERROR",
-                      action: str = "Check the inputs and try again.") -> UiError:
+                      action: str = "Revisa los datos e inténtalo de nuevo.") -> UiError:
     """Build a ``UiError`` for replay/status constants without exceptions."""
     messages = {
-        "RESULT_DIFFERS": "Replay finished: the result differs from the saved one.",
-        "VERSION_MISMATCH": "Replay refused: the saved file targets different engine versions.",
-        "SCHEMA_MISMATCH": "Replay refused: unrecognized file format.",
-        "INVALID_SERIALIZATION": "Replay refused: the file is invalid.",
-        "EQUIVALENT": "Replay finished: identical result.",
+        "RESULT_DIFFERS": "Repetición terminada: el resultado difiere del guardado.",
+        "VERSION_MISMATCH": "Repetición rechazada: el archivo guardado es de otras versiones del motor.",
+        "SCHEMA_MISMATCH": "Repetición rechazada: formato de archivo desconocido.",
+        "INVALID_SERIALIZATION": "Repetición rechazada: el archivo no es válido.",
+        "EQUIVALENT": "Repetición terminada: resultado idéntico.",
     }
-    return UiError(code, messages.get(code, "The operation could not be completed."),
+    return UiError(code, messages.get(code, "No se pudo completar la operación."),
                    severity, "RECOVER", action)

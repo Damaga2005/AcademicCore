@@ -12,11 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 AREAS: tuple[tuple[str, str], ...] = (
-    ("home", "Home"),
-    ("learn", "Learn"),
-    ("practice", "Practice"),
-    ("engineering", "Engineering"),
-    ("settings", "Settings"),
+    ("home", "Inicio"),
+    ("learn", "Aprender"),
+    ("practice", "Practicar"),
+    ("engineering", "Circuitos electrónicos"),
+    ("settings", "Ajustes"),
 )
 
 
@@ -31,23 +31,23 @@ class Route:
 
 
 ROUTES: tuple[Route, ...] = (
-    Route("home", "home", "Home", "dashboard", section=False),
-    Route("learn/subject/summary", "learn", "Summary", "overview", needs_subject=True),
-    Route("learn/subject/activities", "learn", "Activities", "activities", needs_subject=True),
-    Route("learn/subject/grades", "learn", "Grades", "grades", needs_subject=True),
-    Route("learn/subject/planning", "learn", "Planning", "planning", needs_subject=True),
-    Route("learn/mastery", "learn", "Mastery", "mastery"),
-    Route("learn/library", "learn", "Library", "library"),
-    Route("learn/documents", "learn", "Documents", "documents"),
-    Route("practice/exercises", "practice", "Exercises", "exercises"),
-    Route("practice/sessions", "practice", "Sessions", "sessions"),
+    Route("home", "home", "Inicio", "dashboard", section=False),
+    Route("learn/subject/summary", "learn", "Resumen", "overview", needs_subject=True),
+    Route("learn/subject/activities", "learn", "Actividades", "activities", needs_subject=True),
+    Route("learn/subject/grades", "learn", "Notas", "grades", needs_subject=True),
+    Route("learn/subject/planning", "learn", "Planificación", "planning", needs_subject=True),
+    Route("learn/mastery", "learn", "Dominio", "mastery"),
+    Route("learn/library", "learn", "Biblioteca", "library"),
+    Route("learn/documents", "learn", "Documentos", "documents"),
+    Route("practice/exercises", "practice", "Ejercicios", "exercises"),
+    Route("practice/sessions", "practice", "Sesiones", "sessions"),
     Route("practice/plan", "practice", "Plan", "plan"),
-    Route("engineering/circuits", "engineering", "Circuits", "circuits"),
-    Route("engineering/analysis", "engineering", "Analysis", "analysis"),
-    Route("engineering/lab", "engineering", "Lab", "lab"),
-    Route("engineering/digital-logic", "engineering", "Digital Logic", "digital"),
-    Route("engineering/aerospace", "engineering", "Aerospace", "aerospace"),
-    Route("settings", "settings", "Settings", "settings", section=False),
+    Route("engineering/circuits", "engineering", "Circuitos", "circuits"),
+    Route("engineering/analysis", "engineering", "Análisis", "analysis"),
+    Route("engineering/lab", "engineering", "Laboratorio", "lab"),
+    Route("engineering/digital-logic", "engineering", "Lógica digital", "digital"),
+    Route("engineering/aerospace", "engineering", "Aeroespacial", "aerospace"),
+    Route("settings", "settings", "Ajustes", "settings", section=False),
 )
 
 _BY_ID = {r.id: r for r in ROUTES}
@@ -112,7 +112,7 @@ def crumbs(route: Route, subject: str | None = None) -> list[tuple[str, str | No
     trail: list[tuple[str, str | None]] = [(area_label(route.area), area_default(route.area).id)]
     if len(sections(route.area)) > 1:
         if route.needs_subject:
-            trail.append((subject or "No subject", "learn/subject/summary"))
+            trail.append((subject or "Sin asignatura", "learn/subject/summary"))
         trail.append((route.label, None))
     else:
         trail[0] = (trail[0][0], None)
@@ -125,7 +125,7 @@ def goto_entries() -> list[tuple[str, str]]:
     for r in ROUTES:
         if r.section or r.id in ("home", "settings"):
             prefix = "" if r.id in ("home", "settings") else f"{area_label(r.area)}: "
-            out.append((f"Go to {prefix}{r.label}", r.id))
+            out.append((f"Ir a {prefix}{r.label}", r.id))
     return out
 
 

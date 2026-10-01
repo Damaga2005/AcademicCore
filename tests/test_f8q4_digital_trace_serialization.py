@@ -845,7 +845,7 @@ def test_q4_z02_separate_processes_and_hash_seeds():
 
 @pytest.mark.parametrize("name", sorted(GOLDEN))
 def test_q4_g01_golden_fixture(name):
-    raw = (FIXTURES / f"{name}.json").read_bytes()
+    raw = (FIXTURES / f"{name}.json").read_bytes().replace(b"\r\n", b"\n")
     trace = GOLDEN[name]()
     assert raw == trace.canonical_bytes() + b"\n"  # fixture file = canonical bytes + one newline
     decoded = DigitalTrace.from_json(raw)

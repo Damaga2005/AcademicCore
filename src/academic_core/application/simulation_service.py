@@ -93,6 +93,76 @@ class SimulationService:
                               {"1": "out", "2": "0"}, {}))
         return circuit
 
+    # -- a project circuit, analysed without hand-built specs ----------------
+    @staticmethod
+    def circuit_info(circuit: Circuit) -> tuple[list[str], list[str]]:
+        """``(output nodes, voltage-source refs)`` the UI offers for a circuit."""
+        nets = sorted(n for n in circuit.nets if n != "0")
+        sources = [c.ref for c in circuit.components if c.type == "V"]
+        return nets, sources
+
+    def plan_project(self, circuit: Circuit, kind: str, node: str, source: str = "",
+                     t_stop: str = "0.01 s") -> dict:
+        """Specs for ``kind`` on a circuit the student built: probe ``node``, drive ``source``.
+
+        Returns the keyword arguments of :meth:`run_analysis` plus the circuit (unchanged: an AC
+        analysis drives the source through a stimulus, not by editing the stored circuit).
+        """
+        from academic_core.domain.engineering.lab.model import (
+            InstrumentKind, InstrumentSpec, MeasurementKind, MeasurementSpec, ScopeChannel,
+            VoltageProbe,
+        )
+        if kind not in SUPPORTED:
+            raise ConfigurationError(f"unsupported analysis: {kind}")
+        nets, sources = self.circuit_info(circuit)
+        if node not in nets:
+            raise ConfigurationError(f"elige un nodo de salida del circuito ({', '.join(nets) or 'sin nodos'})")
+        if kind in ("AC_POINT", "AC_SWEEP", "DC_SWEEP") and source not in sources:
+            raise ConfigurationError("este análisis necesita una fuente de tensión (V) como entrada")
+        probes = (("vout", VoltageProbe(node, "0")),)
+        meter = ("meter", InstrumentSpec(InstrumentKind.VOLTMETER.value, probe="vout"))
+        instruments, measurements, stimuli = (meter,), (), ()
+        if kind == "OP":
+            analysis = AnalysisSpec(kind=AnalysisKind.OP.value)
+            measurements = (("vdc", MeasurementSpec(kind=MeasurementKind.DC_VALUE.value, probe="vout")),)
+        elif kind == "TRANSIENT":
+            from academic_core.domain.engineering.mna.transient import TransientConfig
+            tstop = self.decimal(t_stop)
+            if tstop <= 0:
+                raise ConfigurationError("t_stop debe ser positivo")
+            analysis = AnalysisSpec(kind=AnalysisKind.TRANSIENT.value, transient=TransientConfig(
+                "TR", tstop, tstop / 100, Decimal("1E-12"), tstop / 10, Decimal("1E-4"), Decimal("1E-6")))
+            instruments = (meter, ("scope", InstrumentSpec(
+                InstrumentKind.OSCILLOSCOPE.value, channels=(ScopeChannel("vout"),),
+                window=(Decimal("0"), tstop))))
+            measurements = (("vmax", MeasurementSpec(kind=MeasurementKind.MAX.value, probe="vout")),)
+        elif kind == "DC_SWEEP":
+            from academic_core.domain.engineering.mna.analysis import (
+                GridSpec, ObservableSpec, ParamAddress, SweepConfig,
+            )
+            top = next(c.value.to_base() for c in circuit.components
+                       if c.ref == source and c.value is not None) or Decimal("5")
+            analysis = AnalysisSpec(kind=AnalysisKind.DC_SWEEP.value, sweep=SweepConfig(
+                ParamAddress(source, "value"), GridSpec.linear(Decimal("0"), top, top / 5),
+                observables=(ObservableSpec("node_voltage", node),)))
+            instruments = ()
+        else:  # AC_POINT / AC_SWEEP: the chosen source carries a 1 V small-signal drive
+            from academic_core.domain.engineering.lab.model import StimulusKind, StimulusSpec
+            stimuli = (StimulusSpec(source, StimulusKind.AC.value, magnitude=parse_quantity("1 V"),
+                                   phase=Decimal("0"), phase_unit="deg"),)
+            if kind == "AC_POINT":
+                analysis = AnalysisSpec(kind=AnalysisKind.AC_POINT.value, frequency=parse_quantity("1 kHz"))
+                measurements = (("gain", MeasurementSpec(kind=MeasurementKind.AC_GAIN.value, probe="vout")),)
+            else:
+                from academic_core.domain.engineering.ac.bode import log_frequencies
+                analysis = AnalysisSpec(kind=AnalysisKind.AC_SWEEP.value,
+                                        frequencies=tuple(log_frequencies("10 Hz", 5, 21)),
+                                        input_source=source, output_p=node, output_n="0")
+                instruments = (("bode", InstrumentSpec(InstrumentKind.FREQUENCY_RESPONSE.value)),)
+                measurements = (("bw", MeasurementSpec(kind=MeasurementKind.BANDWIDTH.value, probe="vout")),)
+        return dict(circuit=circuit, analysis=analysis, probes=probes, stimuli=stimuli,
+                    instruments=instruments, measurements=measurements)
+
     # -- execution ----------------------------------------------------------
     def run_op(self, session_id: str, circuit: Circuit,
                probes: tuple = (), instruments: tuple = (),
@@ -104,21 +174,23 @@ class SimulationService:
     def run_analysis(self, session_id: str, circuit: Circuit,
                      analysis: AnalysisSpec, probes: tuple = (),
                      instruments: tuple = (),
-                     measurements: tuple = ()) -> SimulationResult:
+                     measurements: tuple = (), stimuli: tuple = (),
+                     verify: bool = False) -> SimulationResult:
+        """``verify=True`` also cross-checks an operating point against ngspice (when installed)."""
         if analysis.kind not in SUPPORTED:
             raise ConfigurationError(f"unsupported analysis: {analysis.kind}")
         return self._run(session_id, circuit, analysis,
-                         probes, instruments, measurements)
+                         probes, instruments, measurements, stimuli, verify)
 
     def _run(self, session_id, circuit, analysis, probes, instruments,
-             measurements) -> SimulationResult:
+             measurements, stimuli=(), verify=False) -> SimulationResult:
         cid = new_correlation_id()
         log_event(logger, logging.INFO, "AC-OK-001", "application.simulation",
                   "run", f"{analysis.kind} on {session_id} [cid={cid}]")
         session = self.lab.create_session(session_id, circuit)
         definition = ExperimentDefinition(analysis=analysis, probes=probes,
                                           instruments=instruments,
-                                          measurements=measurements)
+                                          measurements=measurements, stimuli=tuple(stimuli))
         session, report = self.lab.add_experiment(session, definition)
         if not report.ok:
             first = report.errors[0] if report.errors else ("AC-CFG-001", "invalid")
@@ -126,6 +198,8 @@ class SimulationService:
         from academic_core.domain.engineering.lab.serialize import experiment_id
         exp_id = experiment_id(definition, session.circuit)
         session, summary = self.lab.run_experiment(session, exp_id)
+        if verify:
+            summary = self.lab.verify_with_ngspice(session, summary)
         return SimulationResult(session_id=session_id, experiment_id=exp_id,
                                 run=summary, digest=summary.result_digest)
 

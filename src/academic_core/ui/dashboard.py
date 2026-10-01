@@ -34,10 +34,10 @@ def _safe(fn, fallback):
 
 def greeting_for(hour: int) -> str:
     if hour < 12:
-        return "Good morning"
+        return "Buenos días"
     if hour < 18:
-        return "Good afternoon"
-    return "Good evening"
+        return "Buenas tardes"
+    return "Buenas noches"
 
 
 def _stamp(iso: str) -> datetime:
@@ -63,25 +63,25 @@ def ago(iso: str, now: datetime) -> str:
         dt = dt.replace(tzinfo=timezone.utc)
     seconds = (_aware(now) - dt).total_seconds()
     if seconds < 60:
-        return "just now"
+        return "ahora mismo"
     if seconds < 3600:
-        return f"{int(seconds // 60)} min ago"
+        return f"hace {int(seconds // 60)} min"
     if seconds < 86400:
-        return f"{int(seconds // 3600)} h ago"
+        return f"hace {int(seconds // 3600)} h"
     if seconds < 172800:
-        return "yesterday"
+        return "ayer"
     return dt.astimezone().strftime("%d %b")
 
 
 def due_text(due: date, today: date) -> str:
     days = (due - today).days
     if days < 0:
-        return f"{-days} day{'s' if days != -1 else ''} overdue"
+        return f"{-days} día{'s' if days != -1 else ''} de retraso"
     if days == 0:
-        return "today"
+        return "hoy"
     if days == 1:
-        return "tomorrow"
-    return f"in {days} days"
+        return "mañana"
+    return f"en {days} días"
 
 
 class RowButton(QPushButton):
@@ -141,7 +141,7 @@ class DashboardPanel(QWidget):
         header.setSpacing(4)
         self.greeting_label = QLabel("")
         self.greeting_label.setObjectName("Display")
-        self.greeting_label.setAccessibleName("Greeting")
+        self.greeting_label.setAccessibleName("Saludo")
         header.addWidget(self.greeting_label)
         self.greeting_sub = QLabel("")
         self.greeting_sub.setObjectName("Lead")
@@ -171,7 +171,7 @@ class DashboardPanel(QWidget):
         self.continue_caption = QLabel("")
         self.continue_caption.setObjectName("CardStatus")
         self.continue_caption.setWordWrap(True)
-        self.continue_button = QPushButton("Continue")
+        self.continue_button = QPushButton("Continuar")
         self.continue_button.setProperty("class", "primary")
         self.continue_button.clicked.connect(self._on_continue)
         bl.addWidget(self.continue_title)
@@ -180,7 +180,7 @@ class DashboardPanel(QWidget):
         bl.addWidget(self.continue_button, 0, Qt.AlignmentFlag.AlignLeft)
         main.addWidget(block)
 
-        due_head = QLabel("Coming up")
+        due_head = QLabel("Próximamente")
         due_head.setObjectName("SectionTitle")
         main.addWidget(due_head)
         self.deadlines_box = QVBoxLayout()
@@ -193,7 +193,7 @@ class DashboardPanel(QWidget):
         main.addStretch(1)
 
         # -- side: recent + tools -----------------------------------------------
-        recent_head = QLabel("Recent")
+        recent_head = QLabel("Reciente")
         recent_head.setObjectName("SectionTitle")
         side.addWidget(recent_head)
         self.recent_box = QVBoxLayout()
@@ -203,7 +203,7 @@ class DashboardPanel(QWidget):
         self.recent_label.setObjectName("CardStatus")
         self.recent_label.setWordWrap(True)
         side.addWidget(self.recent_label)
-        tools_head = QLabel("Tools")
+        tools_head = QLabel("Herramientas")
         tools_head.setObjectName("SectionTitle")
         side.addWidget(tools_head)
         self.tools_box = QVBoxLayout()
@@ -257,7 +257,7 @@ class DashboardPanel(QWidget):
     def refresh_state(self) -> None:
         now = self._now()
         self.greeting_label.setText(greeting_for(now.hour))
-        self.state_label.setText(f"Academic Core v{__version__} · offline · your data stays on this computer")
+        self.state_label.setText(f"Academic Core v{__version__} · sin conexión · tus datos se quedan en este equipo")
         items = self._work_items()
         first = next(((i, a) for i in items if (a := self._action_for(i)) is not None), None)
         self._render_continue(first, now)
@@ -271,25 +271,25 @@ class DashboardPanel(QWidget):
             item, action = first
             self._continue_action = action
             title = item["label"].split(" › ")[-1]
-            where = "Subject" if action[0] == "subject" else item["label"].split(" › ")[0]
+            where = "Asignatura" if action[0] == "subject" else item["label"].split(" › ")[0]
             when = ago(item["at"], now)
             self.continue_title.setText(title)
-            self.continue_caption.setText(f"{where} · opened {when}" if when else where)
-            self.continue_button.setText("Continue")
-            self.continue_button.setAccessibleName(f"Continue: {title}")
-            self.greeting_sub.setText("Continue where you left off.")
+            self.continue_caption.setText(f"{where} · abierta {when}" if when else where)
+            self.continue_button.setText("Continuar")
+            self.continue_button.setAccessibleName(f"Continuar: {title}")
+            self.greeting_sub.setText("Continúa donde lo dejaste.")
             return
         self._continue_action = ("route", "learn/subject/summary")
         if self._subject_count():
-            self.continue_title.setText("Nothing to continue yet")
-            self.continue_caption.setText("Open a subject or one of the tools to get going.")
-            self.continue_button.setText("Open Learn")
-            self.greeting_sub.setText("Nothing to continue yet — pick a subject or open a tool.")
+            self.continue_title.setText("Nada que continuar todavía")
+            self.continue_caption.setText("Abre una asignatura o una herramienta para empezar.")
+            self.continue_button.setText("Abrir Aprender")
+            self.greeting_sub.setText("Nada que continuar todavía: elige una asignatura o abre una herramienta.")
         else:
-            self.continue_title.setText("Set up your first subject")
-            self.continue_caption.setText("Add a subject to plan deadlines and keep track of grades.")
-            self.continue_button.setText("Add a subject")
-            self.greeting_sub.setText("Welcome. Start by adding a subject.")
+            self.continue_title.setText("Crea tu primera asignatura")
+            self.continue_caption.setText("Añade una asignatura para planificar plazos y seguir tus notas.")
+            self.continue_button.setText("Añadir una asignatura")
+            self.greeting_sub.setText("Te damos la bienvenida. Empieza añadiendo una asignatura.")
         self.continue_button.setAccessibleName(self.continue_button.text())
 
     def _render_recent(self, rest: list[dict], all_items: list[dict], now: datetime) -> None:
@@ -300,7 +300,7 @@ class DashboardPanel(QWidget):
             row = RowButton(item["label"], ago(item["at"], now))
             if action is None:
                 row.setEnabled(False)
-                row.setToolTip("No destination available")
+                row.setToolTip("No hay destino disponible")
             else:
                 row.clicked.connect(lambda _c=False, a=action: self._go(a))
             self.recent_box.addWidget(row)
@@ -309,8 +309,8 @@ class DashboardPanel(QWidget):
             return
         self.recent_label.show()
         self.recent_label.setText(
-            "No recent activity yet — open a subject or a tool." if not all_items
-            else "No other recent activity.")
+            "Sin actividad reciente: abre una asignatura o una herramienta." if not all_items
+            else "No hay más actividad reciente.")
 
     def _render_deadlines(self, now: datetime) -> None:
         _clear(self.deadlines_box)
@@ -326,8 +326,8 @@ class DashboardPanel(QWidget):
             return
         self.deadlines_empty.show()
         self.deadlines_empty.setText(
-            "Nothing due. Tasks and exams you add to a subject appear here."
-            if self._subject_count() else "No subjects yet, so nothing is scheduled.")
+            "Nada pendiente. Las tareas y exámenes que añadas a una asignatura aparecen aquí."
+            if self._subject_count() else "Aún no hay asignaturas, así que no hay nada programado.")
 
     def _deadline_row(self, d, today: date) -> QWidget:
         row = QFrame()
@@ -368,26 +368,26 @@ class DashboardPanel(QWidget):
     def _tools(self) -> list[tuple[str, str, str]]:
         app = self.app
         return [
-            ("exercises", "Exercises",
-             _safe(lambda: f"{len(list(app.exercises.library_keys()))} in the library", "Engineering library")),
-            ("sessions", "Sessions", self._sessions_caption()),
-            ("simulation", "Analysis", "OP, transient, AC, DC sweep"),
-            ("lab", "Lab", "Sessions, instruments, replay"),
-            ("logic", "Digital Logic",
-             _safe(lambda: f"{len(tuple(app.digital.demos()))} demo circuits", "Capture and trigger")),
-            ("aerospace", "Aerospace", "Circular Earth orbit"),
-            ("resources", "Library",
-             _safe(lambda: f"{len(app.records.all_ids())} records", "Indexed records")),
-            ("documents", "Documents",
-             _safe(lambda: f"{len(app.authoring_store.authored_ids())} authored", "Notes and write-ups")),
-            ("settings", "Settings", "Appearance and data"),
+            ("exercises", "Ejercicios",
+             _safe(lambda: f"{len(list(app.exercises.library_keys()))} en la biblioteca", "Biblioteca de ingeniería")),
+            ("sessions", "Sesiones", self._sessions_caption()),
+            ("simulation", "Análisis", "OP, transitorio, AC, barrido DC"),
+            ("lab", "Laboratorio", "Sesiones, instrumentos, repetición"),
+            ("logic", "Lógica digital",
+             _safe(lambda: f"{len(tuple(app.digital.demos()))} circuitos de ejemplo", "Captura y disparo")),
+            ("aerospace", "Aeroespacial", "Órbitas terrestres"),
+            ("resources", "Biblioteca",
+             _safe(lambda: f"{len(app.records.all_ids())} registros", "Registros indexados")),
+            ("documents", "Documentos",
+             _safe(lambda: f"{len(app.authoring_store.authored_ids())} creados", "Apuntes y trabajos")),
+            ("settings", "Ajustes", "Apariencia y datos"),
         ]
 
     def _sessions_caption(self) -> str:
         banks = _safe(lambda: self.app.practice.banks(), [])
         if not banks:
-            return "Import a question bank"
-        return f"{sum(b['question_count'] for b in banks)} questions in {len(banks)} bank(s)"
+            return "Importar un banco de preguntas"
+        return f"{sum(b['question_count'] for b in banks)} preguntas en {len(banks)} banco(s)"
 
     def _render_tools(self) -> None:
         _clear(self.tools_box)

@@ -44,14 +44,14 @@ class AcademicMainWindow(QMainWindow):
 
         # -- left: hierarchy tree ------------------------------------------------
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabel("Academic tree")
+        self.tree.setHeaderLabel("Árbol académico")
         self.tree.setObjectName("SidebarTree")
-        self.tree.setAccessibleName("Academic tree")
+        self.tree.setAccessibleName("Árbol académico")
         left = QVBoxLayout()
         left.addWidget(self.tree)
         row = QHBoxLayout()
-        self.btn_add = QPushButton("Add…")
-        self.btn_del = QPushButton("Delete")
+        self.btn_add = QPushButton("Añadir…")
+        self.btn_del = QPushButton("Eliminar")
         row.addWidget(self.btn_add)
         row.addWidget(self.btn_del)
         left.addLayout(row)
@@ -68,10 +68,10 @@ class AcademicMainWindow(QMainWindow):
         self.tab_grades = GradesView()
         self.tab_planning = PlanningView()
         self.tab_overview.open_sessions.connect(lambda: self.navigate_to("practice/sessions"))
-        self.tabs.addTab(self.tab_overview, "Overview")
-        self.tabs.addTab(self.tab_activities, "Activities")
-        self.tabs.addTab(self.tab_grades, "Grades")
-        self.tabs.addTab(self.tab_planning, "Planning")
+        self.tabs.addTab(self.tab_overview, "Resumen")
+        self.tabs.addTab(self.tab_activities, "Actividades")
+        self.tabs.addTab(self.tab_grades, "Notas")
+        self.tabs.addTab(self.tab_planning, "Planificación")
         from academic_core.ui.workspace import EmptyState, KeyValueList, Panel
         res_tab = QWidget()
         res_layout = QVBoxLayout(res_tab)
@@ -79,14 +79,14 @@ class AcademicMainWindow(QMainWindow):
         res_layout.setSpacing(12)
         res_row = QHBoxLayout()
         self.res_search = QLineEdit()
-        self.res_search.setPlaceholderText("Search resources…")
-        self.res_search.setAccessibleName("Search resources")
+        self.res_search.setPlaceholderText("Buscar recursos…")
+        self.res_search.setAccessibleName("Buscar recursos")
         self.res_search.setClearButtonEnabled(True)
-        self.btn_res_import = QPushButton("Import file…")
-        self.btn_res_reindex = QPushButton("Reindex")
-        self.btn_res_build = QPushButton("Build document")
-        self.btn_res_export_md = QPushButton("Export MD")
-        self.btn_res_export_html = QPushButton("Export HTML")
+        self.btn_res_import = QPushButton("Importar archivo…")
+        self.btn_res_reindex = QPushButton("Reindexar")
+        self.btn_res_build = QPushButton("Generar documento")
+        self.btn_res_export_md = QPushButton("Exportar MD")
+        self.btn_res_export_html = QPushButton("Exportar HTML")
         self.btn_res_import.setProperty("class", "primary")
         for b in (self.btn_res_import, self.btn_res_reindex, self.btn_res_build,
                   self.btn_res_export_md, self.btn_res_export_html):
@@ -94,33 +94,34 @@ class AcademicMainWindow(QMainWindow):
         res_row.addStretch(1)
         res_layout.addWidget(self.res_search)
         res_layout.addLayout(res_row)
-        self.stirling_label = QLabel("PDF export: built-in engine")
+        self.stirling_label = QLabel("Exportación a PDF: motor integrado")
         self.stirling_label.setObjectName("CardStatus")
         res_layout.addWidget(self.stirling_label)
         res_body = QHBoxLayout()
         res_body.setSpacing(12)
-        list_panel = Panel("Resources")
+        list_panel = Panel("Recursos")
         self.res_list = QListWidget()
-        self.res_list.setAccessibleName("Resources")
-        self.res_empty = EmptyState("No resources yet", "Import a file to start your library.")
+        self.res_list.setAccessibleName("Recursos")
+        self.res_empty = EmptyState("Aún no hay recursos", "Importa un archivo para empezar tu biblioteca.")
+        self.res_empty.set_action("Importar archivo…", lambda: self._import_resource())
         list_panel.add(self.res_list, 1)
         list_panel.add(self.res_empty, 1)
-        detail_panel = Panel("Details")
+        detail_panel = Panel("Detalles")
         self.res_detail = QTextEdit(readOnly=True)
-        self.res_detail.setAccessibleName("Resource details")
-        self.res_detail.setPlaceholderText("Select a resource to see where it came from.")
+        self.res_detail.setAccessibleName("Detalles del recurso")
+        self.res_detail.setPlaceholderText("Elige un recurso para ver de dónde viene.")
         detail_panel.add(self.res_detail, 1)
         res_body.addWidget(list_panel, 1)
         res_body.addWidget(detail_panel, 1)
         res_layout.addLayout(res_body, 1)
-        self.tabs.addTab(res_tab, "Resources")
+        self.tabs.addTab(res_tab, "Recursos")
         self.resources_panel = res_tab
         from academic_core.ui.authoring import AuthoringPanel
         self.authoring_panel = AuthoringPanel(app)
-        self.tabs.addTab(self.authoring_panel, "Authoring")
+        self.tabs.addTab(self.authoring_panel, "Autoría")
         from academic_core.ui.engineering import EngineeringPanel
         self.engineering_panel = EngineeringPanel(app)
-        self.tabs.addTab(self.engineering_panel, "Engineering")
+        self.tabs.addTab(self.engineering_panel, "Circuitos electrónicos")
         # -- F15 tabs (dashboard first, then vertical slices) ---------------
         from academic_core.ui.dashboard import DashboardPanel
         from academic_core.ui.exercises import ExercisePanel
@@ -132,14 +133,14 @@ class AcademicMainWindow(QMainWindow):
         self.simulation_panel = SimulationPanel(app)
         self.virtual_lab_panel = VirtualLabPanel(app)
         self.logic_analyzer_panel = LogicAnalyzerPanel(app)
-        self.tabs.insertTab(0, self.dashboard_panel, "Dashboard")
-        self.tabs.addTab(self.exercise_panel, "Exercises")
+        self.tabs.insertTab(0, self.dashboard_panel, "Panel")
+        self.tabs.addTab(self.exercise_panel, "Ejercicios")
         from academic_core.ui.practice import PracticePanel
         self.practice_panel = PracticePanel(app)  # F9-F12: sessions, plan, mastery, tutor
-        self.tabs.addTab(self.practice_panel, "Practice")
-        self.tabs.addTab(self.simulation_panel, "Simulation")
-        self.tabs.addTab(self.virtual_lab_panel, "Virtual Lab")
-        self.tabs.addTab(self.logic_analyzer_panel, "Logic Analyzer")
+        self.tabs.addTab(self.practice_panel, "Práctica")
+        self.tabs.addTab(self.simulation_panel, "Simulación")
+        self.tabs.addTab(self.virtual_lab_panel, "Laboratorio virtual")
+        self.tabs.addTab(self.logic_analyzer_panel, "Analizador lógico")
         self.dashboard_panel.navigate.connect(self._navigate)
         config_tab = QWidget()
         config_outer = QVBoxLayout(config_tab)
@@ -154,41 +155,41 @@ class AcademicMainWindow(QMainWindow):
         self.config_label = QLabel()
         self.config_label.setWordWrap(True)
         self.config_label.setObjectName("CardStatus")
-        self.config_label.setToolTip("Limitations and optional components")
+        self.config_label.setToolTip("Limitaciones y componentes opcionales")
         from PySide6.QtWidgets import QComboBox
-        look_panel = Panel("Appearance")
-        self._data_panel = Panel("Data")
-        about_panel = Panel("About")
+        look_panel = Panel("Apariencia")
+        self._data_panel = Panel("Datos")
+        about_panel = Panel("Acerca de")
         self.about_list = KeyValueList()
         about_panel.add(self.about_list)
-        diag_panel = Panel("Diagnostics")
+        diag_panel = Panel("Diagnóstico")
         diag_panel.add(self.config_label)
         self.appearance_box = QComboBox()
-        self.appearance_box.setAccessibleName("Appearance")
+        self.appearance_box.setAccessibleName("Apariencia")
         self.appearance_box.setFixedWidth(220)
-        self.appearance_box.addItems(["Follow system", "Light", "Dark"])
+        self.appearance_box.addItems(["Seguir el sistema", "Claro", "Oscuro"])
         self.appearance_box.setCurrentText(
-            {"system": "Follow system", "light": "Light", "dark": "Dark"}.get(
-                self._appearance_mode(), "Follow system"))
+            {"system": "Seguir el sistema", "light": "Claro", "dark": "Oscuro"}.get(
+                self._appearance_mode(), "Seguir el sistema"))
         self.appearance_box.currentTextChanged.connect(
             lambda t: self._set_appearance(
-                {"Follow system": "system", "Light": "light"}.get(t, "dark")))
+                {"Seguir el sistema": "system", "Claro": "light"}.get(t, "dark")))
         look_row = QHBoxLayout()
         look_row.addWidget(self.appearance_box)
         look_row.addStretch(1)
         look_panel.body.addLayout(look_row)
-        look_hint = QLabel("Follow system uses your Windows light or dark setting.")
+        look_hint = QLabel("«Seguir el sistema» usa el ajuste claro u oscuro de Windows.")
         look_hint.setObjectName("CardStatus")
         look_panel.add(look_hint)
         self.data_label = QLabel()
         self.data_label.setWordWrap(True)
         self.data_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._data_panel.add(self.data_label)
-        self.btn_open_data = QPushButton("Open data folder")
+        self.btn_open_data = QPushButton("Abrir carpeta de datos")
         self.btn_open_data.clicked.connect(self._open_data_folder)
         for panel in (look_panel, self._data_panel, about_panel, diag_panel):
             config_layout.addWidget(panel)
-        self.tabs.addTab(config_tab, "Settings")
+        self.tabs.addTab(config_tab, "Ajustes")
         self.settings_panel = config_tab
         self._refresh_config()
 
@@ -196,19 +197,19 @@ class AcademicMainWindow(QMainWindow):
         # IA §5.3: one "New" menu + the primary grade action, instead of five
         # always-visible buttons. Actions keep the old attribute names.
         from PySide6.QtWidgets import QMenu
-        self.btn_topic = QAction("Topic", self)
-        self.btn_assignment = QAction("Assignment", self)
-        self.btn_task = QAction("Task", self)
-        self.btn_exam = QAction("Exam", self)
-        self.new_button = QPushButton("New")
-        self.new_button.setAccessibleName("New in this subject")
+        self.btn_topic = QAction("Tema", self)
+        self.btn_assignment = QAction("Entrega", self)
+        self.btn_task = QAction("Tarea", self)
+        self.btn_exam = QAction("Examen", self)
+        self.new_button = QPushButton("Nuevo")
+        self.new_button.setAccessibleName("Nuevo en esta asignatura")
         new_menu = QMenu(self.new_button)
         for a in (self.btn_topic, self.btn_assignment, self.btn_task, self.btn_exam):
             new_menu.addAction(a)
         self.new_button.setMenu(new_menu)
-        self.btn_grade = QPushButton("Record grade")
-        self.btn_export = QPushButton("Export JSON")
-        self.btn_import = QPushButton("Import JSON")
+        self.btn_grade = QPushButton("Registrar nota")
+        self.btn_export = QPushButton("Exportar JSON")
+        self.btn_import = QPushButton("Importar JSON")
         self._subject_buttons = (self.btn_topic, self.btn_assignment, self.btn_task,
                                  self.btn_exam, self.btn_grade, self.new_button)
         actions.addWidget(self.new_button)
@@ -279,8 +280,8 @@ class AcademicMainWindow(QMainWindow):
         log = QTextEdit(readOnly=True)
         log.setObjectName("Output")
         log.setPlainText(f"Academic Core v{__version__}\n"
-                         f"db: {app.db.path}\nStirling optional; native PDF default.")
-        self.session_dock = QDockWidget("Session log")
+                         f"db: {app.db.path}\nStirling opcional; PDF nativo por defecto.")
+        self.session_dock = QDockWidget("Registro de sesión")
         self.session_dock.setObjectName("SessionDock")
         self.session_dock.setWidget(log)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.session_dock)
@@ -289,27 +290,27 @@ class AcademicMainWindow(QMainWindow):
         # -- appearance (theme world; logic-free wiring) ---------------------------
         from PySide6.QtWidgets import QApplication as _QApplication
         self._tokens = apply_saved_theme(_QApplication.instance())
-        view_menu = self.menuBar().addMenu("&View")
-        appearance = view_menu.addMenu("&Appearance")
+        view_menu = self.menuBar().addMenu("&Ver")
+        appearance = view_menu.addMenu("&Apariencia")
         self._appearance_group = QActionGroup(self)
         self._appearance_group.setExclusive(True)
         from PySide6.QtCore import QSettings as _QSettings
         saved = _QSettings("Academic Core", "Academic Core").value("appearance", "system")
-        for label, mode in (("Follow system", "system"), ("Light", "light"), ("Dark", "dark")):
+        for label, mode in (("Seguir el sistema", "system"), ("Claro", "light"), ("Oscuro", "dark")):
             action = QAction(label, self, checkable=True)
             action.setChecked(saved == mode)
             action.triggered.connect(lambda _c=False, m=mode: self._set_appearance(m))
             self._appearance_group.addAction(action)
             appearance.addAction(action)
         view_menu.addSeparator()
-        self.fullscreen_action = QAction("&Full screen", self, checkable=True)
+        self.fullscreen_action = QAction("Pantalla &completa", self, checkable=True)
         self.fullscreen_action.setShortcut(QKeySequence("F11"))
         self.fullscreen_action.toggled.connect(
             lambda on: self.showFullScreen() if on else self.showNormal())
         view_menu.addAction(self.fullscreen_action)
         view_menu.addAction(self.session_dock.toggleViewAction())
         self.statusBar().showMessage(
-            f"Academic Core v{__version__} · offline · {app.db.path}")
+            f"Academic Core v{__version__} · sin conexión · {app.db.path}")
 
         # -- wiring ---------------------------------------------------------------
         self.app.ensure_demo()
@@ -406,7 +407,7 @@ class AcademicMainWindow(QMainWindow):
         if self._select_subject(stable_id):
             self.navigate_to("learn/subject/summary")
         else:
-            self.statusBar().showMessage("That subject no longer exists", 4000)
+            self.statusBar().showMessage("Esa asignatura ya no existe", 4000)
 
     def _focus_context(self) -> None:
         self.navigate_to("learn/subject/summary")
@@ -424,7 +425,7 @@ class AcademicMainWindow(QMainWindow):
             self._record_subject(sid, name)
         for b in self._subject_buttons:
             b.setEnabled(bool(sid))
-            b.setToolTip("" if sid else "Choose a subject first")
+            b.setToolTip("" if sid else "Elige primero una asignatura")
         if hasattr(self, "_route"):
             self.topbar.set_crumbs(routes.crumbs(self._route, name or None))
 
@@ -547,10 +548,10 @@ class AcademicMainWindow(QMainWindow):
         if hasattr(self, "appearance_box"):
             self.appearance_box.blockSignals(True)
             self.appearance_box.setCurrentText(
-                {"system": "Follow system", "light": "Light", "dark": "Dark"}.get(mode, "Dark"))
+                {"system": "Seguir el sistema", "light": "Claro", "dark": "Oscuro"}.get(mode, "Oscuro"))
             self.appearance_box.blockSignals(False)
         self.statusBar().showMessage(
-            f"Academic Core v{__version__} · offline · {self.app.db.path}")
+            f"Academic Core v{__version__} · sin conexión · {self.app.db.path}")
 
     def _navigate(self, key: str) -> None:
         """Dashboard/legacy navigation: same entry point as the shell."""
@@ -559,16 +560,19 @@ class AcademicMainWindow(QMainWindow):
     def _refresh_config(self) -> None:
         from academic_core import __version__ as _v
         settings = self.app.settings
-        self.about_list.set_rows([("Version", f"v{_v}"), ("License", "MIT")])
+        self.about_list.set_rows([("Versión", f"v{_v}"), ("Licencia", "MIT")])
         try:
-            pdf = self.app.stirling.detect()["state"].replace("_", " ").lower()
+            state = self.app.stirling.detect()["state"]
+            pdf = {"NOT_INSTALLED": "no instalado", "INSTALLING": "instalándose", "READY": "listo",
+                   "UNAVAILABLE": "no disponible", "INCOMPATIBLE": "incompatible", "ERROR": "con error",
+                   "STOPPED": "detenido"}.get(state, state.replace("_", " ").lower())
         except Exception:
-            pdf = "unknown"
+            pdf = "desconocido"
         self.config_label.setText(
-            "Optional components and known limits.\n"
-            f"Lab schema: f8n-lab/1\n"
-            f"PDF engine: built-in. Stirling PDF (optional, external): {pdf}.\n"
-            f"GREELEC: no integration (UNKNOWN / REQUIRES INPUT)")
+            "Componentes opcionales y límites conocidos.\n"
+            f"Esquema del laboratorio: f8n-lab/1\n"
+            f"Motor PDF: integrado. Stirling PDF (opcional, externo): {pdf}.\n"
+            f"GREELEC: sin integración (DESCONOCIDO / REQUIERE DATOS)")
         if hasattr(self, "data_label"):
             self.data_label.setText(str(settings.storage.location))
 
@@ -588,15 +592,15 @@ class AcademicMainWindow(QMainWindow):
 
     def _build_go_menu(self) -> None:
         from PySide6.QtWidgets import QMenu
-        self.go_menu = QMenu("Go", self)
+        self.go_menu = QMenu("Ir", self)
         self.menuBar().addMenu(self.go_menu)
         groups: tuple = (
-            ("Home", (("Home", "home"),)),
-            ("Learn", (("Overview", "overview"), ("Resources", "resources"))),
-            ("Practice", (("Exercises", "exercises"),)),
-            ("Engineering", (("Engineering", "engineering"), ("Simulation", "simulation"),
-                             ("Virtual Lab", "lab"), ("Logic Analyzer", "logic"))),
-            ("Settings", (("Settings", "settings"),)),
+            ("Inicio", (("Inicio", "home"),)),
+            ("Aprender", (("Resumen", "overview"), ("Biblioteca", "resources"))),
+            ("Practicar", (("Ejercicios", "exercises"),)),
+            ("Circuitos electrónicos", (("Circuitos electrónicos", "engineering"), ("Simulación", "simulation"),
+                             ("Laboratorio virtual", "lab"), ("Analizador lógico", "logic"))),
+            ("Ajustes", (("Ajustes", "settings"),)),
         )
         first = True
         for group, items in groups:
@@ -607,7 +611,7 @@ class AcademicMainWindow(QMainWindow):
                 self.go_menu.addAction(f"{group}: {label}",
                                        lambda _c=False, k=key: self.navigate_to(k))
         self.go_menu.addSeparator()
-        self.go_menu.addAction("Engineering: Modules…", lambda _c=False: self._open_modules())
+        self.go_menu.addAction("Circuitos electrónicos: Módulos…", lambda _c=False: self._open_modules())
 
     def _open_modules(self) -> None:
         from academic_core.ui.modules import ModulesDialog
@@ -627,7 +631,7 @@ class AcademicMainWindow(QMainWindow):
         elif value.ref and self._select_subject(value.ref):
             self.navigate_to("learn/subject/summary")
         else:
-            self.statusBar().showMessage(f"No destination yet for {value.kind} results", 4000)
+            self.statusBar().showMessage(f"Aún no hay destino para resultados de tipo {value.kind}", 4000)
 
     def _refresh_tree(self) -> None:
         self.tree.clear()
@@ -686,50 +690,52 @@ class AcademicMainWindow(QMainWindow):
         svc = self.app.svc
         try:
             if level is None:
-                v = prompt_form(self, "University", [("name", "Name", "", "text")])
+                v = prompt_form(self, "University", [("name", "Nombre", "", "text")])
                 if v:
                     svc.create_university(v["name"])
             elif level == "university":
-                v = prompt_form(self, "Degree", [("name", "Name", "", "text")])
+                v = prompt_form(self, "Degree", [("name", "Nombre", "", "text")])
                 if v:
                     svc.create_degree(sid, v["name"])
             elif level == "degree":
-                v = prompt_form(self, "Academic year", [("label", "Label (2025-26)", "", "text")])
+                v = prompt_form(self, "Academic year", [("label", "Etiqueta (2025-26)", "", "text")])
                 if v:
                     svc.create_year(sid, v["label"])
             elif level == "year":
                 v = prompt_form(self, "Term",
-                                [("label", "Label", "", "text"),
-                                 ("kind", "Kind", [("Cuatrimestre", "cuatrimestre"),
+                                [("label", "Etiqueta", "", "text"),
+                                 ("kind", "Tipo", [("Cuatrimestre", "cuatrimestre"),
                                                    ("Semestre", "semestre"),
                                                    ("Trimestre", "trimestre"),
                                                    ("Anual", "anual"),
                                                    ("Otro", "otro")], "combo"),
-                                 ("index", "Order", 1, "int")])
+                                 ("index", "Orden", 1, "int")])
                 if v:
                     svc.create_term(sid, v["label"], v["kind"], v["index"])
             elif level == "term":
                 v = prompt_form(self, "Subject",
-                                [("name", "Name", "", "text"),
-                                 ("code", "Code", "", "text"),
-                                 ("acronym", "Acronym", "", "text"),
-                                 ("credits", "Credits", "6.0", "text")])
+                                [("name", "Nombre", "", "text"),
+                                 ("code", "Código", "", "text"),
+                                 ("acronym", "Siglas", "", "text"),
+                                 ("credits", "Créditos", "6.0", "text")])
                 if v:
                     svc.create_subject(v["name"], sid, code=v["code"],
                                        acronym=v["acronym"],
                                        credits=float(v["credits"] or 0))
             else:
-                dialogs.information(self, "Add", "Use the action row for subject items")
+                dialogs.information(self, "Añadir", "Usa la fila de acciones para los elementos de la asignatura")
                 return
         except Exception as e:
-            show_ui_error(self, e, "Add")
+            show_ui_error(self, e, "Añadir")
             return
         self._refresh_tree()
 
     def _delete_level(self) -> None:
         level, sid = self._selection()
-        if not sid or not confirm(self, f"Delete {level} {sid}? Everything inside it is removed too.",
-                                     title=f"Delete {level}", confirm_text="Delete", destructive=True):
+        name = {"university": "universidad", "degree": "grado", "year": "curso", "term": "cuatrimestre",
+                "subject": "asignatura"}.get(level, level)
+        if not sid or not confirm(self, f"¿Eliminar {name} {sid}? También se elimina todo lo que contiene.",
+                                     title=f"Eliminar {name}", confirm_text="Eliminar", destructive=True):
             return
         fn = {"university": self.app.svc.delete_university,
               "degree": self.app.svc.delete_degree,
@@ -741,7 +747,7 @@ class AcademicMainWindow(QMainWindow):
         try:
             fn(sid)
         except Exception as e:
-            show_ui_error(self, e, "Delete")
+            show_ui_error(self, e, "Eliminar")
             return
         self._refresh_tree()
 
@@ -749,32 +755,32 @@ class AcademicMainWindow(QMainWindow):
     def _need_subject(self) -> str | None:
         sid = self._subject_id()
         if not sid:
-            dialogs.warning(self, "Subject", "Select a subject in the tree first")
+            dialogs.warning(self, "Asignatura", "Elige primero una asignatura en el árbol")
         return sid
 
     def _add_topic(self) -> None:
         sid = self._need_subject()
         if not sid:
             return
-        v = prompt_form(self, "Topic", [("index", "Index (01)", "01", "text"),
-                                        ("title", "Title", "", "text")])
+        v = prompt_form(self, "Topic", [("index", "Número (01)", "01", "text"),
+                                        ("title", "Título", "", "text")])
         if v:
             try:
                 self.app.svc.create_topic(sid, v["index"], v["title"])
             except Exception as e:
-                show_ui_error(self, e, "Topic")
+                show_ui_error(self, e, "Tema")
         self._refresh_detail()
 
     def _add_assignment(self) -> None:
         sid = self._need_subject()
         if not sid:
             return
-        v = prompt_form(self, "Assignment", [("title", "Title", "", "text")])
+        v = prompt_form(self, "Assignment", [("title", "Título", "", "text")])
         if v:
             try:
                 self.app.svc.create_assignment(self.app.planning, sid, v["title"])
             except Exception as e:
-                show_ui_error(self, e, "Assignment")
+                show_ui_error(self, e, "Entrega")
         self._refresh_detail()
 
     def _add_task(self) -> None:
@@ -782,8 +788,8 @@ class AcademicMainWindow(QMainWindow):
         if not sid:
             return
         v = prompt_form(self, "Task",
-                        [("title", "Title", "", "text"),
-                         ("kind", "Kind", [("Entrega", "entrega"),
+                        [("title", "Título", "", "text"),
+                         ("kind", "Tipo", [("Entrega", "entrega"),
                                            ("Examen final", "examen_final"),
                                            ("Parcial", "examen_parcial"),
                                            ("General", "tarea_general")], "combo")])
@@ -792,20 +798,20 @@ class AcademicMainWindow(QMainWindow):
                 self.app.svc.create_task(self.app.planning, self.app.study, sid,
                                          v["title"], kind=v["kind"])
             except Exception as e:
-                show_ui_error(self, e, "Task")
+                show_ui_error(self, e, "Tarea")
         self._refresh_detail()
 
     def _add_exam(self) -> None:
         sid = self._need_subject()
         if not sid:
             return
-        v = prompt_form(self, "Exam", [("title", "Title", "", "text"),
-                                       ("day", "Date", None, "date")])
+        v = prompt_form(self, "Exam", [("title", "Título", "", "text"),
+                                       ("day", "Fecha", None, "date")])
         if v:
             try:
                 self.app.svc.create_exam(self.app.planning, sid, v["title"], day=v["day"])
             except Exception as e:
-                show_ui_error(self, e, "Exam")
+                show_ui_error(self, e, "Examen")
         self._refresh_detail()
 
     def _record_grade(self) -> None:
@@ -813,41 +819,41 @@ class AcademicMainWindow(QMainWindow):
         if not sid:
             return
         v = prompt_form(self, "Grade",
-                        [("key", "Activity key", "", "text"),
-                         ("value", "Value", "", "text"),
-                         ("scale", "Scale", [("0–10", "n10"), ("0–100", "n100"),
-                                             ("Letters", "letters"),
-                                             ("Pass/Fail", "pf")], "combo"),
-                         ("weight", "Weight", "100", "text")])
+                        [("key", "Clave de la actividad", "", "text"),
+                         ("value", "Valor", "", "text"),
+                         ("scale", "Escala", [("0–10", "n10"), ("0–100", "n100"),
+                                             ("Letras", "letters"),
+                                             ("Aprobado/Suspenso", "pf")], "combo"),
+                         ("weight", "Peso", "100", "text")])
         if not v:
             return
         try:
             self.app.results.record_grade(
                 sid, v["key"], v["value"], v["scale"], v["weight"])
         except Exception as e:
-            show_ui_error(self, e, "Grade")
+            show_ui_error(self, e, "Nota")
         self._refresh_detail()
 
     def _export_json(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "Export academic JSON", "",
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar JSON académico", "",
                                               "JSON (*.json)")
         if path:
             n = self.app.io.export_file(path)
-            dialogs.information(self, "Export", f"{n} bytes written")
+            dialogs.information(self, "Exportar", f"{n} bytes escritos")
 
     def _import_json(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import academic JSON", "",
+        path, _ = QFileDialog.getOpenFileName(self, "Importar JSON académico", "",
                                               "JSON (*.json)")
         if not path:
             return
         try:
             rep = self.app.io.import_file(path)
         except Exception as e:
-            show_ui_error(self, e, "Import")
+            show_ui_error(self, e, "Importar")
             return
         errs = "\n".join(rep["errors"][:10])
-        dialogs.information(self, "Import",
-                                f"imported: {rep['imported']}\nerrors: {len(rep['errors'])}\n{errs}")
+        dialogs.information(self, "Importar",
+                                f"importados: {rep['imported']}\nerrores: {len(rep['errors'])}\n{errs}")
         self._refresh_tree()
 
     # -- detail ------------------------------------------------------------------------
@@ -897,10 +903,10 @@ class AcademicMainWindow(QMainWindow):
         try:
             pooled = self.app.practice.subject_mastery(sid)
         except Exception:
-            return "unavailable"
+            return "no disponible"
         if pooled is None:
-            return "no attempts yet (Practice > Sessions)"
-        return f"mastery {pooled[0]:.0%} over {pooled[1]} observations"
+            return "aún sin intentos (Practicar > Sesiones)"
+        return f"dominio {pooled[0]:.0%} en {pooled[1]} observaciones"
 
     # -- resources (facade-backed; same behavior as F3) -----------------------------------
     def _refresh_resources(self) -> None:
@@ -921,8 +927,8 @@ class AcademicMainWindow(QMainWindow):
         empty = self.res_list.count() == 0
         self.res_list.setVisible(not empty)
         self.res_empty.setVisible(empty)
-        self.res_empty.set("No matches" if query else "No resources yet",
-                           "Try another search." if query else "Import a file to start your library.")
+        self.res_empty.set("Sin coincidencias" if query else "Aún no hay recursos",
+                           "Prueba otra búsqueda." if query else "Importa un archivo para empezar tu biblioteca.")
 
     def _selected_resource_id(self) -> str | None:
         i = self.res_list.currentRow()
@@ -938,53 +944,53 @@ class AcademicMainWindow(QMainWindow):
             return
         cur = res.current()
         p = cur.provenance
-        lines = [f"id: {res.stable_id}", f"kind: {res.kind}", f"title: {res.title}",
-                 f"version: {cur.version} (of {len(res.versions)})",
-                 f"hash: {cur.content_hash}", f"size: {cur.size} bytes",
-                 f"origin: {p.origin}", f"source: {p.source}",
-                 f"adapter: {p.adapter} v{p.adapter_version}",
-                 f"imported: {p.imported_at}", f"extraction: {p.extraction_status}"]
+        lines = [f"id: {res.stable_id}", f"tipo: {res.kind}", f"título: {res.title}",
+                 f"versión: {cur.version} (de {len(res.versions)})",
+                 f"hash: {cur.content_hash}", f"tamaño: {cur.size} bytes",
+                 f"origen: {p.origin}", f"fuente: {p.source}",
+                 f"adaptador: {p.adapter} v{p.adapter_version}",
+                 f"importado: {p.imported_at}", f"extracción: {p.extraction_status}"]
         self.res_detail.setPlainText("\n".join(lines))
 
     def _import_resource(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import resource")
+        path, _ = QFileDialog.getOpenFileName(self, "Importar recurso")
         if not path:
             return
         try:
             rep = self.app.ingest.import_file(path, subject_id=self._subject_id())
         except Exception as e:
-            show_ui_error(self, e, "Import")
+            show_ui_error(self, e, "Importar")
             return
-        dialogs.information(self, "Import", f"{rep.outcome}: {rep.stable_id} v{rep.version}")
+        dialogs.information(self, "Importar", f"{rep.outcome}: {rep.stable_id} v{rep.version}")
         self._refresh_resources()
 
     def _reindex_resources(self) -> None:
         n = self.app.ingest.reindex()
-        dialogs.information(self, "Reindex", f"{n} entries rebuilt")
+        dialogs.information(self, "Reindexar", f"{n} entradas reconstruidas")
         self._refresh_resources()
 
     def _build_document(self) -> None:
         sid = self._selected_resource_id()
         if not sid:
-            dialogs.warning(self, "Document", "Select a resource first")
+            dialogs.warning(self, "Documento", "Elige primero un recurso")
             return
         try:
             summary = self.app.documents.build(sid)
         except Exception as e:
-            show_ui_error(self, e, "Document")
+            show_ui_error(self, e, "Documento")
             return
-        dialogs.information(self, "Document",
-                                f"{summary['parser']}: {summary['blocks']} blocks")
+        dialogs.information(self, "Documento",
+                                f"{summary['parser']}: {summary['blocks']} bloques")
         self._show_resource()
 
     def _export_document(self, fmt: str) -> None:
         sid = self._selected_resource_id()
         if not sid:
-            dialogs.warning(self, "Export", "Select a resource first")
+            dialogs.warning(self, "Exportar", "Elige primero un recurso")
             return
         rows = self.app.documents.list(sid)
         if not rows:
-            dialogs.warning(self, "Export", "Build a document first")
+            dialogs.warning(self, "Exportar", "Genera primero un documento")
             return
         row = rows[0]
         if fmt == "md":
@@ -993,6 +999,6 @@ class AcademicMainWindow(QMainWindow):
         else:
             out, filtr = self.app.documents.render_html(
                 sid, row["resource_version"], row["parser"]), "HTML (*.html)"
-        path, _ = QFileDialog.getSaveFileName(self, f"Export {fmt.upper()}", "", filtr)
+        path, _ = QFileDialog.getSaveFileName(self, f"Exportar {fmt.upper()}", "", filtr)
         if path:
             Path(path).write_text(out, encoding="utf-8")

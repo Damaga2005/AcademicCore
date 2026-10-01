@@ -53,6 +53,7 @@ from academic_core.domain.engineering.digital import (
     verify_capture,
     verify_replay,
 )
+from academic_core.application.digital_design import DigitalDesign
 from academic_core.errors import IntegrationError, ValidationError
 from academic_core.logging_config import get_logger, log_event, new_correlation_id
 
@@ -130,17 +131,17 @@ class DemoInfo:
 
 
 _DEMOS = {
-    "half_adder": (DemoInfo("half_adder", "Half adder (XOR / AND)",
-                            "S = A XOR B, C = A AND B; A and B toggle at different rates."),
+    "half_adder": (DemoInfo("half_adder", "Semisumador (XOR / AND)",
+                            "S = A XOR B, C = A AND B; A y B cambian a ritmos distintos."),
                    _half_adder),
-    "xor3_glitch": (DemoInfo("xor3_glitch", "XOR3 zero-delay glitch",
-                             "Three inputs switch together: Y shows same-timestamp transitions."),
+    "xor3_glitch": (DemoInfo("xor3_glitch", "Glitch de retardo cero en XOR3",
+                             "Tres entradas conmutan a la vez: Y muestra transiciones con la misma marca de tiempo."),
                     _xor3_glitch),
-    "wide_nand": (DemoInfo("wide_nand", "16-input NAND",
-                           "One toggling input on an N-ary NAND; the other 15 held HIGH."),
+    "wide_nand": (DemoInfo("wide_nand", "NAND de 16 entradas",
+                           "Una entrada conmuta en una NAND de N entradas; las otras 15 se mantienen en ALTO."),
                   _wide_nand),
-    "repeated_inputs": (DemoInfo("repeated_inputs", "Repeated input nets",
-                                 "XOR(A,A,B) = B and NOR(A,B,A) on shared nets."),
+    "repeated_inputs": (DemoInfo("repeated_inputs", "Nodos de entrada repetidos",
+                                 "XOR(A,A,B) = B y NOR(A,B,A) sobre nodos compartidos."),
                         _repeated_inputs),
 }
 
@@ -288,12 +289,24 @@ class DigitalAnalysisService:
 
     def __init__(self, analyzer: LogicAnalyzer | None = None):
         self.analyzer = analyzer or LogicAnalyzer()
+        self._designs: dict[str, DigitalDesign] = {}  # "usr:<name>" -> circuit drawn in the editor
 
     # -- discovery ------------------------------------------------------------
     def demos(self) -> tuple[DemoInfo, ...]:
-        return tuple(_DEMOS[k][0] for k in sorted(_DEMOS))
+        mine = tuple(DemoInfo(k, f"Mi diseño: {d.name}", "Circuito dibujado en el editor digital.")
+                     for k, d in self._designs.items())
+        return tuple(_DEMOS[k][0] for k in sorted(_DEMOS)) + mine
+
+    def register_design(self, design: DigitalDesign) -> str:
+        """Make an edited design capturable like a demo; returns its key (validated by building it)."""
+        design.build()
+        key = f"usr:{design.name}"
+        self._designs[key] = DigitalDesign.from_json(design.to_json())  # snapshot: later edits don't leak in
+        return key
 
     def _circuit(self, demo: object) -> DigitalCircuit:
+        if isinstance(demo, str) and demo in self._designs:
+            return self._designs[demo].build()
         if not isinstance(demo, str) or demo not in _DEMOS:
             raise ValidationError(f"UNKNOWN_DEMO: {str(demo)[:64]!r} is not an available circuit")
         return _DEMOS[demo][1]()

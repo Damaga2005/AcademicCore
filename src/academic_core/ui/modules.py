@@ -18,11 +18,11 @@ def module_index(core) -> list[dict]:
     """Real modules with their real entries."""
     from academic_core.domain.engineering.orbital.bodies import EARTH
     return [
-        {"id": "digital-logic", "title": "Digital Logic",
+        {"id": "digital-logic", "title": "Lógica digital",
          "tab": "logic", "entries": [d.key for d in core.digital.demos()]},
-        {"id": "electronics", "title": "Electronics",
+        {"id": "electronics", "title": "Electrónica",
          "tab": "exercises", "entries": list(core.exercises.library_keys())},
-        {"id": "aerospace", "title": "Aerospace",
+        {"id": "aerospace", "title": "Aeroespacial",
          "tab": "aerospace", "entries": [EARTH.name]},
     ]
 
@@ -33,28 +33,28 @@ class ModulesDialog(QDialog):
     def __init__(self, core, navigate, parent=None):
         super().__init__(parent)
         self._navigate = navigate
-        self.setWindowTitle("Engineering modules")
+        self.setWindowTitle("Módulos de ingeniería")
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
-        title = QLabel("Engineering modules")
+        title = QLabel("Módulos de ingeniería")
         title.setObjectName("DialogTitle")
         layout.addWidget(title)
-        context = QLabel("Pick a module to open its workspace. Double-click or press Enter.")
+        context = QLabel("Elige un módulo para abrir su espacio de trabajo. Doble clic o Intro.")
         context.setObjectName("DialogContext")
         layout.addWidget(context)
         self.entry_list = QListWidget()
-        self.entry_list.setAccessibleName("Modules")
+        self.entry_list.setAccessibleName("Módulos")
         for mod in module_index(core):
-            self.entry_list.addItem(f"{mod['title']} ({len(mod['entries'])} entries)")
+            self.entry_list.addItem(f"{mod['title']} ({len(mod['entries'])} entradas)")
         self.entry_list.setCurrentRow(0)
         layout.addWidget(self.entry_list)
         row = QHBoxLayout()
         row.addStretch(1)
-        close = QPushButton("Close")
+        close = QPushButton("Cerrar")
         close.clicked.connect(self.reject)
-        self.btn_open = QPushButton("Open")
+        self.btn_open = QPushButton("Abrir")
         self.btn_open.setProperty("class", "primary")
         self.btn_open.setDefault(True)
         self.btn_open.clicked.connect(self.open_current)

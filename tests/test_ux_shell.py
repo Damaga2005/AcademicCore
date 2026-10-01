@@ -109,14 +109,14 @@ def test_history_back_and_forward(qtbot, tmp_path):
 
 def test_subject_context_chip_and_actions(qtbot, tmp_path):
     win = _win(qtbot, _core(tmp_path))
-    assert win.topbar.context_chip.text() == "No subject"
+    assert win.topbar.context_chip.text() == "Sin asignatura"
     assert not any(b.isEnabled() for b in win._subject_buttons)
     item = _pick_subject(win)
     assert item is not None
     assert win.topbar.context_chip.text() == item.text(0)
     assert all(b.isEnabled() for b in win._subject_buttons)
     win.navigate_to("learn/subject/grades")
-    assert win.topbar.crumb_texts == ["Learn", item.text(0), "Grades"]
+    assert win.topbar.crumb_texts == ["Aprender", item.text(0), "Notas"]
 
 
 def test_keyboard_shortcuts_are_bound(qtbot, tmp_path):
@@ -159,7 +159,7 @@ def test_palette_goto_rows_and_selected_enter(qtbot, tmp_path):
     assert dlg.selection() == ("route", "engineering/digital-logic")
     dlg.search_box.setText("aero")
     assert dlg.selection() == ("route", "engineering/aerospace")
-    dlg.search_box.setText("go to")
+    dlg.search_box.setText("ir a")
     first = dlg.result_list.currentRow()
     QTest.keyClick(dlg.search_box, Qt.Key.Key_Down)
     assert dlg.result_list.currentRow() == first + 1  # Down moves the selection

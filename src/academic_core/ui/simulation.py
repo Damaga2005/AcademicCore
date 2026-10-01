@@ -20,8 +20,8 @@ from academic_core.ui.theme import apply_status_style
 from academic_core.ui.workers import ServiceWorker
 
 
-SCENARIOS = (("demo: voltage divider", "divider"), ("demo: RC step", "rc-step"),
-             ("demo: RC filter (AC)", "rc-ac"))
+SCENARIOS = (("ejemplo: divisor de tensión", "divider"), ("ejemplo: escalón RC", "rc-step"),
+             ("ejemplo: filtro RC (AC)", "rc-ac"))
 SCENARIOS_FOR = {"OP": 0, "DC_SWEEP": 0, "TRANSIENT": 1, "AC_POINT": 2, "AC_SWEEP": 2}
 
 
@@ -37,7 +37,7 @@ class SimulationPanel(QWidget):
         from academic_core.ui.lab_view import LabKit
         self.output = QTextEdit(readOnly=True)
         self.output.setObjectName("Output")
-        self.output.setToolTip("Simulation result or UI-safe error")
+        self.output.setToolTip("Resultado de la simulación o error seguro para la interfaz")
         self.kit = LabKit(self, self.output)
 
         # -- Experiment: the circuit is a consequence of the analysis, shown, not chosen --
@@ -45,43 +45,101 @@ class SimulationPanel(QWidget):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         form.setVerticalSpacing(6)
         self.scenario = QComboBox()
-        self.scenario.setToolTip("Demo circuit used by the selected analysis (set by the analysis)")
-        self.scenario.setAccessibleName("Circuit used")
+        self.scenario.setToolTip("Circuito de ejemplo que usa el análisis elegido (lo fija el análisis)")
+        self.scenario.setAccessibleName("Circuito usado")
         self.scenario.addItems([name for name, _ in SCENARIOS])
         self.scenario.setEnabled(False)  # derived from the analysis: not a control
-        form.addRow("Circuit (set by the analysis)", self.scenario)
+        form.addRow("Circuito (lo fija el análisis)", self.scenario)
+        # A circuit the student built in Engineering > Circuits can replace the demo.
+        self.project_circuit = QComboBox()
+        self.project_circuit.setToolTip("Analiza un circuito de tus proyectos en lugar del de ejemplo")
+        self.project_circuit.setAccessibleName("Circuito del proyecto")
+        self.node = QComboBox()
+        self.node.setAccessibleName("Nodo de salida")
+        self.source = QComboBox()
+        self.source.setAccessibleName("Fuente de entrada")
+        self._node_label, self._source_label = QLabel("Nodo de salida"), QLabel("Fuente de entrada")
+        form.addRow("Circuito del proyecto", self.project_circuit)
+        form.addRow(self._node_label, self.node)
+        form.addRow(self._source_label, self.source)
         self.kit.experiment.body.addLayout(form)
+        self._circuits: list[tuple[str, str]] = []  # (project, circuit) behind each combo entry
+        self.project_circuit.currentIndexChanged.connect(self._sync_project)
 
         # -- Setup: analysis + its parameters ------------------------------------------------
         setup = QFormLayout()
         setup.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         setup.setVerticalSpacing(6)
         self.analysis = QComboBox()
-        self.analysis.setToolTip("Certified analysis kind")
-        self.analysis.setAccessibleName("Analysis")
+        self.analysis.setToolTip("Tipo de análisis certificado")
+        self.analysis.setAccessibleName("Análisis")
         self.analysis.addItems(["OP", "TRANSIENT", "AC_POINT", "AC_SWEEP", "DC_SWEEP"])
-        setup.addRow("Analysis", self.analysis)
+        setup.addRow("Análisis", self.analysis)
         self.detail = QTextEdit()
-        self.detail.setToolTip("Scenario parameters (optional TRANSIENT t_stop).")
-        self.detail.setAccessibleName("Parameters")
+        self.detail.setToolTip("Parámetros del escenario (t_stop opcional en TRANSIENT).")
+        self.detail.setAccessibleName("Parámetros")
         self.detail.setMaximumHeight(72)
         self.detail.setPlainText("t_stop=0.01 s")
-        self.detail_label = QLabel("Parameters (TRANSIENT)")
+        self.detail_label = QLabel("Parámetros (TRANSIENT)")
         setup.addRow(self.detail_label, self.detail)
         self.kit.setup.body.addLayout(setup)
         self.analysis.currentTextChanged.connect(self._sync_analysis)
 
         # -- Tools -----------------------------------------------------------------------------
-        self.btn_run = QPushButton("Run")
+        self.btn_run = QPushButton("Ejecutar")
         self.btn_run.setProperty("class", "primary")
-        self.btn_run.setToolTip("Execute the simulation through the application service")
-        self.status = QLabel("READY")
+        self.btn_run.setToolTip("Ejecuta la simulación con el servicio de aplicación")
+        self.status = QLabel("LISTO")
         apply_status_style(self.status, UiState.IDLE)
         self.kit.toolbar.addWidget(self.btn_run)
         self.kit.toolbar.addStretch(1)
         self.kit.toolbar.addWidget(self.status)
         self.btn_run.clicked.connect(self._run)
+        self.kit.presenter.run_action = ("Ejecutar análisis", self._run)
+        self.kit.presenter.clear()
+        self.refresh_circuits()
         self._sync_analysis(self.analysis.currentText())
+
+    # -- project circuits --------------------------------------------------------------------
+    def refresh_circuits(self) -> None:
+        """Re-read the projects (the student may have built circuits since the last visit)."""
+        keep = self.project_circuit.currentText()
+        repo = self.app.engineering.repo
+        self._circuits = [(p.name, c) for p in repo.list_projects() for c in repo.circuits_of(p.name)]
+        self.project_circuit.blockSignals(True)
+        self.project_circuit.clear()
+        self.project_circuit.addItem("Demostración (según el análisis)")
+        self.project_circuit.addItems([f"{p} · {c}" for p, c in self._circuits])
+        i = self.project_circuit.findText(keep)
+        self.project_circuit.setCurrentIndex(max(i, 0))
+        self.project_circuit.blockSignals(False)
+        self._sync_project()
+
+    def _chosen_circuit(self):
+        i = self.project_circuit.currentIndex() - 1
+        if i < 0:
+            return None
+        project, name = self._circuits[i]
+        return self.app.engineering.repo.load_circuit(project, name)
+
+    def _sync_project(self, *_args) -> None:
+        circuit = self._chosen_circuit()
+        for w in (self.node, self._node_label, self.source, self._source_label):
+            w.setVisible(circuit is not None)
+        self.scenario.setEnabled(False)
+        if circuit is None:
+            return
+        nets, sources = self.svc.circuit_info(circuit)
+        self.node.clear()
+        self.node.addItems(nets)
+        if nets:
+            self.node.setCurrentIndex(len(nets) - 1)  # usually the output sits last
+        self.source.clear()
+        self.source.addItems(sources)
+
+    def showEvent(self, event) -> None:  # noqa: N802 — Qt override
+        super().showEvent(event)
+        self.refresh_circuits()
 
     def _sync_analysis(self, kind: str) -> None:
         """The analysis decides the demo circuit and whether t_stop applies."""
@@ -92,16 +150,27 @@ class SimulationPanel(QWidget):
 
     def _run(self) -> None:
         kind = self.analysis.currentText()
-        self._set_state(UiState.RUNNING, "RUNNING…")
+        self._set_state(UiState.RUNNING, "EJECUTANDO…")
+        circuit = self._chosen_circuit()  # read on the UI thread
+        mine = None if circuit is None else (circuit, self.node.currentText(), self.source.currentText())
         worker = ServiceWorker(self._execute, kind,
-                               self.detail.toPlainText())
+                               self.detail.toPlainText(), mine)
         worker.signals.finished.connect(self._on_result)
         worker.signals.failed.connect(self._on_error)
         self.pool.start(worker)
 
-    def _execute(self, kind: str, params_text: str):
+    def _execute(self, kind: str, params_text: str, mine=None):
         import uuid
         from decimal import Decimal as _D
+        if mine is not None:  # a circuit from the student's project
+            circuit, node, source = mine
+            t_stop = "0.01 s"
+            for part in params_text.split(";"):
+                if "=" in part and "t_stop" in part.split("=", 1)[0]:
+                    t_stop = part.split("=", 1)[1].strip()
+            plan = self.svc.plan_project(circuit, kind, node, source, t_stop)
+            return self.svc.run_analysis(f"sim-{uuid.uuid4().hex[:8]}", plan.pop("circuit"),
+                                         verify=True, **plan)
         from academic_core.domain.engineering.lab.model import (
             AnalysisKind,
             AnalysisSpec,
@@ -175,21 +244,21 @@ class SimulationPanel(QWidget):
                     GridSpec.linear(_D("0"), _D("5"), _D("1")),
                     observables=(ObservableSpec("node_voltage", "n2"),)))
         return self.svc.run_analysis(session_id, circuit, analysis, probes=probes,
-                                     instruments=instruments, measurements=measurements)
+                                     instruments=instruments, measurements=measurements, verify=True)
 
     def _on_result(self, result) -> None:
-        lines = [f"run: {result.run.run_id}",
-                 f"status: {result.run.status} engine={result.run.engine_status}",
+        lines = [f"ejecución: {result.run.run_id}",
+                 f"estado: {result.run.status} engine={result.run.engine_status}",
                  f"digest: {result.digest[:16]}",
-                 f"measurements: {len(result.run.measurements)}"]
+                 f"medidas: {len(result.run.measurements)}"]
         for m in result.run.measurements:
             lines.append(f"• {m.key} [{m.status}] {m.value}")
         self.output.setPlainText("\n".join(lines))
         self.kit.presenter.show_run(result.run)
-        self._set_state(UiState.SUCCESS, "SUCCESS")
+        self._set_state(UiState.SUCCESS, "ÉXITO")
 
     def _on_error(self, exc) -> None:
-        ui = show_ui_error(self, exc, "Simulation")
+        ui = show_ui_error(self, exc, "Simulación")
         self.output.setPlainText(f"{ui.error_code}: {ui.safe_message}")
         self.kit.show_log()
         self._set_state(UiState.ERROR, f"ERROR {ui.error_code}")

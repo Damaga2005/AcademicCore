@@ -36,6 +36,20 @@ logger = get_logger("academic_core.application.lab")
 
 
 @dataclass(frozen=True)
+class ConservationView:
+    """Plain-string view of the engine's conservation checks (KCL / KVL / Tellegen).
+
+    ``passed`` is ``None`` when the engine recorded residuals without a verdict.
+    """
+    kcl: str
+    kvl: str
+    power_balance: str
+    tolerance: str
+    passed: bool | None
+    points: int = 1  # how many solved points the figures cover (sweeps have many)
+
+
+@dataclass(frozen=True)
 class LabRunSummary:
     run_id: str
     status: str
@@ -43,6 +57,37 @@ class LabRunSummary:
     measurements: tuple
     readings: tuple
     result_digest: str
+    conservation: ConservationView | None = None
+    oracle: object = None  # OracleView from an optional ngspice cross-check (OP only), else None
+
+
+def _worst(values) -> str:
+    """Largest magnitude as the engine's own string (no float conversion)."""
+    from decimal import Decimal
+    vals = [v for v in values if v not in (None, "")]
+    return str(max(vals, key=lambda v: abs(Decimal(str(v))))) if vals else "—"
+
+
+def conservation_of(result) -> ConservationView | None:
+    """Read the engine's conservation figures from a live result, or ``None`` if it has none."""
+    checks = getattr(result, "conservation_checks", None)
+    if checks is not None:
+        return ConservationView(str(checks.kcl_max_residual), str(checks.kvl_max_residual or "—"),
+                                str(checks.power_balance_residual), str(checks.tolerance),
+                                bool(checks.passed))
+    points = getattr(result, "points", None)  # DC sweep: one nonlinear solve per point
+    if points:
+        per_point = [getattr(getattr(p, "result", None), "conservation_checks", None) for p in points]
+        if all(c is not None for c in per_point):
+            return ConservationView(_worst(c.kcl_max_residual for c in per_point),
+                                    _worst(c.kvl_max_residual for c in per_point),
+                                    _worst(c.power_balance_residual for c in per_point),
+                                    str(per_point[0].tolerance),
+                                    all(bool(c.passed) for c in per_point), len(per_point))
+    if hasattr(result, "kcl_max_residual"):  # small-signal AC point: residuals, no verdict
+        return ConservationView(str(result.kcl_max_residual), str(getattr(result, "kvl_max_residual", "—")),
+                                "—", "", None)
+    return None
 
 
 def _summarize(run) -> LabRunSummary:
@@ -53,11 +98,39 @@ def _summarize(run) -> LabRunSummary:
         measurements=tuple(run.measurements),
         readings=tuple(run.readings),
         result_digest=run.result_digest,
+        conservation=conservation_of(run.result),
     )
 
 
 class LabService:
     """Application-level coordinator over the certified F8-N lab engine."""
+
+    def __init__(self, ngspice_path: str = ""):
+        self.ngspice_path = ngspice_path
+        self._ngspice = None
+
+    def verify_with_ngspice(self, session: LaboratorySession, summary: LabRunSummary) -> LabRunSummary:
+        """Cross-check an operating point against ngspice; any other analysis is returned unchanged.
+
+        The exact engine's result is never altered: the comparison is attached next to it.
+        """
+        from dataclasses import replace
+        from academic_core.application import oracle
+        run = next((r for rec in session.records for r in rec.runs if r.run_id == summary.run_id), None)
+        if run is None or run.analysis_kind != "OP" or run.result is None:
+            return summary
+        nodes = getattr(run.result, "node_voltages", None)
+        if not nodes:
+            return summary
+        from academic_core.domain.engineering.lab.serialize import experiment_id
+        defn = next((d for d in session.experiments
+                     if experiment_id(d, session.circuit) == run.experiment_id), None)
+        overrides = {st.source_ref.upper(): st.value for st in (getattr(defn, "stimuli", ()) or ())
+                     if st.kind == "DC" and st.value is not None}
+        if self._ngspice is None:
+            from academic_core.infrastructure.ngspice import NgSpiceBackend
+            self._ngspice = NgSpiceBackend(self.ngspice_path)
+        return replace(summary, oracle=oracle.compare_op(session.circuit, nodes, self._ngspice, overrides))
 
     def create_session(self, session_id: str, circuit: Circuit) -> LaboratorySession:
         cid = new_correlation_id()

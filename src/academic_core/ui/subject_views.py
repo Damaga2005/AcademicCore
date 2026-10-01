@@ -13,8 +13,8 @@ from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushBut
 
 from academic_core.ui.workspace import EmptyState, KeyValueList, Metric, Panel
 
-GRADE_STATE = {"aprobada": "Passed", "suspendida": "Failed", "en_progreso": "In progress",
-               "sin_evaluar": "Not evaluated"}
+GRADE_STATE = {"aprobada": "Aprobada", "suspendida": "Suspendida", "en_progreso": "En curso",
+               "sin_evaluar": "Sin evaluar"}
 
 
 def human(state) -> str:
@@ -50,8 +50,8 @@ class SubjectView(QScrollArea):
 
     def show_none(self) -> None:
         self._clear()
-        self._text = "Select a subject in the tree"
-        empty = EmptyState("Select a subject", "Choose one in the academic tree to see it here.")
+        self._text = "Elige una asignatura en el árbol"
+        empty = EmptyState("Elige una asignatura", "Elígela en el árbol académico para verla aquí.")
         self._lay.addWidget(empty)
         self._lay.addStretch(1)
 
@@ -77,48 +77,50 @@ class OverviewView(SubjectView):
     open_sessions = Signal()
 
     def __init__(self, parent=None):
-        super().__init__("Subject summary", parent)
+        super().__init__("Resumen de la asignatura", parent)
 
     def show_subject(self, *, name: str, code: str, topics: int, refs: int, staff: str, prerequisites: str,
                      practice: tuple | None) -> None:
         """``practice`` is (mastery ratio, observations) or None when there are no attempts yet."""
         self._clear()
         title = f"{name} ({code})" if code else name
-        facts = Panel("Subject")
+        facts = Panel("Asignatura")
         kv = KeyValueList()
-        kv.set_rows([("Name", title), ("Topics", str(topics)), ("Resources", str(refs)),
-                     ("Teaching staff", staff or "None assigned"),
-                     ("Prerequisites", prerequisites or "None")])
+        kv.set_rows([("Nombre", title), ("Temas", str(topics)), ("Recursos", str(refs)),
+                     ("Profesorado", staff or "Sin asignar"),
+                     ("Requisitos previos", prerequisites or "Ninguno")])
         facts.add(kv)
         self._lay.addWidget(facts)
-        prac = Panel("Practice")
-        lines = [f"Subject: {title}", f"Topics: {topics}", f"Resources: {refs}",
-                 f"Teaching staff: {staff or 'None assigned'}", f"Prerequisites: {prerequisites or 'None'}"]
+        prac = Panel("Práctica")
+        lines = [f"Asignatura: {title}", f"Temas: {topics}", f"Recursos: {refs}",
+                 f"Profesorado: {staff or 'Sin asignar'}", f"Requisitos previos: {prerequisites or 'Ninguno'}"]
         if practice is None:
-            note = QLabel("No attempts yet. Answer a few questions and your mastery of this subject appears here.")
+            note = QLabel("Aún no hay intentos. Responde unas preguntas y aquí aparece tu dominio de esta asignatura.")
             note.setObjectName("CardStatus")
             note.setWordWrap(True)
             prac.add(note)
-            btn = QPushButton("Open Sessions")
+            btn = QPushButton("Abrir Sesiones")
             btn.setProperty("class", "subtle")
             btn.clicked.connect(self.open_sessions)
             prac.actions.addWidget(btn)
-            lines.append("Practice: no attempts yet (Practice > Sessions)")
+            lines.append("Práctica: aún sin intentos (Practicar > Sesiones)")
         else:
             ratio, n = practice
-            m = Metric("Mastery", f"over {n} observation{'s' if n != 1 else ''}")
+            m = Metric("Dominio", f"en {n} observación{'es' if n != 1 else ''}")
             m.set_value(f"{ratio:.0%}")
             prac.add(m)
-            lines.append(f"Practice: mastery {ratio:.0%} over {n} observations")
+            lines.append(f"Práctica: dominio {ratio:.0%} en {n} observaciones")
         self._lay.addWidget(prac)
         self._finish(lines)
 
 
 class ActivitiesView(SubjectView):
     KINDS = ("assignments", "exams", "projects", "labs", "tasks", "topics")
+    LABEL = {"assignments": "Entregas", "exams": "Exámenes", "projects": "Proyectos",
+             "labs": "Laboratorios", "tasks": "Tareas", "topics": "Temas"}
 
     def __init__(self, parent=None):
-        super().__init__("Subject activities", parent)
+        super().__init__("Actividades de la asignatura", parent)
 
     def show_activities(self, groups: dict) -> None:
         """``groups``: kind -> [(title, state)]."""
@@ -127,14 +129,14 @@ class ActivitiesView(SubjectView):
         lines = []
         for kind in self.KINDS:
             rows = groups.get(kind, [])
-            m = Metric(kind.capitalize())
+            m = Metric(self.LABEL[kind])
             m.set_value(str(len(rows)))
             tiles.append(m)
-            lines.append(f"{kind.capitalize()}: {len(rows)}")
+            lines.append(f"{self.LABEL[kind]}: {len(rows)}")
         self._lay.addWidget(_metrics(tiles))
         if not any(groups.get(k) for k in self.KINDS):
-            self._lay.addWidget(EmptyState("No activities yet",
-                                           "Use New to add a topic, assignment, task or exam."))
+            self._lay.addWidget(EmptyState("Aún no hay actividades",
+                                           "Usa Nuevo para añadir un tema, una entrega, una tarea o un examen."))
         for kind in self.KINDS:
             rows = groups.get(kind, [])
             if not rows:
@@ -150,33 +152,33 @@ class ActivitiesView(SubjectView):
 
 class GradesView(SubjectView):
     def __init__(self, parent=None):
-        super().__init__("Subject grades", parent)
+        super().__init__("Notas de la asignatura", parent)
 
     def show_grades(self, *, grade, evaluated: bool, state: str, ratio, evaluated_weight, total_weight,
                     gradebook_state: str, complete: bool) -> None:
         self._clear()
-        final = Metric("Final grade", "/ 10")
+        final = Metric("Nota final", "/ 10")
         final.set_value("—" if grade is None else str(grade))
-        weight = Metric("Evaluated weight")
+        weight = Metric("Peso evaluado")
         weight.set_value(f"{evaluated_weight} / {total_weight}")
         self._lay.addWidget(_metrics([final, weight]))
-        panel = Panel("Detail")
+        panel = Panel("Detalle")
         kv = KeyValueList()
-        rows = [("Scheme result", human(state)), ("Fully evaluated", "Yes" if evaluated else "No"),
-                ("Gradebook result", human(gradebook_state)),
-                ("Gradebook ratio", "—" if ratio is None else str(ratio)),
-                ("Complete", "Yes" if complete else "No")]
+        rows = [("Resultado del esquema", human(state)), ("Totalmente evaluada", "Sí" if evaluated else "No"),
+                ("Resultado del cuaderno", human(gradebook_state)),
+                ("Proporción del cuaderno", "—" if ratio is None else str(ratio)),
+                ("Completa", "Sí" if complete else "No")]
         kv.set_rows(rows)
         panel.add(kv)
         self._lay.addWidget(panel)
-        self._finish([f"Final grade: {'—' if grade is None else grade}", f"Scheme result: {human(state)}",
-                      f"Evaluated weight: {evaluated_weight} / {total_weight}",
-                      f"Gradebook result: {human(gradebook_state)}", f"Complete: {'Yes' if complete else 'No'}"])
+        self._finish([f"Nota final: {'—' if grade is None else grade}", f"Resultado del esquema: {human(state)}",
+                      f"Peso evaluado: {evaluated_weight} / {total_weight}",
+                      f"Resultado del cuaderno: {human(gradebook_state)}", f"Completa: {'Sí' if complete else 'No'}"])
 
 
 class PlanningView(SubjectView):
     def __init__(self, parent=None):
-        super().__init__("Subject planning", parent)
+        super().__init__("Planificación de la asignatura", parent)
 
     def show_planning(self, upcoming: list, overdue: list) -> None:
         """Each row is (title, kind, due)."""
@@ -184,8 +186,8 @@ class PlanningView(SubjectView):
         grid = QGridLayout()
         grid.setSpacing(12)
         lines = []
-        for col, (title, rows, empty) in enumerate((("Upcoming", upcoming, "Nothing due soon."),
-                                                    ("Overdue", overdue, "Nothing overdue."))):
+        for col, (title, rows, empty) in enumerate((("Próximos", upcoming, "Nada próximo."),
+                                                    ("Vencidos", overdue, "Nada vencido."))):
             panel = Panel(title)
             if rows:
                 kv = KeyValueList()

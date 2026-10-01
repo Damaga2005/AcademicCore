@@ -77,7 +77,7 @@ def test_f15_003_navigation(qtbot, core):
 def test_f15_int_002_dashboard(qtbot, core):
     win = AcademicMainWindow(core)
     qtbot.addWidget(win)
-    assert win.tabs.tabText(0) == "Dashboard"
+    assert win.tabs.tabText(0) == "Panel"
 
 
 # -- F15-004 exercise -------------------------------------------------------
@@ -283,9 +283,9 @@ def test_f15_014_error_ui_safe():
     assert "/home/secret" not in ui.safe_message
     assert "Traceback" not in ui.safe_message
     ui2 = to_ui_error(ConfigurationError("VERSION_MISMATCH stored != running"))
-    assert "version" in ui2.safe_message.lower()
+    assert "versión" in ui2.safe_message.lower()
     ui3 = ui_error_for_code("EQUIVALENT")
-    assert "identical" in ui3.safe_message.lower()
+    assert "idéntico" in ui3.safe_message.lower()
 
 
 def test_f15_int_006_error_boundary(core):

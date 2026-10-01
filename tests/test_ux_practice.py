@@ -67,9 +67,9 @@ def _answer_all(panel):
 # -- empty and import ---------------------------------------------------------------------------
 def test_empty_state_says_what_to_do_and_disables_actions(qtbot, core):
     panel = _panel(qtbot, core, bank=False)
-    assert panel.empty.title.text() == "No question banks yet" and "Import" in panel.empty.text.text()
+    assert panel.empty.title.text() == "Aún no hay bancos de preguntas" and "Importa" in panel.empty.text.text()
     assert not panel.btn_start.isEnabled() and not panel.btn_submit.isEnabled()
-    assert not panel.btn_plan.isEnabled() and "No subject has question banks" in panel.plan_note.text()
+    assert not panel.btn_plan.isEnabled() and "Ninguna asignatura tiene bancos de preguntas" in panel.plan_note.text()
     assert panel.concept_stack.currentWidget() is panel.mastery_empty
 
 
@@ -78,11 +78,11 @@ def test_import_shows_the_bank_and_selects_all_questions(qtbot, core, tmp_path):
     path = tmp_path / "bank.json"
     path.write_text(_bank(), encoding="utf-8")
     panel.import_path(str(path))
-    assert panel.notice.text().startswith("Imported bank:demo") and panel.bank_box.count() == 1
+    assert panel.notice.text().startswith("Importado bank:demo") and panel.bank_box.count() == 1
     assert panel.question_list.count() == 4 and len(panel.selected_ids()) == 4
-    assert panel.btn_start.isEnabled() and panel.selection_note.text() == "4 of 4 selected"
+    assert panel.btn_start.isEnabled() and panel.selection_note.text() == "4 de 4 seleccionadas"
     panel.import_path(str(path))
-    assert panel.notice.text().startswith("Already up to date")
+    assert panel.notice.text().startswith("Ya está al día:")
 
 
 def test_invalid_bank_goes_through_the_single_error_converter(qtbot, core, tmp_path, monkeypatch):
@@ -94,7 +94,7 @@ def test_invalid_bank_goes_through_the_single_error_converter(qtbot, core, tmp_p
     bad.write_text('{"schema": "nope"}', encoding="utf-8")
     panel = _panel(qtbot, core, bank=False)
     panel.import_path(str(bad))
-    assert shown == ["Import bank"] and panel.status.text() == "ERROR E-BANK"
+    assert shown == ["Importar banco"] and panel.status.text() == "ERROR E-BANK"
 
 
 def test_unticking_questions_narrows_the_attempt(qtbot, core):
@@ -104,7 +104,7 @@ def test_unticking_questions_narrows_the_attempt(qtbot, core):
     assert len(panel.selected_ids()) == 3
     for i in range(4):
         panel.question_list.item(i).setCheckState(Qt.CheckState.Unchecked)
-    assert not panel.btn_start.isEnabled() and "at least one" in panel.btn_start.toolTip()
+    assert not panel.btn_start.isEnabled() and "Marca al menos una pregunta" in panel.btn_start.toolTip()
 
 
 # -- answer forms (one per D6 type) ----------------------------------------------------------------
@@ -177,11 +177,11 @@ def test_saved_answers_are_restored_when_returning_to_a_question(qtbot):
 def test_starting_an_attempt_shows_the_first_question(qtbot, core):
     panel = _panel(qtbot, core)
     panel._start()
-    assert panel.state.value == "RUNNING" and panel.status.text() == "IN PROGRESS"
+    assert panel.state.value == "RUNNING" and panel.status.text() == "EN CURSO"
     assert panel.question_stack.currentWidget() is panel.question_page
-    assert panel.statement_label.text() == "Statement 1?" and "Multiple choice" in panel.meta_label.text()
+    assert panel.statement_label.text() == "Statement 1?" and "Opción múltiple" in panel.meta_label.text()
     assert [b.text() for b in panel.answer_form._widgets["options"]] == ["3", "4"]
-    assert panel.progress_label.text() == "Question 1 of 4 · 0 answered"
+    assert panel.progress_label.text() == "Pregunta 1 de 4 · 0 respondidas"
     assert not panel.btn_prev.isEnabled() and panel.btn_next.isEnabled() and panel.btn_submit.isEnabled()
     assert not panel.btn_start.isEnabled()
 
@@ -191,7 +191,7 @@ def test_navigation_keeps_answers_and_counts_them(qtbot, core):
     panel._start()
     panel.answer_form._widgets["options"][1].setChecked(True)
     panel.btn_next.click()
-    assert panel.statement_label.text() == "Statement 2?" and "1 answered" in panel.progress_label.text()
+    assert panel.statement_label.text() == "Statement 2?" and "1 respondidas" in panel.progress_label.text()
     panel.btn_prev.click()
     assert panel.answer_form._widgets["options"][1].isChecked()
 
@@ -214,11 +214,11 @@ def test_submit_grades_with_the_certified_checker_and_updates_mastery(qtbot, cor
     panel._start()
     _answer_all(panel)
     panel.btn_submit.click()
-    assert panel.state.value == "SUCCESS" and panel.status.text() == "CORRECTED"
-    assert panel.score_metric.text() == "10.00 / 10.00" and "100 %  ·  passed" in panel.score_metric.unit.text()
+    assert panel.state.value == "SUCCESS" and panel.status.text() == "CORREGIDO"
+    assert panel.score_metric.text() == "10.00 / 10.00" and "100 %  ·  superado" in panel.score_metric.unit.text()
     verdicts = [panel.verdict_list.item(i).text() for i in range(panel.verdict_list.count())]
-    assert [v.split(":")[0] for v in verdicts] == ["1. Correct", "2. Correct", "3. Correct", "4. Correct"]
-    assert "mastery profile was updated" in panel.result_note.text()
+    assert [v.split(":")[0] for v in verdicts] == ["1. Correcta", "2. Correcta", "3. Correcta", "4. Correcta"]
+    assert "tu perfil de dominio se actualizó" in panel.result_note.text()
     assert not panel.answer_form.isEnabled()  # the corrected work is read-only
     assert panel.attempt is None and panel.btn_start.isEnabled()  # ready for the next attempt
     assert panel.concept_table.rowCount() == 2 and panel.concept_table.item(0, 2).text() == "2"
@@ -230,8 +230,8 @@ def test_wrong_and_blank_answers_are_reported_plainly(qtbot, core):
     panel.answer_form._widgets["options"][0].setChecked(True)  # wrong
     panel.btn_submit.click()
     verdicts = [panel.verdict_list.item(i).text() for i in range(4)]
-    assert verdicts[0].startswith("1. Incorrect") and verdicts[1].startswith("2. Not answered")
-    assert panel.score_metric.text().startswith("0.00") and "not passed" in panel.score_metric.unit.text()
+    assert verdicts[0].startswith("1. Incorrecta") and verdicts[1].startswith("2. Sin responder")
+    assert panel.score_metric.text().startswith("0.00") and "no superado" in panel.score_metric.unit.text()
 
 
 def test_answer_types_that_cannot_be_graded_say_needs_review(qtbot, core):
@@ -241,9 +241,9 @@ def test_answer_types_that_cannot_be_graded_say_needs_review(qtbot, core):
     panel._go(4)
     panel.answer_form._widgets["fields"]["note"][1].setText("my reasoning")
     panel.btn_submit.click()
-    assert panel.verdict_list.item(4).text().startswith("5. Needs review")
-    assert "1 answer(s) need manual review and are not counted as wrong" in panel.result_note.text()
-    assert "mastery profile did not change" in panel.result_note.text()  # nothing scorable in this attempt
+    assert panel.verdict_list.item(4).text().startswith("5. Requiere revisión")
+    assert "1 respuesta(s) necesitan revisión manual y no cuentan como erróneas" in panel.result_note.text()
+    assert "perfil de dominio no cambió" in panel.result_note.text()  # nothing scorable in this attempt
 
 
 # -- tutor ---------------------------------------------------------------------------------------------
@@ -267,7 +267,7 @@ def _corrected(qtbot, core):
 
 def test_tutor_needs_a_corrected_attempt_and_a_selected_question(qtbot, core):
     panel = _panel(qtbot, core)
-    assert not panel.btn_hint.isEnabled() and "Correct your attempt" in panel.hint_message.text()
+    assert not panel.btn_hint.isEnabled() and "Corrige tu intento" in panel.hint_message.text()
     panel._start()
     assert not panel.btn_hint.isEnabled()
 
@@ -278,7 +278,7 @@ def test_tutor_with_the_model_off_is_honest_and_verified(qtbot, core):
     assert panel.btn_hint.isEnabled()
     panel.btn_hint.click()
     assert panel.hint_status.text() == "VERIFIED" and panel.hint_status.property("state") == "SUCCESS"
-    assert "Tutor model: off" in panel.hint_note.text() and "nothing here is generated freely" in panel.hint_note.text()
+    assert "Modelo del tutor: desactivado" in panel.hint_note.text() and "nada aquí se genera libremente" in panel.hint_note.text()
     assert panel.hint_message.text()
     assert panel.statement_label.text() == "Statement 3?"  # the hint follows the question shown
 
@@ -289,9 +289,9 @@ def test_a_rejected_llm_reply_is_never_shown_as_content(qtbot, core):
     panel.verdict_list.setCurrentRow(0)
     panel.btn_hint.click()
     assert panel.hint_status.text() == "REJECTED" and panel.hint_status.property("state") == "ERROR"
-    assert "nothing from it is shown" in panel.hint_message.text()
+    assert "no se muestra nada de ella" in panel.hint_message.text()
     assert "INVALID_LLM_OUTPUT" not in panel.hint_message.text()
-    assert "language model proposed" in panel.hint_note.text() and "never grades" in panel.hint_note.text()
+    assert "modelo de lenguaje propuso" in panel.hint_note.text() and "nunca califica" in panel.hint_note.text()
 
 
 def test_a_valid_llm_hint_is_marked_as_checked(qtbot, core):
@@ -302,7 +302,7 @@ def test_a_valid_llm_hint_is_marked_as_checked(qtbot, core):
     panel.verdict_list.setCurrentRow(2)
     panel.btn_hint.click()
     assert panel.hint_status.text() == "VERIFIED" and panel.hint_message.text() == "Revisa las unidades."
-    assert "validated and checked" in panel.hint_note.text()
+    assert "Se validó y se comprobó" in panel.hint_note.text()
 
 
 # -- plan and mastery -------------------------------------------------------------------------------------
@@ -312,8 +312,8 @@ def test_plan_lists_real_questions_with_reasons_and_starts_practice(qtbot, core)
     assert panel.plan_subject.count() == 1 and panel.btn_plan.isEnabled()
     panel.plan_count.setValue(3)
     panel.btn_plan.click()
-    assert 1 <= panel.plan_list.count() <= 3 and "Deterministic" in panel.plan_note.text()
-    assert "difficulty" in panel.plan_list.item(0).text() or "mastery" in panel.plan_list.item(0).text()
+    assert 1 <= panel.plan_list.count() <= 3 and "Determinista" in panel.plan_note.text()
+    assert "dificultad" in panel.plan_list.item(0).text() or "dominio" in panel.plan_list.item(0).text()
     planned = list(panel._plan_ids)
     assert panel.btn_practice_plan.isEnabled()
     panel.btn_practice_plan.click()
@@ -328,7 +328,7 @@ def test_plan_says_when_nothing_is_left(qtbot, core):
     panel.btn_submit.click()
     panel.set_workspace("plan")
     panel.btn_plan.click()
-    assert panel.plan_list.count() == 0 and "already done" in panel.plan_note.text()
+    assert panel.plan_list.count() == 0 and "ya hechas" in panel.plan_note.text()
     assert not panel.btn_practice_plan.isEnabled()
 
 
@@ -343,9 +343,9 @@ def test_mastery_table_and_deterministic_recompute(qtbot, core):
     assert names == {"Derivadas", "Integrales"}
     assert panel.concept_table.item(0, 1).text().endswith("%")
     panel.mastery_subject.setCurrentIndex(panel.mastery_subject.findData("subject:al"))
-    assert panel.subject_metric.text().endswith("%") and "over 4 observations" in panel.subject_metric.unit.text()
+    assert panel.subject_metric.text().endswith("%") and "en 4 observaciones" in panel.subject_metric.unit.text()
     panel.btn_rebuild.click()
-    assert "identical" in panel.mastery_note.text()
+    assert "idéntico" in panel.mastery_note.text()
 
 
 # -- shell integration ---------------------------------------------------------------------------------------
@@ -379,22 +379,22 @@ def test_learn_summary_shows_real_mastery_progress(qtbot, core):
             subject = it.value()
         it += 1
     win.tree.setCurrentItem(subject)
-    assert "Practice: no attempts yet" in win.tab_overview.toPlainText()
-    assert win._practice_line("subject:al") == "no attempts yet (Practice > Sessions)"
+    assert "Práctica: aún sin intentos" in win.tab_overview.toPlainText()
+    assert win._practice_line("subject:al") == "aún sin intentos (Practicar > Sesiones)"
     core.practice.import_bank(_bank())
     attempt = core.practice.start_attempt([q.question_id for q in core.practice.questions()])
     core.practice.submit(attempt, {"question:demo:q:00002": {"answer": True}})
-    assert win._practice_line("subject:al").startswith("mastery ") and "observations" in win._practice_line("subject:al")
+    assert win._practice_line("subject:al").startswith("dominio ") and "observaciones" in win._practice_line("subject:al")
 
 
 def test_home_lists_sessions_with_the_real_question_count(qtbot, core):
     from academic_core.ui.dashboard import DashboardPanel
     dash = DashboardPanel(core)
     qtbot.addWidget(dash)
-    assert dash._cards["sessions"].caption_label.text() == "Import a question bank"
+    assert dash._cards["sessions"].caption_label.text() == "Importar un banco de preguntas"
     core.practice.import_bank(_bank())
     dash.refresh_state()
-    assert dash._cards["sessions"].caption_label.text() == "4 questions in 1 bank(s)"
+    assert dash._cards["sessions"].caption_label.text() == "4 preguntas en 1 banco(s)"
 
 
 def test_load_sample_button_makes_practice_usable_from_empty(qtbot, core):

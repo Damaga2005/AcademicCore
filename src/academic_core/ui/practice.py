@@ -29,41 +29,41 @@ from academic_core.ui.theme import apply_status_style
 from academic_core.ui.workspace import EmptyState, KeyValueList, Metric, Notice, Panel
 
 RATIONALE_TEXT = {
-    "LOW_MASTERY": "your mastery of this concept is low",
-    "DIFFICULTY_FIT": "difficulty fits your level",
-    "CONCEPT_RELEVANCE": "relevant to the chosen subject",
-    "RECENT_ERROR": "you missed this concept recently",
-    "PREREQUISITE_OK": "prerequisites are covered",
-    "PREREQUISITE_UNMET": "a prerequisite subject is not practised yet",
-    "REPETITION_AVOIDED": "not repeated from earlier attempts",
-    "DIVERSITY": "adds variety to the set",
-    "UNMAPPED": "not linked to a concept yet",
-    "NO_ELIGIBLE_EXERCISES": "no question qualifies right now",
+    "LOW_MASTERY": "tu dominio de este concepto es bajo",
+    "DIFFICULTY_FIT": "la dificultad encaja con tu nivel",
+    "CONCEPT_RELEVANCE": "relevante para la asignatura elegida",
+    "RECENT_ERROR": "fallaste este concepto hace poco",
+    "PREREQUISITE_OK": "los requisitos previos están cubiertos",
+    "PREREQUISITE_UNMET": "aún no has practicado una asignatura previa",
+    "REPETITION_AVOIDED": "no se repite de intentos anteriores",
+    "DIVERSITY": "aporta variedad al conjunto",
+    "UNMAPPED": "aún no está vinculada a un concepto",
+    "NO_ELIGIBLE_EXERCISES": "ninguna pregunta cumple ahora los criterios",
 }
 REASON_TEXT = {
-    "selected_match": "matches the correct options", "selected_mismatch": "does not match the correct options",
-    "boolean_match": "correct", "boolean_mismatch": "incorrect",
-    "tolerance_match": "within tolerance", "symbolic_equivalent": "equivalent expression",
-    "text_match": "matches the expected text", "omitted": "not answered",
-    "needs_review": "cannot be graded automatically; kept as evidence",
+    "selected_match": "coincide con las opciones correctas", "selected_mismatch": "no coincide con las opciones correctas",
+    "boolean_match": "coincide con la respuesta correcta", "boolean_mismatch": "no coincide con la respuesta correcta",
+    "tolerance_match": "dentro de la tolerancia", "symbolic_equivalent": "expresión equivalente",
+    "text_match": "coincide con el texto esperado", "omitted": "sin responder",
+    "needs_review": "no se puede corregir automáticamente; se conserva como evidencia",
 }
 REJECTED_TEXT = {
-    "INVALID_LLM_OUTPUT": "The tutor's reply was not valid, so nothing from it is shown.",
-    "SCHEMA_VALIDATION_FAILED": "The tutor's reply failed validation, so nothing from it is shown.",
-    "SAFETY_REJECTED": "The tutor's reply was blocked by the safety rules, so nothing from it is shown.",
+    "INVALID_LLM_OUTPUT": "La respuesta del tutor no era válida, así que no se muestra nada de ella.",
+    "SCHEMA_VALIDATION_FAILED": "La respuesta del tutor no pasó la validación, así que no se muestra nada de ella.",
+    "SAFETY_REJECTED": "Las reglas de seguridad bloquearon la respuesta del tutor, así que no se muestra nada de ella.",
 }
-QTYPE_LABEL = {"multiple_choice": "Multiple choice", "true_false": "True / false", "numeric": "Numeric",
-               "symbolic": "Symbolic", "short_text": "Short text", "structured": "Structured",
-               "circuit": "Circuit quantities"}
+QTYPE_LABEL = {"multiple_choice": "Opción múltiple", "true_false": "Verdadero / falso", "numeric": "Numérica",
+               "symbolic": "Simbólica", "short_text": "Texto corto", "structured": "Estructurada",
+               "circuit": "Magnitudes del circuito"}
 HINT_STATE = {"verified": UiState.SUCCESS, "unverified": UiState.WARNING, "rejected": UiState.ERROR}
 
 
 def verdict_label(is_correct, reason: str) -> str:
     if is_correct is True:
-        return "Correct"
+        return "Correcta"
     if is_correct is False:
-        return "Incorrect"
-    return "Not answered" if reason == "omitted" else "Needs review"
+        return "Incorrecta"
+    return "Sin responder" if reason == "omitted" else "Requiere revisión"
 
 
 class AnswerForm(QWidget):
@@ -96,7 +96,7 @@ class AnswerForm(QWidget):
     def _line(self, placeholder: str = "", name: str = "") -> QLineEdit:
         edit = QLineEdit()
         edit.setPlaceholderText(placeholder)
-        edit.setAccessibleName(name or placeholder or "Answer")
+        edit.setAccessibleName(name or placeholder or "Respuesta")
         return edit
 
     def set_question(self, q, saved: dict | None = None) -> None:
@@ -105,7 +105,7 @@ class AnswerForm(QWidget):
         w = self._widgets
         t = q.qtype
         if t == "multiple_choice":
-            hint = QLabel("Select every option that applies.")
+            hint = QLabel("Marca todas las opciones que correspondan.")
             hint.setObjectName("CardStatus")
             self._layout.addWidget(hint)
             w["options"] = []
@@ -114,23 +114,23 @@ class AnswerForm(QWidget):
                 w["options"].append(box)
                 self._layout.addWidget(box)
         elif t == "true_false":
-            w["true"], w["false"] = QRadioButton("True"), QRadioButton("False")
+            w["true"], w["false"] = QRadioButton("Verdadero"), QRadioButton("Falso")
             self._layout.addWidget(w["true"])
             self._layout.addWidget(w["false"])
         elif t == "numeric":
             row = QHBoxLayout()
-            w["value"] = self._line("value", "Value")
-            w["unit"] = self._line("unit", "Unit")
+            w["value"] = self._line("value", "Valor")
+            w["unit"] = self._line("unit", "Unidad")
             w["unit"].setText(q.unit)
             w["unit"].setMaximumWidth(110)
             row.addWidget(w["value"], 1)
             row.addWidget(w["unit"])
             self._layout.addLayout(row)
         elif t == "symbolic":
-            w["expression"] = self._line("expression, e.g. 2*x + 1", "Expression")
+            w["expression"] = self._line("expresión, p. ej. 2*x + 1", "Expresión")
             self._layout.addWidget(w["expression"])
         elif t == "short_text":
-            w["text"] = self._line("your answer", "Answer text")
+            w["text"] = self._line("tu respuesta", "Texto de la respuesta")
             self._layout.addWidget(w["text"])
         elif t == "structured":
             form = QFormLayout()
@@ -148,7 +148,7 @@ class AnswerForm(QWidget):
             w["quantities"] = {}
             for name, unit in q.fields:
                 row = QHBoxLayout()
-                value, u = self._line("value", f"{name} value"), self._line("unit", f"{name} unit")
+                value, u = self._line("value", f"{name} valor"), self._line("unit", f"{name} unidad")
                 u.setText(unit)
                 u.setMaximumWidth(90)
                 row.addWidget(value, 1)
@@ -308,15 +308,15 @@ class PracticePanel(QWidget):
         root.setSpacing(12)
         tools = QHBoxLayout()
         tools.setSpacing(8)
-        self.btn_import = QPushButton("Import bank…")
-        self.btn_import.setToolTip("Import a D6 question bank (JSON). It is validated before anything is stored.")
-        self.btn_sample = QPushButton("Load sample")
-        self.btn_sample.setToolTip("Add a small built-in bank so you can try Practice right away")
-        self.btn_start = QPushButton("Start attempt")
+        self.btn_import = QPushButton("Importar banco…")
+        self.btn_import.setToolTip("Importa un banco de preguntas D6 (JSON). Se valida antes de guardar nada.")
+        self.btn_sample = QPushButton("Cargar ejemplo")
+        self.btn_sample.setToolTip("Añade un banco pequeño integrado para probar Práctica enseguida")
+        self.btn_start = QPushButton("Empezar intento")
         self.btn_start.setProperty("class", "primary")
-        self.btn_submit = QPushButton("Submit attempt")
-        self.btn_submit.setToolTip("Correct every answer with the certified checker")
-        self.status = QLabel("READY")
+        self.btn_submit = QPushButton("Entregar intento")
+        self.btn_submit.setToolTip("Corrige cada respuesta con el corrector certificado")
+        self.status = QLabel("LISTO")
         apply_status_style(self.status, UiState.IDLE)
         for b in (self.btn_import, self.btn_sample, self.btn_start, self.btn_submit):
             tools.addWidget(b)
@@ -330,12 +330,12 @@ class PracticePanel(QWidget):
         body.setSpacing(16)
         root.addLayout(body, 1)
 
-        left = Panel("Questions")
+        left = Panel("Preguntas")
         self.bank_box = QComboBox()
-        self.bank_box.setAccessibleName("Question bank")
+        self.bank_box.setAccessibleName("Banco de preguntas")
         left.add(self.bank_box)
         self.question_list = QListWidget()
-        self.question_list.setAccessibleName("Questions")
+        self.question_list.setAccessibleName("Preguntas")
         self.question_list.setTextElideMode(Qt.TextElideMode.ElideRight)  # a long statement ends in "…"
         self.question_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         left.add(self.question_list, 1)
@@ -350,7 +350,7 @@ class PracticePanel(QWidget):
         right.setSpacing(16)
         body.addLayout(right, 1)
 
-        self.question_panel = Panel("Question")
+        self.question_panel = Panel("Pregunta")
         self.question_stack = QStackedWidget()
         self.empty = EmptyState("", "")
         self.question_page = QWidget()
@@ -365,7 +365,7 @@ class PracticePanel(QWidget):
         self.statement_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.answer_form = AnswerForm()
         nav = QHBoxLayout()
-        self.btn_prev, self.btn_next = QPushButton("Previous"), QPushButton("Next")
+        self.btn_prev, self.btn_next = QPushButton("Anterior"), QPushButton("Siguiente")
         self.progress_label = QLabel("")
         self.progress_label.setObjectName("CardStatus")
         nav.addWidget(self.btn_prev)
@@ -384,25 +384,25 @@ class PracticePanel(QWidget):
         lower = QHBoxLayout()
         lower.setSpacing(16)
         right.addLayout(lower, 2)
-        self.result_panel = Panel("Result")
-        self.score_metric = Metric("Score", "")
+        self.result_panel = Panel("Resultado")
+        self.score_metric = Metric("Puntuación", "")
         self.result_panel.add(self.score_metric)
         self.verdict_list = QListWidget()
-        self.verdict_list.setAccessibleName("Verdict per question")
+        self.verdict_list.setAccessibleName("Veredicto por pregunta")
         self.result_panel.add(self.verdict_list, 1)
-        self.result_note = QLabel("Answers are graded after you submit.")
+        self.result_note = QLabel("Las respuestas se corrigen al entregar.")
         self.result_note.setObjectName("CardStatus")
         self.result_note.setWordWrap(True)
         self.result_panel.add(self.result_note)
         lower.addWidget(self.result_panel, 1)
 
         self.tutor_panel = Panel("Tutor")
-        self.btn_hint = QPushButton("Ask for a hint")
+        self.btn_hint = QPushButton("Pedir una pista")
         self.btn_hint.setProperty("class", "subtle")
         self.btn_hint.setEnabled(False)
         self.tutor_panel.actions.addWidget(self.btn_hint)
         self.hint_status = QLabel("")
-        self.hint_message = QLabel("Correct your attempt, then ask about a question.")
+        self.hint_message = QLabel("Corrige tu intento y luego pregunta sobre una pregunta.")
         self.hint_message.setWordWrap(True)
         self.hint_message.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.hint_steps = QLabel("")
@@ -461,11 +461,13 @@ class PracticePanel(QWidget):
             self.question_list.addItem(item)
         self.question_list.blockSignals(False)
         if not self._questions:
-            self.empty.set("No question banks yet", "Import a question bank (D6 JSON) to practise. "
-                           "Nothing is generated for you: questions come from the banks you import.")
+            self.empty.set("Aún no hay bancos de preguntas", "Importa un banco de preguntas (D6 JSON) para practicar. "
+                           "No se genera nada por ti: las preguntas vienen de los bancos que importes.")
+            self.empty.set_action("Cargar banco de ejemplo", self._import_sample)
             self.question_stack.setCurrentWidget(self.empty)
         else:
-            self.empty.set("Ready to practise", "Choose the questions on the left and start an attempt.")
+            self.empty.set("Listo para practicar", "Elige las preguntas de la izquierda y empieza un intento.")
+            self.empty.set_action()
             self.question_stack.setCurrentWidget(self.empty)
         self._sync_actions()
 
@@ -486,12 +488,12 @@ class PracticePanel(QWidget):
         chosen = len(self.selected_ids())
         running = self.attempt is not None and self.result is None
         self.btn_start.setEnabled(not running and chosen > 0)
-        self.btn_start.setToolTip("" if chosen else "Tick at least one question")
+        self.btn_start.setToolTip("" if chosen else "Marca al menos una pregunta")
         self.btn_submit.setEnabled(running)
         self.btn_prev.setEnabled(running and self._current > 0)
         self.btn_next.setEnabled(running and self._current < len(self._order) - 1)
         self.selection_note.setText(
-            f"{chosen} of {self.question_list.count()} selected" if not running and self.question_list.count()
+            f"{chosen} de {self.question_list.count()} seleccionadas" if not running and self.question_list.count()
             else "")
 
     def _set_state(self, state: UiState, text: str) -> None:
@@ -501,7 +503,7 @@ class PracticePanel(QWidget):
 
     # -- bank import ---------------------------------------------------------------------------
     def _import_bank(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import question bank", "", "Question bank (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, "Importar banco de preguntas", "", "Banco de preguntas (*.json)")
         if path:
             self.import_path(path)
 
@@ -513,13 +515,13 @@ class PracticePanel(QWidget):
         try:
             report = self.svc.import_sample() if path is None else self.svc.import_bank(path)
         except Exception as exc:
-            ui = show_ui_error(self, exc, "Import bank")
+            ui = show_ui_error(self, exc, "Importar banco")
             self._set_state(UiState.ERROR, f"ERROR {ui.error_code}")
             return
-        verb = {"create": "Imported", "update": "Updated", "unchanged": "Already up to date:"}.get(
+        verb = {"create": "Importado", "update": "Actualizado", "unchanged": "Ya está al día:"}.get(
             report["outcome"], report["outcome"])
-        self.notice.setText(f"{verb} {report['bank_id']} (version {report['content_version']}).")
-        self._set_state(UiState.IDLE, "READY")
+        self.notice.setText(f"{verb} {report['bank_id']} (versión {report['content_version']}).")
+        self._set_state(UiState.IDLE, "LISTO")
         self.refresh()
         i = self.bank_box.findData(report["bank_id"])
         if i >= 0:
@@ -549,7 +551,7 @@ class PracticePanel(QWidget):
             self.attempt = self.svc.start_attempt(ids, self._subject_for(ids))
         except Exception as exc:
             self.attempt = None
-            ui = show_ui_error(self, exc, "Start attempt")
+            ui = show_ui_error(self, exc, "Empezar intento")
             self._set_state(UiState.ERROR, f"ERROR {ui.error_code}")
             return
         self.result = None
@@ -563,10 +565,10 @@ class PracticePanel(QWidget):
         self.question_list.blockSignals(False)
         self.verdict_list.clear()
         self.score_metric.clear()
-        self.result_note.setText("Answers are graded after you submit.")
+        self.result_note.setText("Las respuestas se corrigen al entregar.")
         self._reset_hint()
         self.notice.setText("")
-        self._set_state(UiState.RUNNING, "IN PROGRESS")
+        self._set_state(UiState.RUNNING, "EN CURSO")
         self.question_stack.setCurrentWidget(self.question_page)
         self._go(0)
 
@@ -586,8 +588,8 @@ class PracticePanel(QWidget):
         self.statement_label.setText(q.statement)
         self.answer_form.set_editable(self.result is None)
         self.answer_form.set_question(q, self._answers.get(q.question_id))
-        self.progress_label.setText(f"Question {index + 1} of {len(self._order)} · "
-                                    f"{len(self._answers)} answered")
+        self.progress_label.setText(f"Pregunta {index + 1} de {len(self._order)} · "
+                                    f"{len(self._answers)} respondidas")
         self.question_list.blockSignals(True)
         for i in range(self.question_list.count()):
             if self.question_list.item(i).data(Qt.ItemDataRole.UserRole) == q.question_id:
@@ -597,7 +599,7 @@ class PracticePanel(QWidget):
 
     @staticmethod
     def _unit_note(q) -> str:
-        return f"unit: {q.unit}"
+        return f"unidad: {q.unit}"
 
     def _store_current(self) -> None:
         if self._current < 0 or self.result is not None or self._current >= len(self._order):
@@ -622,12 +624,12 @@ class PracticePanel(QWidget):
         try:
             self.result = self.svc.submit(self.attempt, dict(self._answers))
         except Exception as exc:
-            ui = show_ui_error(self, exc, "Submit attempt")
+            ui = show_ui_error(self, exc, "Entregar intento")
             self._set_state(UiState.ERROR, f"ERROR {ui.error_code}")
             return
         r = self.result
         self.score_metric.set_value(f"{Decimal(r.total_score):.2f} / {Decimal(r.max_possible):.2f}")
-        self.score_metric.unit.setText(f"{Decimal(r.percentage):.0f} %  ·  {'passed' if r.passed else 'not passed'}")
+        self.score_metric.unit.setText(f"{Decimal(r.percentage):.0f} %  ·  {'superado' if r.passed else 'no superado'}")
         self.verdict_list.clear()
         for n, item in enumerate(r.items, start=1):
             label = verdict_label(item.is_correct, item.reason)
@@ -638,12 +640,12 @@ class PracticePanel(QWidget):
             self.verdict_list.addItem(row)
         review = sum(1 for i in r.items if i.is_correct is None and i.reason != "omitted")
         self.result_note.setText(
-            ("Graded by the certified checker; your mastery profile was updated."
+            ("Corregido con el corrector certificado; tu perfil de dominio se actualizó."
              if r.mastery_updated else
-             "Graded by the certified checker. Nothing here could be scored automatically, so your "
-             "mastery profile did not change.")
-            + (f" {review} answer(s) need manual review and are not counted as wrong." if review else ""))
-        self._set_state(UiState.SUCCESS, "CORRECTED")
+             "Corregido con el corrector certificado. Nada aquí se pudo puntuar automáticamente, así que tu "
+             "perfil de dominio no cambió.")
+            + (f" {review} respuesta(s) necesitan revisión manual y no cuentan como erróneas." if review else ""))
+        self._set_state(UiState.SUCCESS, "CORREGIDO")
         self.answer_form.set_editable(False)
         self.attempt_done = self.attempt
         self.attempt = None  # the list is free again for the next attempt
@@ -662,7 +664,7 @@ class PracticePanel(QWidget):
     def _reset_hint(self) -> None:
         self.hint_status.hide()
         self.hint_steps.setText("")
-        self.hint_message.setText("Correct your attempt, then ask about a question.")
+        self.hint_message.setText("Corrige tu intento y luego pregunta sobre una pregunta.")
         self.hint_note.setText("")
         self.btn_hint.setEnabled(False)
 
@@ -691,11 +693,11 @@ class PracticePanel(QWidget):
         self.hint_message.setText(REJECTED_TEXT.get(hint.message, hint.message) if rejected else hint.message)
         self.hint_steps.setText("\n".join(f"{i}. {s}" for i, s in enumerate(hint.steps, start=1)))
         if hint.llm_available:
-            self.hint_note.setText("A language model proposed this reply. It was validated and checked "
-                                   "against the certified answer checker; the model never grades.")
+            self.hint_note.setText("Un modelo de lenguaje propuso esta respuesta. Se validó y se comprobó "
+                                   "con el corrector certificado; el modelo nunca califica.")
         else:
-            self.hint_note.setText("Tutor model: off. This guidance is built from your attempt and follows "
-                                   "the same rules; nothing here is generated freely.")
+            self.hint_note.setText("Modelo del tutor: desactivado. Esta orientación se construye a partir de tu intento y sigue "
+                                   "las mismas reglas; nada aquí se genera libremente.")
 
     # ===================================================================== plan
     def _build_plan(self, host: QWidget) -> None:
@@ -706,39 +708,39 @@ class PracticePanel(QWidget):
         form = QFormLayout()
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         self.plan_subject = QComboBox()
-        self.plan_subject.setAccessibleName("Subject")
+        self.plan_subject.setAccessibleName("Asignatura")
         self.plan_count = QSpinBox()
         self.plan_count.setRange(1, 20)
         self.plan_count.setValue(5)
-        self.plan_count.setAccessibleName("Number of exercises")
-        form.addRow("Subject", self.plan_subject)
-        form.addRow("Exercises", self.plan_count)
+        self.plan_count.setAccessibleName("Número de ejercicios")
+        form.addRow("Asignatura", self.plan_subject)
+        form.addRow("Ejercicios", self.plan_count)
         left.body.addLayout(form)
-        self.btn_plan = QPushButton("Build plan")
+        self.btn_plan = QPushButton("Crear plan")
         self.btn_plan.setProperty("class", "primary")
         left.add(self.btn_plan)
         self.plan_snapshot = KeyValueList()
-        snap_title = QLabel("Mastery used")
+        snap_title = QLabel("Dominio usado")
         snap_title.setObjectName("PanelTitle")
         left.add(snap_title)
         left.add(self.plan_snapshot)
-        self.plan_snapshot.set_rows([("—", "Build a plan to see the mastery it is based on.")])
+        self.plan_snapshot.set_rows([("—", "Crea un plan para ver el dominio en que se basa.")])
         left.body.addStretch(1)
         left.setFixedWidth(340)
         root.addWidget(left)
 
-        right = Panel("Recommended next")
-        self.btn_practice_plan = QPushButton("Practise these")
+        right = Panel("Recomendado a continuación")
+        self.btn_practice_plan = QPushButton("Practicar estas")
         self.btn_practice_plan.setProperty("class", "primary")
         self.btn_practice_plan.setEnabled(False)
         right.actions.addWidget(self.btn_practice_plan)
         self.plan_list = QListWidget()
-        self.plan_list.setAccessibleName("Recommended questions")
+        self.plan_list.setAccessibleName("Preguntas recomendadas")
         self.plan_list.setWordWrap(True)
         self.plan_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.plan_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         right.add(self.plan_list, 1)
-        self.plan_note = QLabel("Build a plan to see what the engine recommends and why.")
+        self.plan_note = QLabel("Crea un plan para ver qué recomienda el motor y por qué.")
         self.plan_note.setObjectName("CardStatus")
         self.plan_note.setWordWrap(True)
         right.add(self.plan_note)
@@ -759,8 +761,8 @@ class PracticePanel(QWidget):
             self.plan_subject.setCurrentIndex(i)
         self.btn_plan.setEnabled(self.plan_subject.count() > 0)
         if not self.plan_subject.count():
-            self.plan_note.setText("No subject has question banks yet. Import a bank whose concepts "
-                                   "belong to a subject to get a plan.")
+            self.plan_note.setText("Ninguna asignatura tiene bancos de preguntas todavía. Importa un banco cuyos conceptos "
+                                   "pertenezcan a una asignatura para obtener un plan.")
 
     def _build_plan_now(self) -> None:
         subject = self.plan_subject.currentData()
@@ -769,7 +771,7 @@ class PracticePanel(QWidget):
         try:
             plan = self.svc.plan(subject, self.plan_count.value())
         except Exception as exc:
-            show_ui_error(self, exc, "Adaptive plan")
+            show_ui_error(self, exc, "Plan adaptativo")
             return
         self.plan_list.clear()
         self._plan_ids = [i.question_id for i in plan.items]
@@ -780,26 +782,26 @@ class PracticePanel(QWidget):
             self.plan_list.addItem(row)
         self.btn_practice_plan.setEnabled(bool(plan.items))
         if plan.items:
-            self.plan_note.setText("Deterministic: the same evidence always gives the same plan.")
+            self.plan_note.setText("Determinista: la misma evidencia da siempre el mismo plan.")
         else:
-            self.plan_note.setText("Nothing qualifies right now: every question of this subject is "
-                                   "already done or outside the difficulty rules.")
+            self.plan_note.setText("Nada cumple los criterios ahora: todas las preguntas de esta asignatura están "
+                                   "ya hechas o fuera de las reglas de dificultad.")
         self.plan_snapshot.set_rows([(ref.split(":")[-1], f"{p:.0%}") for ref, p in plan.mastery_snapshot]
-                                    or [("—", "no evidence yet")])
+                                    or [("—", "sin evidencia todavía")])
 
     # ===================================================================== mastery
     def _build_mastery(self, host: QWidget) -> None:
         root = QHBoxLayout(host)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(16)
-        left = Panel("Mastery")
+        left = Panel("Dominio")
         self.mastery_subject = QComboBox()
-        self.mastery_subject.setAccessibleName("Subject")
+        self.mastery_subject.setAccessibleName("Asignatura")
         left.add(self.mastery_subject)
-        self.subject_metric = Metric("Subject mastery", "")
+        self.subject_metric = Metric("Dominio de la asignatura", "")
         left.add(self.subject_metric)
-        self.btn_rebuild = QPushButton("Recompute from evidence")
-        self.btn_rebuild.setToolTip("Rebuild every state from the stored observations and compare")
+        self.btn_rebuild = QPushButton("Recalcular desde la evidencia")
+        self.btn_rebuild.setToolTip("Reconstruye cada estado desde las observaciones guardadas y compara")
         left.add(self.btn_rebuild)
         self.mastery_note = QLabel("")
         self.mastery_note.setObjectName("CardStatus")
@@ -809,10 +811,10 @@ class PracticePanel(QWidget):
         left.setFixedWidth(340)
         root.addWidget(left)
 
-        right = Panel("Concepts")
+        right = Panel("Conceptos")
         self.concept_table = QTableWidget(0, 3)
-        self.concept_table.setHorizontalHeaderLabels(("Concept", "Mastery", "Observations"))
-        self.concept_table.setAccessibleName("Concept mastery")
+        self.concept_table.setHorizontalHeaderLabels(("Concepto", "Dominio", "Observaciones"))
+        self.concept_table.setAccessibleName("Dominio por concepto")
         self.concept_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.concept_table.verticalHeader().hide()
         self.concept_table.setShowGrid(False)
@@ -824,7 +826,7 @@ class PracticePanel(QWidget):
         self.concept_table.setColumnWidth(1, 200)
         self.concept_table.setItemDelegateForColumn(1, MasteryBarDelegate(self.concept_table))
         self.concept_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.mastery_empty = EmptyState("No practice yet", "Correct an attempt and your mastery profile appears here.")
+        self.mastery_empty = EmptyState("Aún no hay práctica", "Corrige un intento y aquí aparece tu perfil de dominio.")
         self.concept_stack = QStackedWidget()
         self.concept_stack.addWidget(self.mastery_empty)
         self.concept_stack.addWidget(self.concept_table)
@@ -837,7 +839,7 @@ class PracticePanel(QWidget):
         current = self.mastery_subject.currentData()
         self.mastery_subject.blockSignals(True)
         self.mastery_subject.clear()
-        self.mastery_subject.addItem("All subjects", "")
+        self.mastery_subject.addItem("Todas las asignaturas", "")
         for s in self._subjects():
             self.mastery_subject.addItem(s.name, s.stable_id)
         i = self.mastery_subject.findData(current) if current is not None else -1
@@ -861,17 +863,17 @@ class PracticePanel(QWidget):
         self.concept_stack.setCurrentWidget(self.concept_table if concepts else self.mastery_empty)
         pooled = self.svc.subject_mastery(subject) if subject else None
         if pooled:
-            self.subject_metric.set_value(f"{pooled[0]:.0%}", f"over {pooled[1]} observations")
+            self.subject_metric.set_value(f"{pooled[0]:.0%}", f"en {pooled[1]} observaciones")
         else:
             self.subject_metric.clear()
-            self.subject_metric.unit.setText("" if subject else "choose a subject")
+            self.subject_metric.unit.setText("" if subject else "elige una asignatura")
         self.btn_rebuild.setEnabled(bool(self.svc.concepts()))
 
     def _rebuild(self) -> None:
         before = [(c.ref, c.probability, c.observations) for c in self.svc.concepts()]
         self.svc.rebuild_mastery()
         after = [(c.ref, c.probability, c.observations) for c in self.svc.concepts()]
-        self.mastery_note.setText("Recomputed from stored observations: identical to what was shown."
+        self.mastery_note.setText("Recalculado desde las observaciones guardadas: idéntico a lo mostrado."
                                   if before == after else
-                                  "Recomputed from stored observations: the result DIFFERS from what was shown.")
+                                  "Recalculado desde las observaciones guardadas: el resultado DIFIERE de lo mostrado.")
         self._fill_mastery()
