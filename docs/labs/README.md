@@ -44,3 +44,7 @@ El orden de entrega de cada laboratorio está en su propio §10. El de matemáti
 es el único con una fase terminada, y su documento de estado es
 [`docs/architecture/MATH_LAB_ML0.md`](../architecture/MATH_LAB_ML0.md), que
 incluye también la lista explícita de lo que **no** existe todavía.
+
+## Catálogo maestro de cobertura
+
+La cobertura de este laboratorio se audita también en `docs/labs/COVERAGE_CATALOG.md`. Ese catálogo fija el contrato común de familia temática, estados y criterio de completitud; documentar una capacidad no implica que esté implementada.
