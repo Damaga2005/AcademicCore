@@ -1,6 +1,6 @@
 # Laboratorio de Matemáticas — Especificación de diseño
 
-Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13)**, sin implementación iniciada · Fecha: 2026-10-01 (v1: 2026-09-30)
+Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación parcial iniciada (ML-0 y motor trigonométrico)** · Fecha: 2026-10-01 (v1: 2026-09-30)
 Ámbito: desde la aritmética básica hasta las integrales triples, de línea y de superficie, pasando por cálculo, álgebra lineal, ecuaciones diferenciales, transformadas y probabilidad. Cada tema con **ejercicios para resolver, gráficas y solución paso a paso**. **v2** añade la matemática de otras asignaturas del grado que no es de otro laboratorio: matemática discreta y cuerpos finitos, códigos y criptografía, teoría de la información, Markov y refuerzo, optimización y aprendizaje automático, finanzas, señales deterministas, detección y estimación, fasores y polarización, campos y ondas, y mecánica auxiliar (**bloques 8 a 19**). Lo que va a `SIGNALS_LAB.md` y a `CIRCUITS_LAB.md` está en la tabla «qué va dónde» (§16).
 Fuentes: guías docentes de GREELEC (UPC) en `guias_upc/` — Cálculo (230903), Álgebra Lineal (230904), Cálculo Vectorial (230908), Ecuaciones Diferenciales y Transformadas (230909), Probabilidad y Procesos Estocásticos (230914), Señales y Sistemas (230913). **v2:** cuatro informes de lectura de solo lectura en `Descargas/labs/math_catalog/` (`extra_senales.md`, `extra_electromagnetismo.md`, `extra_circuitos_control.md`, `extra_algoritmia_ia_codigos.md`), integrados con el **reparto decidido por el usuario** (D6, §13) y sin tocar el repositorio ni `guias_upc`.
 
@@ -61,7 +61,7 @@ Ya existe en `domain/engineering/`:
 | `dsp/`, `control/`, `ac/` | Transformada z, DFT, funciones de transferencia, raíces de polinomios | Orientados a ingeniería, no a enseñar la matemática |
 | `ui/waveform.py` | Dibujo de formas de onda con Qt | No es un graficador general |
 
-**Falta** (verificado por nombres de módulo, no por lectura de código): varias variables, matrices y autovalores, límites, series, Taylor, ecuaciones diferenciales, Laplace y Fourier simbólicos, integrales múltiples y de línea o de superficie, probabilidad y estadística, graficador 2D y 3D y corrector de respuestas matemáticas.
+**Falta todavía**: matrices generales y autovalores, límites, series, Taylor, ecuaciones diferenciales, Laplace y Fourier simbólicos, integrales múltiples y de línea o de superficie, probabilidad y estadística, graficador 2D y 3D y corrector de respuestas matemáticas. La derivación multivariable/gradiente, evaluación, igualdad, simplificación e integración iniciales ya tienen implementación en MathLab (§10 y `mathlab/calculators.py`).
 
 **Falta además (v2)**, comprobado por nombres de módulo en el informe de circuitos y control (no leyendo código): fracciones racionales **multivariable** con símbolos (`R`, `C`, `K`, `x`) y simplificación a la forma `K·Π(s−z)/Π(s−p)`; aritmética modular y **cuerpos finitos**; simulador sembrado de **eventos**; ajuste por mínimos cuadrados general y **no lineal**; **Lambert W**; **problemas de contorno** en una dimensión; el **criterio de Chauvenet del curso**; y el **análisis dimensional** como comprobador universal.
 
@@ -1392,7 +1392,7 @@ Por decisión del usuario (D11) **no entran** en el laboratorio de matemáticas 
 
 ---
 
-*Fin del documento (v2, 2026-10-01). No se ha iniciado ninguna implementación. Decisiones D1 a D12 cerradas. Implementación transversal iniciada: el motor trigonométrico exacto está integrado en MathLab y cubierto por pruebas. Las familias aún no implementadas permanecen explícitamente pendientes; no se consideran entregadas por mera documentación.*
+*Fin del documento (v2, 2026-10-01). Decisiones D1 a D12 cerradas. La implementación ya está iniciada: ML-0 aporta las calculadoras base (`derivar`, `gradiente`, `simplificar`, `evaluar`, `igualdad`, `integrar`) y el motor trigonométrico exacto añade reglas iniciales de T-01, T-02, T-03 y T-05. Estas capacidades siguen siendo parciales respecto al alcance completo de sus familias. Las familias restantes permanecen explícitamente pendientes; no se consideran entregadas por mera documentación.*
 
 ---
 
