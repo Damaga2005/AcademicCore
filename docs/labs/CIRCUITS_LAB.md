@@ -5973,3 +5973,46 @@ El corrector debe explicar la causa del error y su propagación hacia los pasos 
 ### Motor transversal de unidades — integración de Circuitos
 
 Circuitos consume el motor común de unidades definido por MathLab y añade las magnitudes propias del dominio: tensión, corriente, resistencia, conductancia, capacitancia, inductancia, frecuencia, potencia, energía, carga, impedancia, admitancia, parámetros RF y magnitudes logarítmicas. Debe soportar unidades compuestas, potencias, análisis dimensional, incompatibilidades, prefijos **10⁻³⁰ → 10³⁰**, temperatura y reglas específicas para dB/dBm/dBW/dBi/dBd y otras magnitudes logarítmicas. Toda conversión debe conservar trazabilidad y poder ser auditada por el corrector.
+
+
+### Capacidades transversales adicionales — contrato académico
+
+Todos los laboratorios deben integrarse con las siguientes capacidades comunes, sin duplicar su infraestructura por dominio:
+
+#### Incertidumbre y error
+- incertidumbre absoluta y relativa;
+- propagación de incertidumbre a través de expresiones y cadenas de cálculo;
+- separación entre error sistemático y aleatorio cuando proceda;
+- sensibilidad respecto a parámetros;
+- intervalos y tolerancias cuando sean aplicables;
+- Monte Carlo reproducible cuando el problema lo requiera;
+- comparación entre incertidumbre experimental, tolerancia y discrepancia teórica.
+
+#### Validación de entradas
+Antes de resolver, validar unidades, dimensiones, dominios matemáticos, rangos físicos, parámetros incompatibles, condiciones iniciales e hipótesis contradictorias. Los errores de entrada deben identificarse antes de presentar un resultado como válido.
+
+#### Experimentos reproducibles y datos
+Una práctica puede conservar configuración, versión del motor, parámetros, semilla aleatoria, datos de entrada, datos crudos, procesamiento, resultados, incertidumbre y conclusión. Debe ser posible reproducir una ejecución cuando el modelo lo permita.
+
+#### Gráficas académicas
+Las gráficas forman parte del resultado estructurado y conservan datos, ejes, unidades, escalas, procedencia y método de generación. El catálogo común debe permitir reutilizar representaciones entre laboratorios sin imponer una interfaz concreta.
+
+#### Intentos, pistas y aprendizaje
+Un ejercicio puede conservar múltiples intentos del estudiante. El sistema debe registrar el primer error detectado, correcciones y ayudas utilizadas. Las pistas pueden progresar desde una indicación conceptual hasta el siguiente paso y la solución completa, sin sustituir el razonamiento del estudiante.
+
+#### Comparación de métodos
+Cuando existan varios métodos válidos, el resultado puede comparar método analítico, simbólico, numérico, aproximado o simulado, mostrando diferencias, precisión, coste y condiciones de validez.
+
+#### Instrumentación y medición
+Los laboratorios que trabajen con medidas deben poder consumir una capa común de instrumentos virtuales y datos de medición. El instrumento, su configuración y la incertidumbre asociada forman parte de la procedencia del dato.
+
+#### Informe reproducible
+Una práctica completa debe poder transformarse posteriormente en un informe con enunciado, datos, hipótesis, procedimiento, cálculos, gráficas, mediciones, errores, incertidumbre, corrección y conclusión. La generación documental concreta queda fuera del diseño visual de este documento.
+
+
+### Capacidades específicas adicionales — Circuitos
+
+- La incertidumbre debe poder propagarse por magnitudes eléctricas y parámetros del circuito, incluyendo tolerancias y sensibilidad.
+- El modo experimento debe contemplar instrumento, configuración, lectura, incertidumbre y comparación **teoría ↔ simulación ↔ medición**.
+- La validación debe detectar topologías, valores, unidades y condiciones físicas incompatibles antes de resolver.
+- Las gráficas deben poder representar respuesta temporal, frecuencia, fasores, potencia y resultados de medición con unidades y procedencia.
