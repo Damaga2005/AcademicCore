@@ -6016,3 +6016,7 @@ Una práctica completa debe poder transformarse posteriormente en un informe con
 - El modo experimento debe contemplar instrumento, configuración, lectura, incertidumbre y comparación **teoría ↔ simulación ↔ medición**.
 - La validación debe detectar topologías, valores, unidades y condiciones físicas incompatibles antes de resolver.
 - Las gráficas deben poder representar respuesta temporal, frecuencia, fasores, potencia y resultados de medición con unidades y procedencia.
+
+## Catálogo maestro de cobertura
+
+La cobertura de este laboratorio se audita también en `docs/labs/COVERAGE_CATALOG.md`. Ese catálogo fija el contrato común de familia temática, estados y criterio de completitud; documentar una capacidad no implica que esté implementada.
