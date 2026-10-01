@@ -427,3 +427,7 @@ Una práctica completa debe poder transformarse posteriormente en un informe con
 - La incertidumbre debe poder propagarse por órbita, geometría, enlace y métricas de comunicación cuando proceda.
 - Las ejecuciones deben conservar época, cuerpo de referencia, modelo físico, parámetros, configuración y versión del motor para reproducibilidad.
 - Las gráficas/diagramas deben conservar procedencia para órbitas, visibilidad, huellas, enlaces y balances.
+
+## Catálogo maestro de cobertura
+
+La cobertura de este laboratorio se audita también en `docs/labs/COVERAGE_CATALOG.md`. Ese catálogo fija el contrato común de familia temática, estados y criterio de completitud; documentar una capacidad no implica que esté implementada.
