@@ -1488,3 +1488,46 @@ MathLab actúa como referencia del motor común de unidades. Además del rango c
 - trazabilidad `entrada → normalización → factor/regla → unidad canónica → resultado`.
 
 Las unidades forman parte del valor tipado y no son texto decorativo. El motor debe poder distinguir, por ejemplo, una conversión válida de `25 mA → 0,025 A` de una magnitud incompatible o de un factor de prefijo incorrecto. El catálogo de unidades y las reglas especiales son extensibles sin duplicar el motor en cada laboratorio.
+
+
+### Capacidades transversales adicionales — contrato académico
+
+Todos los laboratorios deben integrarse con las siguientes capacidades comunes, sin duplicar su infraestructura por dominio:
+
+#### Incertidumbre y error
+- incertidumbre absoluta y relativa;
+- propagación de incertidumbre a través de expresiones y cadenas de cálculo;
+- separación entre error sistemático y aleatorio cuando proceda;
+- sensibilidad respecto a parámetros;
+- intervalos y tolerancias cuando sean aplicables;
+- Monte Carlo reproducible cuando el problema lo requiera;
+- comparación entre incertidumbre experimental, tolerancia y discrepancia teórica.
+
+#### Validación de entradas
+Antes de resolver, validar unidades, dimensiones, dominios matemáticos, rangos físicos, parámetros incompatibles, condiciones iniciales e hipótesis contradictorias. Los errores de entrada deben identificarse antes de presentar un resultado como válido.
+
+#### Experimentos reproducibles y datos
+Una práctica puede conservar configuración, versión del motor, parámetros, semilla aleatoria, datos de entrada, datos crudos, procesamiento, resultados, incertidumbre y conclusión. Debe ser posible reproducir una ejecución cuando el modelo lo permita.
+
+#### Gráficas académicas
+Las gráficas forman parte del resultado estructurado y conservan datos, ejes, unidades, escalas, procedencia y método de generación. El catálogo común debe permitir reutilizar representaciones entre laboratorios sin imponer una interfaz concreta.
+
+#### Intentos, pistas y aprendizaje
+Un ejercicio puede conservar múltiples intentos del estudiante. El sistema debe registrar el primer error detectado, correcciones y ayudas utilizadas. Las pistas pueden progresar desde una indicación conceptual hasta el siguiente paso y la solución completa, sin sustituir el razonamiento del estudiante.
+
+#### Comparación de métodos
+Cuando existan varios métodos válidos, el resultado puede comparar método analítico, simbólico, numérico, aproximado o simulado, mostrando diferencias, precisión, coste y condiciones de validez.
+
+#### Instrumentación y medición
+Los laboratorios que trabajen con medidas deben poder consumir una capa común de instrumentos virtuales y datos de medición. El instrumento, su configuración y la incertidumbre asociada forman parte de la procedencia del dato.
+
+#### Informe reproducible
+Una práctica completa debe poder transformarse posteriormente en un informe con enunciado, datos, hipótesis, procedimiento, cálculos, gráficas, mediciones, errores, incertidumbre, corrección y conclusión. La generación documental concreta queda fuera del diseño visual de este documento.
+
+
+### Capacidades específicas adicionales — MathLab
+
+- El motor debe poder representar formalmente el **dominio de validez** de un modelo o método (por ejemplo, restricciones de dominio, convergencia y condiciones de teoremas).
+- La comparación de métodos debe permitir contrastar solución exacta, aproximación numérica y verificación independiente.
+- Las unidades y el análisis dimensional deben participar en la validación antes de evaluar expresiones.
+- El historial de intentos debe conservar la estructura de pasos matemáticos, no solo la respuesta final.
