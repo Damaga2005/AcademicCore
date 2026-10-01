@@ -3,6 +3,8 @@
 | Module | Path | Depends on | Must NOT import |
 |---|---|---|---|
 | domain | `domain/` | stdlib | PySide6, app, engines |
+| domain/engineering/symbolic | `domain/engineering/symbolic/` | stdlib | Qt, I/O, the labs below |
+| domain/engineering/mathlab | `domain/engineering/mathlab/` | symbolic, stdlib | Qt, I/O, dsp, rf, comms, satcom, mna, ac, digital, lab |
 | config | `config/` | stdlib | PySide6, app |
 | storage | `storage/` | stdlib (sqlite3) | PySide6, app |
 | engines/resource | `engines/resource.py` | storage, domain | PySide6, app |

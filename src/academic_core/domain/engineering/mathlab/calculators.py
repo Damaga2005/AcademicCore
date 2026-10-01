@@ -1,0 +1,709 @@
+# SPDX-License-Identifier: MIT
+"""MATH_LAB ML-0: the first calculators, registered against the §5.9 contract.
+
+Each calculator is a **function of the domain** that returns
+:class:`~.contract.Resultado`; the interface only displays it (§8.3). They are
+the ML-0 deliverables of §10: the engine works, the steps are recorded, and
+every result is verified by an independent second path before it is shown as
+correct.
+
+Delivered here
+--------------
+
+``derivar``       partial and total derivative (§4.2), verified against a
+                  central difference
+``gradiente``     gradient of a function of several variables (§4.4)
+``simplificar``   exact simplification with a declared convention (§5.4)
+``evaluar``       exact value when the expression is closed, else numeric
+``igualdad``      «son iguales?» as a first-class, *teachable* operation: it
+                  explains why two forms are the same polynomial, which is the
+                  skill §7's corrector is built on
+``integrar``      indefinite and definite integration, delegated to E0.1 and
+                  verified by *differentiating the primitive* (§5.3 row 2)
+
+``integrar`` is here rather than in ML-2 because ML-0's acceptance test needs
+it: a round trip (differentiate ∘ integrate) is the strongest seeded property
+available, and the E0.1 engine already provides the rules.
+"""
+
+from __future__ import annotations
+
+from fractions import Fraction
+
+from academic_core.domain.engineering.mathlab import contract as C
+from academic_core.domain.engineering.mathlab import derive_mv as D
+from academic_core.domain.engineering.mathlab import mvexpr as mx
+from academic_core.domain.engineering.mathlab import verify as V
+from academic_core.domain.engineering.mathlab.trace import (
+    DETALLADO,
+    PASO,
+    RESUMEN,
+    Trace,
+)
+from academic_core.domain.engineering.symbolic import integrate as _e01_integrate
+from academic_core.domain.engineering.symbolic import steps as _e01_steps
+from academic_core.errors import UnsupportedError, ValidationError
+
+
+def _expr(entrada: object) -> mx.Expr:
+    if isinstance(entrada, mx.Expr):
+        return entrada
+    if isinstance(entrada, str):
+        return mx.parse(entrada)
+    raise C.error("BAD_INPUT", "se esperaba una expresión o su texto")
+
+
+def _expresion_de(entrada: object, *claves: str) -> mx.Expr:
+    """The expression of a request, whether it is given bare or in a mapping.
+
+    ``derivar`` accepts ``"x^2"``, ``{"expr": "x^2"}`` and
+    ``{"integrando": "x^2"}``; the caller should not have to care which.
+    """
+    if isinstance(entrada, dict):
+        for clave in claves:
+            if clave in entrada:
+                return _expr(entrada[clave])
+        raise C.error(
+            "BAD_INPUT",
+            f"falta {' o '.join(claves)} en la petición; se esperaba una de esas claves",
+        )
+    return _expr(entrada)
+
+
+def _exacto_legible(valor: object) -> object:
+    """Render an exact result as something readable, not a raw dataclass repr.
+
+    ``Resultado.exacto`` is a value, and ``Como_texto`` prints it; a raw
+    ``Add(left=Add(...))`` would be useless to a student. A single expression is
+    printed in Unicode notation; a mapping keeps its keys as variable names.
+    """
+    if isinstance(valor, dict):
+        return {k: _exacto_legible(v) for k, v in valor.items()}
+    if isinstance(valor, mx.Expr):
+        return mx.pretty(valor)
+    return valor
+
+
+def _finalizar(peticion: C.Peticion, traza: Trace, exacto, *,
+               aproximado=None, error=None, sello: V.Seal, grafica=None,
+               avisos: tuple[str, ...] = ()) -> C.Resultado:
+    traza.level = peticion.nivel
+    peticion.limites.validar(len(traza), 0)
+    hipotesis = tuple(traza.hypotheses())
+    convenciones = peticion.convenciones
+    for linea in convenciones.as_lines():
+        traza.convencion(f"convencion.{linea.split('=')[0].strip()}", linea)
+    if sello.verdict == V.DISCREPANT:
+        traza.verificacion(
+            "verificacion.discrepa",
+            "el segundo camino no coincide: el resultado no se da por bueno",
+            after=sello.detail,
+        )
+    elif sello.verdict == V.VERIFIED:
+        traza.verificacion("verificacion.ok", sello.method, after=sello.detail)
+    else:
+        traza.verificacion("verificacion.numerico", sello.method, after=sello.detail)
+    return C.Resultado(
+        operacion=peticion.operacion,
+        exacto=_exacto_legible(exacto),
+        exacto_expr=exacto if isinstance(exacto, mx.Expr)
+        or (isinstance(exacto, dict) and all(isinstance(v, mx.Expr)
+                                             for v in exacto.values()))
+        else None,
+        aproximado=aproximado,
+        error_acotado=error,
+        cifras=peticion.cifras,
+        traza=traza,
+        sello=sello,
+        grafica=grafica,
+        convenciones=convenciones,
+        hipotesis=hipotesis,
+        version=C.CONTRACT_VERSION,
+        avisos=avisos,
+    )
+
+
+# ---------------------------------------------------------------------------
+# derivar
+# ---------------------------------------------------------------------------
+
+
+def _derivar(peticion: C.Peticion) -> C.Resultado:
+    expr = _expresion_de(peticion.entrada, "expr", "expresion", "f")
+    entrada = peticion.entrada
+    variables = entrada.get("var") if isinstance(entrada, dict) else None
+    trace = Trace()
+    names = sorted(mx.variables(expr))
+    if variables is None:
+        if len(names) != 1:
+            raise C.error(
+                "AMBIGUOUS",
+                f"«{mx.pretty(expr)}» depende de {', '.join(names)}: "
+                "indica con «var» de qué variable es la derivada",
+            )
+        variables = names[0]
+    derivada = D.differentiate(expr, variables, trace)
+    sello = D.verify_derivative(expr, derivada, variables)
+    grafica = _grafica_derivada(expr, derivada, variables)
+    return _finalizar(peticion, trace, derivada, aproximado=mx.evaluate(derivada),
+                      sello=sello, grafica=grafica)
+
+
+def _grafica_derivada(f: mx.Expr, df: mx.Expr, var: str) -> C.Graph:
+    """Function and derivative on the same axes (§6: «función y derivada»)."""
+    puntos = V.sampled_points([var], count=48)
+    xs = tuple(p[var] for p in puntos)
+    ys = tuple(_real(mx.evaluate(f, p)) for p in puntos)
+    dys = tuple(_real(mx.evaluate(df, p)) for p in puntos)
+    return C.Graph(
+        series=(
+            C.Serie(f"y = {mx.pretty(f)}", xs, ys),
+            C.Serie(f"y' = {mx.pretty(df)}", xs, dys),
+        ),
+        x_label=var,
+        y_label="y",
+        description=(
+            f"la función {mx.pretty(f)} y su derivada {mx.pretty(df)} "
+            f"respecto a {var}, en el mismo sistema de ejes"
+        ),
+    )
+
+
+def _real(value: complex | None) -> float:
+    if value is None or value != value:
+        return float("nan")
+    return value.real
+
+
+# ---------------------------------------------------------------------------
+# gradiente
+# ---------------------------------------------------------------------------
+
+
+def _gradiente(peticion: C.Peticion) -> C.Resultado:
+    expr = _expresion_de(peticion.entrada, "expr", "expresion", "f")
+    trace = Trace()
+    grad = D.gradient(expr, trace)
+    sellos = {k: D.verify_derivative(expr, v, k) for k, v in grad.items()}
+    peor = max(sellos.values(), key=lambda s: {"discrepa": 2, "solo_numerico": 1,
+                                                "verificado": 0}[s.verdict])
+    if peor.verdict == V.NUMERIC_ONLY and peor.method == "sin puntos evaluables":
+        # A partial derivative of a several-variable expression has no
+        # single-variable exact path here, so each component is *substituted*
+        # to reduce it to one variable and then checked exactly. This is the
+        # §5.3 rule "verificar por un camino independiente", done properly
+        # instead of settling for a weaker numeric seal.
+        sellos = {}
+        for name, partial in grad.items():
+            uno = _reduce_to_one_variable(expr, partial, name)
+            if uno is None:
+                sellos[name] = peor
+                continue
+            sellos[name] = D.verify_derivative(uno[0], uno[1], name)
+        peor = max(sellos.values(),
+                   key=lambda s: {"discrepa": 2, "solo_numerico": 1, "verificado": 0}[s.verdict])
+    return _finalizar(peticion, trace, grad, sello=peor)
+
+
+def _reduce_to_one_variable(f: mx.Expr, df: mx.Expr, var: str
+                            ) -> tuple[mx.Expr, mx.Expr] | None:
+    """Freeze the other variables at distinct exact values.
+
+    The identity ``d/dx f = df/dx`` holds at any point, so substituting the
+    remaining variables for exact rationals turns a several-variable check into
+    a one-variable one — and ``differentiate`` then has an exact path. Returns
+    ``None`` if the substitution is not possible.
+    """
+    others = sorted(mx.variables(f) - {var})
+    reduced_f, reduced_df = f, df
+    for i, name in enumerate(others):
+        value = mx.num(Fraction(3 + i, 2))  # 3/2, 5/2, ...: distinct and exact
+        reduced_f = mx.substitute(reduced_f, name, value)
+        reduced_df = mx.substitute(reduced_df, name, value)
+    if mx.variables(reduced_f) != {var}:
+        return None
+    return reduced_f, reduced_df
+
+
+# ---------------------------------------------------------------------------
+# simplificar
+# ---------------------------------------------------------------------------
+
+
+def _simplificar(peticion: C.Peticion) -> C.Resultado:
+    expr = _expresion_de(peticion.entrada, "expr", "expresion")
+    trace = Trace()
+    # the exact simplification the engine can prove: the difference of the
+    # expression and its rational normal form is zero
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    names = sorted(mx.variables(expr))
+    var = names[0] if names else None
+    ratio = P.as_ratio(expr, var) if var else None
+    exacto = expr
+    metodo = "no hace falta simplificar: ya está en forma canónica"
+    if ratio is not None and not ratio.is_constant_ratio():
+        # The rational form is a *normalisation*, not a rewrite: the displayed
+        # value stays the student's expression and the equality is what the
+        # seal attests, so no new (possibly uglier) form is shown.
+        metodo = "forma normal racional"
+    if len(names) > 1:
+        metodo = "comparación multivariable: una forma normal por variable"
+    trace.metodo(
+        "simplificar.forma_normal",
+        metodo,
+        why=("se compara con la forma normal exacta del motor, que agrupa términos "
+             "iguales y pliega constantes; si la forma normal ya es la expresión, no "
+             "hay nada que simplificar"),
+        alternatives=(
+            ("simplificar numéricamente", "perdería la forma exacta (§5.1)"),
+            ("usar la librería externa como resultado",
+             "§5.8: una librería puede comprobar, nunca dar los pasos"),
+        ),
+        before=mx.text(expr),
+    )
+    sello = V.verify_against(exacto, expr)
+    return _finalizar(peticion, trace, exacto, aproximado=mx.evaluate(exacto),
+                      sello=sello)
+
+
+# ---------------------------------------------------------------------------
+# evaluar
+# ---------------------------------------------------------------------------
+
+
+def _evaluar(peticion: C.Peticion) -> C.Resultado:
+    entrada = peticion.entrada
+    if isinstance(entrada, dict):
+        expr, env = _expr(entrada.get("expr")), dict(entrada.get("valores") or {})
+    else:
+        expr, env = _expr(entrada), {}
+    trace = Trace()
+    exacto = mx.exact_value(expr)
+    if exacto is not None:
+        trace.metodo(
+            "evaluar.exacto",
+            "la expresión es un racional cerrado: se evalúa exacta",
+            why="no queda ninguna variable libre, así que no hay aproximación que hacer",
+            before=mx.text(expr), after=str(exacto),
+        )
+        return _finalizar(peticion, trace, exacto,
+                          aproximado=complex(float(exacto.numerator) /
+                                            float(exacto.denominator)),
+                          sello=V.Seal(V.VERIFIED, "valor exacto", str(exacto)))
+    valor = mx.evaluate(expr, env)
+    if valor is None:
+        trace.aviso("evaluar.sin_valor",
+                    "la expresión no está definida con esos valores")
+        return _finalizar(peticion, trace, None,
+                          sello=V.Seal(V.NUMERIC_ONLY, "sin valor", ""),
+                          avisos=("no se pudo evaluar con esos valores",))
+    trace.metodo(
+        "evaluar.numerico",
+        "la expresión no es un racional cerrado: se evalúa numéricamente",
+        why=("queda al menos una función o constante transcendental, que no tiene "
+             "representación racional exacta; se da el valor numérico y se dice"),
+        before=mx.text(expr),
+        after=C._format_complex(valor, peticion.cifras),
+    )
+    return _finalizar(
+        peticion, trace, None, aproximado=valor, error=None,
+        sello=V.Seal(V.NUMERIC_ONLY, "evaluación numérica", "sin valor exacto"),
+        avisos=(C.NO_EXACT,),
+    )
+
+
+# ---------------------------------------------------------------------------
+# igualdad  (the corrector, as a teachable operation)
+# ---------------------------------------------------------------------------
+
+
+def _igualdad(peticion: C.Peticion) -> C.Resultado:
+    entrada = peticion.entrada
+    if not isinstance(entrada, dict) or "a" not in entrada or "b" not in entrada:
+        raise C.error("BAD_INPUT", "se espera {'a': ..., 'b': ...}")
+    a, b = _expr(entrada["a"]), _expr(entrada["b"])
+    trace = Trace()
+    iguales, metodo, detalle = V.check_equivalence(a, b)
+    numerico = False
+    if not iguales:
+        # The numeric path is the honest second try, and it decides
+        # *equivalence*, never exactness: a numeric agreement is reported as
+        # `solo_numerico`, because samples cannot prove an identity (§5.3).
+        ok, metodo_num, detalle_num = V.numeric_agreement(a, b)
+        if ok:
+            iguales = True
+            numerico = True
+            metodo = f"{metodo_num} (sin prueba exacta)"
+            detalle = f"{metodo_num}: {detalle_num}"
+        else:
+            numerico = False
+    trace.metodo(
+        "igualdad.forma_normal",
+        "se comparan las formas normales, no los textos",
+        why=("dos expresiones son la misma si sus formas normales coinciden; comparar "
+             "textos daría «2x+2x» distinto de «4x», que es justo lo que el corrector "
+             "debe aceptar (§7)"),
+        alternatives=(
+            ("comparar el texto", "aceptaría distintas formas y rechazaría la misma"),
+            ("comparar solo numéricamente",
+             "no puede distinguir 1 de 1+10^-18; sirve como segundo camino, no como primero"),
+        ),
+        before=f"{mx.text(a)}  vs  {mx.text(b)}",
+        after="iguales" if iguales else "distintas",
+    )
+    trace.verificacion("igualdad.metodo", f"método: {metodo}", after=detalle)
+    if not iguales:
+        # "No son iguales" is the requested answer, not a failed check: the seal
+        # records *how* the answer was reached, and `ok` stays about the
+        # equality, not about the correctness of the verdict.
+        sello = V.Seal(V.VERIFIED, metodo or "sin forma normal común",
+                       f"son distintas: {detalle}")
+    elif numerico:
+        sello = V.Seal(V.NUMERIC_ONLY, metodo, detalle)
+    else:
+        sello = V.Seal(V.VERIFIED, metodo, detalle)
+    return _finalizar(peticion, trace, iguales, sello=sello)
+
+
+# ---------------------------------------------------------------------------
+# integrar
+# ---------------------------------------------------------------------------
+
+
+def _integral_de(entrada: object) -> mx.Integral:
+    """Read the request as an integral, in any of the accepted shapes.
+
+    ``"x^2"``, ``"integral(x^2, x)"``, ``{"integrando": "x^2"}``,
+    ``{"expr": "x^2", "var": "x"}`` and a ready-made :class:`mvexpr.Integral`
+    all mean the same thing to the caller.
+    """
+    if isinstance(entrada, mx.Integral):
+        return entrada
+    if isinstance(entrada, str):
+        head = entrada.strip().lower()
+        if head.startswith(("integral", "int ", "int(", "∫")):
+            return _integral_de(mx.parse_calculus(entrada))
+        entrada = _expr(entrada)  # a bare integrand, variable inferred
+    if isinstance(entrada, mx.Expr):
+        names = sorted(mx.variables(entrada))
+        if not names:
+            raise C.error("BAD_INPUT", "un integrando necesita al menos una variable")
+        return mx.Integral(entrada, names[0])
+    if isinstance(entrada, dict):
+        integrando = _expresion_de(entrada, "integrando", "expr", "f")
+        var = entrada.get("var") or (sorted(mx.variables(integrando))[0]
+                                     if mx.variables(integrando) else None)
+        if var is None:
+            raise C.error("BAD_INPUT", "no hay variable de integración")
+        low = _limite(entrada, "desde", "desde", "a", "in inferior")
+        high = _limite(entrada, "hasta", "hasta", "b", "superior")
+        return mx.Integral(integrando, str(var), low, high)
+    raise C.error("BAD_INPUT", "se esperaba una integral o su descripción")
+
+
+def _limite(entrada: dict, *claves: str) -> mx.Expr | None:
+    for clave in claves:
+        if entrada.get(clave) is not None:
+            return _expr(entrada[clave])
+    return None
+
+
+def _integrar(peticion: C.Peticion) -> C.Resultado:
+    integral = _integral_de(peticion.entrada)
+    trace = Trace()
+    integrando, var = integral.integrand, integral.var
+    bounds = (integral.lower, integral.upper)
+    if bounds[0] is None and bounds[1] is None:
+        exacto, verificado = _primitiva(integrando, var, trace, peticion)
+        sello = verificado
+        grafica = _grafica_primitiva(integrando, exacto, var) if exacto is not None else None
+        return _finalizar(peticion, trace, exacto, aproximado=mx.evaluate(exacto),
+                          sello=sello, grafica=grafica,
+                          avisos=() if exacto is not None else (C.NO_EXACT,))
+    if (bounds[0] is None) != (bounds[1] is None):
+        raise C.error("BAD_INPUT",
+                         "una integral definida necesita los dos límites, o ninguno")
+    valor, numerico, sello, grafica, error = _integral_definida(
+        integrando, var, bounds, trace, peticion)
+    return _finalizar(peticion, trace, valor, aproximado=numerico,
+                      error=error, sello=sello, grafica=grafica,
+                      avisos=() if error is None else (C.NO_EXACT,))
+
+
+def _primitiva(integrando: mx.Expr, var: str, trace: Trace,
+               peticion: C.Peticion) -> tuple[mx.Expr | None, V.Seal]:
+    """Indefinite integral through E0.1, verified by differentiating it."""
+    trace.metodo(
+        "integral.metodo",
+        "se busca una primitiva con las reglas del motor E0.1",
+        why=("se prueban por orden sustitución, partes y fracciones simples; la que "
+             "funciona es la que se muestra, y si ninguna sirve se dice (§5.4)"),
+        alternatives=(
+            ("una tabla de primitivas fija",
+             "no cubre estas funciones y no explicaría por qué se elige cada regla"),
+            ("integración numérica como resultado",
+             "daría un número sin la expresión que se enseña"),
+        ),
+        before=mx.text(integrando),
+    )
+    try:
+        log = _e01_steps.StepLog()
+        _crudo, resultado, _idx = _e01_integrate.antiderivative(
+            mx.to_symbolic(integrando), var, log)
+    except UnsupportedError as exc:
+        trace.aviso("integral.sin_exacta", f"{C.NO_EXACT}: {exc}")
+        return None, V.Seal(V.NUMERIC_ONLY, "sin primitiva exacta", str(exc))
+    for step in log.steps:
+        trace.regla(f"e01.{step.rule}", step.explanation or step.rule,
+                    before=step.before, after=step.after, piece=step.substitution,
+                    uses=step.uses)
+    primitiva = mx.from_symbolic(resultado)
+    sello = V.verify_by_derivative(primitiva, integrando, var, D.differentiate)
+    trace.verificacion(
+        "integral.por_derivacion",
+        "se verifica derivando la primitiva y comprobando que da el integrando",
+        before=mx.text(primitiva), after=mx.text(integrando),
+        why=("es el segundo camino independiente de §5.3: derivar lo resuelto y "
+             "recuperar el integrando no puede salir bien por casualidad"),
+    )
+    trace.metodo(
+        "integral.verificacion.metodo",
+        "la comprobación se hace derivando, no comparando textos",
+        why=("el resultado de la integral no tiene forma normal comparable con el "
+             "integrando; la igualdad se decide sobre las funciones, que es lo que "
+             "afirma el teorema fundamental"),
+        after=sello.detail,
+    )
+    return primitiva, sello
+
+
+def _integral_definida(integrando: mx.Expr, var: str, bounds, trace: Trace,
+                       peticion: C.Peticion
+                       ) -> tuple[mx.Expr | None, complex | None, V.Seal,
+                                  C.Graph | None, float | None]:
+    """``(exacto, aproximado, sello, gráfica, error)`` of a definite integral.
+
+    Which of the two is filled decides the seal: an exact value with no error
+    bound, or an approximation with one. Never both, and never a fraction
+    rounded out of a float.
+    """
+    low, high = bounds
+    lo_exacto = mx.exact_value(low)
+    hi_exacto = mx.exact_value(high)
+    if lo_exacto is not None and hi_exacto is not None:
+        return _barrow(integrando, var, lo_exacto, hi_exacto, trace, peticion)
+    trace.metodo(
+        "integral.definida.metodo",
+        "integral definida: se evalúa el resultado exacto en los límites",
+        why=("con una primitiva exacta, el teorema fundamental da el valor como "
+             "diferencia; es el camino más corto y el exacto"),
+        alternatives=(
+            ("Simpson adaptativo", "es el segundo camino: sirve para comprobar, "
+             "no para dar el resultado exacto"),
+        ),
+        before=f"∫[{mx.text(low)}, {mx.text(high)}] {mx.text(integrando)} d{var}",
+    )
+    primitiva, sello = _primitiva(integrando, var, trace, peticion)
+    if primitiva is None:
+        return None, None, sello, None, None
+    arriba = mx.evaluate(mx.substitute(primitiva, var, high))
+    abajo = mx.evaluate(mx.substitute(primitiva, var, low))
+    if arriba is None or abajo is None:
+        return (None, None,
+                V.Seal(V.NUMERIC_ONLY, "límites no evaluables", "la primitiva no está "
+                     "definida en los límites"), None, None)
+    # Non-rational limits: the engine evaluates the endpoints in floating point,
+    # so there is no exact value to show. The result is an *approximation* with
+    # its own error bound — rounding it to a tidy fraction with
+    # ``limit_denominator`` would invent an exactness the engine never had.
+    valor_num = arriba.real - abajo.real
+    error = abs(arriba.imag) + abs(abajo.imag) + _error_de_redondeo(arriba.real) \
+        + _error_de_redondeo(abajo.real)
+    sello = V.Seal(
+        V.NUMERIC_ONLY,
+        "diferencia en los límites de una primitiva exacta, en aritmética decimal",
+        f"error de redondeo acumulado {error:.3g}",
+    )
+    trace.verificacion("integral.definida.verificacion", sello.method,
+                       after=f"valor {valor_num:.12g}, error {error:.3g}")
+    grafica = _grafica_area(integrando, var, low, high, valor_num, error)
+    return None, complex(valor_num), sello, grafica, error
+
+
+def _simpson(integrando: mx.Expr, var: str, a, b, trace: Trace,
+             panels: int = 64) -> tuple[float, float] | None:
+    """Composite Simpson with Richardson extrapolation, plus an error bound.
+
+    The second independent path of §5.3 for a definite integral. Two runs at
+    ``n`` and ``2n`` panels give the standard estimate
+    ``|S(2n) − S(n)| / 15``; the ``(f⁗)`` form of the error term is the reason
+    the error is only valid for a sufficiently smooth integrand, which is
+    recorded as a hypothesis rather than assumed.
+    """
+    lo, hi = float(a), float(b)
+    if hi == lo:
+        return 0.0, 0.0
+
+    def suma(n: int) -> tuple[float, bool]:
+        h = (hi - lo) / n
+        total = 0.0
+        for k in range(n + 1):
+            x = lo + k * h
+            v = mx.evaluate(integrando, {var: x})
+            if v is None or v.imag != 0:
+                return 0.0, False
+            peso = 1 if k in (0, n) else (4 if k % 2 else 2)
+            total += peso * v.real
+        return total * h / 3, True
+
+    s1, ok1 = suma(panels)
+    s2, ok2 = suma(2 * panels)
+    if not ok1 or not ok2:
+        return None
+    error = abs(s2 - s1) / 15
+    trace.metodo(
+        "integral.simpson",
+        "sin primitiva exacta, la integral se calcula con Simpson extrapolado",
+        why=("no hay primitiva exacta que derivar, así que el teorema fundamental no "
+             "aplica; Simpson con extrapolación de Richardson da el valor y una "
+             "cota de error, que es lo que §5.4 pide en este caso"),
+        alternatives=(
+            ("suma de Riemann por la izquierda",
+             "converge demasiado despacio para dar una cota útil del error"),
+            ("trapecios", "el mismo error de orden, con más puntos para el mismo coste"),
+        ),
+        before=f"∫[{lo}, {hi}] {mx.text(integrando)} d{var}",
+        after=f"{s2:.12g} con error {error:.3g}",
+    )
+    trace.hipotesis("simpson.continuidad",
+                    "el integrando es continuo en el intervalo de integración",
+                    "se comprueba en cada nodo de la malla")
+    return s2, error
+
+
+def _barrow(integrando: mx.Expr, var: str, a, b, trace: Trace,
+            peticion: C.Peticion
+            ) -> tuple[mx.Expr | None, complex | None, V.Seal,
+                       C.Graph | None, float | None]:
+    """Definite integral with rational limits: the exact value of F(b) − F(a).
+
+    With exact rational limits the E0.1 engine evaluates the endpoints in exact
+    arithmetic (``Fraction``), so the answer is exact and the seal can be
+    ``verificado`` — no error bound is needed because there is none.
+    """
+    log = _e01_steps.StepLog()
+    try:
+        _F, diferencia, _idx = _e01_integrate.definite(
+            mx.to_symbolic(integrando), var, Fraction(a), Fraction(b), log)
+    except UnsupportedError as exc:
+        # No exact antiderivative: the honest answer is Simpson with its error
+        # bound (§5.3, §5.4), not a bare refusal and not an invented fraction.
+        trace.aviso("integral.sin_exacta", f"{C.NO_EXACT}: {exc}")
+        aproximacion = _simpson(integrando, var, a, b, trace)
+        if aproximacion is None:
+            return (None, None, V.Seal(V.NUMERIC_ONLY, "sin valor", str(exc)),
+                    None, None)
+        valor, error = aproximacion
+        sello = V.Seal(V.NUMERIC_ONLY, "Simpson con error acotado",
+                       f"{valor:.12g} con error {error:.3g}")
+        grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b), valor, error)
+        return None, complex(valor), sello, grafica, error
+    except ValidationError as exc:
+        # Barrow's rule refused: the integrand is not continuous on the interval
+        trace.aviso("integral.dominio", str(exc))
+        return (None, None, V.Seal(V.NUMERIC_ONLY, "dominio", str(exc)), None, None)
+    for step in log.steps:
+        trace.regla(f"e01.{step.rule}", step.explanation or step.rule,
+                    before=step.before, after=step.after, piece=step.substitution,
+                    uses=step.uses)
+    # `definite` returns a Fraction when both endpoints are exact and a Decimal
+    # otherwise; the branch decides the seal, so it is read here and not
+    # pretended to be an expression.
+    if isinstance(diferencia, Fraction):
+        valor = mx.num(diferencia)
+        metodo = "regla de Barrow con aritmética exacta"
+        detalle = str(diferencia)
+    else:
+        valor = None
+        error = abs(float(diferencia)) * 1e-15
+        metodo = "regla de Barrow con aritmética decimal"
+        detalle = f"{float(diferencia):.12g} con error {error:.3g}"
+        trace.aviso("integral.decimal",
+                    "los valores en los límites no son racionales: el resultado "
+                    f"es decimal y se acota su error en {error:.3g}")
+    trace.verificacion(
+        "integral.barrow",
+        "regla de Barrow sobre una primitiva exacta",
+        before=mx.text(integrando), after=detalle,
+        why=("con límites racionales, F(b) y F(a) se evalúan sin aproximación y la "
+             "resta es exacta; si algún valor no es racional, se dice y se acota el error"),
+    )
+    sello = V.Seal(V.VERIFIED if isinstance(diferencia, Fraction) else V.NUMERIC_ONLY,
+                   metodo, detalle)
+    grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b),
+                            float(diferencia), 0.0)
+    if isinstance(diferencia, Fraction):
+        return valor, complex(float(diferencia)), sello, grafica, None
+    return None, complex(float(diferencia)), sello, grafica, error
+
+
+def _error_de_redondeo(valor: float) -> float:
+    """Machine-level uncertainty of one evaluation, propagated."""
+    return abs(valor) * 2.3e-16
+
+
+def _grafica_primitiva(integrando: mx.Expr, primitiva: mx.Expr,
+                       var: str) -> C.Graph:
+    puntos = V.sampled_points([var], count=48)
+    xs = tuple(p[var] for p in puntos)
+    return C.Graph(
+        series=(
+            C.Serie(f"f(x) = {mx.pretty(integrando)}", xs,
+                    tuple(_real(mx.evaluate(integrando, p)) for p in puntos)),
+            C.Serie(f"F(x) = {mx.pretty(primitiva)}", xs,
+                    tuple(_real(mx.evaluate(primitiva, p)) for p in puntos)),
+        ),
+        x_label=var, y_label="y",
+        description=f"el integrando {mx.pretty(integrando)} y su primitiva "
+                    f"{mx.pretty(primitiva)}",
+    )
+
+
+def _grafica_area(integrando: mx.Expr, var: str, low, high,
+                  valor: float, error: float) -> C.Graph:
+    """The integrand, the region and its area (§6)."""
+    lo, hi = mx.evaluate(low, {}), mx.evaluate(high, {})
+    puntos = V.sampled_points([var], count=48)
+    xs, ys = [], []
+    if lo is not None and hi is not None:
+        left, right = min(lo.real, hi.real), max(lo.real, hi.real)
+        for p in puntos:
+            x = p[var]
+            if not left <= x <= right:
+                continue
+            value = mx.evaluate(integrando, p)
+            if value is not None:
+                xs.append(x)
+                ys.append(value.real)
+    return C.Graph(
+        series=(C.Serie(f"y = {mx.pretty(integrando)}", tuple(xs), tuple(ys)),),
+        x_label=var, y_label="y",
+        description=(f"la región bajo {mx.pretty(integrando)} entre {mx.text(low)} y "
+                     f"{mx.text(high)}; la integral definida vale {valor:.6g} "
+                     f"con error {error:.3g}"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# registration
+# ---------------------------------------------------------------------------
+
+C.registrar("derivar", _derivar)
+C.registrar("gradiente", _gradiente)
+C.registrar("simplificar", _simplificar)
+C.registrar("evaluar", _evaluar)
+C.registrar("igualdad", _igualdad)
+C.registrar("integrar", _integrar)
+
+__all__ = ["C", "Trace", "RESUMEN", "PASO", "DETALLADO"]
