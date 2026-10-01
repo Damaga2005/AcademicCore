@@ -1447,3 +1447,44 @@ Las conversiones no son una calculadora aislada: pueden aparecer como paso de cu
 ### Regla de diseño
 La implementación de unidades debe ser compartida por los laboratorios y no duplicarse en cada dominio. `MATH_LAB` define/consume la capacidad genérica; los demás laboratorios la reutilizan con sus unidades específicas.
 
+
+
+### Capacidad transversal — Corrector académico
+
+El laboratorio debe integrarse con un **Corrector Académico común**. La corrección no se limita a comparar el resultado final: debe localizar, cuando sea posible, el **primer punto incorrecto** del procedimiento y clasificar el tipo de error.
+
+Debe poder distinguir al menos:
+- resultado correcto;
+- unidad incorrecta;
+- procedimiento incorrecto;
+- error algebraico;
+- error numérico;
+- error de redondeo;
+- error conceptual;
+- hipótesis o convención incorrecta;
+- dato mal interpretado;
+- método inadecuado;
+- paso omitido;
+- signo incorrecto;
+- incompatibilidad dimensional.
+
+El corrector debe explicar la causa del error y su propagación hacia los pasos posteriores cuando pueda determinarla. Cada laboratorio aporta sus reglas de dominio, pero la clasificación, trazabilidad y contrato de corrección son comunes.
+
+
+### Motor transversal de unidades — requisitos completos
+
+MathLab actúa como referencia del motor común de unidades. Además del rango completo de prefijos SI **10⁻³⁰ → 10³⁰**, debe contemplar:
+- unidades simples y derivadas;
+- unidades compuestas como `m/s²`, `N·m` y `kg·m/s²`;
+- productos, cocientes y potencias de unidades;
+- simplificación y normalización de unidades;
+- conversión automática;
+- análisis dimensional;
+- detección de unidades incompatibles;
+- temperatura como conversión afín;
+- ángulos;
+- magnitudes logarítmicas como dB mediante reglas específicas;
+- selección y normalización automática de prefijos;
+- trazabilidad `entrada → normalización → factor/regla → unidad canónica → resultado`.
+
+Las unidades forman parte del valor tipado y no son texto decorativo. El motor debe poder distinguir, por ejemplo, una conversión válida de `25 mA → 0,025 A` de una magnitud incompatible o de un factor de prefijo incorrecto. El catálogo de unidades y las reglas especiales son extensibles sin duplicar el motor en cada laboratorio.
