@@ -1436,6 +1436,7 @@ El laboratorio incorpora un conversor de unidades reutilizable como herramienta 
 - Magnitudes derivadas mediante expresiones de unidades.
 - Conversión entre unidades compatibles, con preservación de exactitud cuando sea posible.
 - Conversión de intervalos y órdenes de magnitud sin límites artificiales de valor; el **rango de unidades soportado** sí queda acotado por el catálogo declarado por el motor.
+- **Rango completo de prefijos SI:** desde `10⁻³⁰` hasta `10³⁰` (`quetta`/`Q` … `quecto`/`q`), incluyendo todos los prefijos oficiales intermedios. El motor debe aceptar, normalizar y convertir cualquiera de ellos cuando sea aplicable a la magnitud.
 - Detección de unidades incompatibles antes de calcular.
 - Análisis dimensional como verificación independiente de fórmulas y ejercicios.
 - Trazabilidad: unidad de entrada, unidad canónica, factor aplicado, resultado y unidad de salida.
