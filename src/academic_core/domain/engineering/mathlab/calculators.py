@@ -236,12 +236,13 @@ def _simplificar(peticion: C.Peticion) -> C.Resultado:
     # the exact simplification the engine can prove: the difference of the
     # expression and its rational normal form is zero
     from academic_core.domain.engineering.mathlab import poly as P
+    from academic_core.domain.engineering.mathlab import trig as T
 
     names = sorted(mx.variables(expr))
     var = names[0] if names else None
     ratio = P.as_ratio(expr, var) if var else None
-    exacto = expr
-    metodo = "no hace falta simplificar: ya está en forma canónica"
+    exacto = T.simplify(expr)
+    metodo = "normalización trigonométrica exacta + forma normal algebraica" if exacto != expr else "no hace falta simplificar: ya está en forma canónica"
     if ratio is not None and not ratio.is_constant_ratio():
         # The rational form is a *normalisation*, not a rewrite: the displayed
         # value stays the student's expression and the equality is what the
