@@ -5946,3 +5946,30 @@ La interfaz concreta de la futura **Labs App** queda fuera de este documento: aq
 - **Rango completo de prefijos SI:** `10⁻³⁰` a `10³⁰` (`q` … `Q`), reutilizando el catálogo común de `MATH_LAB`; se admiten todos los prefijos oficiales aplicables a las magnitudes eléctricas.
 - Las conversiones propias de circuitos no duplican el motor de unidades: se registran como extensiones del catálogo común.
 
+
+
+### Capacidad transversal — Corrector académico
+
+El laboratorio debe integrarse con un **Corrector Académico común**. La corrección no se limita a comparar el resultado final: debe localizar, cuando sea posible, el **primer punto incorrecto** del procedimiento y clasificar el tipo de error.
+
+Debe poder distinguir al menos:
+- resultado correcto;
+- unidad incorrecta;
+- procedimiento incorrecto;
+- error algebraico;
+- error numérico;
+- error de redondeo;
+- error conceptual;
+- hipótesis o convención incorrecta;
+- dato mal interpretado;
+- método inadecuado;
+- paso omitido;
+- signo incorrecto;
+- incompatibilidad dimensional.
+
+El corrector debe explicar la causa del error y su propagación hacia los pasos posteriores cuando pueda determinarla. Cada laboratorio aporta sus reglas de dominio, pero la clasificación, trazabilidad y contrato de corrección son comunes.
+
+
+### Motor transversal de unidades — integración de Circuitos
+
+Circuitos consume el motor común de unidades definido por MathLab y añade las magnitudes propias del dominio: tensión, corriente, resistencia, conductancia, capacitancia, inductancia, frecuencia, potencia, energía, carga, impedancia, admitancia, parámetros RF y magnitudes logarítmicas. Debe soportar unidades compuestas, potencias, análisis dimensional, incompatibilidades, prefijos **10⁻³⁰ → 10³⁰**, temperatura y reglas específicas para dB/dBm/dBW/dBi/dBd y otras magnitudes logarítmicas. Toda conversión debe conservar trazabilidad y poder ser auditada por el corrector.
