@@ -5943,5 +5943,6 @@ La interfaz concreta de la futura **Labs App** queda fuera de este documento: aq
 - Conversión visible paso a paso.
 - Comprobación dimensional de ecuaciones.
 - Normalización automática de prefijos para facilitar lectura, sin alterar el valor físico.
+- **Rango completo de prefijos SI:** `10⁻³⁰` a `10³⁰` (`q` … `Q`), reutilizando el catálogo común de `MATH_LAB`; se admiten todos los prefijos oficiales aplicables a las magnitudes eléctricas.
 - Las conversiones propias de circuitos no duplican el motor de unidades: se registran como extensiones del catálogo común.
 
