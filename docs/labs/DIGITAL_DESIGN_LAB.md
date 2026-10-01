@@ -1544,3 +1544,7 @@ Una práctica completa debe poder transformarse posteriormente en un informe con
 - Los intentos deben poder conservar circuito, estímulos, tabla de verdad, trazas y resultado del corrector.
 - La validación debe detectar anchuras incompatibles, señales sin fuente, conflictos de conducción, estados inválidos y condiciones de temporización fuera de especificación cuando el modelo las soporte.
 - La comparación de métodos debe permitir contrastar tabla de verdad, minimización, simulación y HDL cuando estén disponibles.
+
+## Catálogo maestro de cobertura
+
+La cobertura de este laboratorio se audita también en `docs/labs/COVERAGE_CATALOG.md`. Ese catálogo fija el contrato común de familia temática, estados y criterio de completitud; documentar una capacidad no implica que esté implementada.
