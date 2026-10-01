@@ -66,11 +66,17 @@ def _sub_terms(e: mx.Expr) -> tuple[mx.Expr, mx.Expr] | None:
     return None
 
 
+def _sq_call(e: mx.Expr, name: str) -> mx.Expr | None:
+    if isinstance(e, mx.Pow) and e.exponent == _num(2):
+        return _arg(e.base, name)
+    return None
+
+
 def _match_sq_pair(a: mx.Expr, b: mx.Expr, first: str, second: str) -> mx.Expr | None:
-    xa, xb = _arg(a, first), _arg(b, second)
+    xa, xb = _sq_call(a, first), _sq_call(b, second)
     if xa is not None and xb is not None and _same(xa, xb):
         return xa
-    xa, xb = _arg(a, second), _arg(b, first)
+    xa, xb = _sq_call(a, second), _sq_call(b, first)
     if xa is not None and xb is not None and _same(xa, xb):
         return xa
     return None
@@ -151,16 +157,20 @@ def _rewrite(e: mx.Expr) -> mx.Expr:
                         return _pow(_call(recip, b.base.args[0]), 2)
 
         # product-to-double-angle: 2 sin x cos x = sin 2x
-        two_x = _mul2(e.left)
-        if two_x is not None and isinstance(two_x, mx.Mul):
-            a, b = two_x.left, two_x.right
-            if _is_call(a, "sin") and _is_call(b, "cos") and a.args[0] == b.args[0]:
-                return _call("sin", mx.Mul(_num(2), a.args[0]))
-        two_x = _mul2(e.right)
-        if two_x is not None and isinstance(two_x, mx.Mul):
-            a, b = two_x.left, two_x.right
-            if _is_call(a, "sin") and _is_call(b, "cos") and a.args[0] == b.args[0]:
-                return _call("sin", mx.Mul(_num(2), a.args[0]))
+        factors = []
+        def collect_mul(node):
+            if isinstance(node, mx.Mul):
+                collect_mul(node.left); collect_mul(node.right)
+            else:
+                factors.append(node)
+        collect_mul(e)
+        if len(factors) == 3 and any(isinstance(x, mx.Num) and x.value == 2 for x in factors):
+            trig = [x for x in factors if not (isinstance(x, mx.Num) and x.value == 2)]
+            if len(trig) == 2 and (
+                (_is_call(trig[0], "sin") and _is_call(trig[1], "cos"))
+                or (_is_call(trig[1], "sin") and _is_call(trig[0], "cos"))
+            ) and trig[0].args[0] == trig[1].args[0]:
+                return _call("sin", mx.Mul(_num(2), trig[0].args[0]))
 
         return e
 
@@ -190,9 +200,5 @@ def identities() -> tuple[str, ...]:
         "angulo_doble_coseno",
         "angulo_doble_tangente",
         "medio_angulo",
-        "suma_diferencia",
-        "producto_suma",
-        "suma_producto",
-        "potencias_reduccion",
-        "exponencial_compleja_euler",
+        "producto_doble_seno",
     )
