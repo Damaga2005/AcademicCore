@@ -485,23 +485,46 @@ def factorizar(p: Polinomio, var: str = "x", trace: Trace | None = None) -> list
 
 
 def identidades(a: mx.Expr, b: mx.Expr, var: str = "x",
-                trace: Trace | None = None) -> str:
-    """Recognise the four remarkable identities, by checking their expansion."""
+                trace: Trace | None = None, forma: str = "cuadrado") -> str:
+    """Check which remarkable identity expands correctly, and name it.
+
+    ``forma`` says which expression the student wrote:
+
+    - ``"cuadrado"`` — ``(a ± b)^2`` against ``a^2 ± 2ab + b^2``
+    - ``"producto"`` — ``(a ± b)(a ∓ b)`` against ``a^2 − b^2``
+
+    Why the parameter is needed, and what it does *not* claim: both ``(a+b)^2``
+    and ``(a-b)^2`` are true for every ``a`` and ``b``, so the first matching
+    one always wins inside a family. What this function asserts is that the
+    expansion is correct, not which of the two forms the student wrote — only
+    ``forma`` narrows the family.
+
+    Recognition is by comparing normal forms, not by looking at the text, so it
+    works on an expression written any way round.
+    """
     trace = trace if trace is not None else Trace()
     from academic_core.domain.engineering.mathlab import poly as P
 
-    casos = [
-        ("(a + b)^2 = a^2 + 2ab + b^2", mx.Pow(mx.Add(a, b), mx.num(2)),
-         mx.Add(mx.Add(mx.Pow(a, mx.num(2)), mx.Mul(mx.num(2), mx.Mul(a, b))),
-                mx.Pow(b, mx.num(2)))),
-        ("(a − b)^2 = a^2 − 2ab + b^2", mx.Pow(mx.Sub(a, b), mx.num(2)),
-         mx.Sub(mx.Add(mx.Pow(a, mx.num(2)), mx.Pow(b, mx.num(2))),
-                mx.Mul(mx.num(2), mx.Mul(a, b)))),
-        ("(a + b)(a − b) = a^2 − b^2", mx.Mul(mx.Add(a, b), mx.Sub(a, b)),
-         mx.Sub(mx.Pow(a, mx.num(2)), mx.Pow(b, mx.num(2)))),
-        ("(a − b)(a + b) = a^2 − b^2", mx.Mul(mx.Sub(a, b), mx.Add(a, b)),
-         mx.Sub(mx.Pow(a, mx.num(2)), mx.Pow(b, mx.num(2)))),
-    ]
+    if forma == "cuadrado":
+        casos = [
+            ("(a + b)^2 = a^2 + 2ab + b^2", mx.Pow(mx.Add(a, b), mx.num(2)),
+             mx.Add(mx.Add(mx.Pow(a, mx.num(2)), mx.Mul(mx.num(2), mx.Mul(a, b))),
+                    mx.Pow(b, mx.num(2)))),
+            ("(a - b)^2 = a^2 - 2ab + b^2", mx.Pow(mx.Sub(a, b), mx.num(2)),
+             mx.Sub(mx.Add(mx.Pow(a, mx.num(2)), mx.Pow(b, mx.num(2))),
+                    mx.Mul(mx.num(2), mx.Mul(a, b)))),
+        ]
+    elif forma == "producto":
+        diferencia = mx.Sub(mx.Pow(a, mx.num(2)), mx.Pow(b, mx.num(2)))
+        casos = [
+            ("(a + b)(a - b) = a^2 - b^2", mx.Mul(mx.Add(a, b), mx.Sub(a, b)),
+             diferencia),
+            ("(a - b)(a + b) = a^2 - b^2", mx.Mul(mx.Sub(a, b), mx.Add(a, b)),
+             diferencia),
+        ]
+    else:
+        raise _error("BAD_INPUT",
+                     f"forma desconocida: {forma!r}; se admite «cuadrado» o «producto»")
     for nombre, izquierda, derecha in casos:
         if P.as_poly(izquierda) == P.as_poly(derecha):
             trace.regla("polinomio.identidad", f"identidad notable: {nombre}",

@@ -69,7 +69,8 @@ class ArbolDeFactores:
 
     @property
     def texto(self) -> str:
-        if self.primo:
+        if not self.factores:
+            # 0 and 1 have no prime factors; saying so beats printing nothing
             return str(self.numero)
         partes = []
         for p, e in self.factores:

@@ -106,8 +106,8 @@ def sumar(a: object, b: object, trace: Trace | None = None) -> int:
             before=f"{x} + {y}", after=str(x + y),
         )
         if x < 0:
-            return -restar_cifras(abs(y), abs(x), trace)
-        return restar_cifras(abs(x), abs(y), trace)
+            return -_resta_con_magnitudes(abs(x), abs(y), trace)
+        return _resta_con_magnitudes(abs(x), abs(y), trace)
     signo = -1 if x < 0 else 1
     x, y = abs(x), abs(y)
     total = x + y
@@ -166,6 +166,27 @@ def restar(a: object, b: object, trace: Trace | None = None) -> int:
         )
         return -restar_cifras(abs(y), abs(x), trace)
     return restar_cifras(abs(x), abs(y), trace)
+
+
+def _resta_con_magnitudes(a: int, b: int, trace: Trace) -> int:
+    """``|a| − |b|`` with the sign decided by which magnitude is larger.
+
+    The column algorithm only handles ``mayor >= menor``. Handing it the other
+    order made it borrow from a column that does not exist, so ``−5 + 3``
+    returned ``−8``: the borrow cascaded and turned a small difference into a
+    large one. Deciding the order here is what keeps the sign correct.
+    """
+    if a >= b:
+        return restar_cifras(a, b, trace)
+    trace.metodo(
+        "resta.magnitudes",
+        "la primera magnitud es menor: se restan en el otro orden y se cambia el signo",
+        why=("la resta en columna solo se hace con el minuendo mayor o igual; como aquí no "
+             "ocurre, se invierte el orden, que es la definición de la resta de números con "
+             "signo"),
+        before=f"{a} - {b}", after=str(a - b),
+    )
+    return -restar_cifras(b, a, trace)
 
 
 def restar_cifras(mayor: int, menor: int, trace: Trace) -> int:
