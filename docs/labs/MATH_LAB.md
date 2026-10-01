@@ -1700,3 +1700,7 @@ Este catálogo es el alcance de implantación de trigonometría para Ingeniería
 ## Capacidad implementada — motor trigonométrico exacto (2026-10-01)
 
 Se ha iniciado la implantación real con mathlab/trig.py, conectado a simplificar. Actualmente están implementadas y probadas las primeras reglas de T-01, T-02 y T-03, además de la primera transformación de T-05. El resto permanece pendiente hasta cumplir T-24.
+
+## Catálogo maestro de cobertura
+
+La cobertura de este laboratorio se audita también en `docs/labs/COVERAGE_CATALOG.md`. Ese catálogo fija el contrato común de familia temática, estados y criterio de completitud; documentar una capacidad no implica que esté implementada.
