@@ -362,3 +362,25 @@ El laboratorio expone y consume resultados mediante contratos estables, sin impo
 
 La interfaz concreta de la futura **Labs App** queda fuera de este documento: aquí se define el comportamiento del laboratorio y sus contratos, no su diseño visual.
 
+
+
+### Capacidad transversal — Corrector académico
+
+El laboratorio debe integrarse con un **Corrector Académico común**. La corrección no se limita a comparar el resultado final: debe localizar, cuando sea posible, el **primer punto incorrecto** del procedimiento y clasificar el tipo de error.
+
+Debe poder distinguir al menos:
+- resultado correcto;
+- unidad incorrecta;
+- procedimiento incorrecto;
+- error algebraico;
+- error numérico;
+- error de redondeo;
+- error conceptual;
+- hipótesis o convención incorrecta;
+- dato mal interpretado;
+- método inadecuado;
+- paso omitido;
+- signo incorrecto;
+- incompatibilidad dimensional.
+
+El corrector debe explicar la causa del error y su propagación hacia los pasos posteriores cuando pueda determinarla. Cada laboratorio aporta sus reglas de dominio, pero la clasificación, trazabilidad y contrato de corrección son comunes.
