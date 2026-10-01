@@ -2293,3 +2293,7 @@ Una práctica completa debe poder transformarse posteriormente en un informe con
 - La incertidumbre y el ruido deben distinguirse de la discrepancia del modelo cuando sea posible.
 - El catálogo de gráficas debe cubrir tiempo, frecuencia, espectro, PSD, correlación y comparaciones de señales.
 - Las ejecuciones estocásticas deben admitir semillas y configuración reproducible.
+
+## Catálogo maestro de cobertura
+
+La cobertura de este laboratorio se audita también en `docs/labs/COVERAGE_CATALOG.md`. Ese catálogo fija el contrato común de familia temática, estados y criterio de completitud; documentar una capacidad no implica que esté implementada.
