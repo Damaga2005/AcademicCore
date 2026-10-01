@@ -1392,7 +1392,7 @@ Por decisión del usuario (D11) **no entran** en el laboratorio de matemáticas 
 
 ---
 
-*Fin del documento (v2, 2026-10-01). No se ha iniciado ninguna implementación. Decisiones D1 a D12 cerradas. Siguiente paso: indicar «arranca ML-0» y ML-12, o pasarme los exámenes de las asignaturas con solo guía para reordenar los bloques G.*
+*Fin del documento (v2, 2026-10-01). No se ha iniciado ninguna implementación. Decisiones D1 a D12 cerradas. Implementación transversal iniciada: el motor trigonométrico exacto está integrado en MathLab y cubierto por pruebas. Las familias aún no implementadas permanecen explícitamente pendientes; no se consideran entregadas por mera documentación.*
 
 ---
 
@@ -1531,3 +1531,26 @@ Una práctica completa debe poder transformarse posteriormente en un informe con
 - La comparación de métodos debe permitir contrastar solución exacta, aproximación numérica y verificación independiente.
 - Las unidades y el análisis dimensional deben participar en la validación antes de evaluar expresiones.
 - El historial de intentos debe conservar la estructura de pasos matemáticos, no solo la respuesta final.
+
+
+## Capacidad implementada — motor trigonométrico exacto (2026-10-01)
+
+MathLab incorpora un módulo de reglas trigonométricas estructurales (`mathlab/trig.py`) conectado al calculador `simplificar`. Las transformaciones operan sobre el AST y no por aproximación numérica.
+
+### Implementado
+- funciones `sin`, `cos`, `tan` y recíprocas `cot`, `sec`, `csc`;
+- paridad: funciones pares e impares;
+- identidad pitagórica `sin²(x)+cos²(x)=1`;
+- despejes pitagóricos `1-sin²(x)=cos²(x)` y `1-cos²(x)=sin²(x)`;
+- cocientes `sin/cos → tan` y `cos/sin → cot`;
+- `1+tan²(x) → sec²(x)` y `1+cot²(x) → csc²(x)`;
+- cofunciones elementales del tipo `sin(π/2-x)` y `cos(π/2-x)`;
+- periodicidad explícita de `2π`;
+- producto `2 sin(x) cos(x) → sin(2x)`;
+- evaluación numérica de `cot`, `sec` y `csc` para verificación y gráficas.
+
+### Diseño
+Las reglas son deterministas, acotadas y estructurales. No se acepta una identidad por coincidencia numérica. La verificación independiente sigue usando el contrato común de MathLab.
+
+### Pendiente explícito
+Este primer bloque **no equivale todavía a toda la trigonometría de Ingeniería**. Quedan por implementar, entre otras, las familias completas de suma/diferencia, ángulo doble/triple/múltiple en todas sus formas, medio ángulo, producto↔suma, suma↔producto, reducción de potencias, ecuaciones trigonométricas, series trigonométricas y la capa de exponencial compleja/Euler. Estas capacidades siguen siendo requisitos del alcance y no deben marcarse como completadas hasta tener reglas, pruebas y verificación.
