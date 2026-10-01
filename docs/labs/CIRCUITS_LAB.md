@@ -5889,4 +5889,59 @@ Salen del paquete (otros laboratorios): `dsp` (`SIGNALS_LAB.md`), `orbital` y `s
 | **CI-R** | Fase de renombrado del paquete (§21.1) |
 | **BL / CI / FE** | Bloque temático, tipo de ejercicio del catálogo y familia de ejercicio con frecuencia en examen (§0.3, §3.5.3, §15.2); `CI-<n>` sin área es una fase (§21) |
 
+---
+
+## Bloque transversal — experiencia académica completa
+
+Todos los ejercicios y experimentos de este laboratorio deben poder recorrer el contrato común:
+
+`Enunciado → Datos → Hipótesis → Modelo → Elección del método → Cálculo/Simulación → Verificación independiente → Resultado → Interpretación → Gráfica/Diagrama → Conclusión`
+
+### Modo problema
+- El estudiante puede introducir o recibir un enunciado, datos y condiciones.
+- Las hipótesis y convenciones relevantes quedan visibles y forman parte del resultado.
+- Cada paso significativo queda trazado y puede ser revisado.
+- El resultado usa el contrato común `Resultado`, con exactitud/aproximación, error cuando proceda, trazabilidad, avisos y sello de verificación.
+- Si no existe una segunda vía de comprobación suficiente, el sistema no presenta el resultado como plenamente verificado.
+
+### Modo experimento
+`Hipótesis → Configuración → Simulación/Cálculo → Medición → Resultado → Comparación → Error → Explicación`
+
+Debe permitir comparar, cuando tenga sentido, teoría frente a cálculo numérico, simulación o medición, dejando explícita la causa de las discrepancias.
+
+### Interoperabilidad
+El laboratorio expone y consume resultados mediante contratos estables, sin importar directamente la UI de otros laboratorios:
+- `MATH_LAB → todos`: álgebra, cálculo, unidades, métodos numéricos y verificación.
+- `DIGITAL_DESIGN_LAB → CIRCUITS_LAB`: lógica digital y HDL.
+- `CIRCUITS_LAB → SIGNALS_LAB`: circuitos como sistemas físicos.
+- `SIGNALS_LAB → CIRCUITS_LAB / AEROSPACE_LAB`: señales, modulación, ruido y métricas.
+- `SIGNALS_LAB → AEROSPACE_LAB`: capa física y comunicaciones.
+- `AEROSPACE_LAB` integra los resultados anteriores para problemas de sistema.
+
+La interfaz concreta de la futura **Labs App** queda fuera de este documento: aquí se define el comportamiento del laboratorio y sus contratos, no su diseño visual.
+
+
+## Capacidad transversal — conversión de unidades y análisis dimensional
+
+`CIRCUITS_LAB` reutiliza el conversor de unidades común de `MATH_LAB` para que valores eléctricos y electrónicos puedan introducirse y visualizarse en las unidades habituales del laboratorio.
+
+### Familias prioritarias
+- Tensión: V, mV, µV, kV.
+- Corriente: A, mA, µA, nA.
+- Resistencia, impedancia y conductancia: Ω, kΩ, MΩ, S, mS, µS.
+- Capacidad: F, mF, µF, nF, pF.
+- Inductancia: H, mH, µH, nH.
+- Frecuencia y tiempo: Hz, kHz, MHz, GHz; s, ms, µs, ns.
+- Potencia y energía: W, mW, kW; J, mJ, kWh.
+- Carga: C y submúltiplos.
+- Magnitudes AC/RF y electromagnéticas que correspondan al dominio.
+- dB y magnitudes etiquetadas (dBm, dBW, dBi, dBd, dBHz, etc.) mediante reglas específicas, evitando tratarlas como una simple escala SI.
+
+### Comportamiento
+- Conversión exacta cuando sea posible y aproximación controlada cuando proceda.
+- Detección de incompatibilidades.
+- Conversión visible paso a paso.
+- Comprobación dimensional de ecuaciones.
+- Normalización automática de prefijos para facilitar lectura, sin alterar el valor físico.
+- Las conversiones propias de circuitos no duplican el motor de unidades: se registran como extensiones del catálogo común.
 
