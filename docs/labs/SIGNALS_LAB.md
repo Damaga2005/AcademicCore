@@ -2197,3 +2197,34 @@ Estimadores: Kaiser de ventana `88`; Herrmann (equirrizado) `52,5`. `δ_p = 0,05
 
 *Fin del documento. Estado: decisiones D1 a D24 aprobadas por el usuario; **no se ha iniciado ninguna implementación** y no se ha modificado nada del repositorio ni de OneDrive o `guias_upc` (solo lectura). Pendiente fuera de este documento: enunciados de P3 y P8 (D22), exámenes de Tratamiento de la Señal si existen (prioridades de SG-14), la D12 de `MATH_LAB.md` (temas sin asignar) y el destino físico de `dsp/` tras CI-R. Para empezar: indicar «arranca SG-0».*
 
+---
+
+## Bloque transversal — experiencia académica completa
+
+Todos los ejercicios y experimentos de este laboratorio deben poder recorrer el contrato común:
+
+`Enunciado → Datos → Hipótesis → Modelo → Elección del método → Cálculo/Simulación → Verificación independiente → Resultado → Interpretación → Gráfica/Diagrama → Conclusión`
+
+### Modo problema
+- El estudiante puede introducir o recibir un enunciado, datos y condiciones.
+- Las hipótesis y convenciones relevantes quedan visibles y forman parte del resultado.
+- Cada paso significativo queda trazado y puede ser revisado.
+- El resultado usa el contrato común `Resultado`, con exactitud/aproximación, error cuando proceda, trazabilidad, avisos y sello de verificación.
+- Si no existe una segunda vía de comprobación suficiente, el sistema no presenta el resultado como plenamente verificado.
+
+### Modo experimento
+`Hipótesis → Configuración → Simulación/Cálculo → Medición → Resultado → Comparación → Error → Explicación`
+
+Debe permitir comparar, cuando tenga sentido, teoría frente a cálculo numérico, simulación o medición, dejando explícita la causa de las discrepancias.
+
+### Interoperabilidad
+El laboratorio expone y consume resultados mediante contratos estables, sin importar directamente la UI de otros laboratorios:
+- `MATH_LAB → todos`: álgebra, cálculo, unidades, métodos numéricos y verificación.
+- `DIGITAL_DESIGN_LAB → CIRCUITS_LAB`: lógica digital y HDL.
+- `CIRCUITS_LAB → SIGNALS_LAB`: circuitos como sistemas físicos.
+- `SIGNALS_LAB → CIRCUITS_LAB / AEROSPACE_LAB`: señales, modulación, ruido y métricas.
+- `SIGNALS_LAB → AEROSPACE_LAB`: capa física y comunicaciones.
+- `AEROSPACE_LAB` integra los resultados anteriores para problemas de sistema.
+
+La interfaz concreta de la futura **Labs App** queda fuera de este documento: aquí se define el comportamiento del laboratorio y sus contratos, no su diseño visual.
+
