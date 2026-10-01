@@ -1533,24 +1533,170 @@ Una práctica completa debe poder transformarse posteriormente en un informe con
 - El historial de intentos debe conservar la estructura de pasos matemáticos, no solo la respuesta final.
 
 
+## Especificación completa — trigonometría para Ingeniería
+
+La trigonometría de MathLab se considera un submotor simbólico completo. Cada familia debe disponer de reglas estructurales, control de dominio, trazabilidad, pruebas exactas y verificación independiente antes de marcarse como completada.
+
+### T-01. Funciones y representación fundamental — PARCIAL
+- sin, cos, tan; cot, sec, csc.
+- inversas asin/arcsin, acos/arccos, atan/arctan.
+- grados, radianes y revoluciones.
+- valores notables y reducción por cuadrantes.
+- evaluación exacta y fallback numérico con precisión declarada.
+
+### T-02. Relaciones fundamentales — PARCIAL
+- tan=sin/cos; cot=cos/sin; sec=1/cos; csc=1/sin.
+- sin²+cos²=1.
+- 1+tan²=sec².
+- 1+cot²=csc².
+- todas las formas despejadas equivalentes.
+
+### T-03. Paridad, simetría y periodicidad — PARCIAL
+- paridad.
+- periodicidades fundamentales.
+- reducción de argumentos mediante períodos.
+- simetrías de cuadrante.
+- ángulos opuestos, suplementarios y complementarios.
+
+### T-04. Suma y diferencia de ángulos — PENDIENTE
+- sin(a±b), cos(a±b), tan(a±b).
+- formas equivalentes e inversas.
+- reconocimiento dentro de expresiones mayores.
+- control de denominadores y dominio.
+
+### T-05. Ángulo doble — PARCIAL
+- sin(2x), cos(2x), tan(2x).
+- las tres formas principales de cos(2x).
+- reconocimiento inverso.
+- preservación de restricciones.
+
+### T-06. Ángulo triple y múltiple — PENDIENTE
+- sin(3x), cos(3x), tan(3x).
+- fórmulas generales nx.
+- expansión recursiva y reconocimiento inverso.
+- polinomios de Chebyshev cuando sean útiles.
+
+### T-07. Medio ángulo y sustitución universal — PENDIENTE
+- sin²(x/2), cos²(x/2), tan²(x/2).
+- signos y restricciones de intervalo.
+- t=tan(x/2).
+- racionalización de expresiones trigonométricas mediante la sustitución.
+
+### T-08. Producto a suma — PENDIENTE
+- sin(a)sin(b), cos(a)cos(b), sin(a)cos(b).
+- todas las variantes de signos.
+- uso en simplificación e integración.
+
+### T-09. Suma a producto — PENDIENTE
+- sin(a)+sin(b), sin(a)-sin(b).
+- cos(a)+cos(b), cos(a)-cos(b).
+- formas inversas de T-08.
+
+### T-10. Reducción de potencias — PENDIENTE
+- reducción de sin² y cos².
+- potencias pares superiores.
+- productos de potencias.
+- selección de forma útil para integración.
+
+### T-11. Composición y funciones inversas — PENDIENTE
+- composiciones.
+- sin(asin(x)), cos(acos(x)), tan(atan(x)).
+- asin(sin(x)), acos(cos(x)), atan(tan(x)) con ramas y restricciones.
+- discontinuidades y dominios.
+- evitar identidades globales falsas.
+
+### T-12. Ecuaciones trigonométricas — PENDIENTE
+- ecuaciones elementales.
+- ecuaciones transformadas por identidades.
+- polinomios en sin/cos.
+- ecuaciones racionales.
+- soluciones generales y en intervalos.
+- detección de soluciones espurias.
+- verificación en la ecuación original.
+
+### T-13. Inecuaciones y análisis de dominio — PENDIENTE
+- desigualdades trigonométricas.
+- intervalos de signo.
+- ceros, singularidades y denominadores.
+- restricciones de inversas.
+- conjuntos solución periódicos.
+
+### T-14. Trigonometría hiperbólica — PARCIAL EN EVALUACIÓN
+- sinh, cosh, tanh, coth, sech, csch.
+- identidades.
+- suma/diferencia.
+- múltiplos.
+- inversas.
+- conexión exponencial.
+- derivadas e integrales.
+
+### T-15. Complejos y Euler — PENDIENTE
+- e^(ix)=cos(x)+i sin(x).
+- formas rectangular, polar, trigonométrica y exponencial.
+- trigonometría compleja.
+- identidades de Euler.
+- De Moivre.
+- raíces y argumentos.
+- ramas.
+
+### T-16. Fasores y aplicaciones de Ingeniería — PENDIENTE
+- magnitud/fase.
+- rectangular↔polar.
+- operaciones con fasores.
+- señal sinusoidal↔fasor.
+- frecuencia angular, desfase y RMS cuando corresponda.
+- contrato de interoperabilidad con CIRCUITS_LAB y SIGNALS_LAB.
+
+### T-17. Derivación trigonométrica — PARCIAL
+- funciones circulares, inversas, hiperbólicas e inversas hiperbólicas.
+- regla de la cadena.
+- productos, cocientes y composiciones.
+- órdenes superiores.
+- verificación independiente.
+
+### T-18. Integración trigonométrica — PARCIAL
+- integrales básicas.
+- potencias y productos.
+- sustituciones.
+- integración por partes.
+- sustitución t=tan(x/2).
+- funciones inversas e hiperbólicas.
+- detección de primitivas no elementales.
+- verificación por derivación.
+
+### T-19. Series y aproximaciones — PENDIENTE
+- Taylor/Maclaurin.
+- orden solicitado.
+- término residual.
+- estimación de error.
+- convergencia.
+- comparación exacta/aproximada.
+
+### T-20. Estrategia de transformación — PENDIENTE
+El motor debe seleccionar transformaciones según el objetivo: simplificar, demostrar, resolver, integrar, derivar, pasar a complejos o preparar señales/fasores. Debe evitar ciclos y explosión combinatoria mediante búsqueda acotada.
+
+### T-21. Valores exactos y constantes — PENDIENTE
+- ángulos notables.
+- raíces exactas.
+- múltiplos racionales de pi.
+- equivalencias exactas.
+- fallback numérico con precisión declarada.
+
+### T-22. Verificación formal — PARCIAL
+Cada transformación debe conservar semántica en su dominio, registrar regla y restricciones, y poder verificarse por un camino independiente. La comprobación numérica nunca será la única prueba de una identidad.
+
+### T-23. Gráficas y análisis — PENDIENTE
+- período, amplitud, frecuencia y fase.
+- ceros, extremos y asíntotas.
+- discontinuidades.
+- comparación de expresiones.
+- aproximación y error.
+
+### T-24. Criterio de completitud
+Una familia solo será COMPLETADA con parser/AST compatible, reglas exactas, control de dominio, trazabilidad, tests, verificación independiente, integración con calculators.py, documentación y CI verde.
+
+Este catálogo es el alcance de implantación de trigonometría para Ingeniería de MathLab. Documentado no significa implementado.
+
 ## Capacidad implementada — motor trigonométrico exacto (2026-10-01)
 
-MathLab incorpora un módulo de reglas trigonométricas estructurales (`mathlab/trig.py`) conectado al calculador `simplificar`. Las transformaciones operan sobre el AST y no por aproximación numérica.
-
-### Implementado
-- funciones `sin`, `cos`, `tan` y recíprocas `cot`, `sec`, `csc`;
-- paridad: funciones pares e impares;
-- identidad pitagórica `sin²(x)+cos²(x)=1`;
-- despejes pitagóricos `1-sin²(x)=cos²(x)` y `1-cos²(x)=sin²(x)`;
-- cocientes `sin/cos → tan` y `cos/sin → cot`;
-- `1+tan²(x) → sec²(x)` y `1+cot²(x) → csc²(x)`;
-- cofunciones elementales del tipo `sin(π/2-x)` y `cos(π/2-x)`;
-- periodicidad explícita de `2π`;
-- producto `2 sin(x) cos(x) → sin(2x)`;
-- evaluación numérica de `cot`, `sec` y `csc` para verificación y gráficas.
-
-### Diseño
-Las reglas son deterministas, acotadas y estructurales. No se acepta una identidad por coincidencia numérica. La verificación independiente sigue usando el contrato común de MathLab.
-
-### Pendiente explícito
-Este primer bloque **no equivale todavía a toda la trigonometría de Ingeniería**. Quedan por implementar, entre otras, las familias completas de suma/diferencia, ángulo doble/triple/múltiple en todas sus formas, medio ángulo, producto↔suma, suma↔producto, reducción de potencias, ecuaciones trigonométricas, series trigonométricas y la capa de exponencial compleja/Euler. Estas capacidades siguen siendo requisitos del alcance y no deben marcarse como completadas hasta tener reglas, pruebas y verificación.
+Se ha iniciado la implantación real con mathlab/trig.py, conectado a simplificar. Actualmente están implementadas y probadas las primeras reglas de T-01, T-02 y T-03, además de la primera transformación de T-05. El resto permanece pendiente hasta cumplir T-24.
