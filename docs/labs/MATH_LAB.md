@@ -1685,7 +1685,7 @@ El motor debe seleccionar transformaciones según el objetivo: simplificar, demo
 ### T-22. Verificación formal — COMPLETADA
 Cada transformación debe conservar semántica en su dominio, registrar regla y restricciones, y poder verificarse por un camino independiente. La comprobación numérica nunca será la única prueba de una identidad.
 
-### T-23. Gráficas y análisis — PARCIAL (periodo, amplitud, ceros y asíntotas vía T-11 y T-13; faltan la comparación de expresiones y la aproximación con error sobre la gráfica)
+### T-23. Gráficas y análisis — COMPLETADA
 - período, amplitud, frecuencia y fase.
 - ceros, extremos y asíntotas.
 - discontinuidades.
@@ -1773,11 +1773,47 @@ direcciones**. Ramas: el sello lleva el contraejemplo calculado, porque lo que
 certifica las ramas es precisamente que la composición falla en algún sitio.
 Aproximación: el sello es «solo numérico» con el error a la vista.
 
-**COMPLETADAS:** T-01 a T-17 (salvo las partes señaladas), T-21 y T-22.
+**T-23 (gráficas como hechos exactos).** `graficas.py` responde a la pregunta
+del enunciado —periodo, amplitud, frecuencia, fase, ceros, extremos,
+asíntotas, discontinuidades, comparación y aproximación— con hechos
+comprobables, y la polilínea es un dato más, no la respuesta. La operación
+`caracteristicas` lleva su propio camino de verificación: un muestreo denso de
+la función contra cada hecho declarado, que es independiente de los solucionadores
+que los produjeron. Cuando discrepan, el sello dice «discrepa» y la traza lo
+registra.
+
+Tres decisiones que hubo que tomar porque el enunciado no las dice:
+
+- **La amplitud es la mitad del recorrido, no la mitad del máximo.** `3·sen(2x)`
+  tiene amplitud 3 y un valor máximo de 3, así que dividir el máximo por dos da
+  1.5 y sale mal en toda función no centrada en el cero. `sen(x) + 1` recorre de
+  0 a 2 y su amplitud es 1.
+- **Un senoide no necesita que se le estime la amplitud.** En la forma canónica
+  `A·sen(Bx + C) + D` el coeficiente de la llamada *es* la amplitud: `5·sen(x + π/3)`
+  vale 5, y muestrear el máximo devuelve 4.989, que es un hecho de la rejilla y no
+  de la función. Solo se estima cuando no se reconoce la forma.
+- **Una función sin máximo no tiene amplitud.** `1/tan(x)` no tiene una amplitud
+  pequeña: no tiene ninguna, y un número ahí sería una altura muestreada que no
+  significa nada.
+
+**Lo que T-23 no hace, y por qué.** Solo se declaran asíntotas verticales: las
+horizontales y oblicuas necesitan el límite en el infinito y no hay motor de
+límites, y muestrear en un `x` grande no es un límite. `sen(x) + cos(x)` es un
+senoide pero solo tras un desplazamiento de fase que habría que buscar, y se
+declina en vez de contestarse a medias.
+
+**Tres huecos que encontró el verificador de T-23 en módulos anteriores.** No se
+han corregido aquí —son de T-12 y T-13— pero quedan escritos y con prueba que los
+nombra en vez de aprobarlos: `periodo_minimo("sen(x)/x")` dice `2·π` y la función
+no es periódica; `ecuaciones` da `0` como cero de `5·sen(x + π/3)`, que se anula
+en `x = -π/3`; y `inequaciones.dominio` marca `π/2` como discontinuidad de
+`1/tan(x)`, que es cotangente y está definida y vale cero ahí.
+
+**COMPLETADAS:** T-01 a T-23 (salvo las partes señaladas).
 
 **PARCIALES:** T-13 completa pero sin el análisis de dominio multivariable, T-14 sin derivadas ni integrales, T-18 sin reducción de potencias al integrar, T-19 con un término de más en el polinomio de un monomio, y T-20 sin los objetivos que no pertenecen a la trigonometría.
 
-**PENDIENTES:** ninguna de la especificación; T-23 está a medio camino y las seis familias restantes son PARCIALES por lo que cada línea dice.
+**PENDIENTES:** ninguna de la especificación; las seis familias restantes son PARCIALES por lo que cada línea dice.
 
 ## Catálogo maestro de cobertura
 

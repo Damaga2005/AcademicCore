@@ -514,6 +514,50 @@ def _aproximar(peticion: C.Peticion) -> C.Resultado:
 
 
 # ---------------------------------------------------------------------------
+# T-23: una gráfica como hechos exactos
+# ---------------------------------------------------------------------------
+
+
+def _caracteristicas(peticion: C.Peticion) -> C.Resultado:
+    from academic_core.domain.engineering.mathlab import graficas as Gr
+
+    entrada = peticion.entrada
+    if isinstance(entrada, dict):
+        expr = _expresion_de(entrada, "expr", "expresion", "f")
+        var = str(entrada.get("var") or "x")
+    else:
+        expr, var = _expr(entrada), "x"
+    trace = Trace()
+    trace.metodo(
+        "graficas.caracteristicas",
+        "los hechos de la curva, no su dibujo",
+        why=("una gráfica es una manera de responder y otra de callar. Los cuatro "
+             "números de un senoide, sus ceros y sus polos son comprobables; un "
+             "píxel no lo es, y un punto dibujado «cerca de aquí» es una "
+             "conjetura con tinta (§5.4, T-23)"),
+        alternatives=(
+            ("devolver sólo los puntos de la polilínea",
+             "oculta el periodo, la amplitud y la fase, que son la respuesta, y "
+             "hace que un máximo entre dos muestras parezca un máximo"),
+            ("declarar amplitud para 1/tan(x)",
+             "la función no está acotada: el número sería una altura muestreada "
+             "que no significa nada"),
+        ),
+        before=mx.text(expr),
+    )
+    c = Gr.caracteristicas(expr, var)
+    for linea in c.texto().split("\n")[1:]:
+        if linea.strip():
+            trace.cambio("graficas.hecho", linea.strip(),
+                         why="calculado, no dibujado: un píxel no es un dato",
+                         before=mx.text(expr), after=linea.strip())
+    grafica = Gr.grafica(expr, var)
+    sello = Gr.verifica(c, var)
+    return _finalizar(peticion, trace, c.texto(), grafica=grafica, sello=sello,
+                      avisos=tuple(h for h in c.hipotesis))
+
+
+# ---------------------------------------------------------------------------
 # T-15: complejos, Euler y De Moivre
 # ---------------------------------------------------------------------------
 
@@ -1081,5 +1125,6 @@ C.registrar("ramas", _ramas)
 C.registrar("aproximar", _aproximar)
 C.registrar("complejo", _complejo)
 C.registrar("fasor", _fasor)
+C.registrar("caracteristicas", _caracteristicas)
 
 __all__ = ["C", "Trace", "RESUMEN", "PASO", "DETALLADO"]

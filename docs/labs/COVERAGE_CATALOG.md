@@ -74,19 +74,30 @@ Una familia no puede declararse **CERTIFICADA** si falta cualquiera de los punto
 - dominio y restricciones.
 
 ## M-01 Funciones y trigonometría
-**Estado: PARCIAL. T-01 a T-13, T-15, T-16, T-17, T-21 y T-22 COMPLETADAS; T-14, T-18, T-19, T-20 y T-23 PARCIALES.**
+**Estado: PARCIAL. T-01 a T-13, T-15, T-16, T-17, T-21, T-22 y T-23 COMPLETADAS; T-14, T-18, T-19 y T-20 PARCIALES.**
 
 Incluye funciones, inversas, identidades, periodicidad, ecuaciones, inecuaciones, hiperbólicas, complejos, fasores, derivadas, integrales, series, valores exactos, gráficas y verificación.
 
-Lo implantado son las familias de identidades, ramas, ecuaciones, inecuaciones, dominio, complejos, fasores, derivadas y series. Todas tienen un módulo propio con operación en `calculators.py` y un sello producido por un camino que no consulta el cálculo que dio la respuesta: sustitución de miembros para ecuaciones, muestreo bidireccional para inecuaciones, contraejemplo para ramas, contrato de fase con `CIRCUITS_LAB` para fasores, y sensibilidad medida para el camino numérico.
+Lo implantado son las familias de identidades, ramas, ecuaciones, inecuaciones, dominio, complejos, fasores, derivadas, series y gráficas. Todas tienen un módulo propio con operación en `calculators.py` y un sello producido por un camino que no consulta el cálculo que dio la respuesta: sustitución de miembros para ecuaciones, muestreo bidireccional para inecuaciones, contraejemplo para ramas, contrato de fase con `CIRCUITS_LAB` para fasores, sensibilidad medida para el camino numérico, y muestreo denso de la función contra los hechos declarados para gráficas.
 
 Lo que queda, y por qué:
 
 - **T-14** sin derivadas ni integrales propias; las de la familia viven en T-17.
 - **T-18** sin reducción de potencias de seno o coseno al integrando, y sin encadenar integración por partes para logaritmos. `sen(x)^2` se rechaza en vez de Integration by parts + double angle.
-- **T-19** con un término de más en el polinomio de Taylor de un monomio. Las derivadas se comprueban una a una y son correctas; el fallo está en cómo se arman los términos. Hay una prueba que lo documenta sin aprobarlo.
+- **T-19** con un término de más en el polinomio de Taylor de un monomio. Las derivadas se comprueban una a una y son correctas; el fallo está en cómo se arman los términos. Hay una prueba que lo documenta sin aprobarlo. T-23 lo esquivó: donde hay serie conocida usa `series.maclaurin`, que es correcta, y avisa de que si no la hay va por `taylor`.
 - **T-20** con los objetivos integrar, derivar, complejos y fasores repartidos por los módulos que los necesitan en vez de declarados como objetivos del motor.
-- **T-23** a medio camino: periodo, amplitud, ceros y asíntotas salen de T-11 y T-13; faltan la comparación de expresiones y la aproximación con error sobre la gráfica.
+
+Lo que T-23_NO hace, declarado:
+
+- **Asíntotas horizontales y oblicuas.** Necesitan el límite en el infinito y no hay motor de límites. Muestrear en un `x` grande no es un límite: un senoide da diez «límites» distintos en diez `x` grandes, y declarar `y = 0` porque uno de ellos salió pequeño sería inventar una recta a partir de una coincidencia.
+- **Desplazamiento vertical `D`.** Una expresión de la forma `A·sen(Bx + C) + D` es un senoide y su amplitud es exacta, pero `D` no se reporta como parte de la forma canónica; sí aparece implícito en el desplazamiento de los ceros.
+- **`sen(x) + cos(x)`** es un senoide, pero solo tras un desplazamiento de fase que el módulo tendría que buscar. Se declina en vez de contestarse a medias.
+
+Tres huecos que el verificador de T-23 encontró en módulos anteriores y que **no** se han corregido aquí, porque son de T-12 y T-13. Cada uno tiene una prueba que lo nombra en vez de aprobarlo:
+
+- `dominio.periodo_minimo("sen(x)/x")` responde `2·π` y la función no es periódica: tiende a cero, así que `f(x + T) = f(x)` falla para todo `T`.
+- `ecuaciones` da `0` como cero de `5·sen(x + π/3)`, que se anula en `x = -π/3`. El cero se lee de la función sin desplazar.
+- `inequaciones.dominio` marca `π/2` y `3π/2` como discontinuidades de `1/tan(x)`, que es cotangente y está definida —y vale cero— ahí. El cociente hereda las restricciones del denominador sin tener en cuenta el recíproco.
 
 ## M-02 Cálculo diferencial
 **Estado: PARCIAL.**
