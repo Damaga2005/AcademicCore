@@ -218,6 +218,7 @@ class Complejo:
     def texto(self) -> str:
         if _es_cero(self.imag):
             return mx.text(self.real)
+        negativo = _es_negativo(self.imag)
         if _es_cero(self.real):
             # «0 + 1i» is the same number as «i», and only one of them reads right
             valor = mx.exact_value(self.imag)
@@ -225,8 +226,13 @@ class Complejo:
                 return UNIDAD
             if valor == -1:
                 return "-" + UNIDAD
-            return mx.text(mx.Neg(self.imag) if _es_negativo(self.imag)
-                           else self.imag) + UNIDAD
+            if valor is not None:
+                # the sign belongs to the coefficient, not to a separator here
+                return ("-" + mx.text(mx.Num(-valor)) if negativo
+                        else mx.text(mx.Num(valor))) + UNIDAD
+            magnitud = mx.text(mx.Neg(self.imag)) if negativo else mx.text(self.imag)
+            return (magnitud[1:] if negativo and magnitud.startswith("-")
+                    else magnitud) + UNIDAD
         negativo = _es_negativo(self.imag)
         if not negativo:
             magnitud = mx.text(self.imag)

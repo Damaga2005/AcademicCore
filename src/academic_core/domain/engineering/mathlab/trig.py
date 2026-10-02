@@ -1797,6 +1797,165 @@ def double_angle_forms(nombre: str, x: mx.Expr) -> tuple[mx.Expr, ...]:
 # inventory (§5.5b: every family has to justify itself, in writing)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# T-01: units of angle, and the quadrant an angle lands in
+# ---------------------------------------------------------------------------
+
+
+#: how many radians one unit of each measure is worth. A quarter turn is pi/2
+#: whatever you count it in, and every other conversion is that times a rational.
+POR_RADIAN = {
+    "rad": Fraction(1),
+    "grad": Fraction(1, 200),       # a full turn is 400
+    "turn": Fraction(1, 2),         # a full turn is 2
+    "deg": Fraction(1, 180),        # a full turn is 360
+}
+
+
+def sin_refuso(mensaje: str):
+    from academic_core.errors import UnsupportedError
+
+    return UnsupportedError(f"NO_RULE: {mensaje}")
+
+
+def a_radianes(valor: Fraction, unidad: str = "rad") -> Fraction:
+    """``valor`` in ``unidad`` expressed in radians, exactly.
+
+    Degrees are a *measure*, not a different function: ``sen(30°)`` is
+    ``sen(pi/6)``. Keeping the conversion in the same rational arithmetic as the
+    rest of the engine is what makes ``sen(30°)`` come out as ``1/2`` instead of
+    ``0.49999999999999994``.
+    """
+    factor = POR_RADIAN.get(unidad)
+    if factor is None:
+        raise sin_refuso(
+            f"unidad de ángulo desconocida: «{unidad}». Las que hay son "
+            f"{', '.join(sorted(POR_RADIAN))} (§5.4)")
+    return Fraction(valor) * factor
+
+
+def de_radianes(valor: Fraction, unidad: str = "rad") -> Fraction:
+    """The inverse of :func:`a_radianes`."""
+    factor = POR_RADIAN.get(unidad)
+    if factor is None:
+        raise sin_refuso(
+            f"unidad de ángulo desconocida: «{unidad}». Las que hay son "
+            f"{', '.join(sorted(POR_RADIAN))} (§5.4)")
+    return Fraction(valor) / factor
+
+
+def a_pulgadas(valor: Fraction, unidad: str = "rad") -> Fraction:
+    """A turn in the given unit, as the denominator of the fraction it produces.
+
+    Written as a function because «cuadrantes» is a third way of saying it and a
+    table per unit per name is a table that will be inconsistent somewhere.
+    """
+    return de_radianes(Fraction(2), unidad)
+
+
+def cuadrante(k: Fraction) -> int:
+    """Which quadrant ``k·pi`` falls in, ``1`` to ``4``, with the axes handled.
+
+    The axes are the awkward part and they are not a corner case: ``0``, ``pi/2``,
+    ``pi``, ``3·pi/2`` are the four angles a sign chart is full of, and a quadrant
+    function that returns 4 for ``2·pi`` or 1 for ``0`` is worse than none.
+    """
+    resto = k % Fraction(2)
+    if resto in (Fraction(0), Fraction(1, 2), Fraction(1), Fraction(3, 2)):
+        raise sin_refuso(
+            f"{_como_texto_pi(resto)} está en un eje, no en un cuadrante: los ejes "
+            "no tienen cuadrante, y devolver uno en su lugar daría un signo "
+            "falso (§5.4)")
+    if resto < Fraction(1, 2):
+        return 1
+    if resto < 1:
+        return 2
+    if resto < Fraction(3, 2):
+        return 3
+    return 4
+
+
+def signos_en_cuadrantes(k: Fraction) -> tuple[str, str]:
+    """``(signo del seno, signo del coseno)`` for the quadrant ``k·pi`` is in.
+
+    Returned as strings rather than as ``+1``/``-1`` because they are for reading
+    next to a quadrant diagram, and ``«-»`` is what belongs there.
+    """
+    donde = cuadrante(k)
+    seno = "+" if donde in (1, 2) else "-"
+    coseno = "+" if donde in (1, 4) else "-"
+    del k
+    return seno, coseno
+
+
+def _como_texto_pi(k: Fraction) -> str:
+    return "0" if k == 0 else (
+        "pi" if k == 1 else f"{k}·pi")
+
+
+def reduccion_por_cuadrantes(expresion: mx.Expr, var: str = "x") -> mx.Expr:
+    """Fold the argument of any trig call into a quadrant, keeping the sign.
+
+    A reduction that drops the sign is the classic error: ``sen(200°)`` is
+    ``-sen(20°)`` and not ``sen(20°)``. The sign is put where the term reader looks
+    for it rather than wrapped around the whole expression, because the objectives
+    are monotone in node count and a wrapper would be rejected as «not an
+    improvement» — which is how the sign goes missing without any error.
+    """
+    def hijo(e: mx.Expr) -> mx.Expr:
+        if isinstance(e, mx.Call) and len(e.args) == 1 and e.name in _CON_NOTABLES:
+            k = _coef_de_pi(e.args[0])
+            if k is None:
+                return e
+            plegado, signo = _al_angulo_notable(k, e.name)
+            # The offset is added and then *re-read*: when the whole argument is a
+            # multiple of pi the result is emitted as that multiple, rather than
+            # as «200*pi/180 + (-2/9)*pi», which is the same angle written so that
+            # nobody can see it.
+            # The argument is normalised FIRST: inside a sum, the rational normal
+            # form turns «200*pi/180» into an atom, so adding the offset to the
+            # raw text leaves «200*pi/180 + (-2/9)*pi» — the right angle, written
+            # so that nobody can see it.
+            arg = _simplifica_argumento(e.args[0], var)
+            sumado = mx.Add(arg, _medio_pi(2 * (plegado - k)))
+            base = (_medio_pi(2 * plegado) if _coef_de_pi(sumado) is not None
+                    else _simplifica_argumento(sumado, var))
+            if signo < 0:
+                return mx.Neg(mx.Call(e.name, (base,)))
+            return mx.Call(e.name, (base,))
+        return e
+
+    # The root is a call too, and _reconstruir only visits children — so the top
+    # node is passed through the same handler first. Without that the function
+    # did nothing at all on a bare «sin(200°)», which is the case it exists for.
+    raiz = hijo(expresion)
+    return _reconstruir(raiz, hijo)
+
+
+def _simplifica_argumento(e: mx.Expr, var: str) -> mx.Expr:
+    """``200°`` → ``20°``: the subtraction is exact, not numerical.
+
+    The rational normal form is what folds ``3·pi/2 + pi/2`` into ``2·pi``; the
+    trigonometry has nothing to say about it and must not be asked.
+    """
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    del var
+    try:
+        q = P.as_poly(e)
+    except Exception:
+        return e
+    return P.to_expr(q) if q is not None else e
+
+
+def _medio_pi(n: Fraction) -> mx.Expr:
+    """``n/2 · pi``, reduced to the plain multiple when n is even."""
+    if n.denominator == 1 and n % 2 == 0:
+        coeficiente = Fraction(n // 2)
+        return mx.Mul(mx.Num(coeficiente), mx.PI)
+    return mx.Mul(mx.Num(Fraction(n, 2)), mx.PI)
+
+
 #: objective name → its registry. ``simplificar`` is what the calculator calls.
 OBJETIVOS: dict[str, tuple[tuple[str, str, object], ...]] = {
     "simplificar": _REGLAS,

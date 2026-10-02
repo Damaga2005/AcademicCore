@@ -74,6 +74,18 @@ _TABLE = {
     "tan": ("tabla: ∫tan(u) du = -log(abs(cos(u)))", lambda u: Neg(Fn("log", Fn("abs", Fn("cos", u))))),
     "sqrt": ("tabla: ∫sqrt(u) du = 2*u^(3/2)/3",
              lambda u: Div(Mul(Num(Fraction(2)), Pow(u, Num(Fraction(3, 2)))), Num(Fraction(3)))),
+    # T-18: reciprocas e hiperbolicas. Cada entrada es la derivada de algo
+    # que ya esta en la tabla de derivadas, escrita asi para que se vea:
+    # la derivada de cosec es -cosec*cotg, luego esa integral es -cosec.
+    "sec": ("tabla: ∫sec(u) du = log(abs(sec(u) + tan(u)))",
+            lambda u: Fn("log", Fn("abs", Add(Fn("sec", u), Fn("tan", u))))),
+    "csc": ("tabla: ∫cosec(u) du = log(abs(tan(u/2)))",
+            lambda u: Fn("log", Fn("abs", Fn("tan", Div(u, Num(Fraction(2))))))),
+    "sinh": ("tabla: ∫senh(u) du = cosh(u)", lambda u: Fn("cosh", u)),
+    "cosh": ("tabla: ∫cosh(u) du = senh(u)", lambda u: Fn("sinh", u)),
+    "tanh": ("tabla: ∫tanh(u) du = log(cosh(u))", lambda u: Fn("log", Fn("cosh", u))),
+    "coth": ("tabla: ∫cotanh(u) du = log(abs(senh(u)))",
+             lambda u: Fn("log", Fn("abs", Fn("sinh", u)))),
 }
 
 
@@ -211,6 +223,20 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
         out = Mul(e.left, f)
         return out, log.add(OP, "factor constante", _integral(e, var), text(out), substitution=f"c = {text(e.left)}",
                             explanation="∫c/u = c·∫1/u", uses=(s,))
+    # 1/cos(u) es sec(u) y 1/sen(u) es cosec(u). Sin esto la tabla solo se
+    # alcanza escribiendo el nombre largo, y «int 1/cos(x) dx» se rechaza
+    # aunque sea el mismo calculo que «int sec(x) dx».
+    if (isinstance(e, Div) and e.left == ONE and isinstance(e.right, Fn)
+            and e.right.arg == x and e.right.name in ("cos", "sin")):
+        nombre = "sec" if e.right.name == "cos" else "csc"
+        regla, constructor = _TABLE[nombre]
+        salida = constructor(e.right.arg)
+        return salida, log.add(
+            OP, "1/" + e.right.name + "(u) = " + nombre + "(u): " + regla,
+            _integral(e, var), text(salida),
+            substitution="1/" + e.right.name + "(u) = " + nombre + "(u)",
+            explanation=("El reciproco se escribe como funcion antes de "
+                         "buscar en la tabla, que es donde esta la regla."))
     if isinstance(e, Fn) and e.arg == x and e.name in _TABLE:
         rule, builder = _TABLE[e.name]
         out = builder(x)
@@ -222,6 +248,41 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
             return out, log.add(OP, "tabla: ∫a^x dx = a^x/log(a)", _integral(e, var), text(out),
                                 substitution=f"a = {text(e.base)}",
                                 explanation="Exponencial de base constante a > 0, a ≠ 1: la derivada de a^x es a^x·log(a).")
+    # T-18: ∫cosec(u)^2 du = -cotg(u) y ∫sec(u)^2 du = tg(u). Los dos son
+    # la regla de la potencia leida de una derivada que ya esta en la tabla:
+    # la del cotangente es -cosec^2 y la de la tangente 1/cos^2. Se cubren las
+    # dos escrituras del cuadrado, porque "1/sen(x)^2" y "cosec(x)^2" son un
+    # solo integrando escrito de dos maneras y solo una es una llamada suelta.
+    _al_cuadrado = None
+    if (isinstance(e, Pow) and isinstance(e.base, Fn) and e.base.arg == x
+            and exact_value(e.exponent) in (2, -2)):
+        # sin(u)^2 is NOT csc(u)^2. The reciprocal rule belongs to the
+        # square of the reciprocal, or to a NEGATIVE power of the short
+        # name, and to nothing else: reading the base alone gave
+        # "integral of sin(x)^2 = -cotg(x)", which is cosec^2 and not
+        # sin^2. A wrong answer that looks like a right one is worse
+        # than the refusal it replaced.
+        _al_cuadrado = (e.base.name if (e.base.name in ("sec", "csc")
+                         or exact_value(e.exponent) < 0) else None)
+    elif (isinstance(e, Div) and e.left == ONE and isinstance(e.right, Pow)
+          and isinstance(e.right.base, Fn) and e.right.base.arg == x
+          and exact_value(e.right.exponent) == 2):
+        # here the reciprocal IS written out: 1/sin(u)^2 is cosec(u)^2
+        _al_cuadrado = e.right.base.name
+    if _al_cuadrado in ("csc", "sin"):
+        salida = Neg(Fn("cot", x))
+        return salida, log.add(
+            OP, "tabla: ∫1/sen(u)^2 du = -cotg(u)", _integral(e, var),
+            text(salida),
+            explanation=("Es la inversa de d/du cotg(u) = -cosec(u)^2, que ya esta "
+                         "en la tabla de derivadas. Dominio: sen(u) ≠ 0."))
+    if _al_cuadrado in ("sec", "cos"):
+        salida = Fn("tan", x)
+        return salida, log.add(
+            OP, "tabla: ∫1/cos(u)^2 du = tg(u)", _integral(e, var),
+            text(salida),
+            explanation=("Es la inversa de d/du tg(u) = 1/cos(u)^2, que ya esta "
+                         "en la tabla de derivadas. Dominio: cos(u) ≠ 0."))
     if (isinstance(e, Pow) and isinstance(e.base, Fn) and e.base.name == "cos" and e.base.arg == x
             and exact_value(e.exponent) == -2) or (isinstance(e, Div) and e.left == ONE and isinstance(e.right, Pow)
                                                     and e.right.base == Fn("cos", x) and exact_value(e.right.exponent) == 2):

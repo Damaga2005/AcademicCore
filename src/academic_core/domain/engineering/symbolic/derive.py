@@ -55,6 +55,41 @@ _TABLE = {
     "log": ("tabla: d/du log(u) = 1/u", lambda u: Div(ONE, u)),
     "sqrt": ("tabla: d/du sqrt(u) = 1/(2*sqrt(u))", lambda u: Div(ONE, Mul(Num(Fraction(2)), Fn("sqrt", u)))),
     "abs": ("tabla: d/du abs(u) = u/abs(u) (u ≠ 0)", lambda u: Div(u, Fn("abs", u))),
+    # T-17: the reciprocals. Each is written with the trig function it is built
+    # on rather than as a new fact, so there is one table per idea and the
+    # student can see where each rule comes from.
+    "sec": ("tabla: d/du sec(u) = sec(u)*tg(u)",
+            lambda u: Mul(Fn("sec", u), Fn("tan", u))),
+    "csc": ("tabla: d/du cosec(u) = -cosec(u)*cotg(u)",
+            lambda u: Neg(Mul(Fn("csc", u), Fn("cot", u)))),
+    "cot": ("tabla: d/du cotg(u) = -cosec(u)^2",
+            lambda u: Neg(Pow(Fn("csc", u), Num(Fraction(2))))),
+    # T-17: the inverse circular functions. Each is a reciprocal of a square root
+    # of 1 - u^2 (or 1 + u^2 for the tangent), and writing them that way says what
+    # their domain is.
+    "asin": ("tabla: d/du arcsen(u) = 1/sqrt(1 - u^2)",
+             lambda u: Div(ONE, Fn("sqrt", Sub(ONE, Pow(u, Num(Fraction(2))))))),
+    "acos": ("tabla: d/du arccos(u) = -1/sqrt(1 - u^2)",
+             lambda u: Neg(Div(ONE, Fn("sqrt", Sub(ONE, Pow(u, Num(Fraction(2)))))))),
+    "atan": ("tabla: d/du arctg(u) = 1/(1 + u^2)",
+             lambda u: Div(ONE, Add(ONE, Pow(u, Num(Fraction(2)))))),
+    # T-17 and T-14: the hyperbolic family and its inverses.
+    "sinh": ("tabla: d/du senh(u) = cosh(u)", lambda u: Fn("cosh", u)),
+    "cosh": ("tabla: d/du cosh(u) = senh(u)", lambda u: Fn("sinh", u)),
+    "tanh": ("tabla: d/du tanh(u) = 1/cosh(u)^2",
+             lambda u: Div(ONE, Pow(Fn("cosh", u), Num(Fraction(2))))),
+    "coth": ("tabla: d/du cotanh(u) = -1/senh(u)^2",
+             lambda u: Neg(Div(ONE, Pow(Fn("sinh", u), Num(Fraction(2)))))),
+    "sech": ("tabla: d/du sech(u) = -sech(u)*tanh(u)",
+             lambda u: Neg(Mul(Fn("sech", u), Fn("tanh", u)))),
+    "csch": ("tabla: d/du cosech(u) = -cosech(u)*cotanh(u)",
+             lambda u: Neg(Mul(Fn("csch", u), Fn("coth", u)))),
+    "asinh": ("tabla: d/du arsinh(u) = 1/sqrt(1 + u^2)",
+              lambda u: Div(ONE, Fn("sqrt", Add(ONE, Pow(u, Num(Fraction(2))))))),
+    "acosh": ("tabla: d/du arcosh(u) = 1/sqrt(u - 1)*sqrt(u + 1)",
+              lambda u: Div(ONE, Mul(Fn("sqrt", Sub(u, ONE)), Fn("sqrt", Add(u, ONE))))),
+    "atanh": ("tabla: d/du artanh(u) = 1/(1 - u^2)",
+              lambda u: Div(ONE, Sub(ONE, Pow(u, Num(Fraction(2)))))),
 }
 
 
@@ -157,11 +192,26 @@ def _power(e: Pow, var: str, log: StepLog) -> tuple[Expr, int]:
 
 # E0.1-R+: the domain condition under which each table entry holds (stated, never checked silently)
 _DOMAIN = {"tan": "válida donde cos(u) ≠ 0", "log": "válida para u > 0", "sqrt": "válida para u > 0",
-           "abs": "válida para u ≠ 0"}
+           "abs": "válida para u ≠ 0",
+           "sec": "válida donde cos(u) ≠ 0", "csc": "válida donde sen(u) ≠ 0",
+           "cot": "válida donde sen(u) ≠ 0",
+           "asin": "válida para -1 <= u <= 1", "acos": "válida para -1 <= u <= 1",
+           "atan": "válida en toda la recta real",
+           "atanh": "válida para -1 < u < 1, y allí la derivada no se anula",
+           "acosh": "válida para u >= 1",
+           "asinh": "válida en toda la recta real",
+           "tanh": "válida en toda la recta real", "coth": "válida donde senh(u) ≠ 0",
+           "sech": "válida en toda la recta real", "csch": "válida donde senh(u) ≠ 0"}
 
 
 def _function(e: Fn, var: str, log: StepLog) -> tuple[Expr, int]:
-    rule, builder = _TABLE[e.name]
+    entrada = _TABLE.get(e.name)
+    if entrada is None:
+        raise no_rule(
+            f"no hay regla de derivación para «{e.name}». Las funciones de la "
+            f"tabla son: {', '.join(sorted(_TABLE))}. Esto NO es «la derivada es "
+            f"cero»: es que este motor no deriva esa función (§5.4)")
+    rule, builder = entrada
     domain = f" Dominio: {_DOMAIN[e.name]}." if e.name in _DOMAIN else ""
     inner = e.arg
     if isinstance(inner, Sym) and inner.name == var:

@@ -575,6 +575,69 @@ def _complejo(peticion: C.Peticion) -> C.Resultado:
 
 
 # ---------------------------------------------------------------------------
+# T-16: fasores
+# ---------------------------------------------------------------------------
+
+
+def _fasor(peticion: C.Peticion) -> C.Resultado:
+    from academic_core.domain.engineering.mathlab import fasores as FA
+
+    entrada = peticion.entrada
+    if isinstance(entrada, dict):
+        forma = str(entrada.get("forma") or "senoidal")
+        amplitud = entrada.get("amplitud", 1)
+        fase = entrada.get("fase", 0)
+        frecuencia = entrada.get("frecuencia")
+        etiqueta = str(entrada.get("etiqueta") or "")
+    else:
+        forma, amplitud, fase, frecuencia, etiqueta = "senoidal", 1, entrada, None, ""
+    trace = Trace()
+    trace.metodo(
+        "fasor.contrato",
+        "el fasor se guarda rectangular y exacto, con su frecuencia al lado",
+        why=("3+4i tiene módulo 5 exacto, y el «ωt» que se dropa al formar el "
+             "fasor es justo lo que impide combinar dos fasores de frecuencias "
+             "distintas: se conserva, porque un fasor sin frecuencia es un "
+             "número que parece un resultado y no lo es (§5.4)"),
+        alternatives=(
+            ("guardar el fasor como par de Decimal",
+             "3+4i daría 5.000000000000001, y en los casos de módulo entero es "
+             "justo donde se necesita la exactitud"),
+        ),
+        before=f"{amplitud}·cos({fase}·t)",
+    )
+    angulo = (mx.Num(Fraction(int(fase))) if isinstance(fase, int)
+              else mx.parse(str(fase)))
+    omega = (mx.Num(Fraction(int(frecuencia))) if isinstance(frecuencia, int)
+             else (mx.parse(str(frecuencia)) if frecuencia is not None else None))
+    fasor_ = FA.de_senoidal(int(amplitud), angulo, omega, etiqueta)
+
+    if forma == "senoidal":
+        exacto, hipotesis = FA.a_senoidal(fasor_)
+    elif forma == "polar":
+        exacto = fasor_.a_polar().texto()
+        hipotesis = (f"la amplitud es el valor pico: {fasor_.a_texto()}",)
+    elif forma == "rms":
+        exacto = mx.text(fasor_.rms())
+        hipotesis = ("el RMS es el pico partido por √2, y solo tiene sentido si la "
+                     "amplitud dada era el pico: un fasor construido desde un valor "
+                     "RMS no tiene un √2 que quitar, y equivocarse aquí sale "
+                     "después como un factor 1.41 en la potencia (§5.4)",)
+    else:
+        raise UnsupportedError(
+            f"NO_RULE: forma de fasor desconocida: «{forma}». Las que hay "
+            f"son senoidal, polar y rms (§5.4)")
+
+    ok, detalle = FA.verifica_contrato()
+    sello = (V.Seal(V.VERIFIED, "contrato de fase con CIRCUITS_LAB", detalle) if ok
+             else V.Seal(V.DISCREPANT, "contrato de fase con CIRCUITS_LAB", detalle))
+    for texto in hipotesis:
+        trace.hipotesis("fasor.condicion", texto, "aplica")
+    return _finalizar(peticion, trace, exacto,
+                      aproximado=mx.evaluate(fasor_.magnitud), sello=sello)
+
+
+# ---------------------------------------------------------------------------
 # evaluar
 # ---------------------------------------------------------------------------
 
@@ -1017,5 +1080,6 @@ C.registrar("resolver_inequidad", _resolver_inequidad)
 C.registrar("ramas", _ramas)
 C.registrar("aproximar", _aproximar)
 C.registrar("complejo", _complejo)
+C.registrar("fasor", _fasor)
 
 __all__ = ["C", "Trace", "RESUMEN", "PASO", "DETALLADO"]
