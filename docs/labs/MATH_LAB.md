@@ -1826,11 +1826,36 @@ no existe y el recíproco de nada es nada. El dominio del motor era correcto y l
 afirmación era el error. Lo que falta no es la discontinuidad sino la nota de que
 el hueco es **removible**, con límite 0.
 
+**T-20 (los objetivos del motor, todos declarados).** `trig.OBJETIVOS` lleva los
+doce en un solo registro, y hay dos clases que no son la misma cosa. Una
+**reescritura** (`simplificar`, `expandir`, `producto_a_suma`, `suma_a_producto`,
+`potencias`, `sustitucion_universal`, `hiperbolicas`, `exponencial`) dispara
+reglas sobre subexpresiones y su respuesta es otra expresión, así que lleva un
+registro de familias **no vacío**. Una **transformación** (`derivar`,
+`integrar`, `complejos`, `fasores`) lleva una expresión a algo de otro tipo —una
+derivada, una primitiva, un complejo, un fasor— y no tiene familias porque no
+reescribe nada; lo que debe en su lugar es un `porque` escrito y un `verifica`
+que nombre el segundo camino.
+
+Los cuatro vivían en los módulos que los necesitan, así que el motor no podía
+decir qué sabe hacer, y un objetivo que no se puede enumerar es uno que no se
+puede prometer. Ahora cada uno declara su método y su módulo de procedencia,
+`trig.inventario()` los expone, y la calculadora escribe el método declarado en
+la trayectoria: una declaración que nadie lee es una declaración en un fichero.
+
+**El hueco removible y el caso lineal, también cerrados.** `1/tan(x)` en `pi/2`
+se decide por estructura —el recíproco se simplifica a `cotg`, cuyo dominio sí
+incluye `pi/2`—, y un hueco que la simplificación no cancela se declara polo,
+que es el lado seguro. Y `x = 0` se resuelve, que era lo más elemental que
+faltaba; arreglarlo destapó que `0·pi` y `0` eran dos puntos distintos para el
+motor, que la regla de fusión de intervalos estaba al revés y que un extremo
+infinito no ganaba nunca en una fusión.
+
 **COMPLETADAS:** T-01 a T-23 (salvo las partes señaladas).
 
-**PARCIALES:** T-13 completa pero sin el análisis de dominio multivariable, T-14 sin derivadas ni integrales, T-18 sin reducción de potencias al integrar, T-19 con un término de más en el polinomio de un monomio, y T-20 sin los objetivos que no pertenecen a la trigonometría.
+**PARCIALES:** T-13 completa pero sin el análisis de dominio multivariable, T-14 sin derivadas ni integrales propias, T-18 sin reducción de potencias al integrar, y T-19 con un término de más en el polinomio de un monomio.
 
-**PENDIENTES:** ninguna de la especificación; las seis familias restantes son PARCIALES por lo que cada línea dice.
+**PENDIENTES:** ninguna de la especificación; las cuatro familias restantes son PARCIALES por lo que cada línea dice.
 
 ## Catálogo maestro de cobertura
 

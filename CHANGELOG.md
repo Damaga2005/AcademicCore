@@ -122,6 +122,51 @@ verifican.
   único que las caza. 1408 pasan y 8 se saltan en los trece ficheros
   `test_mathlab_*.py`.
 
+## Unreleased - MathLab: T-20, los doce objetivos declarados
+
+`trig.OBJETIVOS` pasa de ser un diccionario nombre -> registro de reglas a un
+registro de declaraciones con dos clases que no son la misma cosa.
+
+- **REESCRITURA** - `simplificar`, `expandir`, `producto_a_suma`,
+  `suma_a_producto`, `potencias`, `sustitucion_universal`, `hiperbolicas`,
+  `exponencial`: disparan reglas sobre subexpresiones y su respuesta es otra
+  expresion, asi que llevan un registro de familias **no vacio**. La entrada es
+  un registro de reglas y cambia la forma de la expresion.
+- **TRANSFORMACION** - `derivar`, `integrar`, `complejos`, `fasores`: llevan una
+  expresion a algo de otro tipo -una derivada, una primitiva, un complejo, un
+  fasor-. No tienen familias porque no reescriben nada, y lo que deben en su
+  lugar es un `porque` escrito y un `verifica` que nombre el segundo camino.
+
+Los cuatro vivian en los modulos que los necesitan, asi que el motor no podia
+decir que sabe hacer: **un objetivo que no se puede enumerar es uno que no se
+puede prometer**, y el inventario era la mitad de grande de lo que el
+laboratorio hacia sin que nadie lo notara. Ahora cada uno declara su metodo y su
+modulo de procedencia, `trig.inventario()` expone la lista entera, y la
+calculadora escribe el metodo declarado en la trayectoria de las cuatro
+operaciones. Una declaracion que nadie lee es una declaracion en un fichero.
+
+El registro se guarda CRUDO en `Objetivo` y `familias` se deriva de el, para que
+el inventario no pueda separarse del registro: una familia se anuncia
+exactamente cuando hay una regla detras.
+
+`integrar` es el unico de los cuatro que no habla el mismo arbol: el integrador
+se escribio contra `symbolic.expr` y el objetivo habla `mvexpr`. La conversion
+esta en el objetivo y no dentro del integrador, porque una conversion escondida
+en medio de un modulo es una que nadie mira dos veces.
+
+- **`complejos` no es «la version compleja de una expresion arbitraria».** Es la
+  correspondencia: `sen`, `cos` y `tan` como funciones de un `Complejo`.
+  Extenderla a una expresion real cualquiera es un problema mucho mayor que este
+  y no se finge resuelto; `sen(i) = i·senh(1)` y `cos(i) = cosh(1)` salen
+  exactos, y una funcion sin contrapartida se NIEGA con el motivo escrito.
+
+- **Pruebas**: 42 nuevas en `tests/test_mathlab_objetivos.py`: los doce
+  declarados, cada uno con `porque` y `verifica` de mas de cuarenta caracteres,
+  cada reescritura con al menos una regla real y cada transformacion sin
+  familias, los cuatro ejecutandose, y la declaracion llegando a la trayectoria
+  con su alternativa escrita. 1478 pasan y 8 se saltan en los catorce ficheros
+  `test_mathlab_*.py`.
+
 ## Unreleased — Windows Product 1.0 (productización)
 - Producto/UX post-roadmap (sin fase nueva): menú Go agrupado sobre los 13 tabs intactos; índice de módulos reales; Virtual Lab/Simulation en secciones Experiment/Inputs/Execution/Results sin renombrar widgets; vista orbital F16 con números reales; dashboard editorial con recents reales; motion 150 ms sin bounce.
 - Validación: exe/installer reconstruidos del árbol final, smoke verde, regresión verde; Start Menu/uninstall-ejecutado/clean-machine/DPI sistemático NOT VERIFIED (sin admin ni 2ª máquina).

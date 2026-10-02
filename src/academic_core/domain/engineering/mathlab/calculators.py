@@ -84,6 +84,40 @@ def _exacto_legible(valor: object) -> object:
     return valor
 
 
+def _objetivo_declarado(traza: Trace, nombre: str) -> None:
+    """Write an engine objective's declared method into the trajectory (T-20).
+
+    The four objectives that used to live in the modules that need them —
+    ``derivar``, ``integrar``, ``complejos`` and ``fasores`` — are declared in
+    ``trig.OBJETIVOS`` with the same discipline as the eight rewrite ones: a
+    written «por qué este método» and a named second path. This is what puts
+    them in front of the student, because a declaration nobody reads is a
+    declaration in a file.
+
+    The step is emitted at ``resumen`` level, so it costs nothing at the other
+    two and is still there when someone asks «why this method».
+    """
+    from academic_core.domain.engineering.mathlab import trig
+
+    objetivo = trig.objetivo(nombre)
+    traza.metodo(
+        f"objetivo.{objetivo.nombre}",
+        objetivo.porque[:120],
+        why=objetivo.porque,
+        alternatives=(
+            (f"call it without naming the objective ({objetivo.procede_de})",
+             "the method is then the only thing that happened and nothing says "
+             "which one it was, nor whether anyone checked it (§5.2)"),
+        ),
+        before=f"objetivo declarado en {objetivo.procede_de}",
+    )
+    traza.verificacion(
+        f"objetivo.{objetivo.nombre}.verifica", objetivo.verifica,
+        after=("por derivación" if objetivo.verifica.startswith("se deriva")
+               else "declarado"),
+    )
+
+
 def _finalizar(peticion: C.Peticion, traza: Trace, exacto, *,
                aproximado=None, error=None, sello: V.Seal, grafica=None,
                avisos: tuple[str, ...] = ()) -> C.Resultado:
@@ -144,6 +178,7 @@ def _derivar(peticion: C.Peticion) -> C.Resultado:
         variables = names[0]
     derivada = D.differentiate(expr, variables, trace)
     sello = D.verify_derivative(expr, derivada, variables)
+    _objetivo_declarado(trace, "derivar")
     grafica = _grafica_derivada(expr, derivada, variables)
     return _finalizar(peticion, trace, derivada, aproximado=mx.evaluate(derivada),
                       sello=sello, grafica=grafica)
@@ -573,6 +608,7 @@ def _complejo(peticion: C.Peticion) -> C.Resultado:
     else:
         texto_z, forma, n = str(entrada), "rectangular", None
     trace = Trace()
+    _objetivo_declarado(trace, "complejos")
     trace.metodo(
         "complejo.exacto",
         "se guarda como un par de expresiones exactas, no como un par de flotantes",
@@ -636,6 +672,7 @@ def _fasor(peticion: C.Peticion) -> C.Resultado:
     else:
         forma, amplitud, fase, frecuencia, etiqueta = "senoidal", 1, entrada, None, ""
     trace = Trace()
+    _objetivo_declarado(trace, "fasores")
     trace.metodo(
         "fasor.contrato",
         "el fasor se guarda rectangular y exacto, con su frecuencia al lado",
@@ -830,6 +867,7 @@ def _integrar(peticion: C.Peticion) -> C.Resultado:
     bounds = (integral.lower, integral.upper)
     if bounds[0] is None and bounds[1] is None:
         exacto, verificado = _primitiva(integrando, var, trace, peticion)
+        _objetivo_declarado(trace, "integrar")
         sello = verificado
         grafica = _grafica_primitiva(integrando, exacto, var) if exacto is not None else None
         return _finalizar(peticion, trace, exacto, aproximado=mx.evaluate(exacto),
@@ -840,6 +878,7 @@ def _integrar(peticion: C.Peticion) -> C.Resultado:
                          "una integral definida necesita los dos límites, o ninguno")
     valor, numerico, sello, grafica, error = _integral_definida(
         integrando, var, bounds, trace, peticion)
+    _objetivo_declarado(trace, "integrar")
     return _finalizar(peticion, trace, valor, aproximado=numerico,
                       error=error, sello=sello, grafica=grafica,
                       avisos=() if error is None else (C.NO_EXACT,))

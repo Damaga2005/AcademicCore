@@ -2017,19 +2017,6 @@ def _medio_pi(n: Fraction) -> mx.Expr:
     return mx.Mul(mx.Num(Fraction(n, 2)), mx.PI)
 
 
-#: objective name → its registry. ``simplificar`` is what the calculator calls.
-OBJETIVOS: dict[str, tuple[tuple[str, str, object], ...]] = {
-    "simplificar": _REGLAS,
-    "expandir": _REGLAS_EXPANDIR,
-    "producto_a_suma": _REGLAS_PRODUCTO,
-    "suma_a_producto": _REGLAS_SUMA,
-    "potencias": _REGLAS_POTENCIAS,
-    "sustitucion_universal": _REGLAS_SUSTITUCION,
-    "hiperbolicas": _REGLAS_HIPERBOLICAS,
-    "exponencial": _REGLAS_EXPONENCIAL,
-}
-
-
 def simplify_hyperbolic(expr: mx.Expr, *, max_passes: int = MAX_PASSES) -> mx.Expr:
     """The sum, difference and double angle of the hyperbolic functions (T-14)."""
     return _bucle(expr, _REGLAS_HIPERBOLICAS, reducir=False,
@@ -2041,6 +2028,203 @@ def to_exponential(expr: mx.Expr, *, max_passes: int = MAX_PASSES) -> mx.Expr:
     return _bucle(expr, _REGLAS_EXPONENCIAL, reducir=False, max_passes=max_passes)[0]
 
 
+#: the «por qué este método» of every objective (§5.5b), written once so the
+#: inventory, the trajectory and the docs read the same sentence.
+METODO_SIMPLIFICAR = (
+    "sólo se aceptan reescrituras estrictamente más baratas por (nodos, texto "
+    "canónico). Esa medida está bien fundada, así que cada objetivo termina y su "
+    "resultado es punto fijo por construcción: mezclar las dos direcciones en un "
+    "mismo bucle no puede, porque sen(2x) se desarrolla a 2·sen(x)·cos(x) y vuelve "
+    "a colapsarse")
+METODO_EXPANDIR = (
+    "las tres formas de cos(2x) se OFRECEN y no se eligen. Elegir la que produce "
+    "menos nodos es correcto en un contrato de coste y falso en una respuesta a "
+    "un estudiante, que tiene tres respuestas posibles y necesita verlas")
+METODO_PRODUCTO = (
+    "sen·sen, cos·cos y sen·cos se escriben como sumas, que es lo que hace "
+    "integrables y sumables los productos de igual argumento")
+METODO_SUMA = (
+    "sen±sen y cos±cos se escriben como productos, que es lo que revela el "
+    "argumento medio y el factor doble que las originaron")
+METODO_POTENCIAS = (
+    "las potencias de seno y coseno se bajan a primera, porque un polinomio en "
+    "coseno es integrable y sen(x)^10 no lo es sin reducirlo antes")
+METODO_SUSTITUCION = (
+    "todo ángulo pasa por t = tg(x/2) y la expresión se vuelve racional. Es un "
+    "objetivo aparte y no una simplificación porque el resultado sólo vale donde "
+    "cos(x/2) != 0, y sustituccion_domain() lo dice")
+METODO_HIPERBOLICAS = (
+    "suma, diferencia y ángulo doble de las hiperbólicas: no salen de las "
+    "circulares por un cambio de signo, sino porque e^x crece y eso es otra cosa")
+METODO_EXPONENCIAL = (
+    "senh y cosh se escriben con e. Es la conexión que las dos familias "
+    "comparten y la que hace que la suma de senh sea un producto de exponenciales")
+METODO_DERIVAR = (
+    "se derivan las funciones de la familia con su cadena y su regla de "
+    "cuociente, y cada una lleva su dominio declarado. Un ejemplo sin dominio no "
+    "es un ejemplo: se aplica donde la derivada no existe")
+METODO_INTEGRAR = (
+    "se busca una primitiva término a término por la técnica que corresponde a "
+    "cada integrando, y se comprueba DESPUÉS derivando la respuesta. La "
+    "comprobación no es opcional: es lo único que distingue una integral de un "
+    "integrando")
+METODO_COMPLEJOS = (
+    "el número complejo se guarda como SUS DOS PARTES REALES y la ley de pareo "
+    "(a+bi)(c+di) = (ac-bd) + (ad+bc)i es donde vive el -1. La unidad imaginaria "
+    "es un token de escritura y no una expresión, y por eso i·i = -1 no es la "
+    "ley del anillo aplicada a i")
+METODO_FASORES = (
+    "una senoide se resume en amplitud, frecuencia y fase, que es la forma con la "
+    "que el circuito trabaja. La convención de fase se declara y se comprueba "
+    "contra el contrato de CIRCUITS_LAB, porque dos laboratorios que usan la "
+    "misma palabra pueden no usar la misma convención")
+
+VERIFICA_REESCRITURA = (
+    "cada reescritura se vuelve a comprobar por camino numérico con puntos "
+    "sembrados, más un control negativo: sin él la comprobación pasaría "
+    "igual si el verificador no comparase nada")
+VERIFICA_SIMPLIFICAR = (
+    "por camino numérico con puntos sembrados, y además contra la propiedad "
+    "de que simplificar nunca agranda: un objetivo que sólo acepta reescrituras "
+    "más baratas no puede devolver algo peor")
+VERIFICA_DERIVAR = (
+    "se vuelve a derivar la respuesta y se compara con la original; y el camino "
+    "numérico mide la sensibilidad, porque el seno de un argumento grande ya no "
+    "tiene dígitos fiables aunque la entrada sea exacta")
+VERIFICA_INTEGRAR = (
+    "se deriva la primitiva devuelta y se compara con el integrando. Es el mismo "
+    "criterio de T-22, y la única comprobación que de verdad importa aquí")
+VERIFICA_COMPLEJOS = (
+    "Euler y De Moivre se comprueban por su propia definición en números "
+    "complejos, y la búsqueda de ramas se compara con el logaritmo complejo")
+VERIFICA_FASORES = (
+    "el contrato de fase se comprueba contra el de CIRCUITS_LAB, y la suma de "
+    "fasores contra la suma de las senoidales que los originaron")
+
+#: the three complex counterparts, which is what this objective actually maps.
+COMPLEJOS_POR_FUNCION = ("sin", "cos", "tan")
+
+
+def _metodo_derivar(expresion: mx.Expr, var: str = "x") -> mx.Expr:
+    """The objective the calculator calls; the method lives in ``derive_mv``."""
+    from academic_core.domain.engineering.mathlab import derive_mv
+
+    return derive_mv.differentiate(expresion, var)
+
+
+def _metodo_integrar(expresion: mx.Expr, var: str = "x"):
+    """The primitive; the method itself lives in ``symbolic.integrate``.
+
+    The expression travels through ``mvexpr`` ↔ ``symbolic.expr`` because the
+    integrator was written against the other tree, and a conversion hidden here
+    is a conversion nobody will look at twice.
+    """
+    from academic_core.domain.engineering.symbolic import integrate as simbolico
+
+    primitiva, _fuera = simbolico.integrate(mx.to_symbolic(expresion), var,
+                                            simbolico.StepLog())
+    return mx.from_symbolic(primitiva)
+
+
+def _metodo_complejos(nombre: str, z):
+    """``sen``, ``cos`` or ``tan`` as complex functions of a ``Complejo``.
+
+    Not «the complex version of an arbitrary expression»: the objective is the
+    correspondence itself, and extending it to a general real expression is a
+    separate and much larger problem that this does not pretend to solve.
+    """
+    from academic_core.domain.engineering.mathlab import complejos as K
+
+    tabla = {"sin": K.seno, "cos": K.coseno, "tan": K.tangente}
+    if nombre not in tabla:
+        raise sin_refuso(
+            f"«{nombre}» no tiene contrapartida en el plano complejo por aquí; "
+            f"sí la tienen {', '.join(COMPLEJOS_POR_FUNCION)}")
+    return tabla[nombre](z)
+
+
+def _metodo_fasores(amplitud, fase=0, frecuencia=None):
+    """The ``fasores`` objective on its own natural arguments."""
+    from academic_core.domain.engineering.mathlab import fasores as F
+
+    return F.de_senoidal(amplitud, fase, frecuencia)
+
+
+@dataclass(frozen=True)
+class Objetivo:
+    """One thing the engine is asked to do, with its method written down.
+
+    Two kinds, and the difference is not cosmetic:
+
+    * a **REWRITE** objective (``simplificar``, ``expandir`` …) fires rules on
+      subexpressions and its answer is another expression, so it carries a
+      non-empty ``registro`` of families.
+    * a **TRANSFORMATION** objective (``derivar``, ``integrar``, ``complejos``,
+      ``fasores``) maps an expression to something of a different KIND — a
+      derivative, a primitive, a complex number, a phasor. It has no families
+      because it rewrites nothing, and what it owes instead is a written
+      ``porque`` and a ``verifica`` naming the second path.
+
+    The first kind was alone in the registry for a while and the other four lived
+    in the modules that need them, which meant the engine could not say what it
+    could do: an objective you cannot enumerate is one you cannot promise. They
+    are declared here now, with the discipline the first eight already had.
+    """
+
+    nombre: str
+    metodo: object
+    porque: str
+    verifica: str
+    #: the raw ``(familia, por_que, aplicar)`` rules, empty for a transformation.
+    #: Held rather than reduced to names so the inventory cannot drift from the
+    #: registry: a family is advertised exactly when a rule is here.
+    registro: tuple = ()
+    #: where the method itself lives. Written down so that «the engine can do
+    #: it» and «the engine knows how it does it» are the same claim.
+    procede_de: str = "trig.py"
+
+    @property
+    def familias(self) -> tuple[str, ...]:
+        return tuple(nombre for nombre, _, _ in self.registro)
+
+    @property
+    def es_reescritura(self) -> bool:
+        return bool(self.registro)
+
+
+#: objective name → its declaration. ``simplificar`` is what the calculator calls.
+OBJETIVOS: dict[str, Objetivo] = {
+    "simplificar": Objetivo("simplificar", simplify_ex, METODO_SIMPLIFICAR,
+                            VERIFICA_SIMPLIFICAR, _REGLAS),
+    "expandir": Objetivo("expandir", expand, METODO_EXPANDIR,
+                         VERIFICA_REESCRITURA, _REGLAS_EXPANDIR),
+    "producto_a_suma": Objetivo("producto_a_suma", product_to_sum,
+                                METODO_PRODUCTO, VERIFICA_REESCRITURA,
+                                _REGLAS_PRODUCTO),
+    "suma_a_producto": Objetivo("suma_a_producto", sum_to_product, METODO_SUMA,
+                                VERIFICA_REESCRITURA, _REGLAS_SUMA),
+    "potencias": Objetivo("potencias", reduce_powers, METODO_POTENCIAS,
+                          VERIFICA_REESCRITURA, _REGLAS_POTENCIAS),
+    "sustitucion_universal": Objetivo("sustitucion_universal", rationalize,
+                                      METODO_SUSTITUCION, VERIFICA_REESCRITURA,
+                                      _REGLAS_SUSTITUCION),
+    "hiperbolicas": Objetivo("hiperbolicas", simplify_hyperbolic,
+                             METODO_HIPERBOLICAS, VERIFICA_REESCRITURA,
+                             _REGLAS_HIPERBOLICAS),
+    "exponencial": Objetivo("exponencial", to_exponential, METODO_EXPONENCIAL,
+                            VERIFICA_REESCRITURA, _REGLAS_EXPONENCIAL),
+    # --- the four that used to live in the modules that need them (T-20) -----
+    "derivar": Objetivo("derivar", _metodo_derivar, METODO_DERIVAR,
+                        VERIFICA_DERIVAR, (), "mathlab/derive_mv.py"),
+    "integrar": Objetivo("integrar", _metodo_integrar, METODO_INTEGRAR,
+                         VERIFICA_INTEGRAR, (), "symbolic/integrate.py"),
+    "complejos": Objetivo("complejos", _metodo_complejos, METODO_COMPLEJOS,
+                          VERIFICA_COMPLEJOS, (), "mathlab/complejos.py"),
+    "fasores": Objetivo("fasores", _metodo_fasores, METODO_FASORES,
+                        VERIFICA_FASORES, (), "mathlab/fasores.py"),
+}
+
+
 def identities() -> tuple[str, ...]:
     """Every trigonometric family that really has a rule behind it.
 
@@ -2048,17 +2232,45 @@ def identities() -> tuple[str, ...]:
     be advertised here while its rules are missing.
     """
     return tuple(nombre for nombre, _, _ in _NORMALIZACIONES) + tuple(
-        nombre for registro in OBJETIVOS.values() for nombre, _, _ in registro)
+        familia for objetivo in OBJETIVOS.values()
+        for familia in objetivo.familias)
+
+
+def _registros():
+    """The canonicalisations plus every objective's registry, in order."""
+    return (_NORMALIZACIONES,
+            *(o.registro for o in OBJETIVOS.values() if o.registro))
 
 
 def familias(objetivo: str) -> tuple[str, ...]:
-    """The families one objective uses, for the step log."""
-    return tuple(nombre for nombre, _, _ in OBJETIVOS[objetivo])
+    """The families one objective uses, for the step log.
+
+    Empty for the four transformation objectives, which rewrite nothing. That is
+    the honest answer and not a hole in the inventory: what those owe instead is
+    their ``verifica``, and it is declared just as the families are.
+    """
+    return OBJETIVOS[objetivo].familias
+
+
+def objetivo(nombre: str) -> Objetivo:
+    """The declaration of one objective, with its method and its second path."""
+    return OBJETIVOS[nombre]
+
+
+def inventario() -> tuple[tuple[str, str, str, str, bool], ...]:
+    """``(nombre, porque, verifica, procede_de, es_reescritura)`` for each.
+
+    What the calculator writes into the trajectory when an operation runs, so the
+    student is told which method produced the answer and how it was checked,
+    instead of being shown a formula and nothing else (§5.2, §5.5b).
+    """
+    return tuple((o.nombre, o.porque, o.verifica, o.procede_de, o.es_reescritura)
+                 for o in OBJETIVOS.values())
 
 
 def descripcion(nombre: str) -> str:
     """The «por qué este método» of a family, as §5.5b requires it written down."""
-    for registro in (_NORMALIZACIONES, *OBJETIVOS.values()):
+    for registro in _registros():
         for familia, por_que, _ in registro:
             if familia == nombre:
                 return por_que
@@ -2067,7 +2279,7 @@ def descripcion(nombre: str) -> str:
 
 def regla(nombre: str):
     """The callable behind a family, so an inventory entry can be audited."""
-    for registro in (_NORMALIZACIONES, *OBJETIVOS.values()):
+    for registro in _registros():
         for familia, _por_que, aplicar in registro:
             if familia == nombre:
                 return aplicar

@@ -74,7 +74,7 @@ Una familia no puede declararse **CERTIFICADA** si falta cualquiera de los punto
 - dominio y restricciones.
 
 ## M-01 Funciones y trigonometría
-**Estado: PARCIAL. T-01 a T-13, T-15, T-16, T-17, T-21, T-22 y T-23 COMPLETADAS; T-14, T-18, T-19 y T-20 PARCIALES.**
+**Estado: PARCIAL. T-01 a T-13, T-15, T-16, T-17, T-20, T-21, T-22 y T-23 COMPLETADAS; T-14, T-18 y T-19 PARCIALES.**
 
 Incluye funciones, inversas, identidades, periodicidad, ecuaciones, inecuaciones, hiperbólicas, complejos, fasores, derivadas, integrales, series, valores exactos, gráficas y verificación.
 
@@ -85,7 +85,18 @@ Lo que queda, y por qué:
 - **T-14** sin derivadas ni integrales propias; las de la familia viven en T-17.
 - **T-18** sin reducción de potencias de seno o coseno al integrando, y sin encadenar integración por partes para logaritmos. `sen(x)^2` se rechaza en vez de Integration by parts + double angle.
 - **T-19** con un término de más en el polinomio de Taylor de un monomio. Las derivadas se comprueban una a una y son correctas; el fallo está en cómo se arman los términos. Hay una prueba que lo documenta sin aprobarlo. T-23 lo esquivó: donde hay serie conocida usa `series.maclaurin`, que es correcta, y avisa de que si no la hay va por `taylor`.
-- **T-20** con los objetivos integrar, derivar, complejos y fasores repartidos por los módulos que los necesitan en vez de declarados como objetivos del motor.
+Lo que queda, y por qué:
+
+- **T-14** sin derivadas ni integrales propias; las de la familia viven en T-17.
+- **T-18** sin reducción de potencias de seno o coseno al integrando, y sin encadenar integración por partes para logaritmos.
+- **T-19** con un término de más en el polinomio de Taylor de un monomio. Las derivadas se comprueban una a una y son correctas; el fallo está en cómo se arman los términos. Hay una prueba que lo documenta sin aprobarlo. T-23 lo esquivó: donde hay serie conocida usa `series.maclaurin`, que es correcta, y avisa de que si no la hay va por `taylor`.
+
+**T-20 cerrado.** `trig.OBJETIVOS` declara los doce objetivos en un solo registro, con dos clases que no son la misma cosa:
+
+- **reescritura** (`simplificar`, `expandir`, `producto_a_suma`, `suma_a_producto`, `potencias`, `sustitucion_universal`, `hiperbolicas`, `exponencial`): disparan reglas sobre subexpresiones y su respuesta es otra expresión, así que llevan un registro de familias **no vacío**. La entrada es un registro de reglas y cambia la forma de la expresión.
+- **transformación** (`derivar`, `integrar`, `complejos`, `fasores`): llevan una expresión a algo de otro tipo —una derivada, una primitiva, un complejo, un fasor—. No tienen familias porque no reescriben nada, y lo que deben en su lugar es un `porque` escrito y un `verifica` que nombre el segundo camino.
+
+Los cuatro vivían en los módulos que los necesitan, así que el motor no podía decir qué sabe hacer: **un objetivo que no se puede enumerar es uno que no se puede prometer**. Ahora están declarados con la disciplina que ya tenían los otros ocho, `trig.inventario()` los expone, y la calculadora escribe el método declarado en la trayectoria de `derivar`, `integrar`, `complejo` y `fasor`.
 
 Lo que T-23_NO hace, declarado:
 
@@ -104,12 +115,9 @@ Una cuarta cosa salió de camino y **no** era un falso «no hay soluciones»: `r
 
 Y una afirmación de T-23 resultó **falsa**: decía que `1/tan(x)` es cotangente y que por tanto `pi/2` no es una discontinuidad suya. La cotangente lo es como función, pero la **expresión** `1/tan(x)` no existe en `pi/2`, porque `tan(pi/2)` no existe y el recíproco de nada es nada. El dominio del motor era correcto; la afirmación era el error. Lo que falta no es la discontinuidad sino la nota de que el hueco es **removible**, con límite 0.
 
-Lo que queda abierto, y no lo pidió nadie:
+El hueco **removible** que quedaba de T-23 también está cerrado: `inequaciones.removibles()` decide por estructura —el recíproco se simplifica a `cotg`, cuyo dominio sí incluye `pi/2`— y T-23 lo enseña. Un hueco que la simplificación no alcanza a cancelar se declara polo, que es el lado seguro: `sen(x)/x` en 0 está en ese caso aunque su límite sea 1.
 
-- **T-14** sin derivadas ni integrales propias; las de la familia viven en T-17.
-- **T-18** sin reducción de potencias al integrando, ni partes encadenadas para logaritmos.
-- **T-19** con un término de más en el polinomio de Taylor de un monomio.
-- **T-20** con cuatro objetivos repartidos por los módulos que los necesitan.
+Y el caso lineal del solucionador también: `x = 0` no era una ecuación exótica y estaba fuera de alcance. No era cosmético, porque `ceros` le pide al solucionador los ceros de un denominador. Arreglarlo destapó tres bugs de fondo —`0·pi` y `0` como dos puntos distintos, la regla de fusión de intervalos al revés, y un extremo infinito que nunca ganaba en una fusión— y uno de ellos, `x^2 = 0`, respondía «no hay soluciones» teniendo la solución `x = 0`.
 
 ## M-02 Cálculo diferencial
 **Estado: PARCIAL.**
