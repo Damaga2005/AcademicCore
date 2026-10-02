@@ -74,13 +74,19 @@ Una familia no puede declararse **CERTIFICADA** si falta cualquiera de los punto
 - dominio y restricciones.
 
 ## M-01 Funciones y trigonometría
-**Estado: PARCIAL. T-02 a T-12 y T-21 cumplen T-24 (CERTIFICADAS).**
+**Estado: PARCIAL. T-01 a T-13, T-15, T-16, T-17, T-21 y T-22 COMPLETADAS; T-14, T-18, T-19, T-20 y T-23 PARCIALES.**
 
 Incluye funciones, inversas, identidades, periodicidad, ecuaciones, inecuaciones, hiperbólicas, complejos, fasores, derivadas, integrales, series, valores exactos, gráficas y verificación.
 
-Lo implantado son las familias de identidades, ecuaciones, inecuaciones e inversas: reglas exactas sobre el AST, objetivo declarado por transformación (§5.5b, T-20), control de dominio en `dominio.py`, trazabilidad de cada regla, operación propia en `calculators.py` (`resolver`, `resolver_inequidad`, `ramas`, `aproximar`) y verificación por un camino que no consulta el cálculo que produjo la respuesta. Cada familia lleva su sello en la salida: sustitución de miembros para ecuaciones, muestreo bidireccional para inecuaciones, contraejemplo para ramas y error medido para el fallback numérico.
+Lo implantado son las familias de identidades, ramas, ecuaciones, inecuaciones, dominio, complejos, fasores, derivadas y series. Todas tienen un módulo propio con operación en `calculators.py` y un sello producido por un camino que no consulta el cálculo que dio la respuesta: sustitución de miembros para ecuaciones, muestreo bidireccional para inecuaciones, contraejemplo para ramas, contrato de fase con `CIRCUITS_LAB` para fasores, y sensibilidad medida para el camino numérico.
 
-Pendiente: T-01 representación fundamental, el análisis de dominio de una expresión arbitraria (T-13), T-14 hiperbólica más allá de la paridad —derivadas e integrales, de T-17 y T-18—, los objetivos integrar, derivar, complejos y fasores de T-20, T-15 complejos y Euler, T-16 fasores, T-19 series, T-22 comprobación por derivación y T-23 gráficas.
+Lo que queda, y por qué:
+
+- **T-14** sin derivadas ni integrales propias; las de la familia viven en T-17.
+- **T-18** sin reducción de potencias de seno o coseno al integrando, y sin encadenar integración por partes para logaritmos. `sen(x)^2` se rechaza en vez de Integration by parts + double angle.
+- **T-19** con un término de más en el polinomio de Taylor de un monomio. Las derivadas se comprueban una a una y son correctas; el fallo está en cómo se arman los términos. Hay una prueba que lo documenta sin aprobarlo.
+- **T-20** con los objetivos integrar, derivar, complejos y fasores repartidos por los módulos que los necesitan en vez de declarados como objetivos del motor.
+- **T-23** a medio camino: periodo, amplitud, ceros y asíntotas salen de T-11 y T-13; faltan la comparación de expresiones y la aproximación con error sobre la gráfica.
 
 ## M-02 Cálculo diferencial
 **Estado: PARCIAL.**

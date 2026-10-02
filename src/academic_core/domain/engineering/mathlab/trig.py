@@ -402,6 +402,29 @@ def _r_reducir_argumento(e: mx.Expr) -> mx.Expr | None:
     return None if regla is None else regla(resto[0][0], resto[0][1])
 
 
+def _r_valores_unitarios(e: mx.Expr) -> mx.Expr | None:
+    """``exp(0) = 1`` and ``ln(1) = 0``: the two the arithmetic hides.
+
+    Not the notable angles, and not a table: these are the values that make a
+    coefficient collapse when a derivative is evaluated at the origin. Without
+    them the Taylor series of ``exp(x)`` carries ``1/exp(0)`` in every coefficient,
+    which is correct and unreadable, and ``1/exp(0)`` is not obviously 1 to anyone
+    reading the polynomial.
+    """
+    if not isinstance(e, mx.Call) or len(e.args) != 1:
+        return None
+    valor = mx.exact_value(e.args[0])
+    if valor is None:
+        return None
+    if e.name == "exp" and valor == 0:
+        return mx.ONE
+    if e.name in ("ln", "log") and valor == 1:
+        return mx.ZERO
+    if e.name == "exp":
+        return e
+    return None
+
+
 def _r_valores_notables(e: mx.Expr) -> mx.Expr | None:
     """T-21: the exact value at a notable angle, or nothing at all."""
     if not (isinstance(e, mx.Call) and len(e.args) == 1 and e.name in _CON_NOTABLES):
@@ -983,6 +1006,10 @@ _REGLAS: tuple[tuple[str, str, object], ...] = (
      "en el origen el valor exacto se conoce: sinh(0)=0, cosh(0)=1, tanh(0)=0, "
      "y un decimal no mejora nada (T-21, §5.1)",
      _r_hiberbolicas_cero),
+    ("valores_unitarios",
+     "exp(0) = 1 y ln(1) = 0: los dos valores que el origen esconde, y sin los "
+     "que un coeficiente de Taylor se queda escrito como 1/exp(0) (T-19)",
+     _r_valores_unitarios),
     ("inversa_directa",
      "sin(arcsen(u)) = u es cierta allí donde está definida, sin condición de "
      "rama: al revés, arcsen(sen x) = x NO lo es, y ese caso se rehúsa (T-11)",

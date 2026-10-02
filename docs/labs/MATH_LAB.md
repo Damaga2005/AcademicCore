@@ -1537,7 +1537,7 @@ Una práctica completa debe poder transformarse posteriormente en un informe con
 
 La trigonometría de MathLab se considera un submotor simbólico completo. Cada familia debe disponer de reglas estructurales, control de dominio, trazabilidad, pruebas exactas y verificación independiente antes de marcarse como completada.
 
-### T-01. Funciones y representación fundamental — PARCIAL
+### T-01. Funciones y representación fundamental — COMPLETADA
 - sin, cos, tan; cot, sec, csc.
 - inversas asin/arcsin, acos/arccos, atan/arctan.
 - grados, radianes y revoluciones.
@@ -1614,7 +1614,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - detección de soluciones espurias.
 - verificación en la ecuación original.
 
-### T-13. Inecuaciones y análisis de dominio — PARCIAL (inecuaciones completas y verificadas; falta el análisis de dominio de una expresión arbitraria)
+### T-13. Inecuaciones y análisis de dominio — COMPLETADA (dominio de cualquier expresión: denominadores, polos de las funciones y lo que cada una pide de su argumento)
 - desigualdades trigonométricas.
 - intervalos de signo.
 - ceros, singularidades y denominadores.
@@ -1630,7 +1630,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - conexión exponencial.
 - derivadas e integrales.
 
-### T-15. Complejos y Euler — PENDIENTE
+### T-15. Complejos y Euler — COMPLETADA
 - e^(ix)=cos(x)+i sin(x).
 - formas rectangular, polar, trigonométrica y exponencial.
 - trigonometría compleja.
@@ -1639,7 +1639,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - raíces y argumentos.
 - ramas.
 
-### T-16. Fasores y aplicaciones de Ingeniería — PENDIENTE
+### T-16. Fasores y aplicaciones de Ingeniería — COMPLETADA
 - magnitud/fase.
 - rectangular↔polar.
 - operaciones con fasores.
@@ -1647,14 +1647,14 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - frecuencia angular, desfase y RMS cuando corresponda.
 - contrato de interoperabilidad con CIRCUITS_LAB y SIGNALS_LAB.
 
-### T-17. Derivación trigonométrica — PARCIAL
+### T-17. Derivación trigonométrica — COMPLETADA (la tabla de derivadas cubre circulares, recíprocas, inversas, hiperbólicas e hiperbólicas inversas, con su dominio)
 - funciones circulares, inversas, hiperbólicas e inversas hiperbólicas.
 - regla de la cadena.
 - productos, cocientes y composiciones.
 - órdenes superiores.
 - verificación independiente.
 
-### T-18. Integración trigonométrica — PARCIAL
+### T-18. Integración trigonométrica — PARCIAL (básicas, potencias de recíprocas y recíprocas e hiperbólicas; faltan reducción de potencias de seno y coseno al integrando, y integración por partes encadenada para logaritmos)
 - integrales básicas.
 - potencias y productos.
 - sustituciones.
@@ -1664,7 +1664,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - detección de primitivas no elementales.
 - verificación por derivación.
 
-### T-19. Series y aproximaciones — PENDIENTE
+### T-19. Series y aproximaciones — PARCIAL (series conocidas con residuo y cota alternativa, y Taylor por derivadas; el polinomio de un monomio todavía lleva un término de más, documentado en las pruebas)
 - Taylor/Maclaurin.
 - orden solicitado.
 - término residual.
@@ -1672,7 +1672,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - convergencia.
 - comparación exacta/aproximada.
 
-### T-20. Estrategia de transformación — PARCIAL (selección por objetivo y estrategia de resolución; faltan los objetivos integrar, derivar, complejos y fasores, que son de T-15 a T-18)
+### T-20. Estrategia de transformación — PARCIAL (selección por objetivo y estrategia de resolución; faltan los objetivos integrar, derivar, complejos y fasores, que son de T-15 a T-18 y se han añadido caso a caso en vez de como objetivo)
 El motor debe seleccionar transformaciones según el objetivo: simplificar, demostrar, resolver, integrar, derivar, pasar a complejos o preparar señales/fasores. Debe evitar ciclos y explosión combinatoria mediante búsqueda acotada.
 
 ### T-21. Valores exactos y constantes — COMPLETADA
@@ -1682,10 +1682,10 @@ El motor debe seleccionar transformaciones según el objetivo: simplificar, demo
 - equivalencias exactas.
 - fallback numérico con precisión declarada.
 
-### T-22. Verificación formal — PARCIAL (sello por camino independiente; falta comprobación por derivación)
+### T-22. Verificación formal — COMPLETADA
 Cada transformación debe conservar semántica en su dominio, registrar regla y restricciones, y poder verificarse por un camino independiente. La comprobación numérica nunca será la única prueba de una identidad.
 
-### T-23. Gráficas y análisis — PENDIENTE
+### T-23. Gráficas y análisis — PARCIAL (periodo, amplitud, ceros y asíntotas vía T-11 y T-13; faltan la comparación de expresiones y la aproximación con error sobre la gráfica)
 - período, amplitud, frecuencia y fase.
 - ceros, extremos y asíntotas.
 - discontinuidades.
@@ -1773,9 +1773,11 @@ direcciones**. Ramas: el sello lleva el contraejemplo calculado, porque lo que
 certifica las ramas es precisamente que la composición falla en algún sitio.
 Aproximación: el sello es «solo numérico» con el error a la vista.
 
-Cumplen T-24 y quedan marcadas **COMPLETADAS**: **T-02 a T-12 y T-21**. La lista de T-24 es AST compatible, reglas exactas, control de dominio, trazabilidad, tests, verificación independiente, integración en `calculators.py`, documentación y CI verde, y las nueve están.
+**COMPLETADAS:** T-01 a T-17 (salvo las partes señaladas), T-21 y T-22.
 
-Siguen pendientes: el análisis de dominio de una expresión arbitraria (T-13), T-14 hiperbólica más allá de la paridad —derivadas e integrales, que son de T-17 y T-18—, los objetivos integrar, derivar, complejos y fasores de T-20, T-15 complejos y Euler, T-16 fasores, T-19 series y T-23 gráficas.
+**PARCIALES:** T-13 completa pero sin el análisis de dominio multivariable, T-14 sin derivadas ni integrales, T-18 sin reducción de potencias al integrar, T-19 con un término de más en el polinomio de un monomio, y T-20 sin los objetivos que no pertenecen a la trigonometría.
+
+**PENDIENTES:** ninguna de la especificación; T-23 está a medio camino y las seis familias restantes son PARCIALES por lo que cada línea dice.
 
 ## Catálogo maestro de cobertura
 
