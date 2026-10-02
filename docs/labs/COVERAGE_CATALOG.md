@@ -74,9 +74,13 @@ Una familia no puede declararse **CERTIFICADA** si falta cualquiera de los punto
 - dominio y restricciones.
 
 ## M-01 Funciones y trigonometría
-**Estado: TRIGONOMETRÍA ESPECIFICADA T-01…T-24; implementación parcial.**
+**Estado: PARCIAL. T-02 a T-12 y T-21 cumplen T-24 (CERTIFICADAS).**
 
 Incluye funciones, inversas, identidades, periodicidad, ecuaciones, inecuaciones, hiperbólicas, complejos, fasores, derivadas, integrales, series, valores exactos, gráficas y verificación.
+
+Lo implantado son las familias de identidades, ecuaciones, inecuaciones e inversas: reglas exactas sobre el AST, objetivo declarado por transformación (§5.5b, T-20), control de dominio en `dominio.py`, trazabilidad de cada regla, operación propia en `calculators.py` (`resolver`, `resolver_inequidad`, `ramas`, `aproximar`) y verificación por un camino que no consulta el cálculo que produjo la respuesta. Cada familia lleva su sello en la salida: sustitución de miembros para ecuaciones, muestreo bidireccional para inecuaciones, contraejemplo para ramas y error medido para el fallback numérico.
+
+Pendiente: T-01 representación fundamental, el análisis de dominio de una expresión arbitraria (T-13), T-14 hiperbólica más allá de la paridad —derivadas e integrales, de T-17 y T-18—, los objetivos integrar, derivar, complejos y fasores de T-20, T-15 complejos y Euler, T-16 fasores, T-19 series, T-22 comprobación por derivación y T-23 gráficas.
 
 ## M-02 Cálculo diferencial
 **Estado: PARCIAL.**

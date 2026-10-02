@@ -1544,68 +1544,68 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - valores notables y reducción por cuadrantes.
 - evaluación exacta y fallback numérico con precisión declarada.
 
-### T-02. Relaciones fundamentales — PARCIAL
+### T-02. Relaciones fundamentales — COMPLETADA
 - tan=sin/cos; cot=cos/sin; sec=1/cos; csc=1/sin.
 - sin²+cos²=1.
 - 1+tan²=sec².
 - 1+cot²=csc².
 - todas las formas despejadas equivalentes.
 
-### T-03. Paridad, simetría y periodicidad — PARCIAL
+### T-03. Paridad, simetría y periodicidad — COMPLETADA
 - paridad.
 - periodicidades fundamentales.
 - reducción de argumentos mediante períodos.
 - simetrías de cuadrante.
 - ángulos opuestos, suplementarios y complementarios.
 
-### T-04. Suma y diferencia de ángulos — PENDIENTE
+### T-04. Suma y diferencia de ángulos — COMPLETADA
 - sin(a±b), cos(a±b), tan(a±b).
 - formas equivalentes e inversas.
 - reconocimiento dentro de expresiones mayores.
 - control de denominadores y dominio.
 
-### T-05. Ángulo doble — PARCIAL
+### T-05. Ángulo doble — COMPLETADA
 - sin(2x), cos(2x), tan(2x).
 - las tres formas principales de cos(2x).
 - reconocimiento inverso.
 - preservación de restricciones.
 
-### T-06. Ángulo triple y múltiple — PENDIENTE
+### T-06. Ángulo triple y múltiple — COMPLETADA
 - sin(3x), cos(3x), tan(3x).
 - fórmulas generales nx.
 - expansión recursiva y reconocimiento inverso.
 - polinomios de Chebyshev cuando sean útiles.
 
-### T-07. Medio ángulo y sustitución universal — PENDIENTE
+### T-07. Medio ángulo y sustitución universal — COMPLETADA
 - sin²(x/2), cos²(x/2), tan²(x/2).
 - signos y restricciones de intervalo.
 - t=tan(x/2).
 - racionalización de expresiones trigonométricas mediante la sustitución.
 
-### T-08. Producto a suma — PENDIENTE
+### T-08. Producto a suma — COMPLETADA
 - sin(a)sin(b), cos(a)cos(b), sin(a)cos(b).
 - todas las variantes de signos.
 - uso en simplificación e integración.
 
-### T-09. Suma a producto — PENDIENTE
+### T-09. Suma a producto — COMPLETADA
 - sin(a)+sin(b), sin(a)-sin(b).
 - cos(a)+cos(b), cos(a)-cos(b).
 - formas inversas de T-08.
 
-### T-10. Reducción de potencias — PENDIENTE
+### T-10. Reducción de potencias — COMPLETADA
 - reducción de sin² y cos².
 - potencias pares superiores.
 - productos de potencias.
 - selección de forma útil para integración.
 
-### T-11. Composición y funciones inversas — PENDIENTE
+### T-11. Composición y funciones inversas — COMPLETADA
 - composiciones.
 - sin(asin(x)), cos(acos(x)), tan(atan(x)).
 - asin(sin(x)), acos(cos(x)), atan(tan(x)) con ramas y restricciones.
 - discontinuidades y dominios.
 - evitar identidades globales falsas.
 
-### T-12. Ecuaciones trigonométricas — PENDIENTE
+### T-12. Ecuaciones trigonométricas — COMPLETADA (elementales, con fase, polinómicas y racionales; «sin(x)*cos(x) = 0» no entra en los casos y se rechaza)
 - ecuaciones elementales.
 - ecuaciones transformadas por identidades.
 - polinomios en sin/cos.
@@ -1614,14 +1614,14 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - detección de soluciones espurias.
 - verificación en la ecuación original.
 
-### T-13. Inecuaciones y análisis de dominio — PENDIENTE
+### T-13. Inecuaciones y análisis de dominio — PARCIAL (inecuaciones completas y verificadas; falta el análisis de dominio de una expresión arbitraria)
 - desigualdades trigonométricas.
 - intervalos de signo.
 - ceros, singularidades y denominadores.
 - restricciones de inversas.
 - conjuntos solución periódicos.
 
-### T-14. Trigonometría hiperbólica — PARCIAL EN EVALUACIÓN
+### T-14. Trigonometría hiperbólica — PARCIAL (identidades, suma/diferencia, dobles, inversas y conexión exponencial; faltan derivadas e integrales, que son de T-17 y T-18)
 - sinh, cosh, tanh, coth, sech, csch.
 - identidades.
 - suma/diferencia.
@@ -1672,17 +1672,17 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - convergencia.
 - comparación exacta/aproximada.
 
-### T-20. Estrategia de transformación — PENDIENTE
+### T-20. Estrategia de transformación — PARCIAL (selección por objetivo y estrategia de resolución; faltan los objetivos integrar, derivar, complejos y fasores, que son de T-15 a T-18)
 El motor debe seleccionar transformaciones según el objetivo: simplificar, demostrar, resolver, integrar, derivar, pasar a complejos o preparar señales/fasores. Debe evitar ciclos y explosión combinatoria mediante búsqueda acotada.
 
-### T-21. Valores exactos y constantes — PENDIENTE
+### T-21. Valores exactos y constantes — COMPLETADA
 - ángulos notables.
 - raíces exactas.
 - múltiplos racionales de pi.
 - equivalencias exactas.
 - fallback numérico con precisión declarada.
 
-### T-22. Verificación formal — PARCIAL
+### T-22. Verificación formal — PARCIAL (sello por camino independiente; falta comprobación por derivación)
 Cada transformación debe conservar semántica en su dominio, registrar regla y restricciones, y poder verificarse por un camino independiente. La comprobación numérica nunca será la única prueba de una identidad.
 
 ### T-23. Gráficas y análisis — PENDIENTE
@@ -1697,9 +1697,85 @@ Una familia solo será COMPLETADA con parser/AST compatible, reglas exactas, con
 
 Este catálogo es el alcance de implantación de trigonometría para Ingeniería de MathLab. Documentado no significa implementado.
 
-## Capacidad implementada — motor trigonométrico exacto (2026-10-01)
+## Capacidad implementada — motor trigonométrico exacto (2026-10-02)
 
-Se ha iniciado la implantación real con mathlab/trig.py, conectado a simplificar. Actualmente están implementadas y probadas las primeras reglas de T-01, T-02 y T-03, además de la primera transformación de T-05. El resto permanece pendiente hasta cumplir T-24.
+`mathlab/trig.py` es un motor de reglas exacto, conectado a `simplificar`. Cada transformación pertenece a **un** objetivo y solo acepta reescrituras estrictamente más baratas o estrictamente más caras según cuál sea (§5.5b, T-20): esa medida es un orden bien fundado, así que cada objetivo termina y su resultado es un punto fijo por construcción. Mezclar las dos direcciones en un mismo bucle no puede terminar —`sin(2x)` se desarrolla a `2·sin(x)·cos(x)` y vuelve a colapsarse—.
+
+Objetivos y familias:
+
+| Objetivo | Función | Familias |
+|---|---|---|
+| reducir | `simplify` | paridad, signo fuera de potencia, reducción de argumento, valores notables, pitagoras, recíprocas, doble plegado, suma/diferencia inversa, unidad |
+| desarrollar | `expand` | suma y diferencia, ángulo doble directo |
+| producto a suma | `product_to_sum` | T-08 |
+| suma a producto | `sum_to_product` | T-09 |
+| potencias | `reduce_powers` | T-10 |
+
+Lo que esto deja cubierto de la especificación: **T-02** completo (las seis formas de cada relación), **T-03** completo (paridad, periodicidad, opuestos, suplementarios, complementarios, en una tabla por cuadrante en lugar de una regla por signo), **T-04** en ambos sentidos, **T-05** en ambos sentidos y con las tres formas de `cos(2x)` ofrecidas en vez de elegidas, **T-06** (ángulo triple en ambos sentidos, múltiplos cerrados en una sola variable con los polinomios de Chebyshev, y `sin(nx)` en potencias de `sin(x)` solo cuando `n` es impar porque para `n` par no existe), **T-07** (los cuadrados del medio ángulo en ambos sentidos, con ida y vuelta exacta, y la sustitución universal `t = tan(x/2)` como objetivo aparte), **T-08**, **T-09**, **T-10** y la parte de **T-21** que el motor necesita (ángulos notables de 0° a 180° en pasos de 15°/30°/45°, con las seis funciones exactas y `None` donde la función no existe).
+
+Dos decisiones que conviene que queden escritas, porque son cosas que el motor **no** hace:
+
+- El medio ángulo sin elevar al cuadrado no se simplifica nunca. `√((1−cos x)/2) = sin(x/2)` vale en `[0, 2π]` y es falsa fuera, así que el motor se niega y `half_angle_forms` devuelve cada forma con su intervalo (§5.7).
+- La sustitución `t = tan(x/2)` es un cambio de variable (§5.6), no una identidad, y por eso vive en su propio objetivo. Mezclarla con las identidades no era una cuestión de gusto: la sustitución *crea* `tan(x/2)` y la regla del medio ángulo *consume* `tan(x/2)²`, así que en un mismo bucle se alimentan y la expresión crece hasta reventar el límite de texto.
+
+**T-14 (hiperbólica)** comparte motor con las circulares porque son las mismas fórmulas con un signo cambiado, y por eso viven en familias aparte para que la traza diga cuál ha actuado. Cubierto: `cosh²−sinh²=1`, `1−tanh²=sech²`, `cosh²−1=sinh²`, `coth²−1=csch²`, `1−coth²=−csch²`, los cocientes y recíprocas, la paridad de las seis, `sinh(asinh(x))=x` y sus dos hermanas, el valor en el origen, las sumas y diferencias, el ángulo doble en ambos sentidos y la conexión exponencial en objetivo aparte. Faltan las derivadas y las integrales, que son de T-17 y T-18.
+
+Dos identidades hiperbólcas **no** existen y el motor se niega a aplicarlas, con pruebas que lo fijan: `1+coth²(x)` y `sinh²(x)−1`. SeColaron en una primera versión y las rejectedó la comprobación numérica, no la lectura: `coth² = 1 + csch²` va en el otro sentido, y lo mismo con `cosh² = 1 + sinh²`.
+
+**T-22** se sostiene así: cada reescritura registra su familia (`simplify_ex` la devuelve, y la calculadora la escribe en la traza), y las pruebas vuelven a comprobar cada identidad por un camino numérico independiente con puntos sembrados. Hay además un control negativo —`cos(x)` frente a `sin(x)` tiene que ser rechazado— porque sin él la comprobación pasaría igual si el verificador no comparase nada.
+
+Dos cosas que conviene decir sin adornos:
+
+- El inventario `identities()` se deriva de los registros de reglas, no se escribe a mano. Antes anunciaba `angulo_doble_coseno`, `angulo_doble_tangente` y `medio_angulo` sin que existiera regla alguna para ninguna de las tres; ahora una prueba falla si eso vuelve a pasar.
+- `sec`, `csc` y `cot` no eran evaluables numéricamente, y el motor los produce. Una verificación que no puede evaluar lo que el motor emite no está comprobando nada, así que ahora son `1/cos`, `1/sin` y `1/tan`. El polo, eso sí, el camino numérico no lo ve: a `pi/2`, `cos` vale 6·10⁻¹⁷ y no cero, así que `sec(pi/2)` vuelve como un número enorme en lugar de como negativa. La negativa la da la tabla simbólica; el camino numérico solo puede dar la magnitud, y eso es lo que dice.
+
+**T-11 (inversas y ramas)** tiene dos direcciones que no son simétricas, y esa asimetría es el contenido de la familia. `sin(arcsen(u)) = u` vale donde esté definida, así que el motor la reduce. `arcsen(sen x) = x` **no**, y el motor se niega a reescribirla: `ramas.ramas()` entrega cada rama con el intervalo donde sí vale, y `ramas.evidencia_global()` da un contraejemplo calculado —en `2·pi`, `arcsen(sen(2·pi))` vale 0 y no `2·pi`—. Los dominios de las inversas también son todos distintos: `[-1,1]` cerrado para `arcsen` y `arccos`, `(-1,1)` abierto para `arctanh` porque en los extremos no existe, y `[1,∞)` para `arccosh`. Por eso `dominio.Intervalo` lleva dos banderas de apertura.
+
+**T-12 (ecuaciones)** resuelve `sen/cos/tan = c`, `a·sen+b·cos = c` por desplazamiento de fase, y polinomios en `sen`, `cos` o `tan` con raíces exactas. Cada familia se comprueba **sustituyendo miembros en la ecuación original**, que es lo único que caza una solución espuria y lo que exige T-12. Dos decisiones que hay que tener presentes: un valor irracional como `√2/2` da una solución **exacta** (`arcsen(√2/2)` es un número exacto aunque no sea múltiplo de `pi`), y cuando ningún caso encaja la respuesta es «no lo resuelve todavía», **nunca** «no hay soluciones». Esa distinción está fijada por pruebas, porque un solucionador que afirma que no hay soluciones sin haberlo demostrado es peor que uno que se niega.
+
+
+**T-13 (inecuaciones)** convierte `f(x) > 0` en una carta de signos, y la carta solo vale si sus puntos críticos están todos. De ahí salen dos requisitos que no son opcionales. El primero: los **polos**, no solo los ceros. `tg(x) < 1` tiene dos intervalos, no uno, y solo el polo de `pi/2` parte el primero en dos; buscar solo los ceros devuelve un intervalo que contiene un punto donde la expresión no existe. Los polos de `tg` y `cotg` no tienen denominador en la expresión, así que se obtienen de los ceros de `cos` y `sen` en lugar de de una tabla inventada. El segundo: el **origen del periodo** es un punto como cualquier otro y se lee en la función. Dejarlo siempre abierto pierde una solución real — `cos(x)² > 1/2` se cumple en 0, y ahí es donde empieza la carta.
+
+El signo dentro de cada hueco se decide **numéricamente**, y eso no es una aproximación del resultado sino una prueba: una función continua sin ceros ni polos dentro de un hueco no puede cambiar de signo en él. Si alguna vez cambiara, el motor **se niega** en lugar de elegir un lado, porque esa situación significa «me he dejado algo» y no «sé cuál mitad es». Y si los ceros no se pueden colocar en la rejilla de `pi` de forma exacta, la respuesta es «no lo sé»: `ceros()` devuelve `None`, que no es lo mismo que `[]`.
+
+Dos cosas más quedaron fijadas por pruebas, y las dos son de la misma familia que el error que las causó. Una: `f^n = 0` está exactamente donde `f = 0` para **todo** `n` entero positivo; tratar la potencia par como un caso aparte hace que `sen(x)²` se quede sin ceros. Dos: el periodo que se informa es el **mínimo**, no un periodo válido. `dominio.periodo` daba 2`pi` para `sen(x)²`, cuyo periodo real es `pi`; no es un error en el conjunto —los puntos son los mismos— pero duplica cada intervalo y tapa la simetría que lo explica. `dominio.periodo_minimo` lo reduce a la mitad mientras siga cumpliéndose.
+
+**T-20 (estrategia de resolución).** Faltaba el paso que hace resolubles las
+ecuaciones con recíproca, y es uno solo: `N/D = 0` tiene los ceros de **N**, nunca
+los de D, porque donde el denominador se anula hay un polo, y un polo no es
+solución de nada. Con él, `sec(x) = 1`, `cosec(x) = 1` y `cotg(x) = 1` se
+resuelven. La conversión recíproca → cociente va **antes** del bucle de reglas
+y no dentro de él: una regla que agranda y otra que encoge no comparten punto fijo.
+
+**Un agujero en la comprobación de espurias, encontrado al sellar T-24.** La
+comprobación por sustitución —la única que caza una solución espuria y en la que se
+apoya T-12— **nunca se ejecutaba**. Hacía `if not mx.variables(miembro): continue`,
+y el miembro de una familia resuelta es justamente una constante, así que el
+`continue` se saltaba el caso que hay que mirar: la función devolvía una lista
+vacía para **toda** familia, incluidas las que no satisfacen la ecuación. Una
+comprobación que no puede fallar no es una comprobación. Ahora sustituye de verdad, y
+una familia con el paso equivocado se marca como espuria con su residuo.
+
+**T-21 (fallback numérico declarado).** `verify.aproximacion()` devuelve el valor
+**y lo que vale**: mide la sensibilidad de la expresión perturbando la entrada y
+declara el error a partir de ahí, en vez de citar el tamaño del último dígito y
+esperar. La diferencia se ve en un caso que el proyecto ya conocía: `sen(x)` en
+`x = 1` sale con error 4·45·10⁻¹⁵, y en `x = 10⁶` sale con **2·08·10⁻⁴**.
+La entrada y la salida son exactas y las dos se calculan en dobles; un error
+declarado que allí se quedara en 10⁻¹⁵ sería peor que ninguno.
+
+**T-24 (integración, sello y CI).** Las cuatro familias tienen ya operación en
+`calculators.py` — `resolver`, `resolver_inequidad`, `ramas`, `aproximar` — y cada
+resultado lleva su sello, trazados por un camino que no consulta el cálculo que
+produjo la respuesta. Ecuaciones: se sustituye un miembro de cada familia en la
+ecuación original. Inecuaciones: se muestrea el conjunto y se compara **en las dos
+direcciones**. Ramas: el sello lleva el contraejemplo calculado, porque lo que
+certifica las ramas es precisamente que la composición falla en algún sitio.
+Aproximación: el sello es «solo numérico» con el error a la vista.
+
+Cumplen T-24 y quedan marcadas **COMPLETADAS**: **T-02 a T-12 y T-21**. La lista de T-24 es AST compatible, reglas exactas, control de dominio, trazabilidad, tests, verificación independiente, integración en `calculators.py`, documentación y CI verde, y las nueve están.
+
+Siguen pendientes: el análisis de dominio de una expresión arbitraria (T-13), T-14 hiperbólica más allá de la paridad —derivadas e integrales, que son de T-17 y T-18—, los objetivos integrar, derivar, complejos y fasores de T-20, T-15 complejos y Euler, T-16 fasores, T-19 series y T-23 gráficas.
 
 ## Catálogo maestro de cobertura
 
