@@ -157,6 +157,13 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
 
 
 def _llamadas(e: mx.Expr) -> list[mx.Call]:
+    """Every function application in ``e``, roots included.
+
+    ``sqrt(u)`` parses as a ``Root`` node rather than a call, and a walk that only
+    visits calls never sees it — so the domain of ``sqrt(sin(x))`` came back as the
+    whole real line, which is the answer for an expression that exists only where
+    ``sin(x) >= 0``.
+    """
     salida: list[mx.Call] = []
     pila = [e]
     while pila:
@@ -164,6 +171,10 @@ def _llamadas(e: mx.Expr) -> list[mx.Call]:
         if isinstance(actual, mx.Call):
             salida.append(actual)
             pila.extend(actual.args)
+        elif isinstance(actual, mx.Root):
+            # an even root needs its radicand >= 0, and it is reached as «sqrt»
+            salida.append(mx.Call("sqrt", (actual.radicand,)))
+            pila.append(actual.radicand)
         elif isinstance(actual, mx.Neg):
             pila.append(actual.arg)
         elif isinstance(actual, mx.Pow):
@@ -443,8 +454,213 @@ def _cumple(signo: float, operador: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# parsing
+# T-13, the other half: where the expression exists at all
 # ---------------------------------------------------------------------------
+
+#: what each function needs of its argument, as conditions on ``u`` itself.
+#: ``None`` means «no restriction». The poles of ``tan`` are not here on purpose:
+#: they are zeros of ``cos``, which come from the equation solver, and writing them
+#: in a table here would be the same table twice with two chances to disagree.
+RESTRICCIONES: dict[str, tuple[tuple[str, object], ...]] = {
+    "ln": ((">", 0),),
+    "log10": ((">", 0),),
+    "log": ((">", 0), (">", 1)),
+    "asin": ((">=", -1), ("<=", 1)),
+    "acos": ((">=", -1), ("<=", 1)),
+    "atanh": ((">", -1), ("<", 1)),
+    "acosh": ((">=", 1),),
+    "sqrt": ((">=", 0),),
+}
+
+#: where these live nowhere but on the whole real line
+SIN_RESTRICCION = frozenset({"sin", "cos", "tan", "cot", "sec", "csc",
+                             "asin", "acos", "atan", "sinh", "cosh", "tanh",
+                             "coth", "sech", "csch", "asinh", "atan", "abs"})
+
+
+def dominio(e: mx.Expr, var: str = "x") -> D.Conjunto:
+    """Where ``e`` exists, as an exact set of intervals (T-13).
+
+    Three things have to be taken out, and taking out only one of them is the
+    usual mistake:
+
+    1. the zeros of its denominators;
+    2. the poles the functions bring with them — ``tan(x)`` has one at ``pi/2``
+       with no denominator anywhere in the expression;
+    3. what each function needs of its argument — ``ln(u)`` needs ``u > 0``,
+       ``asin(u)`` needs ``|u| <= 1``, ``atanh(u)`` needs ``|u| < 1`` and ``acosh(u)``
+       needs ``u >= 1``.
+
+    The third group is resolved with the very same sign chart that solves an
+    inequality, which is not an economy: the condition ``u > 0`` *is* an inequality,
+    and answering it with a different method would be answering it twice.
+    """
+    if not mx.depends(e, var):
+        return D.Conjunto() if mx.evaluate(e) is None else D.REALES
+    resultado = D.REALES
+
+    for denominador in D.denominadores(e):
+        ceros_del = ceros(denominador, var)
+        if ceros_del is not None:
+            puntos = [p for p in (_a_punto(c) for c in ceros_del) if p is not None]
+        else:
+            # «1/(x^2 - 1)» is a denominator with no pi in it, so it is a finite
+            # set of ordinary points and not a chart of multiples of pi
+            puntos = ceros_en_puntos(denominador, var) or []
+        if ceros_del is None and puntos == []:
+            raise sin_refuso(
+                f"no se saben los ceros de «{mx.text(denominador)}», que es "
+                "denominador: sin ellos no se sabe dónde deja de existir la "
+                "expresión (§5.4)")
+        if puntos:
+            resultado = D.quita_puntos(resultado, tuple(puntos))
+            if resultado.vacio:
+                return resultado
+
+    for llamada in _llamadas(e):
+        nombre, argumentos = llamada.name, llamada.args
+        if not argumentos:
+            continue
+        if nombre in ("tan", "sec"):
+            resultado = _sin_polos(resultado, _fn("cos", argumentos[0]), var)
+        elif nombre in ("cot", "csc"):
+            resultado = _sin_polos(resultado, _fn("sin", argumentos[0]), var)
+        for operador, cota in RESTRICCIONES.get(nombre, ()):
+            if nombre == "log" and operador == ">" and cota == 1:
+                continue          # the second argument is the base, not an input
+            resultado = _con_condicion(resultado, argumentos[0], operador, cota,
+                                       var)
+        if resultado.vacio:
+            return resultado
+    return resultado
+
+
+def _sin_polos(conjunto: D.Conjunto, funcion: mx.Expr, var: str) -> D.Conjunto:
+    """The set with the zeros of ``funcion`` taken out."""
+    ceros_del = ceros(funcion, var)
+    if ceros_del is None:
+        raise sin_refuso(
+            f"no se sabe dónde se anula «{mx.text(funcion)}», así que el dominio "
+            "no se puede acotar (§5.4)")
+    puntos = [p for p in (_a_punto(c) for c in ceros_del) if p is not None]
+    return D.quita_puntos(conjunto, tuple(puntos)) if puntos else conjunto
+
+
+def _con_condicion(conjunto: D.Conjunto, argumento: mx.Expr, operador: str,
+                   cota: object, var: str) -> D.Conjunto:
+    """Intersect with ``argumento REL cota``.
+
+    Two paths, and which one applies is not a detail: a condition on a periodic
+    argument is a sign chart, and a condition on a non-periodic one is not a sign
+    chart at all — there is no period to repeat and no lattice of multiples of
+    ``pi`` to lay the answer on. ``asin(x)`` needs ``x >= -1``, whose answer is
+    ``[-1, inf)`` and has nothing to do with quadrants.
+    """
+    cota_texto = "0" if cota == 0 else str(cota)
+    texto_condicion = f"{mx.text(argumento)} {operador} {cota_texto}"
+    diferencia = mx.Sub(argumento, mx.Num(cota) if cota != 0 else mx.ZERO)
+    # Which chart applies is decided by periodicity itself, not by whether the
+    # zeros happen to be known: «no lo sé» is not «no es periódica», and reading
+    # it as such sent every aperiodic condition down the periodic path to be
+    # refused there.
+    periodica = D.periodo_minimo(diferencia, var) is not None
+    try:
+        if periodica:
+            solucion = resolver_inequidad(texto_condicion, var)
+            return conjunto.interseccion(solucion.conjunto)
+        carta = _carta_aperiodica(diferencia, var, operador)
+        if carta is None:
+            raise sin_refuso(
+                f"los ceros de «{mx.text(diferencia)}» no son un conjunto finito "
+                "de puntos exactos, así que la condición no se puede acotar (§5.4)")
+        return conjunto.interseccion(carta)
+    except UnsupportedError as exc:
+        raise sin_refuso(
+            f"el dominio necesita resolver «{texto_condicion}», que es lo que "
+            f"pide «{operador} {cota_texto}» sobre el argumento, y no se sabe: "
+            f"{exc}") from exc
+
+
+def ceros_en_puntos(e: mx.Expr, var: str = "x") -> list[D.Punto] | None:
+    """Zeros of ``e`` as exact points on the line, when they are finitely many.
+
+    Only polynomials in the variable itself qualify. A trigonometric zero is a
+    multiple of ``pi`` and there are infinitely many of those, so they cannot be
+    sorted into a line of intervals the way a single root can — that is the whole
+    difference between the aperiodic chart and the periodic one.
+
+    ``None`` means «not a finite exact set»: not because the expression has no
+    zeros, but because this engine cannot name all of them.
+    """
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    if not mx.depends(e, var):
+        return None
+    if _llamadas(e):
+        return None                      # a trig function: infinitely many zeros
+    q = P.as_poly(e)
+    if q is None or P.atoms_of(q) or P.real_variables(q) - {var}:
+        return None
+    from academic_core.domain.engineering.mathlab import ecuaciones as E
+
+    raices, _ = E._raices_reales(q, mx.Sym(var))
+    puntos: list[D.Punto] = []
+    for raiz in raices:
+        valor = mx.exact_value(raiz)
+        if valor is None:
+            return None                  # irrational or not exactly representable
+        puntos.append(D.punto(valor))
+    return sorted(set(puntos), key=lambda p: p.coeficiente)
+
+
+def _carta_aperiodica(e: mx.Expr, var: str, operador: str) -> D.Conjunto | None:
+    """``e REL 0`` when ``e`` has finitely many zeros, as intervals on the line.
+
+    The same argument as the periodic chart: between two consecutive zeros a
+    continuous function cannot change sign, so one sample per gap settles it. What
+    is different is the ends — there is no period to fold them onto, so the outer
+    intervals reach to infinity and are signed by a sample of their own.
+
+    Each gap is sampled *inside itself*. Sampling the leftmost gap at the right
+    one's midpoint was wrong in a way that only showed on the unbounded gaps,
+    where the midpoint does not exist: the sample landed in the neighbouring gap
+    and the answer came out empty.
+    """
+    puntos = ceros_en_puntos(e, var)
+    if puntos is None or not puntos:
+        return None
+    if D.denominadores(e):
+        raise sin_refuso(
+            "una expresión con denominador no se acota por carta aperiodica: "
+            "habría que quitar antes sus polos (§5.4)")
+    cierra = operador.endswith("=")
+    coeficientes = [p.coeficiente for p in puntos]
+    piezas: list[D.Intervalo] = []
+    for indice, izquierda in enumerate([None] + coeficientes):
+        derecha = coeficientes[indice] if indice < len(coeficientes) else None
+        if izquierda is not None and derecha is not None \
+                and izquierda == derecha:
+            continue
+        if izquierda is None:
+            muestra = derecha - 1
+        elif derecha is None:
+            muestra = izquierda + 1
+        else:
+            muestra = (izquierda + derecha) / 2
+        valor = mx.evaluate(e, {var: float(muestra)})
+        if valor is None or abs(valor.imag) > 1e-9:
+            continue
+        if not _cumple(valor.real, operador):
+            continue
+        izq = None if izquierda is None else D.punto(izquierda)
+        der = None if derecha is None else D.punto(derecha)
+        # an unbounded end is open: printing «(0, ∞]» claims a point at infinity
+        piezas.append(D.Intervalo(izq, der,
+                                  izq is None or not cierra,
+                                  der is None or not cierra))
+    if not piezas:
+        return D.Conjunto()
+    return D.desde_intervalos(piezas)
 
 
 def _separa(texto: str) -> tuple[str, str, str]:

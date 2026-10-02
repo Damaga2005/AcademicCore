@@ -209,6 +209,130 @@ def test_una_funcion_sin_polos_no_declara_ninguno():
 
 
 # ---------------------------------------------------------------------------
+# where the expression exists at all — the other half of T-13
+# ---------------------------------------------------------------------------
+
+
+DOMINIOS = [
+    ("sin(x)", "ℝ"),
+    ("cos(x)", "ℝ"),
+    ("tan(x)", "(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)"),
+    ("cot(x)", "(-∞, 0) ∪ (0, π) ∪ (π, ∞)"),
+    ("csc(x)", "(-∞, 0) ∪ (0, π) ∪ (π, ∞)"),
+    ("sec(x)", "(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)"),
+    ("1/sin(x)", "(-∞, 0) ∪ (0, π) ∪ (π, ∞)"),
+    ("1/cos(x)", "(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)"),
+    ("tan(x) + 1/cos(x)", "(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)"),
+    ("asin(sin(x))", "[0, 1/2·π] ∪ [1/2·π, 3/2·π] ∪ [3/2·π, 2·π]"),
+    ("asin(2*sin(x))", "[0, 1/6·π] ∪ [5/6·π, 7/6·π] ∪ [11/6·π, 2·π]"),
+    ("atanh(sin(x))", "[0, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, 2·π]"),
+    ("acosh(1+cos(x))", "[0, 1/2·π] ∪ [3/2·π, 2·π]"),
+    ("ln(sin(x))", "(0, π)"),
+    ("sqrt(sin(x))", "[0, π]"),
+    ("sqrt(cos(x))", "[0, 1/2·π] ∪ [3/2·π, 2·π]"),
+    ("asin(x)", "[-1, 1]"),
+    ("acos(x)", "[-1, 1]"),
+    ("atanh(x)", "(-1, 1)"),
+    ("acosh(x)", "[1, ∞)"),
+    ("ln(x)", "(0, ∞)"),
+    ("ln(-x)", "(-∞, 0)"),
+    ("ln(x^2-1)", "(-∞, -1) ∪ (1, ∞)"),
+    ("sqrt(x-1)", "[1, ∞)"),
+    ("asin(2*x-1)", "[0, 1]"),
+    ("1/(x^2-1)", "(-∞, -1) ∪ (-1, 1) ∪ (1, ∞)"),
+    ("asinh(x)", "ℝ"),
+    ("atan(x)", "ℝ"),
+]
+
+
+@pytest.mark.parametrize("caso,esperado", DOMINIOS)
+def test_el_dominio_sabe_donde_existe_la_expresion(caso, esperado):
+    assert I.dominio(mx.parse(caso)).texto() == esperado
+
+
+@pytest.mark.parametrize("caso,esperado", DOMINIOS)
+def test_el_dominio_no_incluye_un_punto_onde_no_existe(caso, esperado):
+    """The independent path: sample the reported set and evaluate there.
+
+    The set algebra could be right while the set is wrong — a chart that forgot a
+    pole would say so and be consistent with itself. Evaluating the original
+    expression at points the set claims is the only thing that catches it.
+    """
+    conjunto = I.dominio(mx.parse(caso))
+    for coeficiente in [Fraction(k, 97) for k in range(-200, 200)]:
+        punto = D.punto_pi(coeficiente)
+        if not conjunto.contiene(punto):
+            continue
+        valor = mx.evaluate(mx.parse(caso),
+                            {"x": float(coeficiente) * 3.141592653589793})
+        assert valor is None or abs(valor) < 1e12 or abs(valor.imag) < 1e-12, (
+            f"{caso}: {coeficiente}*pi entra en el dominio pero allí vale "
+            f"{valor}")
+
+
+def test_el_dominio_de_un_polono_no_necesita_que_se_sepa_que_es_periodico():
+    """``asin(x)`` is not periodic, and its answer has no period in it.
+
+    Reading «the zeros are unknown» as «this is periodic» sends every aperiodic
+    condition down the periodic chart, where it is refused for the wrong reason.
+    """
+    conjunto = I.dominio(mx.parse("asin(x)"))
+    assert conjunto.contiene(D.punto(Fraction(0)))
+    assert conjunto.contiene(D.punto(Fraction(1)))
+    assert not conjunto.contiene(D.punto(Fraction(2)))
+    assert not conjunto.contiene(D.punto(Fraction(-2)))
+
+
+def test_un_extremo_infinito_nunca_se_cierra():
+    """Printing ``(0, inf]`` claims a point at infinity."""
+    texto = I.dominio(mx.parse("ln(x)")).texto()
+    assert texto == "(0, ∞)"
+    assert "]" not in texto
+
+
+def test_el_dominio_rechaza_lo_que_no_sabe_en_vez_de_adivinar():
+    """A denominator whose zeros are an irrational pair cannot be named exactly."""
+    with pytest.raises(UnsupportedError) as exc:
+        I.dominio(mx.parse("1/(x^2-2)"))
+    assert "no se saben los ceros" in str(exc.value) or "no lo sabe" in str(exc.value)
+
+
+def test_ceros_en_puntos_solo_acepta_conjuntos_finitos():
+    """A trigonometric zero is a multiple of pi, and there are infinitely many."""
+    assert I.ceros_en_puntos(mx.parse("x^2-1")) == [D.punto(Fraction(-1)),
+                                                    D.punto(Fraction(1))]
+    assert I.ceros_en_puntos(mx.parse("sin(x)")) is None
+    assert I.ceros_en_puntos(mx.parse("x^2+1")) == []
+
+
+def test_el_dominio_excluye_cada_polo_y_cada_cero_de_denominador():
+    """The two halves of T-13 must not disagree about what exists.
+
+    A zero is not the same thing as a hole: ``tan(0)`` is a zero *and* the function
+    exists there. What has to be outside the domain are the poles and the zeros of
+    the denominators, and asking for those is the whole point of computing them
+    twice by different routes.
+    """
+    for caso in ("1/sin(x)", "tan(x)", "cot(x)", "sec(x)", "1/cos(x)",
+                 "1/(sin(x)*cos(x))", "tan(x) + 1/cos(x)"):
+        expresion = mx.parse(caso)
+        conjunto = I.dominio(expresion)
+        excluidos: list = []
+        for denominador in D.denominadores(expresion):
+            c = I.ceros(denominador, "x")
+            if c is not None:
+                excluidos.extend(D.punto_pi(I._coeficiente_pi(v)) for v in c)
+        polos = I.singularidades(expresion, "x")
+        if polos is not None:
+            excluidos.extend(D.punto_pi(I._coeficiente_pi(v)) for v in polos)
+        assert excluidos, caso
+        for punto in excluidos:
+            assert not conjunto.contiene(punto), (
+                f"{caso}: {punto} es un punto donde no existe y el dominio lo "
+                f"incluye: {conjunto.texto()}")
+
+
+# ---------------------------------------------------------------------------
 # «no lo sé» is not «no hay soluciones»
 # ---------------------------------------------------------------------------
 

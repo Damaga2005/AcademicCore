@@ -135,6 +135,34 @@ class Punto:
         return hash((self.es_pi, self.coeficiente))
 
 
+def _extremo_mayor(a: Punto | None, abierto_a: bool,
+                   b: Punto | None, abierto_b: bool):
+    """The larger of two bounds, and whether that bound is open."""
+    if a is None:
+        return b, abierto_b
+    if b is None:
+        return a, abierto_a
+    if a > b:
+        return a, abierto_a
+    if b > a:
+        return b, abierto_b
+    return a, abierto_a and abierto_b          # same point: open only if both are
+
+
+def _extremo_menor(a: Punto | None, abierto_a: bool,
+                   b: Punto | None, abierto_b: bool):
+    """The smaller of two bounds, and whether that bound is open."""
+    if a is None:
+        return b, abierto_b
+    if b is None:
+        return a, abierto_a
+    if a < b:
+        return a, abierto_a
+    if b < a:
+        return b, abierto_b
+    return a, abierto_a and abierto_b
+
+
 def _exige_punto(p) -> None:
     """Refuse a bare coefficient where a point belongs, and say which it is.
 
@@ -252,27 +280,55 @@ class Conjunto:
         return " ∪ ".join(partes)
 
     def interseccion(self, otro: "Conjunto") -> "Conjunto":
+        """The overlap, with the open/closed flags carried through.
+
+        Dropping them is the trap here. ``[0, pi/2)`` intersected with ``(-inf, 0]``
+        is the single point ``0``, and building that as ``Intervalo(0, 0)`` gives an
+        empty interval — the answer says nothing is in common when one thing is.
+
+        The flag of an end is the flag of whichever bound wins, and when both sides
+        carry the same bound the result is closed only if both are. ``mergir_tocados``
+        is off because two pieces that touch at an open end do **not** cover that
+        point, and merging them would put it back.
+        """
         piezas: list[Intervalo] = []
         for a in self.intervalos:
             for b in otro.intervalos:
-                izq = a.izq if (b.izq is None or (a.izq is not None and a.izq >= b.izq)) else b.izq
-                der = a.der if (b.der is None or (a.der is not None and a.der <= b.der)) else b.der
-                intervalo = Intervalo(izq, der)
+                izq, abierto_izq = _extremo_mayor(a.izq, a.abierto_izq,
+                                                   b.izq, b.abierto_izq)
+                der, abierto_der = _extremo_menor(a.der, a.abierto_der,
+                                                   b.der, b.abierto_der)
+                intervalo = Intervalo(izq, der, abierto_izq, abierto_der)
                 if not intervalo.vacio:
                     piezas.append(intervalo)
-        return Conjunto(_normaliza(piezas))
+        return Conjunto(_normaliza(piezas, mergir_tocados=False))
 
     def complemento(self) -> "Conjunto":
+        """What is left over, and a point removed from a set joins it.
+
+        A set that excludes ``pi/2`` has a complement that includes it, so the gap
+        between ``(a, pi/2)`` and ``(pi/2, b)`` is not empty: it is ``pi/2`` alone.
+        Writing a degenerate interval for it is the only way to say that, and
+        merging afterwards would erase it.
+        """
         piezas: list[Intervalo] = []
         anterior: Punto | None = None
+        anterior_abierto = True
         for i in self.intervalos:
+            if i.izq is None and i.der is None:
+                return Conjunto()          # the whole line: nothing is left over
             if i.izq is not None and (anterior is None or i.izq > anterior):
-                piezas.append(Intervalo(anterior, i.izq))
-            if i.der is not None:
-                anterior = i.der
-        if self.intervalos and (self.intervalos[-1].der is not None):
-            piezas.append(Intervalo(self.intervalos[-1].der, None))
-        return Conjunto(_normaliza(piezas))
+                piezas.append(Intervalo(anterior, i.izq, anterior_abierto,
+                                        i.abierto_izq))
+            elif anterior is not None and i.izq == anterior \
+                    and i.abierto_izq and anterior_abierto:
+                piezas.append(Intervalo(i.izq, i.izq, False, False))
+            if i.der is None:
+                return Conjunto(tuple(piezas))
+            anterior = i.der
+            anterior_abierto = i.abierto_der
+        piezas.append(Intervalo(anterior, None, anterior_abierto, True))
+        return Conjunto(_normaliza(piezas, mergir_tocados=False))
 
     def puntos(self) -> tuple[Punto, ...]:
         """Every finite endpoint, which is where zeros and poles live."""
@@ -304,6 +360,24 @@ def _normaliza(intervalos: list[Intervalo], *,
             else (1, intervalo.izq)
 
     vivos = sorted((i for i in intervalos if not i.vacio), key=clave)
+    # A degenerate interval is a single point, and a single point has no interior
+    # to protect: if a neighbour already reaches it, it is covered and keeping
+    # both would print «[pi/2, pi/2] ∪ [pi/2, 2pi)» for one set.
+    if len(vivos) > 1:
+        sin_puntos = set()
+        for indice, intervalo in enumerate(vivos):
+            if intervalo.izq is None or intervalo.der is None \
+                    or intervalo.izq != intervalo.der:
+                continue
+            vecino = (vivos[indice - 1] if indice > 0 else None,
+                      vivos[indice + 1] if indice + 1 < len(vivos) else None)
+            if ((vecino[0] is not None and vecino[0].der is not None
+                 and vecino[0].der >= intervalo.der)
+                    or (vecino[1] is not None and vecino[1].izq is not None
+                        and vecino[1].izq <= intervalo.izq)):
+                sin_puntos.add(indice)
+        if sin_puntos:
+            vivos = [i for k, i in enumerate(vivos) if k not in sin_puntos]
     fusionados: list[Intervalo] = []
     for intervalo in vivos:
         if not fusionados:
