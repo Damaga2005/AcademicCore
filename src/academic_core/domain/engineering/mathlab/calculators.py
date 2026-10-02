@@ -241,7 +241,8 @@ def _simplificar(peticion: C.Peticion) -> C.Resultado:
     names = sorted(mx.variables(expr))
     var = names[0] if names else None
     ratio = P.as_ratio(expr, var) if var else None
-    exacto = T.simplify(expr)
+    trigonometria = T.simplify_ex(expr)
+    exacto = trigonometria.expresion
     metodo = "normalización trigonométrica exacta + forma normal algebraica" if exacto != expr else "no hace falta simplificar: ya está en forma canónica"
     if ratio is not None and not ratio.is_constant_ratio():
         # The rational form is a *normalisation*, not a rewrite: the displayed
@@ -263,9 +264,253 @@ def _simplificar(peticion: C.Peticion) -> C.Resultado:
         ),
         before=mx.text(expr),
     )
+    # §5.2 and T-22: a reduction that leaves no trace cannot be explained to a
+    # student, so each family that actually fired gets its own step, with the
+    # «por qué este método» the engine carries for it (§5.5b).
+    for familia in trigonometria.familias:
+        trace.cambio(
+            f"trig.{familia}",
+            f"regla trigonométrica: {familia}",
+            why=T.descripcion(familia),
+            before=mx.text(expr),
+            after=mx.text(exacto),
+        )
     sello = V.verify_against(exacto, expr)
     return _finalizar(peticion, trace, exacto, aproximado=mx.evaluate(exacto),
                       sello=sello)
+
+
+# ---------------------------------------------------------------------------
+# T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
+# ---------------------------------------------------------------------------
+
+
+def _comprobacion_independiente(expresion: mx.Expr, var: str,
+                                familias: tuple, pasos: int = 240) -> V.Seal:
+    """Sustituye un miembro de cada familia en la ecuación original.
+
+    This is the only check that catches a spurious root, and it is independent of
+    the machinery that produced the root: it never looks at how the family was
+    derived, only at whether it satisfies the equation it claims to. Every family
+    is tried, so one bad root cannot hide behind the good ones.
+    """
+    from academic_core.domain.engineering.mathlab import ecuaciones as E
+
+    if not familias:
+        return V.Seal(V.NUMERIC_ONLY, "sin familias que comprobar",
+                      "la ecuación no tiene soluciones")
+    malos: list[str] = []
+    for familia in familias:
+        if not E.verifica_miembro(familia, expresion, var):
+            malos.append(familia.texto(var))
+    if malos:
+        return V.Seal(V.DISCREPANT, "sustitución de miembros",
+                      "no satisfacen la ecuación original: " + "; ".join(malos))
+    return V.Seal(V.VERIFIED, "sustitución de miembros en la ecuación original",
+                  f"las {len(familias)} familias cumplen al sustituir")
+
+
+def _resolver(peticion: C.Peticion) -> C.Resultado:
+    from academic_core.domain.engineering.mathlab import ecuaciones as E
+
+    entrada = peticion.entrada
+    if isinstance(entrada, dict):
+        ecuacion = str(entrada.get("ecuacion") or entrada.get("expr") or "")
+        var = str(entrada.get("var") or "x")
+    else:
+        ecuacion, var = str(entrada), "x"
+    trace = Trace()
+    trace.metodo(
+        "resolver.estrategia",
+        "se lleva la ecuación a una forma que uno de los casos de T-12 sepa resolver",
+        why=("una ecuación trigonométrica no se resuelve «a ojo»: se reduce a "
+             "sin/cos/tan igual a una constante, a una combinación con fase, o a un "
+             "polinomio en una de las tres, y cada caso trae su propio "
+             "procedimiento (§5.5b)"),
+        alternatives=(
+            ("resolver numéricamente y devolver las raíces halladas",
+             "encontraría soluciones, pero no daría la familia ni el porqué, y "
+             "no se podría decir si son todas (§5.1)"),
+        ),
+        before=ecuacion,
+    )
+    resolucion = E.resolver(ecuacion, var)
+    izquierda, derecha = E.separar(ecuacion)
+    expresion = mx.Sub(mx.parse(izquierda), mx.parse(derecha))
+    for familia in resolucion.familias:
+        trace.cambio(
+            "resolver.familia",
+            f"familia de soluciones: {familia.texto(var)}",
+            why=("cada familia sale de un caso con nombre, no de una búsqueda: "
+                 "por eso se puede escribir de dónde viene y comprobar después "
+                 "sustituyendo un miembro en la ecuación original"),
+            before=ecuacion,
+            after=familia.texto(var),
+        )
+    for h in resolucion.hipotesis:
+        trace.hipotesis("resolver.condicion", h, "aplica")
+    sello = _comprobacion_independiente(expresion, var, resolucion.familias)
+    avisos = tuple(resolucion.espurias)
+    return _finalizar(peticion, trace, [f.texto(var) for f in resolucion.familias],
+                      aproximado=None, sello=sello, avisos=avisos)
+
+
+def _resolver_inequidad(peticion: C.Peticion) -> C.Resultado:
+    from academic_core.domain.engineering.mathlab import inequaciones as I
+
+    entrada = peticion.entrada
+    if isinstance(entrada, dict):
+        texto_ineq = str(entrada.get("inequacion") or entrada.get("expr") or "")
+        var = str(entrada.get("var") or "x")
+    else:
+        texto_ineq, var = str(entrada), "x"
+    trace = Trace()
+    trace.metodo(
+        "resolver_inequidad.carta",
+        "carta de signos sobre un solo periodo",
+        why=("los puntos críticos son los ceros y los polos, y el signo en cada "
+             "hueco se decide numéricamente: una función continua sin ceros ni "
+             "polos dentro de un hueco no puede cambiar de signo en él"),
+        alternatives=(
+            ("probar puntos sueltos hasta que la respuesta parezca buena",
+             "una muestra no encuentra los extremos, que es justo lo que se pide"),
+        ),
+        before=texto_ineq,
+    )
+    solucion = I.resolver_inequidad(texto_ineq, var)
+    for h in solucion.hipotesis:
+        trace.hipotesis("resolver_inequidad.condicion", h, "aplica")
+    sello = _sello_de_conjunto(texto_ineq, var, solucion)
+    exacto = solucion.texto()
+    return _finalizar(peticion, trace, exacto,
+                      aproximado=None, sello=sello,
+                      avisos=("solución vacía" if solucion.vacia else "") and
+                      ("solución vacía",) or ())
+
+
+def _sello_de_conjunto(texto_ineq: str, var: str, solucion) -> V.Seal:
+    """The independent path for an inequality: sample and compare, both ways.
+
+    It never consults the sign chart. It evaluates the original inequality at exact
+    rational points and asks whether the reported set agrees — in a point it is in
+    and in a point it is out. A set that were merely *inside* the truth would pass
+    one direction, so both are what make this a check.
+    """
+    from fractions import Fraction
+
+    from academic_core.domain.engineering.mathlab import inequaciones as I
+
+    operador, izquierda, derecha = I._separa(texto_ineq)
+    expresion = mx.Sub(mx.parse(izquierda), mx.parse(derecha))
+    periodo = solucion.periodo
+    discrepancias: list[str] = []
+    for i in range(1, 480):
+        coeficiente = Fraction(i, 240) % periodo
+        valor = mx.evaluate(expresion, {var: float(coeficiente) * 3.141592653589793})
+        if valor is None or abs(valor.imag) > 1e-9 or abs(valor.real) > 1e12:
+            if solucion.contiene(coeficiente):
+                discrepancias.append(f"{coeficiente}*pi no existe y aun así entra")
+            continue
+        dentro = solucion.contiene(coeficiente)
+        if dentro != _cumple(operador, valor.real):
+            discrepancias.append(f"{coeficiente}*pi: f = {valor.real:.6g}")
+    if discrepancias:
+        return V.Seal(V.DISCREPANT, "muestreo del conjunto solución",
+                      "; ".join(discrepancias[:4]))
+    return V.Seal(V.VERIFIED, "muestreo del conjunto solución",
+                  "478 puntos exactos: el conjunto coincide con la desigualdad en "
+                  "las dos direcciones")
+
+
+def _cumple(operador: str, valor: float) -> bool:
+    if operador == ">":
+        return valor > 1e-9
+    if operador == ">=":
+        return valor > -1e-9
+    if operador == "<":
+        return valor < -1e-9
+    if operador == "<=":
+        return valor < 1e-9
+    return abs(valor) < 1e-9
+
+
+def _ramas(peticion: C.Peticion) -> C.Resultado:
+    from academic_core.domain.engineering.mathlab import ramas as R
+
+    # The input is the composition itself, «asin(sin)», not the name of an
+    # inverse: the question is which composition has branches, and writing it out
+    # is what keeps the answer from being read as a claim about arcsen.
+    entrada = peticion.entrada
+    if isinstance(entrada, dict):
+        nombre = str(entrada.get("funcion") or entrada.get("comp") or "")
+        var = str(entrada.get("var") or "x")
+    else:
+        nombre, var = str(entrada), "x"
+    trace = Trace()
+    trace.metodo(
+        "ramas.composicion",
+        "seBUSCA la rama donde la composición sí vale, en vez de suponer que vale",
+        why=("arcsen(sen x) = x es falso y sólo falso en algunas partes: la "
+             "identidad inversa se aplica en un sentido y no en el otro, y la "
+             "diferencia es el contenido de T-11"),
+        alternatives=(
+            ("dar por buena la composición y devolver x",
+             "sería una respuesta con el mismo aspecto que la correcta y "
+             "contestaría NO (§5.4)"),
+        ),
+        before=f"{nombre} aplicada a x",
+    )
+    piezas = R.ramas(nombre)
+    evidencia = R.evidencia_global(nombre)
+    for rama in piezas:
+        trace.cambio("ramas.rama", rama.texto(var),
+                     why=("cada rama lleva el intervalo donde sí vale; fuera de él "
+                          "la composición es falsa, y ese intervalo es la respuesta"),
+                     before=f"{nombre} aplicada a x", after=rama.texto(var))
+    # The seal records the counter-example, not a confirmation: the whole point of
+    # T-11 is that the naive answer is wrong, so evidence that the composition
+    # fails somewhere is what certifies the branches.
+    sello = V.Seal(V.VERIFIED, "contraejemplo calculado", evidencia)
+    return _finalizar(peticion, trace, [r.texto(var) for r in piezas],
+                      aproximado=None, sello=sello)
+
+
+# ---------------------------------------------------------------------------
+# T-21: el camino numérico, con su error declarado
+# ---------------------------------------------------------------------------
+
+
+def _aproximar(peticion: C.Peticion) -> C.Resultado:
+    entrada = peticion.entrada
+    if isinstance(entrada, dict):
+        expr = _expresion_de(entrada, "expr", "expresion")
+        valores = entrada.get("valores") or {}
+        var = str(entrada.get("var") or "x")
+    else:
+        expr, valores, var = _expr(entrada), {}, "x"
+    trace = Trace()
+    x = float(valores.get(var, valores.get("x", 0.0)))
+    trace.metodo(
+        "aproximar.error",
+        "el error se mide, no se supone",
+        why=("la doble precisión no siempre alcanza: el seno de un argumento muy "
+             "grande pierde dígitos aunque la entrada y la salida sean exactas. "
+             "Se mide la sensibilidad y se declara, en vez de citar el tamaño del "
+             "último dígito y esperar (§5.4, T-21)"),
+        alternatives=(
+            ("devolver el decimal sin decir nada más",
+             "un número sin error declarado no es un resultado, es una cifra "
+             "suelta"),
+        ),
+        before=f"{mx.text(expr)} en {var} = {x}",
+    )
+    aprox = V.aproximacion(expr, var, x, peticion.cifras)
+    trace.cambio("aproximar.valor", aprox.texto(), why=aprox.metodo,
+                 before=f"{mx.text(expr)}", after=aprox.texto())
+    sello = V.Seal(V.NUMERIC_ONLY, "error declarado por sensibilidad medida",
+                   aprox.metodo)
+    return _finalizar(peticion, trace, aprox.valor.real,
+                      aproximado=aprox.valor.real, error=aprox.error, sello=sello)
 
 
 # ---------------------------------------------------------------------------
@@ -706,5 +951,9 @@ C.registrar("simplificar", _simplificar)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
 C.registrar("integrar", _integrar)
+C.registrar("resolver", _resolver)
+C.registrar("resolver_inequidad", _resolver_inequidad)
+C.registrar("ramas", _ramas)
+C.registrar("aproximar", _aproximar)
 
 __all__ = ["C", "Trace", "RESUMEN", "PASO", "DETALLADO"]

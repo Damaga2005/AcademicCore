@@ -82,6 +82,12 @@ _FUNCTIONS: dict[str, tuple[tuple[str, ...], int | None]] = {
     "sinh": (("sinh", "senh"), 1),
     "cosh": (("cosh",), 1),
     "tanh": (("tanh", "tanh"), 1),
+    "coth": (("coth",), 1),
+    "sech": (("sech",), 1),
+    "csch": (("csch",), 1),
+    "asinh": (("asinh", "arcsenh", "arsinh"), 1),
+    "acosh": (("acosh", "arccosh", "arccosh"), 1),
+    "atanh": (("atanh", "arctanh", "arctanh"), 1),
     "exp": (("exp",), 1),
     "ln": (("ln",), 1),
     "log10": (("log10",), 1),
@@ -846,10 +852,27 @@ _CONST_NUMERIC = {"pi": complex(math.pi), "e": complex(math.e), "i": complex(0, 
 
 #: numeric evaluation is for *verification and graphs* only (§5.3, §6).
 #: ``cmath`` handles the whole plane, so no branch is wrong off the real axis.
+def _reciproca(z: complex) -> complex:
+    """``1/z``, refusing the poles instead of returning a huge wrong number."""
+    if z == 0:
+        raise ZeroDivisionError("la recíproca de cero no existe")
+    return 1 / z
+
+
 _FN_NUMERIC = {
     "sin": cmath.sin, "cos": cmath.cos, "tan": cmath.tan,
+    # cot, sec and csc are reciprocals, and the trig engine produces them: a
+    # verification that could not evaluate them would silently check nothing.
+    "cot": lambda z: _reciproca(cmath.tan(z)),
+    "sec": lambda z: _reciproca(cmath.cos(z)),
+    "csc": lambda z: _reciproca(cmath.sin(z)),
     "asin": cmath.asin, "acos": cmath.acos, "atan": cmath.atan,
     "sinh": cmath.sinh, "cosh": cmath.cosh, "tanh": cmath.tanh,
+    # same reasoning for the hyperbolic reciprocals: T-14 emits them
+    "coth": lambda z: _reciproca(cmath.tanh(z)),
+    "sech": lambda z: _reciproca(cmath.cosh(z)),
+    "csch": lambda z: _reciproca(cmath.sinh(z)),
+    "asinh": cmath.asinh, "acosh": cmath.acosh, "atanh": cmath.atanh,
     "exp": cmath.exp, "ln": cmath.log, "log10": cmath.log10,
     "abs": lambda z: complex(abs(z)),
     "sign": lambda z: complex(0 if z == 0 else (1 if z.real > 0 else -1)),
@@ -937,15 +960,24 @@ def _croot(z: complex, degree: int) -> complex:
 
 _PREC = {Add: 1, Sub: 1, Mul: 2, Div: 2, Neg: 3, Pow: 4}
 _LATEX_FN = {
+    "cot": r"\cot", "sec": r"\sec", "csc": r"\csc",
     "sin": r"\sin", "cos": r"\cos", "tan": r"\tan", "asin": r"\arcsen", "acos": r"\arccos",
     "atan": r"\arctan", "sinh": r"\operatorname{senh}", "cosh": r"\operatorname{cosh}",
-    "tanh": r"\operatorname{tanh}", "exp": r"\exp", "ln": r"\ln", "log10": r"\log_{10}",
+    "tanh": r"\operatorname{tanh}", "coth": r"\operatorname{cothg}",
+    "sech": r"\operatorname{sech}", "csch": r"\operatorname{csch}",
+    "asinh": r"\operatorname{arcsenh}", "acosh": r"\operatorname{arccosh}",
+    "atanh": r"\operatorname{arctanh}",
+    "exp": r"\exp", "ln": r"\ln", "log10": r"\log_{10}",
     "log": r"\log", "abs": r"\left|", "sign": r"\operatorname{sgn}", "floor": r"\lfloor",
     "ceil": r"\rceil",
 }
 _PRETTY_FN = {
+    "cot": "cotg", "sec": "sec", "csc": "cosec",
     "sin": "sen", "cos": "cos", "tan": "tan", "asin": "arcsen", "acos": "arccos",
-    "atan": "arctan", "sinh": "senh", "cosh": "cosh", "tanh": "tanh", "exp": "exp",
+    "atan": "arctan", "sinh": "senh", "cosh": "cosh", "tanh": "tanh",
+    "coth": "cotgh", "sech": "sech", "csch": "cschg",
+    "asinh": "arcsenh", "acosh": "arccosh", "atanh": "arctanh",
+    "exp": "exp",
     "ln": "ln", "log10": "log₁₀", "log": "log", "abs": "|", "sign": "sgn",
     "floor": "⌊", "ceil": "⌉",
 }

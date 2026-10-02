@@ -189,6 +189,67 @@ def atom_text(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# polynomial -> expression
+# ---------------------------------------------------------------------------
+
+
+def to_expr(p: Polynomial) -> mx.Expr:
+    """``as_poly`` read backwards: the polynomial as the expression it came from.
+
+    Total on the polynomials this module produces, and round-trips: an atom is
+    re-parsed from its canonical text, so ``as_poly(to_expr(q)) == q``. That is
+    what lets the equation solver multiply by a denominator and keep working on
+    expressions, instead of on a normal form it can no longer print.
+    """
+    if is_zero(p):
+        return mx.ZERO
+    piezas: list[mx.Expr] = []
+    # the constant goes last, so the result reads the way a person writes it:
+    # «x^2 - 1» and not «-1 + x^2». to_expr is not the pretty-printer — callers
+    # normalise when they need to — but it should not be gratuitously ugly.
+    for monomio, coeficiente in sorted(p.items(), key=lambda kv: (not kv[0], kv[0])):
+        if coeficiente == 0:
+            continue
+        producto = mx.ONE
+        for nombre, exponente in monomio:
+            factor = (mx.parse(atom_text(nombre)) if is_atom(nombre)
+                      else mx.Sym(nombre))
+            if exponente != 1:
+                factor = mx.Pow(factor, mx.Num(Fraction(exponente)))
+            # accumulate: assigning instead of multiplying silently drops every
+            # factor but the last, which turns 2*sin(x)*cos(x) into 2*sin(x)
+            producto = factor if producto == mx.ONE else mx.Mul(producto, factor)
+        piezas.append(_con_signo(coeficiente, producto))
+    if not piezas:
+        return mx.ZERO
+    if len(piezas) == 1:
+        return piezas[0]
+    # Add is a binary node, so the sum is folded left rather than splatted
+    total = piezas[0]
+    for siguiente in piezas[1:]:
+        total = mx.Add(total, siguiente)
+    return total
+
+
+def _con_signo(coeficiente: Fraction, producto: mx.Expr) -> mx.Expr:
+    """``-1·y`` as ``-y``: a negative coefficient carried inside the product is
+    invisible to every pattern that reads terms by sign.
+
+    ``trig``'s term reader sees ``1*cos(x) + (-1)*sin(x)`` as two positive terms,
+    so the phase case cannot match it and the normaliser does not fold it either.
+    Writing the sign where the reader looks for it is the difference between an
+    expression that is *printed* correctly and one that is also *read* correctly.
+    """
+    if coeficiente == 1:
+        return producto
+    if coeficiente == -1:
+        return mx.Neg(producto)
+    if coeficiente < 0:
+        return mx.Neg(mx.Mul(mx.Num(-coeficiente), producto))
+    return mx.Mul(mx.Num(coeficiente), producto)
+
+
+# ---------------------------------------------------------------------------
 # expression -> polynomial
 # ---------------------------------------------------------------------------
 

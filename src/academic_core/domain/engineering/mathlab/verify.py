@@ -37,11 +37,17 @@ check, and a missing SymPy must lower the seal, not hide the gap.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from fractions import Fraction
 
 from academic_core.domain.engineering.mathlab import mvexpr as mx
 from academic_core.domain.engineering.mathlab import poly as P
+from academic_core.errors import UnsupportedError
+
+
+def no_rule(message: str) -> UnsupportedError:
+    return UnsupportedError(f"NO_RULE: {message}")
 
 #: relative tolerance for the numeric agreement of two expressions
 TOLERANCE = Fraction(1, 10 ** 9)
@@ -235,6 +241,88 @@ def numeric_agreement(a: mx.Expr, b: mx.Expr, *,
 # ---------------------------------------------------------------------------
 # the two paths a calculator uses
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# T-21: the numeric fallback, with its error declared
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Aproximacion:
+    """A decimal answer, and what it costs.
+
+    The point of the type is that the error is a **field**, not a footnote. A
+    module that can only return exact values never needs it; a module that falls
+    back to decimals has to say how much the decimal is worth, and the only honest
+    way to do that is to measure how sensitive the expression turned out to be
+    rather than quote the size of the last digit and hope.
+    """
+
+    valor: complex
+    error: float
+    cifras: int
+    metodo: str
+    condicionamiento: float
+
+    def texto(self) -> str:
+        digitos = max(0, -int(math.floor(math.log10(self.error)))) if self.error \
+            else self.cifras
+        return f"{self.valor.real:.{digitos}g} ± {self.error:.1e} ({self.cifras} cifras)"
+
+        return True
+
+
+def sensibilidad(e: mx.Expr, var: str, x: float, paso: float = 2.0 ** -30) -> float:
+    """``|f(x(1+d)) - f(x)| / d``: how much the output moves per unit of input.
+
+    Measured rather than derived, because deriving it would mean differentiating an
+    expression this engine differentiates only in its own way, and a wrong
+    sensitivity gives a wrong bound just as confidently as a wrong answer.
+    """
+    base = mx.evaluate(e, {var: x})
+    desplazado = mx.evaluate(e, {var: x * (1 + paso)})
+    if base is None or desplazado is None:
+        return float("inf")
+    return abs(desplazado.real - base.real) / paso
+
+
+def aproximacion(e: mx.Expr, var: str, x: float, cifras: int = 15) -> Aproximacion:
+    """Evaluate numerically and say how much the answer is worth.
+
+    Two contributions, both measured:
+
+    1. the representation of ``x`` and of the result — one unit in the last place
+       each, which is the honest floor for a double;
+    2. what the sensitivity of ``e`` at ``x`` does to that floor. ``sin`` of a
+       huge argument is the case that matters: the input is exact, the answer is
+       exact, and yet both are computed in doubles, so the error is real and has
+       to be reported rather than assumed away.
+
+    The result is deliberately *not* a proof. It is a bound derived from measured
+    sensitivity, and it says so, because «±1e-13 porque así lo medí» and «±1e-13
+    porque lo prometo» are different claims and only one of them is true.
+    """
+    valor = mx.evaluate(e, {var: x})
+    if valor is None:
+        raise no_rule(f"no se puede evaluar «{mx.text(e)}» en {var} = {x}")
+    derivadas = sensibilidad(e, var, x)
+    magnitud = abs(valor.real) + abs(valor.imag)
+    if not math.isfinite(derivadas):
+        error = float("inf")
+    else:
+        error = derivadas * (abs(x) * 2.0 ** -52 + 2.0 ** -52 * max(1.0, magnitud))
+    escala = 10.0 ** (cifras - 1)
+    redondeo = magnitud / escala / 2.0
+    total = error + redondeo
+    return Aproximacion(
+        valor=valor,
+        error=total,
+        cifras=cifras,
+        condicionamiento=derivadas,
+        metodo=(f"doble precisión con sensibilidad medida en {var} = {x} "
+                f"(d|f|/dx ≈ {derivadas:.3g}), redondeado a {cifras} cifras"),
+    )
 
 
 def verify_against(value: mx.Expr, expected: mx.Expr, *,
