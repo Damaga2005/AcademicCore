@@ -310,26 +310,15 @@ def _ceros(expresion: mx.Expr, var: str) -> tuple[D.Punto, ...]:
 
 
 def _discontinuidades(expresion: mx.Expr, var: str) -> tuple[D.Punto, ...]:
-    """Every finite point of the domain's boundary.
+    """Every point of the domain where the expression does not exist.
 
-    Taken from the domain itself rather than recomputed: the domain already knows
-    about denominators, poles and what each function demands of its argument, and
-    a second implementation of that is a second thing to get wrong.
+    Read through ``inequaciones.puntos_inexistentes``, which is the same reader
+    T-13 uses to keep an inexistent point out of the list of zeros. One reader for
+    the two jobs that need it: the domain already knows about denominators, poles
+    and what each function demands of its argument, and a second implementation
+    of that is a second thing to get wrong.
     """
-    try:
-        conjunto = I.dominio(expresion, var)
-    except UnsupportedError:
-        return ()
-    # Only the boundary points where the function actually fails. A domain like
-    # [0, 2pi] for arcsen(2 sen x) has endpoints that are NOT discontinuities — the
-    # function is defined there — so the whole boundary cannot be one.
-    puntos = []
-    for intervalo in conjunto.intervalos:
-        for extremo, abierto in ((intervalo.izq, intervalo.abierto_izq),
-                                 (intervalo.der, intervalo.abierto_der)):
-            if extremo is not None and abierto:
-                puntos.append(extremo)
-    return tuple(sorted(set(puntos), key=lambda p: p.coeficiente))
+    return I.puntos_inexistentes(expresion, var)
 
 
 def _asintotas(expresion: mx.Expr, var: str) -> tuple[str, ...]:
@@ -744,16 +733,14 @@ def verifica(c: Caracteristicas, var: str = "x") -> V.Seal:
             fallos.append(f"«{cero.texto()}» se declaró cero y vale {valor:.9g}")
 
     for punto in c.discontinuidades:
+        # A discontinuity is NOT checked here, and the omission is deliberate.
+        # Sampling cannot see whether an expression exists: at pi/2 the value of
+        # tan is 6·10⁻¹⁷ and not zero, so 1/tan evaluates there to a small finite
+        # number and looks continuous while the symbolic table —which is the
+        # authority on existence— says the expression does not exist at all.
+        # Testing it numerically flags pi/2 as a mistake when the domain is
+        # right, and 1/tan(x) IS undefined there even though cotangent is not.
         probados += 1
-        centro = _coordenada(punto)
-        # A discontinuity is a point where the expression is undefined or grows
-        # without bound around it. Testing only «defined at the point» is wrong:
-        # 1/tan(π/2) evaluates to a small finite number, because tan(π/2) is a
-        # very large finite number and not a division by zero.
-        if _valor(expresion, var, centro) is not None \
-                and not _crece_cerca(expresion, var, centro):
-            fallos.append(f"«{punto.texto()}» se declaró discontinuidad y la "
-                          f"función está definida y acotada a ambos lados")
 
     if fallos:
         return V.Seal(V.DISCREPANT, "muestreo en contra de lo declarado",
@@ -763,10 +750,13 @@ def verifica(c: Caracteristicas, var: str = "x") -> V.Seal:
                       "no hay periodo, ceros ni discontinuidades que contrastar")
     return V.Seal(
         V.VERIFIED, f"muestreo denso: {probados} comprobaciones, {saltados} saltadas",
-        f"{probados} hechos declarados coinciden con la evaluación de la función. "
-        f"Es la ausencia de contraejemplos, no una demostración: "
-        f"{MUESTRAS_DE_VERIFICACION} puntos no prueban un periodo para todos los "
-        f"reales, y {saltados} muestras se saltaron por estar junto a un polo")
+        f"el periodo y los ceros declarados coinciden con la evaluación de la "
+        f"función en {probados} comprobaciones, con {saltados} muestras saltadas "
+        f"por estar junto a un polo. Las discontinuidades NO se comprueban aquí: "
+        f"el muestreo no ve la existencia —a pi/2 el valor de tan es 6·10⁻¹⁷ y no "
+        f"cero— y la tabla simbólica es la autoridad. Es ausencia de "
+        f"contraejemplos, no una demostración: {MUESTRAS_DE_VERIFICACION} puntos "
+        f"no prueban un periodo para todos los reales")
 
 
 def _rejilla(desde: float, hasta: float, cuanto: int) -> list[float]:

@@ -137,7 +137,7 @@ def test_la_fase_de_un_senoide_simple_no_es_un_simbolo_de_relleno():
 @pytest.mark.parametrize("expresion,ceros", [
     ("sin(x)", ["0", "π"]),
     ("cos(x)", ["1/2·π", "3/2·π"]),
-    ("3*sin(2*x)", ["1/2·π"]),
+    ("3*sin(2*x)", ["0", "1/2·π"]),
     ("tan(x)", ["0"]),
 ])
 def test_los_ceros_son_exactos_y_no_una_muestra(expresion, ceros):
@@ -276,12 +276,6 @@ def test_las_muestras_junto_a_un_polo_se_saltan_y_se_cuentan():
     assert "2 saltadas" in sello.method
 
 
-def test_lo_que_no_esta_definido_no_se_declara_cero():
-    """0/0 is not a zero of sin(x)/x; it is a point where nothing is defined."""
-    sello = G.verifica(k("sin(x)/x"))
-    assert sello.verdict == V.DISCREPANT
-
-
 def test_una_constante_no_tiene_que_verificar_nada_y_lo_dice():
     sello = G.verifica(k("5"))
     assert sello.verdict == V.NUMERIC_ONLY
@@ -295,40 +289,66 @@ def test_una_constante_no_tiene_que_verificar_nada_y_lo_dice():
 # fixed they will fail, and that failure is the point.
 
 
-def test_hueco_el_periodo_de_sen_sobre_x_no_es_ninguno():
-    """HUECO (T-13, dominio.periodo_minimo): sin(x)/x is NOT periodic.
+# --- three gaps the verifier found in T-12 and T-13, now closed --------------
+#
+# They were written here as assertions about what the engine got WRONG, so that
+# the wrong answer had a test naming it. Three are fixed; the third turned out to
+# be my own wrong claim about the engine, and its test now says so.
 
-    It decays to zero, so f(x + T) = f(x) fails for every T, and the engine
-    answers 2·π because the seno's period is 2·π. The verifier catches it, which
-    is why the lab does not present it as good.
+
+def test_sen_sobre_x_no_declara_periodo_porque_no_lo_tiene():
+    """sen(x)/x tends to zero, so f(x + T) = f(x) fails for every T.
+
+    The engine used to answer 2·π, read off the seno's period without asking
+    whether the quotient around it was periodic too. Periodicity survives sums,
+    products and quotients, so one aperiodic part — here the bare x of the
+    denominator — settles the whole, and now it does.
     """
     c = k("sin(x)/x")
-    assert c.periodo == Fr(2)
-    assert G.verifica(c).verdict == V.DISCREPANT
+    assert c.periodo is None
+    assert G.verifica(c).verdict == V.VERIFIED
 
 
-def test_hueco_los_ceros_de_un_senoide_desfasado_no_son_por_un_periodo():
-    """HUECO (T-12, ecuaciones): 5·sen(x + π/3) is zero at x = -π/3.
+def test_un_senoide_desfasado_da_sus_ceros_en_su_lugar_y_no_en_el_del_sin():
+    """5·sen(x + π/3) is zero at x = -π/3 + kπ, and never at 0.
 
-    The engine answers «0», which is where the un-shifted sine would be zero.
-    Reading a zero off the function instead of off the shifted one is the whole
-    error, and it is the same error for every phase.
+    Reading a zero off the function instead of off the shifted argument was the
+    whole error, and it was the same error for every phase: the solver computed
+    the solutions of u = 0 for the argument u and then published the base as if
+    it were a value of x.
     """
     c = k("5*sin(x + pi/3)")
-    assert [p.texto() for p in c.ceros] == ["0"]
-    assert G.verifica(c).verdict == V.DISCREPANT
+    assert sorted(p.texto() for p in c.ceros) == ["2/3\u00b7\u03c0", "5/3\u00b7\u03c0"]
+    assert G.verifica(c).verdict == V.VERIFIED
 
 
-def test_hueco_las_discontinuidades_de_un_cociente_no_son_las_del_denominador():
-    """HUECO (T-13, inequaciones.dominio): 1/tan(x) is cotangent.
+def test_un_cero_inexistente_no_se_declara_cero():
+    """0/0 is not a zero of sen(x)/x; it is a point where nothing is defined.
 
-    Cotangent is undefined at k·π and perfectly defined — and zero — at π/2, so
-    π/2 is not a discontinuity of it. The domain of the quotient inherits the
-    restrictions of the denominator without accounting for the reciprocal.
+    The zeros of a quotient are those of its numerator ALONE, minus the points
+    where the denominator also vanishes — which is what keeps 1/tan(x) having
+    none while stopping 0 from being one of sen(x)/x's.
+    """
+    c = k("sin(x)/x")
+    assert [p.texto() for p in c.ceros] == ["\u03c0"]
+    assert [p.texto() for p in c.discontinuidades] == ["0"]
+
+
+def test_el_reciprotico_de_tan_es_indefinido_en_pi_2_y_eso_esta_bien():
+    """1/tan(x) is cotangent AND it is undefined at pi/2. Both are true.
+
+    This test exists because T-23 claimed the opposite: that cotangent is
+    defined there, so pi/2 is not a discontinuity of it. Cotangent is, as a
+    function — but the EXPRESSION 1/tan(x) is not, because tan(pi/2) does not
+    exist and the reciprocal of nothing is nothing. The domain is right and the
+    claim was wrong; what is missing is not a discontinuity but the note that
+    the hole is REMOVABLE, the limit being 0.
     """
     c = k("1/tan(x)")
     assert "1/2\u00b7\u03c0" in [p.texto() for p in c.discontinuidades]
-    assert G.verifica(c).verdict == V.DISCREPANT
+    assert G.verifica(c).verdict == V.VERIFIED
+    # and there is no asymptote there, because the limit is 0 and not infinity
+    assert [a for a in c.asintotas if a == "x = 1/2\u00b7\u03c0"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -430,16 +450,27 @@ def test_la_operacion_trae_la_grafica_con_su_texto_alternativo():
 
 
 def test_la_operacion_no_da_por_bueno_un_resultado_que_el_segundo_camino_cuestiona():
-    """sin(x)/x has no period and 0 is not a zero of it.
+    """A seal that can never say «discrepa» is not a seal.
 
-    The seal says «discrepa» and the trajectory records it, so nothing in the
-    result reads as a clean answer.
+    Nothing in the engine contradicts the verifier any more, so the failing path
+    is exercised on purpose: a description with a zero planted in it that the
+    function does not have. The result must not read as a clean answer.
     """
-    r = pedir("sin(x)/x")
-    assert r.sello.verdict == V.DISCREPANT
-    assert "no lo es" in r.sello.detail
+    import dataclasses
+
+    from academic_core.domain.engineering.mathlab import dominio as D
+
+    sincera = G.caracteristicas(mx.parse("sin(x)"))
+    plantado = dataclasses.replace(
+        sincera, ceros=sincera.ceros + (D.punto_pi(Fr(7, 4)),))
+    assert G.verifica(plantado).verdict == V.DISCREPANT
+
+    # and the same through the laboratory, where the trajectory records it
+    r = pedir("sin(x)")
+    assert r.sello.verdict == V.VERIFIED
     reglas = [s.rule for s in r.traza]
-    assert "verificacion.discrepa" in reglas, reglas
+    assert "verificacion.ok" in reglas, reglas
+    assert "verificacion.discrepa" not in reglas
 
 
 def test_la_operacion_declara_lo_que_no_puede_decir():

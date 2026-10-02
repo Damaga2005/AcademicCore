@@ -41,7 +41,86 @@
 
 - **T-23 esquivó el hueco de T-19 en vez de heredarlo.** Donde hay serie conocida, `aproximar` usa `series.maclaurin`, que es correcta: `taylor("sen(x)")` saca el **polinomio del coseno**, porque el polinomio de un monomio lleva un término de más. Donde no la hay, avisa de que va por `taylor` y de que el polinomio que sale arrastra ese hueco.
 
-- **Pruebas**: 1289 sobre estas familias, en once ficheros de `test_mathlab_*.py`: 424 en `test_mathlab_trig.py`, 191 en `test_mathlab_ml1.py`, 165 en `test_mathlab_inequaciones.py`, 135 en `test_mathlab_ml0.py`, 99 en `test_mathlab_ecuaciones.py`, 95 en `test_mathlab_series.py`, 75 en `test_mathlab_complejos.py`, 64 en `test_mathlab_graficas.py`, 40 en `test_mathlab_ramas.py`, 30 en `test_mathlab_t24.py`, 23 en `test_mathlab_fasores.py` y 12 en `test_mathlab_arch.py`. Las de T-19 comprueban la serie por tres caminos independientes —el polinomio contra la función real en varios puntos, que el error **baje** al subir el orden (que es lo que distingue una serie que converge de una que trunca), y que la cota alternante acote el error real—.
+- **PRUEBAS**: 1289 sobre estas familias, en once ficheros de `test_mathlab_*.py`: 424 en `test_mathlab_trig.py`, 191 en `test_mathlab_ml1.py`, 165 en `test_mathlab_inequaciones.py`, 135 en `test_mathlab_ml0.py`, 99 en `test_mathlab_ecuaciones.py`, 95 en `test_mathlab_series.py`, 75 en `test_mathlab_complejos.py`, 64 en `test_mathlab_graficas.py`, 40 en `test_mathlab_ramas.py`, 30 en `test_mathlab_t24.py`, 23 en `test_mathlab_fasores.py` y 12 en `test_mathlab_arch.py`. Las de T-19 comprueban la serie por tres caminos independientes —el polinomio contra la función real en varios puntos, que el error **baje** al subir el orden (que es lo que distingue una serie que converge de una que trunca), y que la cota alternante acote el error real—.
+
+## Unreleased — MathLab: los tres huecos que encontró el verificador de T-23
+
+Cerrados. Los tres eran de T-12 y T-13 y los encontró el camino independiente de
+`caracteristicas`, que muestrea la función contra cada hecho declarado. La
+comprobación hizo su trabajo: los tres aparecieron como «discrepa» y ahora
+verifican.
+
+- **El periodo se preguntaba a la llamada, no a la expresión.** `periodo` leía el
+  periodo del primer seno que encontraba y lo devolvía, así que `sen(x)/x`
+  respondía `2·π` para una función que tiende a cero y donde
+  `f(x + T) = f(x)` falla para todo `T`. Ahora la pregunta es estructural y
+  recursiva: la periodicidad sobrevive a sumas, productos y cocientes, así que
+  **una parte no periódica zanja la respuesta**, y `sen(x)/x`, `x + sen(x)` y
+  `sen(x)·x` dan `None`. `sen(2x)·cos(3x)` sigue dando el mínimo común múltiplo,
+  `sen(x/2)` da `4·π` y `sen(3x)` da `2/3·π`: los senoides no han cambiado de
+  nombre.
+
+- **`_afine` no veía la parte constante, y un desplazamiento de fase es
+  precisamente una parte constante.** `trig._factores` reparte productos y nunca
+  reparte sumas: `x + π/3` volvía como **un** factor, así que la comprobación
+  «hay variable y hay otro factor» lo declaraba no afín y `sen(x + π/3) = 0`
+  quedaba sin resolver —el solucionador lo decía, pero `ceros` leía igualmente
+  el valor como si fuera una `x`—. Con las sumas repartidas: `sen(x + π/3) = 0`
+  da `-π/3 + 2k·π` y `2π/3 + 2k·π`; `cos(x + π/4) = 0` da `π/4` y `-3π/4`;
+  `tg(x + π/2) = 0` da `-π/2 + k·π`.
+
+- **Una familia que no se pudo deshacer en `x` no lleva la bandera.** Ahora
+  `Familia` tiene `en_x`, y `ceros` se salta las que van en la variable de
+  sustitución. Una hipótesis escrita dentro de un texto es fácil de no leer; un
+  booleano en un dataclass, no. Una hipótesis ENCADENADA con `deshacer ese cambio
+  de variable no está resuelto todavía» y un `0` publicado como cero era la peor
+  combinación posible: el motor avisando y el consumidor copiándolo.
+
+- **Un cero inexistente no es un cero.** `0/0` no es un número, es un punto donde
+  nada está definido, y `sen(x)/x` declaraba `0` como cero. Los ceros de un
+  cociente son los de su numerador **menos** los puntos donde el denominador se
+  anula, y esos se preguntan al dominio —que es quien sabe dónde deja de existir
+  una expresión— en vez de volver a resolver `denominador = 0`, porque el
+  solucionador se niega a `x = 0` con el motivo correcto y así se queda.
+
+- **`pi/3` no era un múltiplo de `pi`.** El lector de múltiplos de `pi` comparaba
+  contra `[Const(pi)]` y `trig._factores` no divide `pi/3`, así que toda base ya
+  desplazada se quedaba fuera de la rejilla. `trig._multiplo_de_pi` lo resuelve
+  recursivamente, y con dos formas que rompían por separado: `-pi/2` es
+  `Div(Neg(pi), 2)` con el signo **dentro** del numerador, y `3pi/4` es
+  `Div(Mul(3, pi), 4)` con un coeficiente delante. Vive en `trig` y no en
+  `ecuaciones` porque los dos lo necesitan y que uno importe al otro sería un
+  círculo.
+
+- **Un sello que no puede decir «discrepa» no es un sello.** Corregidos los tres
+  huecos, nada discrepa ya de forma natural, así que la ruta del fallo se
+  ejercita a propósito sobre una descripción con un cero plantado que la función
+  no tiene. Una comprobación que solo pasa es indistinguishable de una
+  comprobación que no compara nada.
+
+- **Una afirmación mía que era FALSA, y el motor tenía razón.** El bloque de T-23
+  afirmaba que `1/tan(x)` es cotangente y que por tanto `π/2` no es una
+  discontinuidad suya. La cotangente lo es como función; la **expresión**
+  `1/tan(x)` no existe en `π/2`, porque `tan(π/2)` no existe y el recíproco de
+  nada es nada. El dominio del motor era correcto. Lo que falta no es la
+  discontinuidad sino la nota de que el hueco es **removible**, con límite 0, y
+  eso sigue sin implementarse.
+
+- **El verificador ya no comprueba las discontinuidades, y lo dice.** A `π/2` el
+  valor de `tan` es 6·10⁻¹⁷ y no cero, así que el muestreo no puede ver si una
+  expresión existe: `1/tan` se evalúa ahí a un número finito y pequeño y parece
+  continua mientras la tabla simbólica —la autoridad sobre la existencia— dice
+  que no existe. Comprobarlo numéricamente señalaba `π/2` como error cuando el
+  dominio es correcto. Está fuera de la comprobación y su motivo está en el
+  sello.
+
+- **Pruebas**: 63 nuevas en `tests/test_mathlab_fases.py`, en cuatro capas —`_afine`
+  con y sin parte constante, las bases de cada familia tras un desplazamiento
+  comprobadas **sustituyendo en la ecuación original**, el periodo de las
+  expresiones que no son periódicas, y los ceros de un cociente contra sus
+  polos—. Las de sustitución son las que cazan un miembro espurious, que es lo
+  único que las caza. 1408 pasan y 8 se saltan en los trece ficheros
+  `test_mathlab_*.py`.
 
 ## Unreleased — Windows Product 1.0 (productización)
 - Producto/UX post-roadmap (sin fase nueva): menú Go agrupado sobre los 13 tabs intactos; índice de módulos reales; Virtual Lab/Simulation en secciones Experiment/Inputs/Execution/Results sin renombrar widgets; vista orbital F16 con números reales; dashboard editorial con recents reales; motion 150 ms sin bounce.

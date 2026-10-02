@@ -122,7 +122,10 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
         if isinstance(e.left, mx.Num) and e.left.value == 0:
             return ceros(e.right, var)
     if isinstance(e, mx.Div):
-        return ceros(e.left, var)
+        numerador = ceros(e.left, var)
+        if numerador is None:
+            return None
+        return _donde_existe(numerador, e, var)
     if isinstance(e, mx.Mul):
         izquierda, derecha = ceros(e.left, var), ceros(e.right, var)
         if izquierda is None or derecha is None:
@@ -145,6 +148,11 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
         return []
     vistos: list[mx.Expr] = []
     for familia in resolucion.familias:
+        if not familia.en_x:
+            # The solutions are in the substitution variable, not in x. Reading
+            # their base as a value of x is how «5·sen(x + pi/3)» published a
+            # zero at 0, where the expression is 4.33 and the real zero is 2pi/3.
+            continue
         base = _dentro_del_periodo(familia.base)
         if base is not None and all(mx.text(base) != mx.text(v) for v in vistos):
             vistos.append(base)
@@ -156,14 +164,53 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
     return vistos
 
 
-def _llamadas(e: mx.Expr) -> list[mx.Call]:
-    """Every function application in ``e``, roots included.
+def puntos_inexistentes(e: mx.Expr, var: str = "x") -> tuple[D.Punto, ...]:
+    """Where the expression does not exist.
 
-    ``sqrt(u)`` parses as a ``Root`` node rather than a call, and a walk that only
-    visits calls never sees it — so the domain of ``sqrt(sin(x))`` came back as the
-    whole real line, which is the answer for an expression that exists only where
-    ``sin(x) >= 0``.
+    The OPEN ends of the domain's intervals, and only those: a closed end is a
+    point where the expression is defined, and calling it a discontinuity
+    invents one wherever a function happens to stop at a finite bound — which is
+    the whole domain of ``arcsen(2·sen x)``.
+
+    One implementation for the two jobs that need it. T-13 needs it to keep an
+    inexistent point out of the list of zeros, and T-23 needs it to list the
+    discontinuities; a second copy is a second thing to get wrong.
     """
+    if not mx.depends(e, var):
+        return ()
+    try:
+        conjunto = dominio(e, var)
+    except UnsupportedError:
+        return ()
+    puntos = [p for intervalo in conjunto.intervalos
+              for p, abierto in ((intervalo.izq, intervalo.abierto_izq),
+                                 (intervalo.der, intervalo.abierto_der))
+              if p is not None and abierto]
+    return tuple(sorted(set(puntos), key=lambda p: p.coeficiente))
+
+
+def _donde_existe(valores: list[mx.Expr], e: mx.Expr, var: str) -> list[mx.Expr]:
+    """Drop from ``valores`` the ones where ``e`` does not exist.
+
+    The zeros of a quotient are those of its numerator ALONE, which is why
+    ``1/tan(x)`` has none and that is a fact. But a point where the denominator
+    vanishes is a pole, and there the expression does not exist at all: ``0/0``
+    is not a zero of ``sen(x)/x``, it is a point where nothing is defined, and
+    publishing it as a zero put 0 on the sign chart.
+
+    The holes are asked of the DOMAIN rather than by solving ``denominator = 0``
+    again: the equation solver declines ``x = 0`` as outside its cases —honestly,
+    which is why this filter has to exist— and a domain that does not know where
+    an expression stops existing is not a domain.
+    """
+    huecos = {p.texto() for p in puntos_inexistentes(e, var)}
+    if not huecos:
+        return list(valores)
+    return [v for v in valores
+            if not ((p := _a_punto(v)) is not None and p.texto() in huecos)]
+
+
+def _llamadas(e: mx.Expr) -> list[mx.Call]:
     salida: list[mx.Call] = []
     pila = [e]
     while pila:
@@ -253,14 +300,7 @@ def _coeficiente_pi(e: mx.Expr) -> Fraction | None:
     would come back as ``None`` and the chart would lose one of the two zeros of
     ``cos(x)``.
     """
-    if e == mx.ZERO:
-        return Fraction(0)          # «0» and «0*pi» are the same point
-    terminos = trig._terminos(e)
-    if len(terminos) != 1:
-        return None
-    signo, termino = terminos[0]
-    coeficiente, factores = trig._factores(termino)
-    return coeficiente * signo if factores == [mx.Const("pi")] else None
+    return trig._multiplo_de_pi(e)
 
 
 def _dentro_del_periodo(base: mx.Expr) -> mx.Expr | None:

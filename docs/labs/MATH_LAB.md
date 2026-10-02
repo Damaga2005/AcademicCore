@@ -1802,12 +1802,29 @@ límites, y muestrear en un `x` grande no es un límite. `sen(x) + cos(x)` es un
 senoide pero solo tras un desplazamiento de fase que habría que buscar, y se
 declina en vez de contestarse a medias.
 
-**Tres huecos que encontró el verificador de T-23 en módulos anteriores.** No se
-han corregido aquí —son de T-12 y T-13— pero quedan escritos y con prueba que los
-nombra en vez de aprobarlos: `periodo_minimo("sen(x)/x")` dice `2·π` y la función
-no es periódica; `ecuaciones` da `0` como cero de `5·sen(x + π/3)`, que se anula
-en `x = -π/3`; y `inequaciones.dominio` marca `π/2` como discontinuidad de
-`1/tan(x)`, que es cotangente y está definida y vale cero ahí.
+**Tres huecos que encontró el verificador de T-23 en módulos anteriores, y los
+tres cerrados.** Ya no son huecos; quedan aquí porque el criterio con el que se
+encontraron es el mismo que se usa para el resto.
+
+- `periodo_minimo("sen(x)/x")` decía `2·π` y la función no es periódica. El
+  periodo se pregunta ahora a la expresión **entra**: la periodicidad sobrevive a
+  sumas, productos y cocientes, así que una parte no periódica —la `x` desnuda
+  del denominador— zanja la respuesta, y `sen(x)/x`, `x + sen(x)`, `sen(x)·x`
+  dan `None`.
+- Los ceros de `5·sen(x + π/3)` daban `0`, que es donde se anula el seno sin
+  desplazar. La causa era que `_afine` no veía la parte constante:
+  `trig._factores` reparte productos y no sumas, así que `x + π/3` volvía como un
+  factor único y todo desplazamiento salía «no afín».
+- `sen(x)/x` declaraba `0` como cero, y `0/0` no es un cero sino un punto donde
+  no está definido. Los ceros de un cociente son los de su numerador menos los
+  puntos donde el denominador se anula.
+
+**Una afirmación mía que era falsa.** T-23 decía que `1/tan(x)` es cotangente y
+que por tanto `π/2` no es una discontinuidad suya. La cotangente lo es como
+función, pero la **expresión** `1/tan(x)` no existe en `π/2`, porque `tan(π/2)`
+no existe y el recíproco de nada es nada. El dominio del motor era correcto y la
+afirmación era el error. Lo que falta no es la discontinuidad sino la nota de que
+el hueco es **removible**, con límite 0.
 
 **COMPLETADAS:** T-01 a T-23 (salvo las partes señaladas).
 

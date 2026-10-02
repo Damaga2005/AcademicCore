@@ -92,12 +92,24 @@ Lo que T-23_NO hace, declarado:
 - **Asíntotas horizontales y oblicuas.** Necesitan el límite en el infinito y no hay motor de límites. Muestrear en un `x` grande no es un límite: un senoide da diez «límites» distintos en diez `x` grandes, y declarar `y = 0` porque uno de ellos salió pequeño sería inventar una recta a partir de una coincidencia.
 - **Desplazamiento vertical `D`.** Una expresión de la forma `A·sen(Bx + C) + D` es un senoide y su amplitud es exacta, pero `D` no se reporta como parte de la forma canónica; sí aparece implícito en el desplazamiento de los ceros.
 - **`sen(x) + cos(x)`** es un senoide, pero solo tras un desplazamiento de fase que el módulo tendría que buscar. Se declina en vez de contestarse a medias.
+- **La existencia de un punto, comprobada por muestreo.** A `pi/2` el valor de `tan` es 6·10⁻¹⁷ y no cero, así que el muestreo no ve si una expresión existe ahí. La tabla simbólica es la autoridad, y el sello de T-23 lo dice en vez de fingir que lo comprobó.
 
-Tres huecos que el verificador de T-23 encontró en módulos anteriores y que **no** se han corregido aquí, porque son de T-12 y T-13. Cada uno tiene una prueba que lo nombra en vez de aprobarlo:
+El verificador de T-23 encontró tres huecos en T-12 y T-13. **Los tres están cerrados**, y el que se creyó un hueco resultó no serlo:
 
-- `dominio.periodo_minimo("sen(x)/x")` responde `2·π` y la función no es periódica: tiende a cero, así que `f(x + T) = f(x)` falla para todo `T`.
-- `ecuaciones` da `0` como cero de `5·sen(x + π/3)`, que se anula en `x = -π/3`. El cero se lee de la función sin desplazar.
-- `inequaciones.dominio` marca `π/2` y `3π/2` como discontinuidades de `1/tan(x)`, que es cotangente y está definida —y vale cero— ahí. El cociente hereda las restricciones del denominador sin tener en cuenta el recíproco.
+- `dominio.periodo_minimo("sen(x)/x")` respondía `2·π` y la función no es periódica. Ahora el periodo se pregunta a la expresión **entera**: la periodicidad sobrevive a sumas, productos y cocientes, así que una parte no periódica —la `x` desnuda del denominador— zanja la respuesta. `sen(x)/x`, `x + sen(x)` y `sen(x)·x` dan `None`.
+- Los ceros de `5·sen(x + π/3)` daban `0`, que es donde se anula el seno sin desplazar. La causa era que `_afine` no veía la parte constante: `trig._factores` reparte productos y no sumas, así que `x + π/3` volvía como un factor único y todo desplazamiento salía «no afín». Con las sumas repartidas, `sen(x + π/3) = 0` da `-π/3 + 2k·π` y `2π/3 + 2k·π`.
+- `sen(x)/x` declaraba `0` como cero, y `0/0` no es un cero: es un punto donde no está definido. Los ceros de un cociente son los de su numerador **menos** los puntos donde el denominador se anula, y esos se preguntan al dominio.
+
+Una cuarta cosa salió de camino y **no** era un falso «no hay soluciones»: `resolver("x = 0")` se niega con el motivo correcto, fuera de los casos de T-12. Es una negativa honesta y así se queda; el filtro del cociente se apoya en el dominio precisamente para no depender de ella.
+
+Y una afirmación de T-23 resultó **falsa**: decía que `1/tan(x)` es cotangente y que por tanto `pi/2` no es una discontinuidad suya. La cotangente lo es como función, pero la **expresión** `1/tan(x)` no existe en `pi/2`, porque `tan(pi/2)` no existe y el recíproco de nada es nada. El dominio del motor era correcto; la afirmación era el error. Lo que falta no es la discontinuidad sino la nota de que el hueco es **removible**, con límite 0.
+
+Lo que queda abierto, y no lo pidió nadie:
+
+- **T-14** sin derivadas ni integrales propias; las de la familia viven en T-17.
+- **T-18** sin reducción de potencias al integrando, ni partes encadenadas para logaritmos.
+- **T-19** con un término de más en el polinomio de Taylor de un monomio.
+- **T-20** con cuatro objetivos repartidos por los módulos que los necesitan.
 
 ## M-02 Cálculo diferencial
 **Estado: PARCIAL.**

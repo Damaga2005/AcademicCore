@@ -151,6 +151,40 @@ def _terminos(e: mx.Expr) -> list[tuple[int, mx.Expr]]:
     return [(1, e)]
 
 
+def _multiplo_de_pi(e: mx.Expr) -> Fraction | None:
+    """``c`` when ``e`` is exactly ``c·pi``, and ``None`` when it is not.
+
+    ``_factores`` splits products and never splits ``pi/3``: it hands that back
+    as ONE factor, so a reader that only compares against ``[Const(pi)]``
+    answers «not a multiple of pi» for ``pi/3``. Every value that reaches the
+    period reduction is written this way once it has been shifted, which is why
+    ``5·sen(x + pi/3)`` came out with no zeros at all instead of with 2pi/3.
+
+    It belongs here, beside ``_factores`` and ``_terminos``, because both the
+    equation solver and the inequality module need it and either one importing
+    the other would be a circle.
+    """
+    if e == mx.ZERO:
+        return Fraction(0)
+    terminos = _terminos(e)
+    if len(terminos) != 1:
+        return None
+    signo, termino = terminos[0]
+    coeficiente, factores = _factores(termino)
+    if factores == [mx.Const("pi")]:
+        return coeficiente * signo
+    if isinstance(termino, mx.Div) and isinstance(termino.right, mx.Num) \
+            and termino.right.value != 0:
+        # Recurse rather than match one shape. «-pi/2» is Div(Neg(pi), 2) with the
+        # sign INSIDE the numerator, «3pi/4» is Div(Mul(3, pi), 4) with a
+        # coefficient there too, and a test written for «the left side is pi»
+        # misses every negative angle and every fraction other than pi/n.
+        dentro = _multiplo_de_pi(termino.left)
+        if dentro is not None:
+            return signo * dentro / termino.right.value
+    return None
+
+
 def _factores(e: mx.Expr) -> tuple[Fraction, list[mx.Expr]]:
     """The numeric coefficient of ``e`` and its non-numeric factors."""
     if isinstance(e, mx.Mul):

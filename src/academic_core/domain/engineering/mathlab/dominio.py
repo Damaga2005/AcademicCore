@@ -447,34 +447,85 @@ PERIODO_HIPERBOLICO = {"sinh": None, "cosh": None, "tanh": None,
                        "coth": None, "sech": None, "csch": None}
 
 
-def periodo(e: mx.Expr) -> Fraction | None:
-    """The period of ``e`` in units of ``pi``, or ``None`` when it has none.
+#: The expression is constant, so every number is a period of it and it puts no
+#: constraint on the period of whatever it is added to or multiplied by.
+LIBRE = "libre"
 
-    ``None`` is the honest answer for the hyperbolic functions, and it is the
-    answer that matters: ``sinh`` has no real period, so a solver that assumed
-    one would emit ``x + 2k·pi`` as a family of solutions to an equation that has
-    none (§5.4).
+
+def periodo(e: mx.Expr, var: str = "x") -> Fraction | None:
+    """The period of ``e`` as a function of ``var``, in units of ``pi``.
+
+    ``None`` is the honest answer for a function that has none, and it is the
+    answer that matters. The hyperbolic functions are the obvious case:
+    ``sinh`` has no real period, so a solver that assumed one would emit
+    ``x + 2k·pi`` as a family of solutions to an equation that has none (§5.4).
+    So is a bare ``x``: ``x + sin(x)`` tends to infinity and ``sin(x)/x`` tends to
+    zero, and neither is periodic.
+
+    The question is asked of the WHOLE expression and not of the trigonometric
+    call inside it. Reading off the first sine found answers ``2·pi`` for
+    ``sin(x)/x``, which is not a period of anything: the quotient decays and
+    ``f(x + 2pi) ≠ f(x)``. Periodicity survives sums, products and quotients, so
+    every part has to be periodic for the whole to be — and one part that is not
+    settles the answer on its own.
 
     Products and sums take the *least common* multiple of the periods involved,
     not the smallest one: ``sin(2x)·cos(3x)`` has period ``2pi``, even though
     ``sin(2x)`` alone has period ``pi``.
     """
-    for _llamada, funcion in _llamadas(e):
-        if funcion in PERIODO_HIPERBOLICO:
+    p = _periodo(e, var)
+    return None if p is LIBRE else p
+
+
+def _periodo(e: mx.Expr, var: str):
+    """``LIBRE`` for no constraint, ``None`` for aperiodic, else a period."""
+    if isinstance(e, (mx.Num, mx.Const)):
+        return LIBRE
+    if isinstance(e, mx.Sym):
+        # x itself is aperiodic; another free symbol is not a function of var
+        return None if e.name == var else LIBRE
+    if isinstance(e, mx.Neg):
+        return _periodo(e.arg, var)
+    if isinstance(e, mx.Call):
+        return _periodo_de_llamada(e, var)
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return _combinar(_periodo(e.left, var), _periodo(e.right, var))
+    if isinstance(e, mx.Pow):
+        # sin(x)^2 is periodic with the period of sin(x); sin(x)^x is not, and
+        # the exponent is what tells the two apart
+        if mx.variables(e.exponent):
             return None
-    periodos: list[Fraction] = []
-    for llamada, funcion in _llamadas(e):
-        p = PERIODO_FUNCIÓN.get(funcion)
-        if p is None:
-            continue
-        escala = _escala_del_argumento(llamada)
-        periodos.append(p / abs(escala) if escala else p)
-    if not periodos:
+        return _periodo(e.base, var)
+    if isinstance(e, mx.Root):
+        return _periodo(e.radicand, var)
+    return None
+
+
+def _periodo_de_llamada(e: mx.Call, var: str):
+    if e.name in PERIODO_HIPERBOLICO:
         return None
-    resultado = periodos[0]
-    for p in periodos[1:]:
-        resultado = _mcm_racional(resultado, p)
-    return resultado
+    base = PERIODO_FUNCIÓN.get(e.name)
+    if base is None or len(e.args) != 1:
+        return None                 # exp, ln, asin, ...: not periodic
+    from academic_core.domain.engineering.mathlab.ecuaciones import _afine
+
+    a, _b = _afine(e.args[0], var)
+    if a is None or a == 0:
+        # a constant argument makes a constant function, and a non-affine one
+        # breaks the periodicity: sen(sen(x)) has none
+        return LIBRE if not mx.variables(e.args[0]) else None
+    return base / abs(a)
+
+
+def _combinar(a, b):
+    """The period of two parts used together: aperiodic absorbs everything."""
+    if a is None or b is None:
+        return None
+    if a is LIBRE:
+        return b
+    if b is LIBRE:
+        return a
+    return _mcm_racional(a, b)
 
 
 def periodo_minimo(e: mx.Expr, var: str = "x") -> Fraction | None:

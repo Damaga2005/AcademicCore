@@ -72,6 +72,12 @@ class Familia:
     paso: mx.Expr
     metodo: str = ""
     hipotesis: str = ""
+    #: Whether ``base`` is a value of ``x`` or of the substitution variable.
+    #: A family left in ``u`` —«sen(sen(x)) = 0», donde no hay cambio de variable
+    #: que deshacer— reads as a value of ``x`` unless something says otherwise,
+    #: and a caller that places it en la rejilla de pi publica un cero que
+    #: pertenece a otra variable.
+    en_x: bool = True
 
     def texto(self, var: str) -> str:
         paso = "" if mx.text(self.paso) == "1" else f" + {mx.pretty(self.paso)}·k"
@@ -367,7 +373,7 @@ def _invertir(u: mx.Expr, base: mx.Expr, paso: mx.Expr, var: str
     a, b = _afine(u, var)
     if a is None or a == 0:
         return None
-    nuevo_base = _simplifica_base(mx.Sub(base, b) if mx.text(b) != "0" else base)
+    nuevo_base = _simplifica_base(mx.Sub(base, b) if b != mx.ZERO else base)
     if a != 1:
         nuevo_base = _divide_por_constante(nuevo_base, a)
     nuevo_paso = paso if a == 1 else _divide_por_constante(paso, a)
@@ -383,6 +389,11 @@ def _divide_por_constante(e: mx.Expr, a: Fraction) -> mx.Expr:
     """
     if isinstance(e, mx.Neg):
         return mx.Neg(_divide_por_constante(e.arg, a))
+    if mx.exact_value(e) == 0:
+        # 0 over anything is 0, and writing it as a quotient is how «x/2» came
+        # back with a constant term of «0/2» that then leaked into every answer
+        # derived from it
+        return mx.ZERO
     if isinstance(e, mx.Div) and isinstance(e.right, mx.Num) and e.right.value != 0:
         acumulado = e.right.value * a
         if acumulado.denominator == 1 and acumulado != 0:
@@ -398,6 +409,10 @@ def _divide_por_constante(e: mx.Expr, a: Fraction) -> mx.Expr:
                 return mx.Root(2, mx.Num(nuevo))
     coeficiente, factores = trig._factores(e)
     nuevo = coeficiente / a if a != 0 else coeficiente
+    if nuevo == 0:
+        # a coefficient of zero must come out as the plain zero: handing it to
+        # _desde_factores is what wrote «-0» as the base of a whole family
+        return mx.ZERO
     if factores:
         return trig._desde_factores(nuevo, factores)
     return mx.Div(e, mx.Num(a))
@@ -405,6 +420,10 @@ def _divide_por_constante(e: mx.Expr, a: Fraction) -> mx.Expr:
 
 def _simplifica_base(e: mx.Expr) -> mx.Expr:
     """``pi − 0·pi`` → ``pi`` and ``pi − pi/6`` → ``5·pi/6``: the answer must read well."""
+    if isinstance(e, mx.Sub) and e.left == e.right:
+        # «sin(3x + pi/2) = 1» gives pi/2 - pi/2, and the factor reader turns
+        # that into a negative zero that then travels through the whole answer
+        return mx.ZERO
     # Recurse into children first. «pi - 0*pi - pi/4» only folds once its own
     # children have folded, and that is not obvious until it has happened once.
     if isinstance(e, mx.Sub):
@@ -423,10 +442,12 @@ def _simplifica_base(e: mx.Expr) -> mx.Expr:
         if len(t1) == 1 and len(t2) == 1:
             s1, n1 = t1[0]
             s2, n2 = t2[0]
-            c1, f1 = trig._factores(n1)
-            c2, f2 = trig._factores(n2)
-            if f1 == [mx.Const("pi")] and f2 == [mx.Const("pi")]:
+            c1 = trig._multiplo_de_pi(n1)
+            c2 = trig._multiplo_de_pi(n2)
+            if c1 is not None and c2 is not None:
                 total = s1 * c1 - s2 * c2
+                if total == 0:
+                    return mx.ZERO
                 return mx.PI if total == 1 else _medio_pi(total)
         if derecha == mx.ZERO:
             return izquierda
@@ -449,23 +470,84 @@ def _simplifica_paso(paso: mx.Expr) -> mx.Expr:
     return paso
 
 
+def _sumandos(e: mx.Expr):
+    """``(signo, término)`` over the additive tree, so a shift shows up as one.
+
+    ``trig._factores`` splits products and never splits a sum: it hands back
+    ``x + pi/3`` as ONE factor, so the constant term was invisible and every
+    shifted argument came out as «not affine». Splitting the sum is what turns
+    ``x + pi/3`` into ``(1, pi/3)`` and makes ``sen(x + pi/3) = 0`` solvable.
+    """
+    if isinstance(e, mx.Add):
+        yield from _sumandos(e.left)
+        yield from _sumandos(e.right)
+    elif isinstance(e, mx.Sub):
+        yield from _sumandos(e.left)
+        for signo, termino in _sumandos(e.right):
+            yield -signo, termino
+    elif isinstance(e, mx.Neg):
+        for signo, termino in _sumandos(e.arg):
+            yield -signo, termino
+    else:
+        yield Fraction(1), e
+
+
+def _escalar_de_x(termino: mx.Expr, var: str) -> Fraction | None:
+    """``a`` when the term is exactly ``a·var``, and ``None`` when it is not.
+
+    ``x^2`` arrives as a ``Pow`` and is not ``a·x``: reading the power as a
+    scaling would give ``sen(x^2)`` a frequency of 2. ``1/x`` is a ``Div`` with
+    the variable below and is not affine either — inverting ``u = 1/x`` gives
+    ``x = 1/u``, which is not ``(base − b)/a`` and has to be refused rather than
+    mangled into ``x = base``.
+    """
+    if termino == mx.Sym(var):
+        return Fraction(1)
+    if isinstance(termino, mx.Div):
+        return None                          # handled by _afine, or not affine
+    coeficiente, factores = trig._factores(termino)
+    return coeficiente if factores == [mx.Sym(var)] else None
+
+
 def _afine(e: mx.Expr, var: str) -> tuple[Fraction | None, mx.Expr]:
     """``(a, b)`` for ``e = a·var + b``; ``a is None`` when ``e`` is not affine.
 
     ``a is None`` covers two cases the caller has to tell apart: a constant
     argument (``u = 3``) and a genuinely non-affine one (``u = sin(x)``).
     Neither can be inverted, and both are reported rather than approximated.
+
+    ``u = a·var + b`` exactly, so with no constant term ``b`` is zero — reading
+    the coefficient as the constant term is what produced the nonsense
+    «x = (pi/2 − 1)» for ``sin(x) = 1``.
     """
-    coeficiente, factores = trig._factores(e)
-    variables = [f for f in factores if isinstance(f, mx.Sym) and f.name == var]
-    otros = [f for f in factores if not (isinstance(f, mx.Sym) and f.name == var)]
-    if len(variables) > 1 or (variables and otros):
-        return None, mx.ZERO
-    if not variables:
-        return None, trig._desde_factores(coeficiente, otros)
-    # u = a·var exactly, so the constant term is zero — reading it as the
-    # coefficient is what produced the nonsense «x = (pi/2 − 1)» for sin(x)=1
-    return coeficiente, mx.ZERO
+    # A quotient by a plain number scales the whole affine form and stays affine:
+    # (2·x + 1)/3 is (2/3)·x + 1/3, and refusing it threw away a family of
+    # perfectly good solutions. It also fixes x/2, whose coefficient is 1/2 and
+    # not the 2 of the divisor — reading the divisor as the scale gave
+    # «sen(x/2) = 1 → x = pi/4» where the answer is pi/2.
+    if isinstance(e, mx.Div) and isinstance(e.right, mx.Num) \
+            and not mx.variables(e.right) and e.right.value != 0:
+        divisor = e.right.value
+        a, b = _afine(e.left, var)
+        return (a / divisor if a is not None else None,
+                _divide_por_constante(b, divisor))
+    a = Fraction(0)
+    constantes: list[mx.Expr] = []
+    for signo, termino in _sumandos(e):
+        escalar = _escalar_de_x(termino, var)
+        if escalar is not None:
+            a += signo * escalar
+        elif mx.variables(termino):
+            return None, mx.ZERO                 # sin(x), x^2, x/(x+1)
+        else:
+            constantes.append(termino if signo > 0 else mx.Neg(termino))
+    if not constantes:
+        b = mx.ZERO
+    elif len(constantes) == 1:
+        b = constantes[0]
+    else:
+        b = mx.Add(*constantes)
+    return (a if a != 0 else None), b
 
 
 def _como_expresion(c) -> mx.Expr:
@@ -548,7 +630,8 @@ def _trasladar(familias: list[Familia], u: mx.Expr, var: str) -> list[Familia]:
             familia = Familia(
                 familia.base, familia.paso, familia.metodo,
                 f"las soluciones son para «{mx.text(u)}»; deshacer ese cambio de "
-                "variable no está resuelto todavía, así que no se escribe en x (§5.4)")
+                "variable no está resuelto todavía, así que no se escribe en x (§5.4)",
+                en_x=False)
             salida.append(familia)
             continue
         base, paso, _ = invertida
