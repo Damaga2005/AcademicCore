@@ -133,9 +133,26 @@ class Expr:
 
 @dataclass(frozen=True)
 class Num(Expr):
-    """Exact rational."""
+    """Exact rational.
+
+    A ``float`` is accepted and converted through its exact binary value, rather
+    than refused: refusing gives ``'float' object has no attribute 'numerator'``
+    three frames away from the mistake, and accepting gives the only thing a float
+    can honestly become here — a rational, however ugly. Nothing downstream ever
+    sees the float again, so it cannot quietly propagate.
+    """
 
     value: Fraction
+
+    def __post_init__(self) -> None:
+        if isinstance(self.value, float):
+            object.__setattr__(self, "value", Fraction(self.value))
+        elif isinstance(self.value, int):
+            object.__setattr__(self, "value", Fraction(self.value))
+        elif not isinstance(self.value, Fraction):
+            raise no_rule(
+                f"un número exacto tiene que ser Fraction o int; llegó "
+                f"{type(self.value).__name__}")
 
 
 @dataclass(frozen=True)
@@ -762,7 +779,16 @@ def exact_value(e: Expr) -> Fraction | None:
     A calculus object is never a value: ``exact_value(integral(x^2, x))`` is
     ``None``, because an indefinite integral is a *function*, not a number, and
     the engine that solves it is what turns it into one.
+
+    A bare Python number is refused rather than coerced. Coercing would be
+    convenient and wrong in the other direction: ``exact_value(4)`` returning 4
+    hides the mistake one frame later, in whatever arithmetic was meant to receive
+    an expression, as an attribute error about ``left``.
     """
+    if not isinstance(e, Expr):
+        raise no_rule(
+            f"exact_value recibe una expresión y recibió {type(e).__name__}; "
+            f"envuélvelo con Num({e!r})")
     """Exact rational value of a closed expression, or ``None``.
 
     ``None`` means "not an exact rational": a variable, a transcendental

@@ -867,6 +867,59 @@ def test_una_expresion_demasiado_profunda_se_declara_en_castellano():
     assert trig.simplify(al_limite) is not None
 
 
+# ---------------------------------------------------------------------------
+# soundness of the simplifier itself, on shapes no family names
+# ---------------------------------------------------------------------------
+
+#: Expressions whose value is obvious before and after simplification. The
+#: simplifier may rearrange; it may not change the number.
+#:
+#: ``-(-u)`` was in this list from the start and still went unnoticed, because the
+#: case was missing rather than the check: the sonority layer recomputes each
+#: identity numerically, and no identity in the catalogue is ``-(-8) = 8``. The
+#: value of a rewrite has to be checked on the rewrite itself, not only on the
+#: families that motivated it.
+CASOS_DE_SONORIDAD = [
+    "-(-x)", "-(-8)", "3 + -(-8)", "-(-cos(x))", "-(-(-x))",
+    "-(-sin(x)*cos(x))", "-(-x^2)", "1 - (-x)", "(-x) - (2 - x)",
+    "-(-2)*(-3)", "-(-pi/6)", "-(-sqrt(2))", "-(-(-sin(x)))", "(-x) - (2 - x)",
+]
+
+
+@pytest.mark.parametrize("texto", CASOS_DE_SONORIDAD)
+def test_simplificar_no_cambia_el_valor_de_la_expresion(texto):
+    """Every rewrite is an identity, including the ones nobody wrote a rule for."""
+    original = mx.parse(texto)
+    reducido = trig.simplify(original)
+    for x in (-0.7, 0.3, 1.1, 2.9):
+        antes = mx.evaluate(original, {"x": x})
+        despues = mx.evaluate(reducido, {"x": x})
+        assert antes is not None and despues is not None
+        assert abs(antes - despues) <= 1e-12 * max(1.0, abs(antes)), (
+            f"{texto}: vale {antes} y simplify devuelve {despues}")
+
+
+@pytest.mark.parametrize("texto", CASOS_DE_SONORIDAD)
+def test_la_forma_normal_also_agrees_with_the_expression(texto):
+    """The two independent reductions of an expression must agree with each other.
+
+    ``trig.simplify`` and the rational normal form are different algorithms; where
+    both are available, a disagreement is either a soundness bug or a difference in
+    what they normalise to, and the first of those is worth catching.
+    """
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    original = mx.parse(texto)
+    por_polinio = P.to_expr(P.as_poly(original))
+    for x in (-0.7, 0.3, 1.1):
+        antes = mx.evaluate(original, {"x": x})
+        via_poly = mx.evaluate(por_polinio, {"x": x})
+        via_trig = mx.evaluate(trig.simplify(original), {"x": x})
+        assert antes is not None
+        assert abs(antes - via_poly) <= 1e-12 * max(1.0, abs(antes)), texto
+        assert abs(via_poly - via_trig) <= 1e-12 * max(1.0, abs(antes)), texto
+
+
 def test_las_reciprocas_se_pueden_evaluar():
     """A verification that cannot evaluate what the engine emits checks nothing."""
     assert abs(mx.evaluate(mx.parse("sec(pi/4)")).real - 2 ** 0.5) < 1e-12

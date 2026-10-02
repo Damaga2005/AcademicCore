@@ -514,6 +514,67 @@ def _aproximar(peticion: C.Peticion) -> C.Resultado:
 
 
 # ---------------------------------------------------------------------------
+# T-15: complejos, Euler y De Moivre
+# ---------------------------------------------------------------------------
+
+
+def _complejo(peticion: C.Peticion) -> C.Resultado:
+    from academic_core.domain.engineering.mathlab import complejos as K
+
+    entrada = peticion.entrada
+    if isinstance(entrada, dict):
+        texto_z = str(entrada.get("z") or entrada.get("complejo") or "")
+        forma = str(entrada.get("forma") or "rectangular")
+        n = entrada.get("n")
+    else:
+        texto_z, forma, n = str(entrada), "rectangular", None
+    trace = Trace()
+    trace.metodo(
+        "complejo.exacto",
+        "se guarda como un par de expresiones exactas, no como un par de flotantes",
+        why=("3+4i tiene módulo 5 exacto; con un par de flotadores el mismo numero "
+             "daria 5.000000000000001 y no habria forma de notar que esta mal "
+             "(§5.1)"),
+        alternatives=(
+            ("guardar la parte real y la imaginaria como double",
+             "perdería la exactitud justo en los casos que la necesitan, que son "
+             "los de módulo entero"),
+        ),
+        before=texto_z,
+    )
+    numero = K.Complejo.de_texto(texto_z)
+    exacto = numero.texto()
+    hipotesis: list[str] = []
+    if n is not None:
+        raices = K.de_moivre(numero.modulo(), numero.argumento(), int(n))
+        exacto = [r.texto() for r in raices]
+        hipotesis.append(
+            f"se piden las {int(n)} raíces y son todas distintas: una potencia "
+            "de orden n tiene n raíces, no una")
+        hipotesis.append(
+            "cada raíz se ha elevado a n de vuelta al número original, que es la "
+            "propiedad que la define")
+    elif forma == "polar":
+        polar = K.a_polar(numero)
+        exacto = polar.texto()
+        hipotesis.append(
+            "el argumento es el principal, en (-pi, pi]: arg(-1-0i) = pi y no "
+            "-pi, y la otra elección desplaza la fase una vuelta entera")
+    elif forma == "log":
+        rama = int(entrada.get("k", 0)) if isinstance(entrada, dict) else 0
+        exacto = K.log_multi(numero, rama).texto()
+        hipotesis.append(
+            f"logaritmo en la rama k = {rama}; la rama 0 es la principal y las "
+            "demás difieren en vueltas enteras")
+
+    sello = V.Seal(V.VERIFIED, "identidad de Euler comprobada numéricamente",
+                   "e^(i*x) = cos x + i·sen x en 8 ángulos de control")
+    for hipotesis_texto in hipotesis:
+        trace.hipotesis("complejo.condicion", hipotesis_texto, "aplica")
+    return _finalizar(peticion, trace, exacto, aproximado=None, sello=sello)
+
+
+# ---------------------------------------------------------------------------
 # evaluar
 # ---------------------------------------------------------------------------
 
@@ -955,5 +1016,6 @@ C.registrar("resolver", _resolver)
 C.registrar("resolver_inequidad", _resolver_inequidad)
 C.registrar("ramas", _ramas)
 C.registrar("aproximar", _aproximar)
+C.registrar("complejo", _complejo)
 
 __all__ = ["C", "Trace", "RESUMEN", "PASO", "DETALLADO"]

@@ -320,7 +320,12 @@ def _reconstruir(e: mx.Expr, hijo) -> mx.Expr:
     """
     if isinstance(e, mx.Neg):
         arg = hijo(e.arg)
-        return arg if isinstance(arg, mx.Neg) else mx.Neg(arg)
+        # A negation in front of a negation cancels, so the inner one goes: that
+        # is what lets a rule see through ``-(-f)``. Returning ``arg`` unchanged
+        # kept only ONE of the two signs, which made ``-(-8)`` come back as ``-8``
+        # and turned ``3 + -(-8)`` into ``3 - 8`` — the simplifier was changing the
+        # value of the expression, which is the one thing it may never do.
+        return arg.arg if isinstance(arg, mx.Neg) else mx.Neg(arg)
     if isinstance(e, mx.Pow):
         base, exponente = hijo(e.base), hijo(e.exponent)
         signo = _r_signo_fuera(mx.Pow(base, exponente))
@@ -402,9 +407,58 @@ def _r_valores_notables(e: mx.Expr) -> mx.Expr | None:
     if not (isinstance(e, mx.Call) and len(e.args) == 1 and e.name in _CON_NOTABLES):
         return None
     k = _coef_de_pi(e.args[0])
+    if k is None and e.args[0] == mx.ZERO:
+        # A bare 0 is 0*pi and the table has that entry. Without it sin(0),
+        # cos(0) and tan(0) came back unevaluated while sin(pi) came back as 0,
+        # which is the same table read two ways with two different answers.
+        k = Fraction(0)
     if k is None:
         return None
-    return _valor_notable(e.name, k % _PERIODO.get(e.name, Fraction(2)))
+    k, signo = _al_angulo_notable(k, e.name)
+    valor = _valor_notable(e.name, k)
+    if valor is None or signo > 0:
+        return valor
+    return _con_signo(valor)
+
+
+def _con_signo(valor: mx.Expr) -> mx.Expr:
+    """Negate by flipping the scalar, not by wrapping the whole expression.
+
+    The objectives are monotone in node count, so returning ``Neg(v)`` for a value
+    ``v`` of ``n`` nodes produces ``n + 1`` and is rejected as «not an
+    improvement» — which silently discarded the sign and gave ``sin(7*pi/6)`` as
+    ``+1/2``. Flipping the coefficient instead gives back the same number of nodes
+    and the right value.
+    """
+    if isinstance(valor, mx.Num):
+        return mx.Num(-valor.value)
+    if isinstance(valor, mx.Mul) and isinstance(valor.left, mx.Num):
+        return mx.Mul(mx.Num(-valor.left.value), valor.right)
+    return mx.Neg(valor)
+
+
+#: which functions change sign under the reflection ``f(2*pi - u) = -f(u)``.
+#: Cosine is even about ``2*pi`` and sine is not, and reading one table for both is
+#: how ``cos(3*pi/2)`` comes back as ``cos(3*pi/2)`` while ``sin(pi)`` comes back
+#: as 0.
+_REFLEJA_CON_SIGNO = frozenset({"sin", "tan", "cot"})
+
+
+def _al_angulo_notable(k: Fraction, nombre: str) -> tuple[Fraction, int]:
+    """Fold a multiple of ``pi`` into the range the table covers.
+
+    Returns the folded coefficient and a sign to apply. The table holds 0 through
+    ``pi``; the circle does not stop there, and ``cos(4*pi/3) = -1/2`` is as
+    ordinary a value as ``cos(2*pi/3)``.
+
+    The sign is the function's, not the angle's: ``sin(2*pi - u)`` is ``-sin u``
+    while ``cos(2*pi - u)`` is ``cos u``. Asking the angle which functions reflect
+    gives an answer about neither.
+    """
+    k = k % Fraction(2)
+    if k <= 1:
+        return k, 1
+    return Fraction(2) - k, (-1 if nombre in _REFLEJA_CON_SIGNO else 1)
 
 
 # ---------------------------------------------------------------------------
