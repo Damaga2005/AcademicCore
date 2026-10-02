@@ -89,6 +89,11 @@ class Caracteristicas:
     asintotas: tuple[str, ...]
     discontinuidades: tuple[D.Punto, ...]
     es_sinusoidal: bool
+    #: ``(punto, valor)`` for the holes: where the expression does not exist but
+    #: its value has a limit. A separate field from the discontinuities because
+    #: «it jumps» and «it has a removable hole» are different facts, and only one
+    #: of them is drawn as a break in the curve.
+    huecos: tuple[tuple[D.Punto, float], ...] = ()
     hipotesis: tuple[str, ...] = ()
 
     def texto(self) -> str:
@@ -109,6 +114,9 @@ class Caracteristicas:
         if self.discontinuidades:
             lineas.append("  discontinuidades: "
                           + ", ".join(p.texto() for p in self.discontinuidades))
+        for punto, valor in self.huecos:
+            lineas.append(f"  hueco removible en {punto.texto()}: "
+                          f"el límite es {valor:.6g}")
         for asintota in self.asintotas:
             lineas.append(f"  asintota {asintota}")
         return "\n".join(lineas)
@@ -126,6 +134,7 @@ def caracteristicas(expresion: mx.Expr, var: str = "x") -> Caracteristicas:
     ceros = _ceros(expresion, var)
     conjunto = I.dominio(expresion, var)
     discontinuidades = _discontinuidades(expresion, var)
+    huecos = _huecos(expresion, var)
     amplitud, exacta = _amplitud(expresion, sinusoidal, periodo, var)
     hipotesis: list[str] = []
 
@@ -152,6 +161,15 @@ def caracteristicas(expresion: mx.Expr, var: str = "x") -> Caracteristicas:
             "máximo cae entre dos muestras (5.4.989 para 5·sen(x + π/3), donde "
             "la respuesta exacta es 5 y se sabe, pero no es un senoide en la "
             "forma canónica que este módulo reconoce)")
+    if huecos:
+        hipotesis.append(
+            f"hay {len(huecos)} hueco(s) removible(s): puntos donde la expresión no "
+            "existe y su valor tiene límite. Se distinguen de los polos porque "
+            "la forma simplificada SÍ está definida allí —es 1/tan(x) "
+            "simplificando a cotg(x), que en π/2 vale 0— y porque el "
+            "límite existe. Un hueco que la simplificación no alcanza a "
+            "cancelar se declara polo: es el lado seguro, y sen(x)/x en 0 es de "
+            "esos aunque su límite sea 1")
     hipotesis.append(
         "solo se declaran asintotas verticales, en los polos. Las horizontales y "
         "oblícuas necesitan el límite en el infinito, y no hay motor de "
@@ -169,6 +187,7 @@ def caracteristicas(expresion: mx.Expr, var: str = "x") -> Caracteristicas:
         asintotas=_asintotas(expresion, var),
         discontinuidades=discontinuidades,
         es_sinusoidal=sinusoidal is not None,
+        huecos=huecos,
         hipotesis=tuple(hipotesis),
     )
 
@@ -307,6 +326,14 @@ def _ceros(expresion: mx.Expr, var: str) -> tuple[D.Punto, ...]:
         return ()
     puntos = [p for p in (I._a_punto(v) for v in c) if p is not None]
     return tuple(sorted(set(puntos), key=lambda p: p.coeficiente))
+
+
+def _huecos(expresion: mx.Expr, var: str) -> tuple[tuple[D.Punto, float], ...]:
+    """Where the expression does not exist but its value has a limit."""
+    try:
+        return I.removibles(expresion, var)
+    except (UnsupportedError, Exception):
+        return ()
 
 
 def _discontinuidades(expresion: mx.Expr, var: str) -> tuple[D.Punto, ...]:

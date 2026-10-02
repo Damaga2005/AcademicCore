@@ -79,7 +79,19 @@ class Familia:
     #: pertenece a otra variable.
     en_x: bool = True
 
+    @property
+    def es_punto_unico(self) -> bool:
+        """Whether this is ONE solution rather than a family.
+
+        A step of zero says exactly that: ``x = 0 + 0·k`` is ``x = 0`` for
+        every ``k``. Written as a family it would print ``x = 0 + 0·k`` and
+        read as «x is anything»; written as a single value it says what it is.
+        """
+        return mx.exact_value(self.paso) == 0
+
     def texto(self, var: str) -> str:
+        if self.es_punto_unico:
+            return f"{var} = {mx.pretty(self.base)}"
         paso = "" if mx.text(self.paso) == "1" else f" + {mx.pretty(self.paso)}·k"
         return f"{var} = {mx.pretty(self.base)}{paso},  k ∈ ℤ"
 
@@ -272,6 +284,12 @@ def resolver(ecuacion: str, var: str = "x") -> Resolucion:
 
 def _casos(f: mx.Expr, var: str):
     """The case analysis, in the order that avoids dividing by something."""
+    # «f(x) = 0» arrives as «f(x) - 0», and that trailing zero hides the single
+    # subtraction the cases rest on. Taken off HERE rather than inside the first
+    # case: every case needs it, and a case that does not know about it refuses
+    # an equation it could solve — which is how «x = 0» ended up unresolved.
+    while isinstance(f, mx.Sub) and f.right == mx.ZERO and isinstance(f.left, mx.Sub):
+        f = f.left
     directo = _caso_directo(f, var)
     if directo is not None:
         return directo
@@ -284,11 +302,73 @@ def _casos(f: mx.Expr, var: str):
     polinomio = _caso_polinomio(f, var)
     if polinomio is not None:
         return polinomio
+    lineal = _caso_lineal(f, var)
+    if lineal is not None:
+        return lineal
     # No case matched. That is *not* the same as «there is no solution»: it is
     # «this engine does not solve this», and the difference is the whole point of
     # §5.4. Saying «no solutions» here would be a false answer presented with
     # the same confidence as a solved one.
     return [], [MOTIVO_SIN_CASO], []
+
+
+# --- case 5: a·x + b = c ------------------------------------------------------
+
+
+def _caso_lineal(f: mx.Expr, var: str):
+    """``a·var + b = c``, and the two constant cases around it.
+
+    The most elementary equation there is, and it was missing. That is not a
+    cosmetic gap: ``ceros`` asks the solver for the zeros of a denominator, gets
+    «I don't solve this one», and then has to keep a point that does not exist —
+    ``sen(x)/x`` published a zero at 0 because ``x = 0`` was out of reach. The
+    quotient filter asks the DOMAIN now, which is the right dependency, and this
+    case closes the equation for its own sake.
+
+    Three outcomes and they are not interchangeable:
+
+    * ``a ≠ 0``: one solution, ``x = (c - b)/a``, as a family of step 0;
+    * ``a = 0`` and ``b = c``: every ``x``, which is not a family and is refused;
+    * ``a = 0`` and ``b ≠ c``: NO solution, and that one is said as such —
+      a contradiction is the one case where «no hay soluciones» is the answer.
+    """
+    if not isinstance(f, mx.Sub):
+        return None
+    izquierda, derecha = f.left, f.right
+    cte = _valor_exacto(derecha)
+    if cte is None:
+        izquierda, derecha = derecha, izquierda
+        cte = _valor_exacto(izquierda)
+    if cte is None:
+        return None
+    a, b = _afine(izquierda, var)
+    if a is None or a == 0:
+        # The left side is not a constant, it is something this case cannot
+        # handle — x^2, sin(x), 1/x. Calling that «una constante» produced
+        # «x^2 = 0 no tiene soluciones», which is a false answer with the same
+        # confidence as a solved one: x = 0 IS a solution.
+        if mx.variables(izquierda):
+            return None
+        if mx.exact_value(izquierda) == mx.exact_value(derecha):
+            return None              # every x solves it: not a family, refused
+        return ([], ["una constante distinta de otra no tiene soluciones: el "
+                     "miembro izquierdo no depende de x y no puede igualar al "
+                     "derecho"], [])
+    base = _simplifica_base(_divide_por_constante(
+        _simplifica_base(mx.Sub(derecha, b)) if b != mx.ZERO
+        else _simplifica_base(derecha), a))
+    metodo = (f"a·{var} + b = c con a = {_frac(a)} y b = {mx.text(b)}: "
+              f"la ecuación lineal se deshace en una sola solución, "
+              f"x = (c - b)/a")
+    familia = Familia(base, mx.ZERO, metodo,
+                      "una solución aislada, no una familia: el paso es 0 y no "
+                      "hay ningún k que la mueva")
+    espurias = _comprobar([familia], f, var)
+    return [familia], [f"la ecuación es lineal y tiene una única solución"], espurias
+
+
+def _frac(a: Fraction) -> str:
+    return str(a)
 
 
 #: the refusal that replaces a wrong «no hay soluciones»
@@ -304,13 +384,6 @@ MOTIVO_SIN_CASO = (
 
 def _caso_directo(f: mx.Expr, var: str):
     """``sin(u) − c``, ``cos(u) − c`` and ``tan(u) − c``, with ``u`` affine in x."""
-    from academic_core.domain.engineering.mathlab.trig import _factores
-
-    # «f(x) = 0» arrives as «f(x) - 0», and that trailing zero hides the single
-    # subtraction the whole case rests on. It is unwrapped here rather than at the
-    # call site: stripping it outside would delete the very Sub this reads.
-    while isinstance(f, mx.Sub) and f.right == mx.ZERO and isinstance(f.left, mx.Sub):
-        f = f.left
     if not isinstance(f, mx.Sub):
         return None
     cociente, resto = f.left, f.right
@@ -415,7 +488,11 @@ def _divide_por_constante(e: mx.Expr, a: Fraction) -> mx.Expr:
         return mx.ZERO
     if factores:
         return trig._desde_factores(nuevo, factores)
-    return mx.Div(e, mx.Num(a))
+    # A bare quotient of two rationals is one rational. Writing «-6/3» as the
+    # answer to «3x = -6» is not wrong, it is unreadable, and the student has to
+    # reduce it by hand to find out the solver got it right.
+    racional = mx.exact_value(e)
+    return mx.Num(racional / a) if racional is not None else mx.Div(e, mx.Num(a))
 
 
 def _simplifica_base(e: mx.Expr) -> mx.Expr:

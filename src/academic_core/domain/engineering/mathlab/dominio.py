@@ -73,6 +73,12 @@ def _comparacion_exacta(a: "Punto", b: "Punto") -> int:
         pi, otro = b.coeficiente, a.coeficiente
         signo = -1
     if pi == 0:
+        # 0·pi and 0 are the SAME point, and two representations of one point
+        # that do not know they are one produce an interval «(0, 0)» where there
+        # is no interval at all: ln(x) came out as (0,0) ∪ (0,∞) because its
+        # lower bound is a plain 0 and the zero it also excludes is a 0·pi.
+        if otro == 0:
+            return 0
         return -signo if otro > 0 else signo
     bajo, alto = pi * PI_BAJO, pi * PI_ALTO
     if bajo > otro:
@@ -349,9 +355,11 @@ def _normaliza(intervalos: list[Intervalo], *,
     says otherwise. Comparing with ``>=`` would merge ``(-∞,-pi)`` with
     ``(pi/2, ∞)`` into ``ℝ``, silently deleting the gap.
 
-    Only open intervals are merged, and only when both sides are open: two
-    intervals that meet at a point they both include still exclude that point
-    from their union's interior, and folding them into one would add it back.
+    Two intervals that touch merge only when the point they share belongs to the
+    union: ``[-1, 0] ∪ [0, 1]`` is ``[-1, 1]``. When both ends are open the point
+    belongs to neither, and merging would put it back — which is how
+    ``(-inf, 0) ∪ (0, inf)`` came out as ``(-inf, 0)``: a set that is not a
+    superset of either of its halves and is not the answer to anything.
     """
     def clave(intervalo: Intervalo):
         # an interval without a left bound starts at -infinity and therefore
@@ -389,13 +397,23 @@ def _normaliza(intervalos: list[Intervalo], *,
         elif intervalo.izq < anterior.der:
             se_juntan = True
         else:
+            # Touching. They merge only when the point they share is INCLUDED:
+            # [-1,0] ∪ [0,1] is [-1,1]. When both ends are open the point belongs
+            # to neither, and folding them would add it back — (-∞,0) ∪ (0,∞)
+            # came out as (-∞,0), which is not a superset of either and is not a
+            # set of anything a function's solution would be.
             se_juntan = (mergir_tocados and intervalo.izq == anterior.der
-                         and intervalo.abierto_izq and anterior.abierto_der)
+                         and not (intervalo.abierto_izq and anterior.abierto_der))
         if se_juntan:
-            nuevo_der = intervalo.der if (intervalo.der is not None
-                                          and (anterior.der is None
-                                               or intervalo.der > anterior.der)) \
-                else anterior.der
+            # An unbounded end wins over any finite one. Comparing them as if they
+            # were ordinary points truncated (-inf, 0] ∪ [0, inf) — which is the
+            # whole real line — down to (-inf, 0].
+            if intervalo.der is None:
+                nuevo_der = None
+            elif anterior.der is None or intervalo.der > anterior.der:
+                nuevo_der = intervalo.der
+            else:
+                nuevo_der = anterior.der
             fusionados[-1] = Intervalo(anterior.izq, nuevo_der,
                                        anterior.abierto_izq, intervalo.abierto_der)
         else:

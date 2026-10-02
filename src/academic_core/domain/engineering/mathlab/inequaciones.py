@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
+import math
 
 from academic_core.domain.engineering.mathlab import dominio as D
 from academic_core.domain.engineering.mathlab import ecuaciones as E
@@ -208,6 +209,58 @@ def _donde_existe(valores: list[mx.Expr], e: mx.Expr, var: str) -> list[mx.Expr]
         return list(valores)
     return [v for v in valores
             if not ((p := _a_punto(v)) is not None and p.texto() in huecos)]
+
+
+def removibles(e: mx.Expr, var: str = "x") -> tuple[tuple[D.Punto, float], ...]:
+    """The inexistence points where the value has a limit, and what the limit is.
+
+    A domain says where an expression stops existing. It does not say whether
+    that was a pole or a hole, and the difference is the whole question behind
+    ``1/tan(x)`` at ``pi/2``: the expression does not exist there, and the limit
+    is 0. Announcing it as a pole says the function blows up, which is the one
+    thing it does not do.
+
+    Decided by STRUCTURE, not by sampling a limit. ``trig.simplify`` writes the
+    reciprocal as ``cot(x)``, and the domain of ``cot`` includes ``pi/2``: the
+    point stopped being singular in the simplification, so it was a hole. A pole
+    stays singular there, because cancelling it is exactly what cannot be done.
+
+    It reads the simplified form and not the written one, so a hole the
+    simplifier does not recognise is reported as a pole. That is the safe
+    direction on purpose: a pole announced as a pole is right, and a hole
+    announced as a hole that is not one would be a limit invented out of a
+    simplification. ``sin(x)/x`` at 0 is such a case — its limit is 1 and no
+    rewrite here reaches it, so it stays a pole and this function says nothing
+    about it rather than guessing 1.
+
+    The value returned is the value of the CONTINUATION at the hole, which is
+    what a limit is, computed in floating point and carrying its own residue:
+    ``1/tan(x)`` at ``pi/2`` comes out as 6·10⁻¹⁷ where the answer is exactly 0.
+    """
+    from academic_core.domain.engineering.mathlab import trig
+
+    holes = puntos_inexistentes(e, var)
+    if not holes:
+        return ()
+    try:
+        canonica = trig.simplify(e)
+    except Exception:
+        return ()
+    siguen_existiendo = {p.texto() for p in puntos_inexistentes(canonica, var)}
+    salida: list[tuple[D.Punto, float]] = []
+    for punto in holes:
+        if punto.texto() in siguen_existiendo:
+            continue                     # still singular: a pole, not a hole
+        valor = mx.evaluate(canonica, {var: _coordenada_de(punto)})
+        if valor is None or valor.imag != 0 or abs(valor.real) >= 1e12:
+            continue
+        salida.append((punto, valor.real))
+    return tuple(salida)
+
+
+def _coordenada_de(punto: D.Punto) -> float:
+    """The real number a ``Punto`` names: ``1/4·pi`` is stored as ``1/4``."""
+    return float(punto.coeficiente) * (math.pi if punto.es_pi else 1.0)
 
 
 def _llamadas(e: mx.Expr) -> list[mx.Call]:

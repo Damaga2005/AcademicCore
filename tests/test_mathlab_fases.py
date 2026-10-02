@@ -239,3 +239,167 @@ def test_el_cero_de_un_senoide_desfasado_cae_donde_toca():
         assert abs(valor.real) < 1e-9, (mx.text(v), valor)
     # and 0 is not one of them, which is what the engine used to say
     assert abs(mx.evaluate(mx.parse("5*sin(x + pi/3)"), {"x": 0.0}).real) > 1.0
+
+# ---------------------------------------------------------------------------
+# the linear case: the most elementary equation there is, and it was missing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ecuacion,solucion", [
+    ("x = 0", "x = 0"),
+    ("2*x = 0", "x = 0"),
+    ("x = 1", "x = 1"),
+    ("x - 1 = 0", "x = 1"),
+    ("2*x + 1 = 0", "x = -1/2"),
+    ("x/2 = 3", "x = 6"),
+    ("3*x = -6", "x = -2"),
+    ("-x = 3", "x = -3"),
+    ("2*x = -1", "x = -1/2"),
+])
+def test_una_ecuacion_lineal_tiene_una_sola_solucion(ecuacion, solucion):
+    """x = 0 is not an exotic equation and it was out of reach.
+
+    It was not cosmetic either: ``ceros`` asks the solver for the zeros of a
+    denominator, and a refusal there means a point that does not exist stays in
+    the list. The quotient filter asks the DOMAIN now, which is the right
+    dependency, and this case closes the equation for its own sake.
+    """
+    r = E.resolver(ecuacion)
+    assert r.texto("x") == solucion, (ecuacion, r.texto("x"))
+    assert r.sin_respuesta is False, ecuacion
+
+
+def test_una_solucion_aislada_se_escribe_sin_la_familia():
+    """A step of 0 is one value, and printing «x = 0 + 0·k» reads as «x is
+    anything». The text of a single solution must say what it is."""
+    unica = E.resolver("2*x + 1 = 0").familias[0]
+    assert unica.es_punto_unico
+    assert unica.texto("x") == "x = -1/2"
+    familia = E.resolver("sin(x) = 0").familias[0]
+    assert not familia.es_punto_unico
+    assert "k" in familia.texto("x")
+
+
+def test_una_contradiccion_si_dice_que_no_hay_soluciones():
+    """The one case where «no hay soluciones» IS the answer."""
+    r = E.resolver("1 = 2")
+    assert r.vacia and r.sin_respuesta is False
+    assert r.texto("x") == "no hay soluciones"
+
+
+def test_una_identidad_no_se_convierte_en_una_familia():
+    """Every x solves x = x, and a family is not every x."""
+    for ecuacion in ("x = x", "1 = 1", "0 = 0"):
+        assert E.resolver(ecuacion).sin_respuesta is True, ecuacion
+
+
+@pytest.mark.parametrize("ecuacion", ["x^2 = 0", "x^2 = 4", "sin(x) = x",
+                                      "1/x = 0"])
+def test_lo_que_el_caso_lineal_no_resuelve_lo_niega(ecuacion):
+    """A refusal, never a wrong «no hay soluciones».
+
+    x^2 = 0 has x = 0 as a solution. Reading «the left side is not affine» as
+    «the left side is a constant» and answering «no solutions» is a false answer
+    delivered with the same confidence as a solved one.
+    """
+    assert E.resolver(ecuacion).sin_respuesta is True, ecuacion
+
+
+def test_la_solucion_lineal_satisface_la_ecuacion_original():
+    izquierda, derecha = "3*x - 7", "-13"
+    base = E.resolver(f"{izquierda} = {derecha}").familias[0].base
+    a = mx.evaluate(mx.parse(izquierda), {"x": float(mx.exact_value(base))})
+    b = mx.evaluate(mx.parse(derecha))
+    assert abs(a.real - b.real) < 1e-12, (a, b)
+
+
+# ---------------------------------------------------------------------------
+# removable holes
+# ---------------------------------------------------------------------------
+
+
+def test_un_hueco_removible_se_distingue_de_un_polo():
+    """1/tan(x) does not exist at pi/2, and its limit there is 0.
+
+    Announcing it as a pole says the function blows up, which is the one thing it
+    does not do. Decided by structure and not by sampling a limit: the reciprocal
+    simplifies to cotangent, and cotangent IS defined at pi/2.
+    """
+    huecos = {(p.texto(), round(v, 12)) for p, v in
+              I.removibles(mx.parse("1/tan(x)"), "x")}
+    assert ("1/2\u00b7\u03c0", 0.0) in huecos, huecos
+    assert all(p.texto() != "0" for p, _ in
+               I.removibles(mx.parse("1/tan(x)"), "x")), "0 is a pole of cotangent"
+
+
+def test_un_polo_no_se_declara_hueco_removible():
+    for texto in ("tan(x)", "sin(x)/x", "1/sin(x)", "cos(x)/sin(x)"):
+        assert I.removibles(mx.parse(texto), "x") == (), texto
+
+
+def test_una_expresion_sin_huecos_no_declara_ninguno():
+    assert I.removibles(mx.parse("sin(x)"), "x") == ()
+
+
+def test_el_hueco_aparece_en_la_descripcion_de_la_grafica():
+    """The gap T-23 left open: the hole exists and its limit is shown."""
+    from academic_core.domain.engineering.mathlab import graficas as G
+
+    c = G.caracteristicas(mx.parse("1/tan(x)"))
+    assert "hueco removible" in c.texto()
+    assert "1/2\u00b7\u03c0" in c.texto()
+    # and it is still listed as a discontinuity: it does not exist there
+    assert "1/2\u00b7\u03c0" in [p.texto() for p in c.discontinuidades]
+
+
+# ---------------------------------------------------------------------------
+# two representations of one point
+# ---------------------------------------------------------------------------
+
+
+def test_un_cero_y_un_cero_por_pi_son_el_mismo_punto():
+    """0 and 0·pi are one number written two ways.
+
+    Not knowing that produced an interval «(0, 0)» where there is no interval
+    at all: ln(x) came out as (0,0) ∪ (0,∞) because its lower bound is a plain 0
+    and the zero it also excludes is a 0·pi.
+    """
+    from academic_core.domain.engineering.mathlab import dominio as D
+
+    assert D._comparacion_exacta(D.punto_pi(Fraction(0)), D.punto(Fraction(0))) == 0
+    assert [i.texto() for i in
+            I.dominio(mx.parse("ln(x)"), "x").intervalos] == ["(0, \u221e)"]
+
+
+def test_dos_intervalos_abiertos_en_el_punto_compartido_no_se_funden():
+    """(-inf, 0) ∪ (0, inf) is R without 0, and merging would put the 0 back.
+
+    The rule was the other way round: two intervals touching with both ends open
+    were the ones being merged, which turned R without 0 into (-inf, 0).
+    """
+    from academic_core.domain.engineering.mathlab import dominio as D
+
+    abiertos = D.desde_intervalos([
+        D.Intervalo(None, D.punto(Fraction(0)), True, True),
+        D.Intervalo(D.punto(Fraction(0)), None, True, True),
+    ])
+    assert [i.texto() for i in abiertos.intervalos] == \
+        ["(-\u221e, 0)", "(0, \u221e)"]
+
+    cerradas = D.desde_intervalos([
+        D.Intervalo(None, D.punto(Fraction(0)), True, False),
+        D.Intervalo(D.punto(Fraction(0)), None, False, True),
+    ])
+    assert [i.texto() for i in cerradas.intervalos] == ["(-\u221e, \u221e)"]
+
+
+@pytest.mark.parametrize("texto,esperado", [
+    ("ln(x)", ["(0, \u221e)"]),
+    ("ln(x^2)", ["(-\u221e, 0)", "(0, \u221e)"]),
+    ("ln(2*x)", ["(0, \u221e)"]),
+    ("1/x", ["(-\u221e, 0)", "(0, \u221e)"]),
+    ("ln(x)/x", ["(0, \u221e)"]),
+])
+def test_el_dominio_no_pierde_una_mitad_de_la_recta(texto, esperado):
+    assert [i.texto() for i in
+            I.dominio(mx.parse(texto), "x").intervalos] == esperado, texto
