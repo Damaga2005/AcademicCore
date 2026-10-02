@@ -162,6 +162,182 @@ def _fresh(e: Expr, var: str) -> str:
     raise no_rule("no hay un nombre libre para el cambio de variable")  # pragma: no cover
 
 
+#: how each circular function reduces its own powers. The base cases are the
+#: two entries of the table; everything above them is a recursion that ends.
+_REDUCCION = {
+    "cos": ("sin", True),
+    "sin": ("cos", False),
+}
+
+#: functions whose derivative does not bring them back, where the tabular
+#: formula lowers the exponent instead of raising it. The names are the ones this
+#: tree uses internally, and they are not the ones the student writes: ``ln`` is
+#: ``log`` here, which is why a first attempt at this list with «ln» in it never
+#: fired and ``∫ln(x)^2`` kept being refused.
+_TABULAR = frozenset({"log", "exp", "sinh", "cosh"})
+
+
+def _potencia_de_uno(e: Expr, var: str) -> tuple[Fraction, str, Expr, int] | None:
+    """``(c, nombre, argumento, n)`` for ``c·f(arg)^n`` with n an integer >= 2.
+
+    Only a single power of ONE function. A product like sen(x)·cos(x) is not
+    a power and belongs to the substitution case, which already gets it right;
+    the two rules overlap here on purpose, because reducing a product is not
+    the reduction of the product.
+    """
+    constante = Fraction(1)
+    potencia = e
+    if isinstance(e, Mul) and not depends(e.left, var):
+        valor = exact_value(e.left)
+        if valor is None:
+            return None
+        constante, potencia = valor, e.right
+    if not isinstance(potencia, Pow) or not isinstance(potencia.base, Fn):
+        return None
+    base = potencia.base
+    if not depends(base.arg, var):
+        return None                      # the power is of a constant
+    n = exact_value(potencia.exponent)
+    if n is None or n < 2 or n.denominator != 1:
+        return None
+    return constante, base.name, base.arg, int(n)
+
+
+def _escala_del_argumento(g: Expr, var: str) -> Fraction | None:
+    """The constant derivative of the inner function, or ``None``.
+
+    The reduction formulas are stated for d/dx, so they carry a factor 1/g
+    for the base cases and 1/(n·1/g) for the recursion. Reading x for the
+    argument is what made ∫cos(2x)^2 dx come out as cos·sen/2 + x/2: right
+    for cos(x)^2 and wrong by a factor of four for this one, which is the kind
+    of error that verifies against nothing.
+    """
+    scratch = StepLog()
+    derivada, _paso, _s = derivative(g, var, scratch)
+    return exact_value(derivada)
+
+
+def _potencia_trig(e: Expr, var: str, log: StepLog, depth: int
+                   ) -> tuple[Expr, int] | None:
+    """Integral of a power of the sine, the cosine or the tangent.
+
+    Reducing the power was never done at all, so ∫sen(x)^2 dx was refused.
+    What the substitution case would do instead —take u = sen(x)— is wrong
+    on its own, because du = cos(x) dx and no cosine is present; it was guarded
+    against only by accident.
+
+        ∫cos^n = cos^(n-1)·sen/(n·k) + ((n-1)/(n·k^2))·∫cos^(n-2)
+        ∫sen^n = -sen^(n-1)·cos/(n·k) + ((n-1)/(n·k^2))·∫sen^(n-2)
+        ∫tg^n  = tg^(n-1)/((n-1)·k) - ∫tg^(n-2)
+
+    with k = g′(x), the chain factor. Checked at n = 2 against the
+    derivative, which is the only check that decides any of this.
+    """
+    if depth > MAX_DEPTH:
+        return None
+    parsed = _potencia_de_uno(e, var)
+    if parsed is None or parsed[1] not in ("sin", "cos", "tan"):
+        return None
+    constante, nombre, arg, n = parsed
+    k = _escala_del_argumento(arg, var)
+    if k is None or k == 0:
+        return None          # a non-constant inner function: not this formula
+    cuerpo = _reducir(nombre, arg, n, k, var, log, depth)
+    if cuerpo is None:
+        return None
+    salida = cuerpo if constante == 1 else Mul(_k(constante), cuerpo)
+    return salida, log.add(
+        OP, f"reducir potencias de {nombre}", _integral(e, var), text(salida),
+        substitution=f"n = {n} → n - 2",
+        explanation=(f"La integral de {nombre}^n se reduce a la de {nombre}^(n-2) más un término exacto, y se repite hasta la tabla."),
+        uses=())
+
+
+def _reducir(nombre: str, arg: Expr, n: int, k: Fraction, var: str,
+             log: StepLog, depth: int) -> Expr | None:
+    """``I_n`` for one circular function, recursing down to the table."""
+    x = Sym(var)
+    derivada, positiva = _REDUCCION.get(nombre, (nombre, True))
+    if n <= 0:
+        return x
+    if n == 1:
+        if nombre == "tan":
+            # ∫tg = -ln|cos| = +ln(1/cos). Con el signo al revés, tg^3 salía
+            # con +ln(1/cos) y su derivada era tg·sec^2 + tg, que no es tg^3.
+            return Mul(_k(Fraction(1, k)), Fn("ln", Div(ONE, Fn("cos", arg))))
+        base = Fn(derivada, arg)
+        return (Mul(_k(Fraction(1, k)), base) if positiva
+                else Mul(_k(Fraction(-1, k)), base))
+    if nombre == "tan":
+        cociente = Fraction(1, (n - 1) * k)
+        frente = (Fn("tan", arg) if cociente == 1
+                  else Mul(_k(cociente), Pow(Fn("tan", arg), Num(Fraction(n - 1)))))
+        resto = x if n == 2 else _reducir("tan", arg, n - 2, k, var, log, depth + 1)
+        return None if resto is None else Add(frente, Neg(resto))
+    potencia = Pow(Fn(nombre, arg), Num(Fraction(n - 1)))
+    frente = (Mul(Fn(derivada, arg), potencia) if Fraction(1, n * k) == 1
+              else Mul(Mul(_k(Fraction(1, n * k)), potencia), Fn(derivada, arg)))
+    if not positiva:
+        frente = Neg(frente)
+    if n == 2:
+        resto: Expr = x
+    elif n == 3:
+        base = Fn(derivada, arg)
+        resto = (Mul(_k(Fraction(1, k)), base) if positiva
+                 else Mul(_k(Fraction(-1, k)), base))
+    else:
+        resto = _reducir(nombre, arg, n - 2, k, var, log, depth + 1)
+        if resto is None:
+            return None
+    # The chain factor k appears ONCE, in the front term. In the recursion it
+    # cancels: ∫cos^(n-2)u du with u = g(x) is k·I_(n-2), and the outer 1/k undoes
+    # it. Carrying a k^2 here is invisible at k = 1 — which is why every plain
+    # sin^n and cos^n came out right — and wrong by a factor of four for
+    # cos(2x)^2, the kind of error that verifies against nothing.
+    factor = Fraction(n - 1, n)
+    return Add(frente, Mul(_k(factor), resto))
+
+
+def _potencia_tabulada(e: Expr, var: str, log: StepLog, depth: int
+                       ) -> tuple[Expr, int] | None:
+    """``∫g(x)^n`` by parts against ``dv = dx``, for a tabular function.
+
+    ∫sen^n does NOT belong here: the derivative of the sine brings the
+    cosine back and the formula stops terminating. It belongs to the reduction
+    above, which is why these are two rules and not one with a longer list.
+
+        ∫g^n = x·g^n/n - (1/n)·∫x·g′·g^(n-1)
+
+    For g = ln that lowers the exponent and reaches the table, so
+    ∫ln(x)^2 closes. For g = exp it does not, and the engine refuses rather
+    than going round in circles.
+    """
+    if depth > MAX_DEPTH:
+        return None
+    parsed = _potencia_de_uno(e, var)
+    if parsed is None or parsed[1] not in _TABULAR:
+        return None
+    constante, nombre, arg, n = parsed
+    scratch = StepLog()
+    derivada, _paso, _s = derivative(Fn(nombre, arg), var, scratch)
+    frente = Mul(Sym(var), Pow(Fn(nombre, arg), Num(Fraction(n))))
+    resto_integrando = Mul(Mul(Sym(var), derivada),
+                           Pow(Fn(nombre, arg), Num(Fraction(n - 1))))
+    try:
+        plegado, _reglas = simplify(resto_integrando, var, expand=True)
+        resto, sr = integrate(plegado, var, log, depth + 1)
+    except UnsupportedError:
+        return None
+    cuerpo = Add(frente, Mul(_k(Fraction(-n)), resto))
+    salida = cuerpo if constante == 1 else Mul(_k(constante), cuerpo)
+    return salida, log.add(
+        OP, f"partes contra {nombre}: bajar el exponente", _integral(e, var),
+        text(salida),
+        substitution=f"u = {nombre}(x)^(n-1), dv = dx",
+        explanation=("Se integra por partes tomando la potencia como u; el "
+                    "resto lleva un exponente menos y vuelve a entrar."),
+        uses=(sr,))
+
 def _attempt(log: StepLog, fn) -> tuple[Expr, int] | None:
     scratch = StepLog()
     try:
@@ -289,7 +465,13 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
         out = Fn("tan", x)
         return out, log.add(OP, "tabla: ∫1/cos(u)^2 du = tan(u)", _integral(e, var), text(out),
                             explanation="Integral inmediata de la tabla (inversa de d/du tan(u)). Dominio: cos(u) ≠ 0.")
-    for strategy in (_substitution, _by_parts):
+    propia = _integral_propia(e, x)
+    if propia is not None:
+        salida, etiqueta, por_que = propia
+        return salida, log.add(OP, etiqueta, _integral(e, var), text(salida),
+                                explanation=por_que)
+    for strategy in (_potencia_trig, _potencia_tabulada,
+                   _substitution, _by_parts):
         got = _attempt(log, lambda scratch, st=strategy: st(e, var, scratch, depth))
         if got is not None:
             return got
@@ -307,6 +489,61 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
             f, s = integrate(simple, var, log, depth + 1, normalized=True)
             return f, log.add(OP, "integrar la forma reescrita", _integral(simple, var), text(f), uses=(s0, s))
     raise no_rule(f"no hay regla de integración registrada para ∫{text(e)} d{var}")
+
+
+def _integral_propia(e: Expr, x: Sym) -> tuple[Expr, str, str] | None:
+    """The integrals of the family ITSELF, which is what T-14 asks for.
+
+    Each one is the inverse of a derivative the engine already has, so every
+    entry is checkable the same way: differentiate it and compare. Three of
+    them were missing and not being missed by accident — ``∫sec(x)^2`` was in
+    the table only in the spelling ``1/cos(x)^2``, and a student who writes
+    ``sec(x)`` gets refused by a solver that has the answer.
+
+    Nothing here is clever: they are the six entries every table of primitives
+    has and this one did not.
+    """
+    def potencia_de(nombre: str, n: int) -> Expr | None:
+        if isinstance(e, Pow) and isinstance(e.base, Fn) and e.base.name == nombre \
+                and e.base.arg == x and exact_value(e.exponent) == n:
+            return e.base.arg
+        return None
+
+    def sola(nombre: str) -> Expr | None:
+        if isinstance(e, Fn) and e.name == nombre and e.arg == x:
+            return e.arg
+        return None
+
+    u = sola("cot")
+    if u is not None:
+        # ln|sen| and NOT ln(1/sen): those two differ by a sign, and the sign is
+        # the whole difference between cot and -cot. The absolute value carries
+        # the domain: ln|sen| is real where sen is negative too.
+        return (Fn("log", Fn("abs", Fn("sin", u))),
+                "tabla: ∫cot(u) du = ln|sin(u)|",
+                "Inversa de d/du ln|sen(u)| = cos(u)/sen(u) = cot(u). "
+                "Dominio: sen(u) ≠ 0.")
+    for nombre, salida, etiqueta, por_que in _PROPIAS:
+        if potencia_de(nombre, 2) is not None:
+            return salida(x), etiqueta, por_que
+    return None
+
+
+#: ``(nombre de la función, primitiva, etiqueta, por qué)`` for the squares.
+_PROPIAS = (
+    ("sec", lambda x: Fn("tan", x), "tabla: ∫sec(u)^2 du = tan(u)",
+     "Inversa de d/du tg(u) = 1/cos(u)^2 = sec(u)^2. Dominio: cos(u) ≠ 0."),
+    ("csc", lambda x: Neg(Fn("cot", x)), "tabla: ∫cosec(u)^2 du = -cot(u)",
+     "Inversa de d/du (-cot(u)) = cosec^2(u). Dominio: sen(u) ≠ 0."),
+    ("cot", lambda x: Add(Neg(Fn("cot", x)), Neg(x)), "tabla: ∫cot(u)^2 du = -cot(u) - u",
+     "Por partes con v = cot(u): cot^2 = cot·(cosec^2 - 1) y las dos piezas "
+     "están en la tabla. Dominio: sen(u) ≠ 0."),
+    ("coth", lambda x: Neg(Fn("log", Div(ONE, Fn("sinh", x)))),
+     "tabla: ∫coth(u) du = -ln|sinh(u)|",
+     "Inversa de d/du ln|senh(u)| = cosh(u)/senh(u) = coth(u). Dominio: senh(u) ≠ 0."),
+    ("sech", lambda x: Fn("tanh", x), "tabla: ∫sech(u)^2 du = tanh(u)",
+     "Inversa de d/du tanh(u) = sech^2(u)."),
+)
 
 
 def _has_sqrt(e: Expr) -> bool:

@@ -560,10 +560,22 @@ def _make_pow(base: Expr, exponent: Expr) -> Expr:
         exponent = Num(value)
     if exponent.value.denominator > 1:
         degree = exponent.value.denominator
+        numerador = exponent.value.numerator
         if 2 <= degree <= MAX_ROOT_DEGREE:
             whole = exact_value(base)
             if whole is None or whole > 0:
-                return Root(degree, base)
+                entero, resto = divmod(numerador, degree)
+                if resto == 0:
+                    return Pow(base, Num(Fraction(entero)))
+                if resto == 1:
+                    # x^(3/2) is x·√x and NOT x^3·√x: the integer part goes
+                    # BELOW the root and not above it. Getting that backwards gave
+                    # x^(7/2), and the derivative of the primitive of √x came out
+                    # 35 times too big — an answer that looked fine and was not.
+                    raiz = Root(degree, base)
+                    return raiz if entero == 0 else Mul(Pow(base, Num(Fraction(entero))), raiz)
+                # x^(2/3) needs a cube root, and this node only carries squares
+                return Pow(base, exponent)
     return Pow(base, exponent)
 
 

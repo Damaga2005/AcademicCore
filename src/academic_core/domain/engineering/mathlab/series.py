@@ -305,21 +305,26 @@ def taylor(expresion: mx.Expr, centro, orden: int, var: str = "x") -> Serie:
     for indice in range(0, orden + 1):
         if indice:
             factorial *= indice
-        # The derivative has to be EVALUATED at the centre. Dividing by the
-        # derivative itself gave «1/(3*2*x)·x + ...» for the Taylor of x^3,
-        # which is not a polynomial of anything.
-        valor = D.differentiate(derivada, var)
-        # The derivative has to be EVALUATED at the centre, and then simplified:
-        # substituting into sin gives «sin(0)», and a coefficient of 1/sin(0) is a
-        # division by zero rather than the «this coefficient is zero» it means.
-        evaluada = _valor_en(valor, var, centro)
-        derivada = valor                      # exactly once per order, not twice
-        if mx.exact_value(evaluada) == 0:
-            continue                          # the term is absent, not infinite
-        coeficiente = _coeficiente(evaluada, factorial)
-        piezas.append(mx.Mul(coeficiente, mx.Pow(mx.Sub(mx.Sym(var), centro),
-                                                 mx.Num(Fraction(indice)))))
+        # Evaluate the CURRENT derivative at the centre, and only then get the
+        # next one. Differentiating first reads the term of order k with the
+        # derivative of order k+1: for x^3 that is f'(0)=0, f''(0)=0, f'''(0)=6,
+        # so the terms land at x^2, x^3 and x^4 instead of only at x^3, and the
+        # whole polynomial is a sum of terms that belong to another function.
+        # The derivative itself is evaluated AND then simplified: substituting
+        # into sin gives «sin(0)», and a coefficient of 1/sin(0) is a division
+        # by zero rather than the «this coefficient is zero» it means.
+        evaluada = _valor_en(derivada, var, centro)
+        if mx.exact_value(evaluada) != 0:
+            coeficiente = _coeficiente(evaluada, factorial)
+            piezas.append(mx.Mul(coeficiente, mx.Pow(mx.Sub(mx.Sym(var), centro),
+                                                     mx.Num(Fraction(indice)))))
+        if indice < orden:
+            # one more derivative only if another term still needs it: 1/x grows
+            # on every differentiation and asked for orden+2 of them it walks
+            # into the expression-size limit for a term nobody reads
+            derivada = D.differentiate(derivada, var)
     polinomio = _suma(piezas)
+    # one more derivative, for the first term NOT written
     omitida = _valor_en(D.differentiate(derivada, var), var, centro)
     if mx.exact_value(omitida) == 0:
         # the next coefficient vanishes: there is no next term, and dividing by
@@ -348,6 +353,11 @@ def _valor_en(derivada: mx.Expr, var: str, centro: mx.Expr) -> mx.Expr:
     ``3·0^2`` is arithmetic, which only the rational normal form can; and
     ``0^(-1)`` is not a number at all, which is why the caller checks for zero
     afterwards rather than dividing by it.
+
+    It REFUSES when the value is not a number: ``ln`` has no Taylor series at 0,
+    so its first derivative there is ``1/0`` and its second involves ``ln(0)``.
+    Building a polynomial out of those writes a quotient by zero into every
+    coefficient and calls the result an approximation (§5.4).
     """
     from academic_core.domain.engineering.mathlab import poly as P
 
@@ -355,15 +365,35 @@ def _valor_en(derivada: mx.Expr, var: str, centro: mx.Expr) -> mx.Expr:
     try:
         q = P.as_poly(e)
     except Exception:
-        return e
+        _no_es_numero(e, centro, derivada)
     plegado = P.to_expr(q) if q is not None else e
-    return T.simplify(plegado)
+    resultado = T.simplify(plegado)
+    if mx.exact_value(resultado) is None:
+        _no_es_numero(resultado, centro, derivada)
+    return resultado
+
+
+def _no_es_numero(e: mx.Expr, centro: mx.Expr, derivada: mx.Expr) -> None:
+    """Refuse rather than fold a value that is not a number into a coefficient."""
+    raise sin_refuso(
+        f"la derivada {mx.text(derivada)} vale {mx.text(e)} en {mx.text(centro)}, "
+        "que no es un número: la función no tiene desarrollo de Taylor en ese "
+        "centro. Un polinomio con un coeficiente infinito o indefinido no es una "
+        "aproximación, es otra expresión (§5.4)")
 
 
 def _coeficiente(valor: mx.Expr, factorial: int) -> mx.Expr:
+    """``valor / factorial``, and NOT its reciprocal.
+
+    It used to be ``1/(factorial·valor)``, and the loop compensated by dividing
+    the other way: the two mistakes cancelled for a while and left the monomials
+    wrong by a factor of ``factorial²`` — ``taylor(x^3, 0, 4)`` gave ``x^3/36``
+    where it gives ``x^3``. A cancellation between two bugs is the hardest kind
+    to see, because every intermediate value looks plausible.
+    """
     from academic_core.domain.engineering.mathlab import poly as P
 
-    cociente = mx.Div(mx.Num(Fraction(1, factorial)), valor)
+    cociente = mx.Div(valor, mx.Num(Fraction(factorial)))
     try:
         q = P.as_poly(cociente)
     except Exception:

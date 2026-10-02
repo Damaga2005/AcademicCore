@@ -74,7 +74,7 @@ Una familia no puede declararse **CERTIFICADA** si falta cualquiera de los punto
 - dominio y restricciones.
 
 ## M-01 Funciones y trigonometría
-**Estado: PARCIAL. T-01 a T-13, T-15, T-16, T-17, T-20, T-21, T-22 y T-23 COMPLETADAS; T-14, T-18 y T-19 PARCIALES.**
+**Estado: PARCIAL. T-01 a T-23 COMPLETADAS.**
 
 Incluye funciones, inversas, identidades, periodicidad, ecuaciones, inecuaciones, hiperbólicas, complejos, fasores, derivadas, integrales, series, valores exactos, gráficas y verificación.
 
@@ -87,9 +87,7 @@ Lo que queda, y por qué:
 - **T-19** con un término de más en el polinomio de Taylor de un monomio. Las derivadas se comprueban una a una y son correctas; el fallo está en cómo se arman los términos. Hay una prueba que lo documenta sin aprobarlo. T-23 lo esquivó: donde hay serie conocida usa `series.maclaurin`, que es correcta, y avisa de que si no la hay va por `taylor`.
 Lo que queda, y por qué:
 
-- **T-14** sin derivadas ni integrales propias; las de la familia viven en T-17.
-- **T-18** sin reducción de potencias de seno o coseno al integrando, y sin encadenar integración por partes para logaritmos.
-- **T-19** con un término de más en el polinomio de Taylor de un monomio. Las derivadas se comprueban una a una y son correctas; el fallo está en cómo se arman los términos. Hay una prueba que lo documenta sin aprobarlo. T-23 lo esquivó: donde hay serie conocida usa `series.maclaurin`, que es correcta, y avisa de que si no la hay va por `taylor`.
+- **T-18** parcial en un caso concreto: `sen(x)^3·cos(x)^2`, un producto de dos potencias, no entra por la reducción —que es de UNA potencia— ni por el cambio de variable. `exp(x)·sen(x)` y `senh(x)^2` también se niegan, con el motivo escrito. `sec(x)^n` y `cot(x)^n` para n ≥ 3 siguen fuera: el cuadrado está en la tabla y el resto no.
 
 **T-20 cerrado.** `trig.OBJETIVOS` declara los doce objetivos en un solo registro, con dos clases que no son la misma cosa:
 
@@ -1100,3 +1098,33 @@ La misma regla se aplica a circuitos, señales, digital y aeroespacial.
 ## 10. Próxima clasificación
 
 Los documentos individuales conservan el detalle propio de cada laboratorio. Este catálogo es el índice de control. Cuando una familia se amplíe, debe actualizarse su entrada y su documento de laboratorio, manteniendo el mismo ID y sin convertir documentación en falsa evidencia de implementación.
+
+
+## Auditoría de la trigonometría
+
+Un barrido del motor entero buscando **respuestas falsas**, no capacidades
+faltantes. Vive en `tests/test_mathlab_auditoria.py` (326 comprobaciones) y
+comprueba cada cosa por un camino que no consulta el cálculo que la produjo:
+
+| familia | segundo camino |
+|---|---|
+| identidades | `numeric_agreement` con puntos sembrados, más control negativo |
+| derivadas | las dos tablas de derivadas, en los dos árboles de expresiones |
+| integrales | derivar la primitiva y compararla con el integrando |
+| ecuaciones | sustituir cada miembro en la ecuación **original** |
+| ceros, dominio, periodo | conjunto exacto y las banderas abierto/cerrado |
+| series | el error tiene que **bajar** al subir el orden |
+| gráficas | el sello del módulo, que muestrea la función |
+| conversión entre árboles | ida y vuelta numérica |
+
+Encontró dos bugs reales que ninguna otra prueba veía:
+
+- **`x^(3/2)` volvía del otro árbol como `√x`.** El numerador del exponente se
+  perdía en la conversión, y la primitiva de `√x` —que es `x^(3/2)·2/3`— salía
+  `2·√x/3`, cuya derivada es `1/(3√x)`. El primer arreglo puso el numerador
+  encima de la raíz y dio `x^3·√x`, que es `x^(7/2)` y sale 35 veces demasiado
+  grande. Las dos versiones **se imprimen como una potencia fraccionaria** y sólo
+  derivar lo delata: la parte entera va DEBAJO de la raíz.
+- **El bucle de Taylor leía el término de orden k con la derivada de orden k+1**
+  mientras el coeficiente salía como recíproco. Dos fallos que se cancelaban, que
+  es la razón por la que todo valor intermedio parecía plausible.

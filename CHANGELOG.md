@@ -167,6 +167,91 @@ en medio de un modulo es una que nadie mira dos veces.
   con su alternativa escrita. 1478 pasan y 8 se saltan en los catorce ficheros
   `test_mathlab_*.py`.
 
+## Unreleased — MathLab: T-14, T-18 y T-19 cerradas, y la auditoría del motor
+
+Las tres familias que quedaban del bloque. Todas se comprueban por un camino que
+**no consulta el cálculo que produjo la respuesta**.
+
+- **T-19 (Taylor).** Dos fallos que se cancelaban entre sí, que es la razón por la
+  que todo valor intermedio parecía plausible: el bucle leía el término de orden
+  k con la derivada de orden k+1, y el coeficiente salía como recíproco.
+  `taylor(x^3, 0, 4)` daba `1/12*x^2` y ahora da `x^3`. Efecto lateral: la serie
+  del seno salía con el polinomio del coseno, leídas de una única tabla de
+  «impares y alternantes» donde una serie de coseno que empieza en `x` no es una
+  serie de nada. Y `ln` se niega donde no tiene desarrollo, en vez de escribir
+  `1/0` en cada coeficiente.
+
+- **T-18 (integrales).** `∫sen(x)^2 dx` se rechazaba porque **reducir la potencia
+  nunca se hacía**. Ahora `∫cos^n`, `∫sen^n` y `∫tg^n` salen de la fórmula de
+  reducción y `∫ln^n` de las partes tabulares. Dos cosas que solo se ven con
+  argumento escalado:
+
+  - el **factor de cadena**: `∫cos(2x)^2` tiene que dar `cos(2x)sen(2x)/4 + x/2`
+    y no `cos*sen/2 + x/2`. Leer `x` por el argumento es invisible en todos los
+    `cos^n` a secas —por eso todos esos salían bien— y equivoca por un factor de
+    cuatro en el escalado, que es el error que no verifica contra nada.
+  - el factor **no se repite** en la recursión: `∫cos^(n-2)u du` es `k·I_(n-2)` y
+    el `1/k` de fuera lo deshace. Llevar un `k^2` es invisible con `k = 1`.
+
+  La fórmula tabular tampoco lleva `1/n` en ningún sitio: por partes con
+  `u = g^n` y `dv = dx` sale `x·g^n - n·∫x·g'·g^(n-1)`, y `∫ln(x)^2` se cierra.
+  `∫sen(x)^n` NO va por ahí —la derivada del seno devuelve el coseno y la
+  recursión deja de terminar—, y por eso son dos reglas y no una con la lista
+  larga.
+
+- **T-14 (la familia).** Las derivadas ya estaban (T-17). Las integrales propias
+  eran el hueco, y tres no faltaban por casualidad: `∫sec(x)^2` estaba en la tabla
+  solo con la ortografía `1/cos(x)^2`, y un estudiante que escribe `sec(x)` lo
+  rechaza un solucionador que tiene la respuesta. Ahora están `∫cot`, `∫sec^2`,
+  `∫cosec^2`, `∫cot^2`, `∫coth` y `∫sech^2`.
+
+- **EL CASO LINEAL DE T-12** ya no se niega `x = 0`, que era lo más elemental que
+  faltaba, y arrastró tres bugs de fondo que no se buscaban: `0·pi` y `0` eran dos
+  puntos distintos para el motor, la regla de fusión de intervalos estaba al
+  revés —se fundían los que se tocan con ambos extremos abiertos, que es
+  exactamente el caso que no debe fundirse— y un extremo infinito no ganaba
+  nunca en una fusión. Efecto lateral que era un agujero tapado:
+  `dominio(ln(x^2))` daba `(-∞, 0)`, media recta de menos.
+
+- **EL HUECO REMOVIBLE** que quedaba de T-23 se decide por estructura —el
+  recíproco se simplifica a cotg, cuyo dominio sí incluye `pi/2`— y un hueco que la
+  simplificación no cancela se declara polo, que es el lado seguro.
+
+## Unreleased — MathLab: la auditoría del motor entero
+
+Un barrido buscando **respuestas falsas**, no capacidades faltantes, convertido en
+`tests/test_mathlab_auditoria.py`: 326 comprobaciones sobre identidades,
+derivadas, integrales, ecuaciones, ceros, dominio, periodos, series, gráficas y la
+conversión entre los dos árboles de expresiones. Cada una por un camino que no
+consulta el cálculo que produjo la respuesta, y con control negativo donde hace
+falta para que la comprobación no pueda pasar sin comparar nada.
+
+Encontró dos bugs que ninguna otra prueba veía:
+
+- **`x^(3/2)` volvía del otro árbol como `√x`.** El numerador del exponente se
+  perdía en la conversión, y la primitiva de `√x` —que es `x^(3/2)·2/3`— salía
+  `2·√x/3`, cuya derivada es `1/(3√x)`. El primer arreglo puso el numerador
+  ENCIMA de la raíz y dio `x^3·√x`, que es `x^(7/2)` y sale 35 veces demasiado
+  grande. Las dos versiones **se imprimen como una potencia fraccionaria** y solo
+  derivar la primitiva lo delata. La parte entera va DEBAJO de la raíz.
+- **El bucle de Taylor** con sus dos fallos que se cancelaban (arriba).
+
+El barrido salió limpio en las demás familias: 28 identidades por 6 objetivos,
+13 derivadas contra la tabla y las dos tablas entre sí, 35 integrales derivadas de
+vuelta, 13 ecuaciones con el miembro sustituido en la original, ceros, dominio con
+las banderas abierto/cerrado, periodos, series cuyo error baja al subir el orden, y
+las gráficas contra su propio sello.
+
+Dos comprobaciones del propio barrido resultaron **ingenuas** y se corrigieron, no
+el motor: un polo visto por punto flotante es un número finito muy grande —a
+`pi/2`, `tg` vale 6·10⁻¹⁷ y `1/tg` vale 6·10¹⁶, ninguno de los dos es `None`— y
+`1/tg(pi/2)` vale 6·10⁻¹⁷, un número pequeño que parece continuo. Ninguna muestra
+puede decidir si un punto existe: la tabla simbólica es la autoridad, y el sello de
+T-23 ya lo dice en vez de fingir que lo comprueba.
+
+1863 pasan y 8 se saltan en los quince ficheros `test_mathlab_*.py`.
+
+
 ## Unreleased — Windows Product 1.0 (productización)
 - Producto/UX post-roadmap (sin fase nueva): menú Go agrupado sobre los 13 tabs intactos; índice de módulos reales; Virtual Lab/Simulation en secciones Experiment/Inputs/Execution/Results sin renombrar widgets; vista orbital F16 con números reales; dashboard editorial con recents reales; motion 150 ms sin bounce.
 - Validación: exe/installer reconstruidos del árbol final, smoke verde, regresión verde; Start Menu/uninstall-ejecutado/clean-machine/DPI sistemático NOT VERIFIED (sin admin ni 2ª máquina).

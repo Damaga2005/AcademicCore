@@ -1853,9 +1853,30 @@ infinito no ganaba nunca en una fusión.
 
 **COMPLETADAS:** T-01 a T-23 (salvo las partes señaladas).
 
-**PARCIALES:** T-13 completa pero sin el análisis de dominio multivariable, T-14 sin derivadas ni integrales propias, T-18 sin reducción de potencias al integrar, y T-19 con un término de más en el polinomio de un monomio.
+**T-14, T-18 y T-19 cerradas.** `∫sen^n`, `∫cos^n` y `∫tg^n` por la fórmula de reducción, `∫ln^n` por partes tabulares, y las primitivas propias de la familia —`cot`, `sec^2`, `cosec^2`, `cot^2`, `coth`, `sech^2`— en tabla. El polinomio de Taylor de un monomio ya coincide con el monomio.
 
-**PENDIENTES:** ninguna de la especificación; las cuatro familias restantes son PARCIALES por lo que cada línea dice.
+Queda de T-18 un caso concreto: `sen(x)^3·cos(x)^2`, un producto de dos potencias, no entra por la reducción —que es de UNA potencia— ni por el cambio de variable. `exp(x)·sen(x)` y `senh(x)^2` también se niegan, con el motivo escrito.
+
+**Auditoría.** Un barrido del motor entero buscando respuestas FALSAS, no
+capacidades faltantes, vive en `tests/test_mathlab_auditoria.py`: 326
+comprobaciones, cada una por un camino que no consulta el cálculo que la produjo.
+Encontró dos bugs que ninguna otra prueba veía:
+
+- `x^(3/2)` volvía del otro árbol de expresiones como `√x`. El numerador del
+  exponente se perdía, y la primitiva de `√x` salía `2·√x/3`, cuya derivada
+  es `1/(3·√x)`. El primer arreglo puso el numerador encima de la raíz y dio
+  `x^3·√x`, que es `x^(7/2)` y sale 35 veces demasiado grande. Las dos versiones
+  **se imprimen como una potencia fraccionaria** y solo derivar lo delata.
+- El bucle de Taylor leía el término de orden k con la derivada de orden k+1
+  mientras el coeficiente salía como recíproco. Dos fallos que se cancelan, que es
+  la razón por la que todo valor intermedio parecía plausible.
+
+**COMPLETADAS:** T-01 a T-23.
+
+**PARCIALES:** T-13 completa pero sin el análisis de dominio multivariable. De T-18,
+el producto de dos potencias y `exp·sen`.
+
+**PENDIENTES:** ninguna de la especificación; lo que queda es lo que cada línea dice.
 
 ## Catálogo maestro de cobertura
 

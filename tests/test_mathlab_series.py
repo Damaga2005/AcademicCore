@@ -333,11 +333,30 @@ def test_taylor_no_declara_precision_que_no_puede_sostener():
 
 @pytest.mark.parametrize("expresion,orden,contiene", [
     ("exp(x)", 4, "1/24*x^4"),
-    ("sin(x)", 4, "1/24*x^4"),
+    ("sin(x)", 4, "-1/6*x^3"),
+    ("sin(x)", 4, "x"),
+    ("cos(x)", 4, "-1/2*x^2"),
+    ("cos(x)", 4, "1"),
 ])
 def test_taylor_sale_de_las_derivadas(expresion, orden, contiene):
+    """Each function gets its OWN polynomial.
+
+    They all came out the same before, read off one table of «odd and
+    alternating»: a sine series that starts at ``x`` is not a series of anything,
+    and a coseno series that starts at ``x`` is a sino's. The cause was a pair of
+    mistakes that cancelled —the loop read the term of order k with the
+    derivative of order k+1, and the coefficient was taken as a reciprocal— so
+    every intermediate value looked plausible.
+    """
     serie = S.taylor(mx.parse(expresion), mx.ZERO, orden)
     assert contiene in mx.text(serie.polinomio), mx.text(serie.polinomio)
+
+
+def test_el_seno_y_el_coseno_no_dan_el_mismo_polinomio():
+    """The negative control for the test above: they must differ."""
+    seno = mx.text(S.taylor(mx.parse("sin(x)"), mx.ZERO, 6).polinomio)
+    coseno = mx.text(S.taylor(mx.parse("cos(x)"), mx.ZERO, 6).polinomio)
+    assert seno != coseno
 
 
 def test_taylor_evaluated_centre_does_not_divide_by_zero():
@@ -364,22 +383,53 @@ def test_taylor_around_a_centre_that_is_not_zero():
     assert "4" in texto or "x" in texto, texto
 
 
-@pytest.mark.parametrize("expresion,terreno", [("x^3", "1/12*x^2"),
-                                                ("x^2", "1/2*x")])
-def test_taylor_de_un_mononomio_ainda_no_coincide(expresion, terreno):
-    """Known gap, recorded rather than hidden.
+@pytest.mark.parametrize("expresion,exacto", [
+    ("x^3", "x^3"), ("x^2", "x^2"), ("x", "x"), ("x^4", "x^4"),
+    ("x^2 + 1", "x^2 + 1"),
+])
+def test_el_polinomio_de_un_monomio_coincide_con_el_monomio(expresion, exacto):
+    """``taylor(x^3, 0, 4)`` returns ``x^3``.
 
-    ``taylor(x^3, 0, 4)`` returns ``1/12*x^2`` where it should return ``x^3``, and
-    ``x^2`` is wrong the same way. The derivatives themselves check out one by one
-    — for x^3 they are x^3, 3x^2, 6x, 6, which at 0 give 0, 0, 0, 6 — so the fault
-    is in how the terms are assembled, not in the differentiation.
-
-    The test is here so that the day it is fixed, it fails. Fixing it would mean
-    asserting ``x^3`` instead, and until then that assertion would be a lie about
-    what the engine does.
+    It used to return ``1/12*x^2`` \u2014 a term that belongs to no Taylor series of
+    anything. The derivatives were always right (for x^3 they are x^3, 3x^2, 6x,
+    6, which at 0 give 0, 0, 0, 6), so the fault was in how the terms are
+    assembled, and there were TWO faults cancelling each other out: the loop read
+    the term of order k with the derivative of order k+1, and the coefficient came
+    out as a reciprocal. A cancellation between two bugs is the hardest kind to
+    see, because every intermediate value looks plausible.
     """
     serie = S.taylor(mx.parse(expresion), mx.ZERO, 4)
-    assert mx.text(serie.polinomio) == terreno          # documented, not endorsed
-    for x in (0.3, 1.7):
+    assert mx.text(serie.polinomio) == exacto
+
+
+@pytest.mark.parametrize("expresion,grado", [("x^3", 3), ("x^2", 2), ("x^4", 4)])
+def test_el_polinomio_de_un_monomio_aproxima_al_monomio(expresion, grado):
+    """And it is not merely spelled right: it evaluates right."""
+    serie = S.taylor(mx.parse(expresion), mx.ZERO, 6)
+    for x in (0.3, 1.7, -2.5):
         valor = mx.evaluate(serie.polinomio, {"x": x}).real
-        assert abs(valor - x ** len(expresion)) > 1e-6
+        assert abs(valor - x ** grado) < 1e-9, (expresion, x)
+
+
+def test_el_residuo_de_un_monomio_es_cero():
+    """A polynomial has no further terms, so naming one is inventing it."""
+    assert mx.exact_value(S.taylor(mx.parse("x^3"), mx.ZERO, 4).residuo) == 0
+
+
+def test_taylor_en_un_centro_que_no_es_cero_da_el_mismo_polinomio():
+    """At centre 2 the Taylor polynomial of x^2 is x^2 itself, which is a good
+    check: a wrong assembly gives x^2 plus stray terms in (x-2)."""
+    serie = S.taylor(mx.parse("x^2"), mx.Num(Fr(2)), 2)
+    assert mx.text(serie.polinomio) == "x^2"
+    assert mx.exact_value(serie.residuo) == 0
+
+
+def test_taylor_se_niega_donde_la_funcion_no_tiene_desarrollo():
+    """ln has no Taylor series at 0: its first derivative there is 1/0.
+
+    Building a polynomial out of that writes a division by zero into every
+    coefficient and calls the result an approximation.
+    """
+    with pytest.raises(UnsupportedError) as exc:
+        S.taylor(mx.parse("ln(x)"), mx.ZERO, 4)
+    assert "no es un n\u00famero" in str(exc.value)
