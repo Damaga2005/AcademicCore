@@ -1,5 +1,56 @@
 # Changelog
 
+## 2026-10-03 — `A·B = 0` se parte en sus factores, con su condición de sonido
+
+`sen(x)·cos(x) = 0` se negaba, y es la ecuación más simple de la familia. El motor
+sabía resolver `sen(x) = 0` y `cos(x) = 0` por separado y no veía que un producto
+pregunta las dos cosas a la vez, así que el rechazo no era una limitación que
+declarar sino un hueco quehacía invisible toda la familia.
+
+### La regla y su condición
+
+`A·B = 0` es `A = 0` o `B = 0` — **solo donde el producto entero existe**, y esa
+segunda mitad es la que cuesta. `sen(x)·cos(x)·tg(x) = 0` tiene `cos(x) = 0` como
+respuesta de uno de sus factores, y en `x = pi/2` el producto es `0·0·indefinido`: la
+ecuación ni siquiera está planteada ahí. Publicar esa familia metería puntos
+donde la expresión no se puede evaluar — el mismo fallo que un dominio que gana
+un agujero, en la respuesta en vez de en el conjunto.
+
+Así que el producto solo se parte **cuando todos sus factores comparten
+dominio**, que es lo que hace exacta la equivalencia. Se pregunta al DOMINIO y
+nunca al evaluador: en `x = pi/2` el coseno vale `6·10⁻¹⁷` y la tangente
+`1.6·10¹⁶`, y preguntar «existe aquí?» a un punto flotante devuelve un número
+grande y corriente donde no hay nada.
+
+Un factor con potencia no negativa se cuenta una sola vez, porque `a^k = 0`
+exactamente cuando `a = 0`; uno con potencia negativa se deja fuera, porque
+`1/sen(x)` no tiene ceros que aportar y meterlo sería anunciar una raíz donde
+no la hay.
+
+Medido sobre una batería de 41 ecuaciones, con **sonido** (cada punto publicado
+anula la ecuación) y **completitud** (cada raíz real está cerca de un punto
+publicado, raíces por cambio de signo y descartando los polos):
+
+| | antes del producto | ahora |
+|---|---|---|
+| responde | 17 de 41 | **23 de 41** |
+| soluciones **inventadas** | 0 | **0** |
+| incompletas | 0 | **0** |
+| se niegan con soluciones | 24 | 18 |
+
+### Lo que queda, y es un solo mecanismo
+
+Las 18 son casi todas lo mismo: **dos términos trigonomótricos con argumentos
+distintos**. `sen(x) + sen(2x) = 0` se factoriza a `sen(x)·(2cos(x)+1) = 0`, y una vez
+partido lo sabe resolver cada factor. Lo que falta es el paso de factorizar, que
+necesita la sustitución universal `t = tg(x/2)` — con su hueco en `x = pi`, que es
+justo del tipo de detalle que produce las soluciones inventadas que esta tanda
+pasó en quitar — y factorizar el polinomio racional resultante.
+
+Tambien quedan dos rechazos correctos por dominio: `tg(x)·sen(x) = 0` y
+`sen(x)·cos(x)·tg(x) = 0`, que tienen soluciones pero no se pueden publicar como
+familia única porque el producto tiene agujeros.
+
 ## 2026-10-03 — el solucionador de ecuaciones ya no contesta otra ecuación
 
 El aviso anterior decía que `ceros(cos x + cos 2x)` daba `{pi/2, 3pi/2}`, que

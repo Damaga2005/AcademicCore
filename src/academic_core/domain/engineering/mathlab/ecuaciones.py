@@ -305,6 +305,9 @@ def _casos(f: mx.Expr, var: str):
     lineal = _caso_lineal(f, var)
     if lineal is not None:
         return lineal
+    producto = _caso_producto(f, var)
+    if producto is not None:
+        return producto
     # No case matched. That is *not* the same as «there is no solution»: it is
     # «this engine does not solve this», and the difference is the whole point of
     # §5.4. Saying «no solutions» here would be a false answer presented with
@@ -857,6 +860,100 @@ def _caso_racional(f: mx.Expr, var: str):
                  f"el denominador se anula son polos, no soluciones"]
     familias, h, espurias = _casos(numerador, var)
     return familias, hipotesis + list(h), espurias
+
+
+def _factores_planos(e: mx.Expr) -> list[mx.Expr]:
+    """``e`` as the factors of a product, with a non-negative power folded in.
+
+    ``Mul`` takes only two children, so a product is a nest of two-child nodes and
+    has to be flattened. ``sen(x)^2·cos(x)`` counts as two factors, because
+    ``a^k = 0`` exactly when ``a = 0`` for a non-negative ``k`` — and a NEGATIVE
+    power is left alone, since ``1/sen(x)`` has no zeros to contribute and putting
+    it in the list would be claiming that the product has a root where it has none.
+    """
+    if isinstance(e, mx.Mul):
+        return _factores_planos(e.left) + _factores_planos(e.right)
+    if isinstance(e, mx.Pow) and isinstance(e.exponent, mx.Num) \
+            and e.exponent.value.denominator == 1 and e.exponent.value >= 0:
+        return _factores_planos(e.base)
+    return [e]
+
+
+def _caso_producto(f: mx.Expr, var: str):
+    """``A·B = 0`` is ``A = 0`` or ``B = 0``: one factor at a time.
+
+    The engine already solves ``sen(x) = 0`` and ``cos(x) = 0``; what it could not
+    do was notice that a product of them asks both questions at once. ``sen(x)·cos(x)
+    = 0`` was refused, and it is the simplest equation in this family \u2014 so the
+    refusal was not a limitation to declare but a gap that made the whole family
+    invisible.
+
+    Every factor has to be answered, and the answers are checked back against the
+    ORIGINAL product rather than against each factor: ``A·B = 0`` with a root of
+    ``A`` is a root of the product whatever ``B`` does there, and _comprobar is
+    what proves it rather than this function.
+    """
+    if isinstance(f, mx.Sub) and f.right == mx.ZERO:
+        f = f.left                      # «A·B - 0» es «A·B», no otra cosa
+    if not isinstance(f, mx.Mul):
+        return None
+    from academic_core.domain.engineering.mathlab import inequaciones as Iq
+
+    factores = [g for g in _factores_planos(f) if var in mx.variables(g)]
+    if len(factores) < 2:
+        return None
+    familias: list[Familia] = []
+    hipotesis = ["un producto se anula si y solo si se anula alguno de sus "
+                 "factores, as\u00ed que la ecuaci\u00f3n se parte en una por factor y "
+                 "se responden todas"]
+    for factor in factores:
+        parcial = _casos(mx.Sub(factor, mx.ZERO), var)
+        if parcial is None:
+            return None
+        nuevas, pasos, _ = parcial
+        if not nuevas and any(MOTIVO_SIN_CASO in h for h in pasos):
+            return None                 # un factor que no se sabe: no se responde
+        familias.extend(nuevas)
+        hipotesis.extend(pasos)
+    if not familias:
+        return None
+    # ``A·B = 0`` is ``A = 0`` or ``B = 0`` only where the WHOLE PRODUCT exists.
+    # ``sen(x)·cos(x)·tg(x) = 0`` has ``cos(x) = 0`` as an answer to one of its
+    # factors, and at ``x = pi/2`` the product is ``0·0·undefined``: the equation
+    # is not even posed there. Publishing that family would put points in the
+    # solution set where the expression cannot be evaluated \u2014 the same failure
+    # as a domain that gained a hole, in the answer instead of in the set.
+    #
+    # A family cannot be published with holes \u2014 ``base + paso·k`` has none \u2014 so a
+    # family with one refuses the whole product rather than publish half of it.
+    # Los factores tienen que compartir el dominio, y la pregunta se le hace al
+    # DOMINIO y no al evaluador porque el evaluador no puede ver un polo: en
+    # `x = pi/2` el coseno vale `6·10⁻¹⁷` y la tangente `1.6·10¹⁶`, y el producto
+    # sale un número grande y corriente donde no hay nada. Preguntar «existe
+    # aquí?» a un punto flotante da una respuesta, y esa respuesta es mentira.
+    #
+    # Con dominios iguales la equivalencia es exacta: `A·B = 0` es `A = 0` o
+    # `B = 0` sobre un dominio donde ambos existen, y `A` y `B` se anulan a lo
+    # sumo donde el otro tampoco existe. Con dominios distintos NO lo es:
+    # `sen(x)·cos(x)·tg(x) = 0` tiene `cos(x) = 0` como respuesta de uno de sus
+    # factores, y en `x = pi/2` el producto es `0·0·indefinido` — la ecuación ni
+    # siquiera está planteada. Publicar esa familia metería puntos donde la
+    # expresión no se puede evaluar, que es el mismo fallo que un dominio que gana
+    # un agujero, en la respuesta en vez de en el conjunto.
+    #
+    # No es una limitación de convenience: una familia `base + paso·k` no tiene
+    # agujeros, así que una solución con huecos no se puede publicar ni a medias.
+    dominios = []
+    for factor in factores:
+        try:
+            dominios.append(Iq.dominio(factor, var).texto())
+        except Exception:                   # noqa: BLE001 «no lo sé» es respuesta
+            return None
+    distintos = {d for d in dominios}
+    if len(distintos) != 1:
+        return None
+    espurias = _comprobar(familias, f, var)
+    return _deduplica(familias), hipotesis, espurias
 
 
 def _caso_polinomio(f: mx.Expr, var: str):

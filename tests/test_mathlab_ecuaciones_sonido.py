@@ -126,6 +126,9 @@ RESPONDIDAS = [
     "sin(x) + sin(x)^2 = 0", "cos(x) + 1 = 0", "2*sin(2*x) = 1",
     "sin(x) + cos(x) = 0", "cos(x/2) = 1/2", "sin(x/2) = 1/3",
     "1 + 2*cos(x) = 0", "sin(x)*sin(x) = 1/4",
+    "sin(x)*cos(x) = 0", "sin(2*x)*cos(x) = 0",
+    "cos(x)*sin(2*x) = 0", "sin(x)^2*cos(x) = 0", "sin(x)*cos(x)^2 = 0",
+    "(sin(x) - 1/2)*cos(x) = 0", "sin(x)*x = 0",
 ]
 
 #: The two that used to be answered with a DIFFERENT equation's solutions. They
@@ -143,6 +146,17 @@ NEGADAS_ANTES = [
     "2*cos(2*x) + 2*cos(x) = 0",
     "cos(2*x) + cos(x) - 1 = 0",
     "cos(3*x) + cos(x) = 0",
+    "sin(3*x) - sin(x) = 0",
+    "sin(2*x) - sin(x) = 0",
+    "sin(2*x) + sin(x) = 1",
+    "cos(3*x) + cos(x) = 1",
+    "tan(x) + cos(x) = 0",
+    # Two products whose factors do NOT share a domain. `tg(x)` does not exist at
+    # pi/2 and `sen(x)` does, so `A·B = 0` is not `A = 0` or `B = 0` there: at
+    # `x = pi/2` the product is `0·0·undefined` and the equation is not even
+    # posed. A family cannot be published with holes, so the whole thing refuses.
+    "tan(x)*sin(x) = 0",
+    "sin(x)*cos(x)*tan(x) = 0",
 ]
 
 
@@ -212,3 +226,82 @@ def test_el_argumento_compartido_se_deshace_con_su_escala():
     assert r.familias, "debe responder: es un caso directo"
     punto = mx.evaluate(r.familias[0].miembro(0, "x"), {"x": 0})
     assert abs(float(punto.real) / math.pi - 1.5) < 1e-9, mx.text(punto)
+
+
+# ---------------------------------------------------------------------------
+# el producto
+
+
+PRODUCTO = [
+    ("sin(x)*cos(x) = 0", ["0", "pi", "1/2*pi", "-1/2*pi"]),
+    ("sin(2*x)*cos(x) = 0", ["0", "1/2*pi"]),
+    ("cos(x)*sin(2*x) = 0", ["0", "1/2*pi"]),
+    ("sin(x)^2*cos(x) = 0", ["0", "pi", "1/2*pi", "-1/2*pi"]),
+]
+
+
+@pytest.mark.parametrize("ecuacion,esperados", PRODUCTO)
+def test_un_producto_se_parte_en_sus_factores(ecuacion, esperados):
+    """`A·B = 0` asks both questions at once, and the engine now asks both.
+
+    ``sen(x)·cos(x) = 0`` was refused, and it is the simplest equation in the
+    family, so the refusal was not a limitation to declare but a gap that made the
+    whole family invisible: the engine could solve ``sen(x) = 0`` and ``cos(x) = 0``
+    separately and could not notice that a product asks both at once.
+    """
+    bases = {mx.text(f.base) for f in E.resolver(ecuacion).familias}
+    for esperado in esperados:
+        assert esperado in bases, (ecuacion, sorted(bases))
+
+
+def test_un_potente_no_negativo_no_aporta_factores_nuevos():
+    """`a^k = 0` exactly when `a = 0`, so `sen(x)^2` counts as `sen(x)`."""
+    r = E.resolver("sin(x)^2*cos(x) = 0")
+    assert r.familias
+    f = _f("sin(x)^2*cos(x) = 0")
+    for familia in r.familias:
+        for k in range(-4, 5):
+            x = float(mx.evaluate(familia.miembro(k, "x"), {"x": 0}).real)
+            assert abs(f(x)) < 1e-7, (familia.base, k, x)
+
+
+def test_un_factor_que_no_se_sabe_hace_negarse_el_producto_entero():
+    """A partial answer to `A·B = 0` is a wrong answer, so the whole thing refuses.
+
+    `sen(x)·(x^5 - x^7 + 1) = 0` has one factor the engine cannot solve. Publishing
+    only the solutions of ``sen(x) = 0`` would look like a complete answer to a
+    question that was not fully answered, and §5.4 asks for the refusal instead.
+    """
+    r = E.resolver("sin(x)*(x^5 - x^7 + 1) = 0")
+    assert not r.familias or r.refusos, (r.familias, r.refusos)
+
+
+def test_el_paso_dice_que_un_producto_se_anula_si_alguno_de_sus_factores():
+    paso = "un producto se anula si y solo si se anula alguno de sus factores"
+    hipotesis = " ".join(E.resolver("sin(x)*cos(x) = 0").hipotesis)
+    assert paso in hipotesis, hipotesis
+
+
+def test_un_producto_con_dominios_distintos_no_se_parte():
+    """The soundness condition on the product rule, stated as one assertion.
+
+    `A·B = 0` is `A = 0` or `B = 0` exactly where BOTH exist. Sharing the
+    domain is what makes that equivalence true, and it is checked by asking the
+    DOMAIN — never the evaluator, which at `x = pi/2` sees `cos = 6·10⁻¹⁷` and
+    `tg = 1.6·10¹⁶` and calls the product a large ordinary number where there
+    is nothing at all.
+    """
+    from academic_core.domain.engineering.mathlab import dominio as Dm
+    from academic_core.domain.engineering.mathlab import inequaciones as Iq
+
+    mismo = Iq.dominio(mx.parse("sen(x)*cos(x)")).texto()
+    assert Iq.dominio(mx.parse("sen(x)")).texto() == mismo
+    assert Iq.dominio(mx.parse("cos(x)")).texto() == mismo
+
+    distinto = Iq.dominio(mx.parse("tan(x)*sen(x)")).texto()
+    assert Iq.dominio(mx.parse("tan(x)")).texto() != \
+        Iq.dominio(mx.parse("sen(x)")).texto()
+    for ecuacion in ("tan(x)*sin(x) = 0", "sin(x)*cos(x)*tan(x) = 0"):
+        r = E.resolver(ecuacion)
+        assert not r.familias, (ecuacion, [f.texto("x") for f in r.familias])
+    assert distinto != mismo
