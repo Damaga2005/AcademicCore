@@ -54,6 +54,7 @@ from math import inf as math_inf
 from academic_core.domain.engineering.mathlab import dominio as D
 from academic_core.domain.engineering.mathlab import inequaciones as I
 from academic_core.domain.engineering.mathlab import mvexpr as mx
+from academic_core.domain.engineering.mathlab import limites as L
 from academic_core.domain.engineering.mathlab import series as S
 from academic_core.domain.engineering.mathlab import trig as T
 from academic_core.domain.engineering.mathlab import verify as V
@@ -171,10 +172,11 @@ def caracteristicas(expresion: mx.Expr, var: str = "x") -> Caracteristicas:
             "cancelar se declara polo: es el lado seguro, y sen(x)/x en 0 es de "
             "esos aunque su límite sea 1")
     hipotesis.append(
-        "solo se declaran asintotas verticales, en los polos. Las horizontales y "
-        "oblícuas necesitan el límite en el infinito, y no hay motor de "
-        "límites aquí: muestrear en un x grande no es un límite, y un "
-        "senoide da diez «límites» distintos en diez x grandes")
+        "las asíntotas verticales son las de los polos. Las horizontales y "
+        "oblicuas salen del orden de crecimiento en el infinito, que se calcula "
+        "por aritmética y no muestreando: un senoide da diez «límites» "
+        "distintos en diez x grandes, así que muestrear sería inventar la "
+        "recta. Lo que el motor de crecimiento no sabe clasificar, no lo dice")
 
     return Caracteristicas(
         expresion=expresion,
@@ -349,27 +351,31 @@ def _discontinuidades(expresion: mx.Expr, var: str) -> tuple[D.Punto, ...]:
 
 
 def _asintotas(expresion: mx.Expr, var: str) -> tuple[str, ...]:
-    """Vertical asymptotes, at the points where the function is not defined.
+    """Vertical, horizontal and oblique asymptotes.
 
-    Oblique and horizontal asymptotes both need a limit as ``x`` runs to
-    infinity, and there is no limit engine wired here. A sample at a large ``x``
-    is not a limit: a sinusoid sampled at ten different large values gives ten
-    different «limites», and declaring ``y = 0» because one of them was small
-    would be inventing a line out of a coincidence. So the answer is the vertical
-    asymptotes, and the refusal is the honest part.
+    The vertical ones sit at the points where the function is not defined, and the
+    candidates come from the domain, not from the denominators: ``tan(x)`` has no
+    denominator at all — its poles live inside the function — and the domain
+    already knows where the expression stops existing, which is exactly where a
+    vertical asymptote can be. The growth test then confirms that the function
+    actually blows up there.
 
-    The candidates come from the domain, not from the denominators. ``tan(x)``
-    has no denominator at all — its poles live inside the function — and the
-    domain already knows where the expression stops existing, which is exactly
-    where a vertical asymptote can be. The growth test then confirms that the
-    function actually blows up there.
+    The horizontal and oblique ones need a limit as ``x`` runs to infinity, and a
+    sample at a large ``x`` is not a limit: a sinusoid sampled at ten different
+    large values gives ten different «limites», and declaring ``y = 0» because
+    one of them was small would be inventing a line out of a coincidence. So those
+    come from :mod:`limites`, which computes the ORDER OF GROWTH by arithmetic and
+    never samples. ``3*sin(2x)/x`` has ``y = 0`` because its order is −1, and a
+    function whose order cannot be established gets no asymptote, which is a real
+    answer rather than a shrug.
     """
     vertical: list[str] = []
     for punto in _discontinuidades(expresion, var):
         centro = _coordenada(punto)
         if _crece_cerca(expresion, var, centro):
             vertical.append(f"x = {punto.texto()}")
-    return tuple(sorted(set(vertical)))
+    return tuple(sorted(set(vertical) | set(
+        L.asintotas_de_horizonte_y_oblicua(expresion, var))))
 
 
 def _crece_cerca(expresion: mx.Expr, var: str, centro: float) -> bool:

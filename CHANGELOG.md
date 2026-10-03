@@ -1,5 +1,58 @@
 # Changelog
 
+## 2026-10-03 — asíntotas horizontales y oblicuas, por orden de crecimiento
+
+`graficas` publicaba solo las verticales y lo decía, con razón: una asíntota es
+un límite, y muestrear en un `x` grande no es un límite. `3·sen(2x)/x` muestreada
+en diez valores grandes da diez números distintos, y declarar `y = 0` porque uno
+era pequeño sería inventar una recta a partir de una coincidencia. La negativa
+era correcta; lo que faltaba era el otro camino.
+
+### `limites.py`: el orden de crecimiento, por aritmética
+
+Un módulo nuevo que nunca muestrea. Clasifica cada nodo por su **orden** (el
+exponente de `x`) y su **coeficiente principal**, exacto, como `Fraction`; más un
+booleano `oscila` que dice si hay dentro una función acotada del mismo orden que
+todo lo demás.
+
+- `grado < 0` → `y = 0`, en los dos extremos. La expresión se anula, y la
+  oscilación con ella: `|sen(x)|/x` está acotado por `1/x`.
+- `grado == 0` sin oscilar → `y = coeficiente`.
+- `grado == 1` sin oscilar → la oblicua, pendiente y ordenada leídas término a
+  término.
+- `grado >= 2`, o cualquier oscilación de orden `>= 0`, → no hay asíntota, que es
+  una respuesta real: `x²` crece más rápido que cualquier recta, y `x·sen(x)`
+  nunca se asienta en ninguna.
+
+Lo que **se niega** es `exp`, `ln`, `tg`, `sec`, `cosec`, `cot`, raíces y todo lo que
+no clasifique. No porque esas no tengan asíntota — algunas la tienen — sino
+porque improvisar aquí sería la misma invención con un nombre más largo.
+
+La asintota oblicua se resuelve término a término porque preguntar a la
+expresión entera «cuál es tu orden» no puede contestar «y tu término
+constante»: los dos términos principales se cancelan, y esa cancelación hay que
+verla para notarla. `x` menos `x` no es `0` para algo que solo conoce el orden de
+crecimiento, y es exactamente `0` aquí.
+
+Un fallo que el propio motor cometió y que las pruebas ahora fijan: `x/sen(x)` y
+`x·sen(x)` salían con `y = x`. El orden es el correcto y la asíntota no, porque una
+ola del tamaño de la recta no la alcanza jamás. `oscila` solo se descarta cuando el
+grado es negativo, y solo ahí lo mata la caída.
+
+Medido: `3·sen(2x)/x` → `y = 0`; `sen(x)/x`, `1/x`, `1/(2x)`, `3/(x+1)`,
+`cos(x)/x^3` → `y = 0`; `(x^2-1)/(x^2+1)`, `x/(x+1)`, `(2x^3+1)/(x^3-5)` → `y = 1`,
+`y = 1`, `y = 2`; `x`, `x+1/x` → `y = x`; `2x+3` → `y = 2·x + 3`; `x^2`, `sen(x)`,
+`x·sen(x)`, `x/sen(x)`, `x+sen(x)`, `tg(x)` → ninguna. Las verticales siguen igual:
+`1/tan(x)` publica `x = 0` y `x = π` y ninguna horizontal.
+
+### Un hueco que se ha declarado en vez de escondido
+
+`(x^2 - 1)/(x^2 + 1)` tiene asíntota `y = 1` y el motor la calcula, pero
+`caracteristicas` no puede publicarla porque también necesita el DOMINIO, y el
+dominio de esa expresión necesita los ceros de `x^2 + 1`, que nadie ha enseñado a
+escribir al motor. Son dos huecos en dos módulos distintos y la prueba los
+comprueba por separado, para que tapar uno no tape el otro.
+
 ## 2026-10-03 — los ceros fuera de la rejilla de pi, y una primitiva que ya se
 puede verificar
 
