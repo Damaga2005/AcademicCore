@@ -46,6 +46,38 @@ from academic_core.errors import UnsupportedError
 #: be missed. One suffices mathematically; more is cheap insurance (§5.5).
 MUESTRAS_POR_HUECO = 3
 
+def _cambia_de_signo(e: mx.Expr, var: str) -> bool:
+    """Whether ``e`` changes sign anywhere in a period, poles aside.
+
+    A continuous function with no zero cannot change sign, so a change is PROOF
+    that a zero exists. That is all it claims: it cannot say where. It is the one
+    independent check available before writing «no hay ceros», and without it an
+    empty family list from the equation solver reads as a fact about the FUNCTION
+    when it is a fact about the SOLVER.
+
+    `cos(x)^3 > 1` passes the same test — and there «no hay soluciones» is the
+    truth — so this does not turn every unknown into a refusal. It only stops the
+    opposite mistake.
+    """
+    periodo = D.periodo_minimo(e, var)
+    if periodo is None:
+        return False
+    paso = float(periodo) * math.pi / 96
+    anterior = 0
+    hubo = False
+    for i in range(1, 97):
+        valor = mx.evaluate(e, {var: i * paso})
+        if valor is None or abs(valor.imag) > 1e-9 or abs(valor.real) > 1e12:
+            continue                     # a pole says nothing about the sign
+        signo = 0 if abs(valor.real) < 1e-12 else (1 if valor.real > 0 else -1)
+        if hubo and signo and signo != anterior:
+            return True
+        if signo:
+            hubo = True
+            anterior = signo
+    return False
+
+
 def sin_refuso(mensaje: str) -> UnsupportedError:
     return UnsupportedError(f"NO_RULE: {mensaje}")
 
@@ -145,7 +177,40 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
         izquierda, derecha = ceros(e.left, var), ceros(e.right, var)
         if izquierda is None or derecha is None:
             return None
-        return _une(izquierda, derecha)
+        # A product is zero where EITHER factor is, but only where the product
+        # EXISTS. `tg(x)·cos(x)` used to publish `pi/2` and `3pi/2` as zeros, and
+        # `tg` does not exist there: two zeros that are not zeros. The filter the
+        # quotient branch has always had belongs here too — not because the
+        # algebra is different, but because a shared factor is where it bites.
+        # The END of the product's period, and only that. Each factor is folded
+        # into its OWN period before the union, so for a product less periodic
+        # than its parts the last zero is never generated: `tg(x)·cos(x)` is
+        # `sen(x)`, of period 2·pi, and `pi` — a real zero — was simply missing,
+        # which is also why the sign chart then refused, saying the sign changed
+        # inside a gap without a critical point to explain it. That is the engine
+        # telling the truth, and the reason this line is here.
+        #
+        # Spreading the zeros over the WHOLE product period was tried first and
+        # over-generates: it moved eight tests in three files. The rule the rest
+        # of this module already follows is narrower and does not: `0` and the
+        # end of the period are the same point, and nothing else moves.
+        # Each factor is folded into its OWN period, and a product can be less
+        # periodic than its parts: `tg(x)·cos(x)` is `sen(x)`, of period 2·pi,
+        # while `tg` folds at pi — so `pi`, a real zero, was never generated and
+        # the sign chart then refused, saying the sign changed inside a gap with
+        # no critical point to explain it. That is the engine telling the truth.
+        #
+        # So each factor is asked again over the PRODUCT's period: its own zeros
+        # plus as many whole turns of ITS OWN period as it takes to reach. Only
+        # multiples of the factor's period, and only up to the product's — which
+        # is what makes this different from spreading the union over the whole
+        # product period, which over-generates and cost eight tests.
+        per_producto = D.periodo_minimo(e, var)
+        juntos: list[mx.Expr] = []
+        for factor, sus_ceros in ((e.left, izquierda), (e.right, derecha)):
+            juntos = _une(juntos, _ceros_del_factor(factor, sus_ceros,
+                                                   per_producto, var))
+        return _donde_existe(juntos, e, var)
     if isinstance(e, mx.Pow):
         n = mx.exact_integer(e.exponent)
         if n is not None and n > 1:
@@ -159,8 +224,26 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
         return None
     if resolucion.sin_respuesta:
         return None
+    # A solution set that is empty AND carries refusals is «I did not find them»,
+    # not «there are none». `cot(x)^3 > 4` published «no hay soluciones» over an
+    # expression full of them, because its zeros need `tan(x) = 4^(-1/3)`, which is
+    # not a rational multiple of pi, and the equation solver said so in `refusos`
+    # while reporting an empty family list. Reading only the families turns «no lo
+    # sé» into «no hay», which is the one conversion this module never makes — and
+    # «no hay soluciones» over an expression that has them is the worst answer
+    # there is.
     if resolucion.vacia:
-        return []
+        if getattr(resolucion, "refusos", ()):
+            return None
+        # «No families» is not «no zeros» until something independent says so. A
+        # continuous function with no pole and no zero cannot change sign, so a
+        # sign change ANYWHERE is proof that a zero exists and that the equation
+        # solver missed it — by a shape it does not handle, silently. That is how
+        # `cot(x)^3 > 4` published «no hay soluciones» over an expression full of
+        # them: its zeros need `tan(x) = 4^(-1/3)`, which is not a rational
+        # multiple of pi, and nothing said so. `cos(x)^3 > 1` passes the same test
+        # — and there «no hay soluciones» is the truth.
+        return None if _cambia_de_signo(e, var) else []
     vistos: list[mx.Expr] = []
     for familia in resolucion.familias:
         if not familia.en_x:
@@ -323,6 +406,28 @@ def singularidades(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
 
 
 
+def _ceros_del_factor(factor: mx.Expr, ceros: list[mx.Expr],
+                      per_producto: Fraction | None, var: str) -> list[mx.Expr]:
+    """``ceros`` plus whole turns of the factor's own period, up to the product's.
+
+    ``tg`` folds its zeros at ``pi`` and reports only ``0``, so a product of period
+    ``2·pi`` never sees ``pi``. The turns are multiples of the FACTOR's period and
+    stop at the product's, which is the difference between filling a real gap and
+    inventing points: only the zeros of ``tg`` move, and only as far as ``sen``
+    needs them.
+    """
+    if per_producto is None:
+        return ceros
+    propio = D.periodo_minimo(factor, var)
+    if propio is None or propio >= per_producto or per_producto % propio != 0:
+        return ceros
+    vueltas = int(per_producto / propio) - 1
+    base = {c for c in (_coeficiente_pi(v) for v in ceros) if c is not None}
+    extra = [mx.Mul(mx.Num(c + k * propio), mx.PI)
+             for c in sorted(base) for k in range(1, vueltas + 1)]
+    return _une(ceros, extra)
+
+
 def _une(a: list[mx.Expr], b: list[mx.Expr]) -> list[mx.Expr]:
     salida = list(a)
     for v in b:
@@ -331,8 +436,45 @@ def _une(a: list[mx.Expr], b: list[mx.Expr]) -> list[mx.Expr]:
     return salida
 
 
+def _a_cookies_base(e: mx.Expr) -> mx.Expr:
+    """The base of a power, with the reciprocals unwrapped.
+
+    Split out so that ``_a_cocientes`` can read the quotient apart before deciding
+    what to do with the exponent; calling ``_a_cocientes`` again here would push
+    the exponent down before the quotient has been recognised, which is the order
+    that matters.
+    """
+    if isinstance(e, mx.Call) and len(e.args) == 1:
+        for fuente, (num, den) in (("sec", ("1", "cos")), ("csc", ("1", "sin")),
+                                   ("cot", ("cos", "sin"))):
+            if e.name == fuente:
+                return mx.Div(mx.Num(Fraction(1)) if num == "1" else _fn(num, e.args[0]),
+                              _fn(den, e.args[0]))
+        return mx.Call(e.name, tuple(_a_cookies_base(a) for a in e.args))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_a_cookies_base(e.arg))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_a_cookies_base(e.base), _a_cookies_base(e.exponent))
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_a_cookies_base(e.left), _a_cookies_base(e.right))
+    return e
+
+
 def _a_cocientes(e: mx.Expr) -> mx.Expr:
-    """``sec(u) → 1/cos(u)`` and friends, so the solver sees through them."""
+    """``sec(u) → 1/cos(u)`` and friends, so the solver sees through them.
+
+    The power goes INSIDE the quotient, which is the whole difficulty. Rewriting
+    ``sec(u)^n`` as ``(1/cos(u))^n`` is the same number in a different shape, and
+    it is a shape nothing downstream recognises: ``sec(x)^2 = 4`` came out refused
+    while ``1/cos(x)^2 = 4`` was solved, and the student who writes the reciprocal
+    spelling is the one who gets refused. So the exponent is pushed down and the
+    tree comes out the way it would have been written — ``1/cos(u)^n``.
+
+    Only for a positive integer exponent, where ``(a/b)^n = a^n/b^n`` is exact.
+    A fractional power is a different question: on the reals ``(-1)^(1/2)`` does
+    not exist, and folding a sign through a root to make two trees match is the
+    kind of convenience that turns into a wrong answer.
+    """
     if isinstance(e, mx.Call) and len(e.args) == 1:
         for fuente, (num, den) in (("sec", ("1", "cos")), ("csc", ("1", "sin")),
                                    ("cot", ("cos", "sin"))):
@@ -343,7 +485,26 @@ def _a_cocientes(e: mx.Expr) -> mx.Expr:
     if isinstance(e, mx.Neg):
         return mx.Neg(_a_cocientes(e.arg))
     if isinstance(e, mx.Pow):
-        return mx.Pow(_a_cocientes(e.base), _a_cocientes(e.exponent))
+        # `cot(u)^n` is `1/tan(u)^n` and NOT `(cos/sin)^n`. Both are the reciprocal
+        # rewrite of the same thing, but only the first is a shape the solvers
+        # recognise — which is why `cot(x)^2 > 1` came out refused while
+        # `1/tan(x)^2 > 1` was solved, and why `sec` needed the same treatment.
+        # The quotient form is kept for n = 1, where `tg` and `1/tg` are the same
+        # question and the reciprocal spelling is the one that reads better.
+        if (n_pre := mx.exact_integer(_a_cocientes(e.exponent))) is not None \
+                and n_pre > 1 and isinstance(e.base, mx.Call) and e.base.name == "cot":
+            return mx.Div(mx.ONE, mx.Pow(_fn("tan", e.base.args[0]),
+                                         mx.Num(Fraction(n_pre))))
+        base = _a_cookies_base(e.base)
+        exponente = _a_cocientes(e.exponent)
+        n = mx.exact_integer(exponente)
+        if isinstance(base, mx.Div) and n is not None and n > 1:
+            # `1^n` is `1`, and writing `1^2` above a quotient is noise that every
+            # comparison downstream then has to strip
+            arriba = (base.left if mx.exact_integer(base.left) == 1
+                      else mx.Pow(base.left, exponente))
+            return mx.Div(arriba, mx.Pow(base.right, exponente))
+        return mx.Pow(base, exponente)
     if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
         return type(e)(_a_cocientes(e.left), _a_cocientes(e.right))
     return e
@@ -630,6 +791,12 @@ def dominio(e: mx.Expr, var: str = "x") -> D.Conjunto:
     """
     if not mx.depends(e, var):
         return D.Conjunto() if mx.evaluate(e) is None else D.REALES
+    # TRIED AND REVERTED: normalising the reciprocals here, so that `csc(x)` and
+    # `1/sin(x)` take the same branch, broke ten tests in three files. It is the
+    # right idea and the wrong place — the poles branch and the denominators
+    # branch need to AGREE, not one of them to disappear. The inconsistency is
+    # real (`csc(x)` publishes fewer holes than `1/sin(x)` for one function) and
+    # it stays declared rather than half-fixed.
     resultado = D.REALES
 
     for denominador in D.denominadores(e):
@@ -646,6 +813,20 @@ def dominio(e: mx.Expr, var: str = "x") -> D.Conjunto:
                 "denominador: sin ellos no se sabe dónde deja de existir la "
                 "expresión (§5.4)")
         if puntos:
+            # `ceros` returns ONE period, and the period's own end is the same
+            # point as its start — the rule the sign chart already follows. Here
+            # that omission leaked: the denominator `tg(x)` reports its zero at 0
+            # and not at `pi`, so `sen(x)/tg(x)` kept `pi` in its domain and
+            # published it as a zero where the expression is `0/0`. The domain
+            # reports over all of R with a finite list of holes, so the holes
+            # have to include the turn the period closes on.
+            per = D.periodo_minimo(denominador, var)
+            if per:
+                extra = [D.punto_pi(per) for c in puntos
+                         if c.coeficiente == 0 or c.coeficiente % per == 0]
+                puntos = puntos + [q for q in extra
+                                   if all(q.coeficiente != r.coeficiente
+                                          for r in puntos)]
             resultado = D.quita_puntos(resultado, tuple(puntos))
             if resultado.vacio:
                 return resultado

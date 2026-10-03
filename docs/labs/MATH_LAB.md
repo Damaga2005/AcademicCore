@@ -1954,9 +1954,48 @@ respuesta correcta; y `test_argumento_no_principal_gana_una_vuelta_entera` afirm
 que las dos vías dan lo mismo, sobre `3+4i` —primer cuadrante, donde la opción no
 cambia nada—, así que pasaba con una implementación que ignorara la opción.
 
+**Tercera tanda: dos escrituras de la misma pregunta, y dos respuestas.** El motor
+tenía la respuesta y se negaba a darla. `sec(x)^2 > 4` se rechazaba mientras
+`1/cos(x)^2 > 4` se resolvía; `sec(x) = 2` se resolvía y `sec(x)^2 = 4` no. Es la
+misma enfermedad que T-14 cerró para las integrales, en los dos solucionadores que
+esa tanda no tocó:
+
+- **La potencia del recíproco iba fuera del cociente.** `(1/cos(u))^n` es el mismo
+  número en una forma que nada de lo que viene después reconoce; `1/cos(u)^n` es
+  como lo escribe el estudiante. Solo para entero positivo, que es donde la
+  identidad es exacta. `cot(u)^n` tenía además su propia forma, el cociente
+  `cos/sin`, y por eso `cot(x)^2 > 1` se rechazaba. **6 de 8 parejas** coinciden
+  ahora; eran 2 de 8.
+- **Dos ceros falsos**: `tg(x)·cos(x)` publicaba `pi/2` y `3pi/2`, y `tg` no existe
+  ahí. El producto es cero donde lo sea un factor, pero solo donde el producto
+  **existe** —y el filtro que tenía la rama del cociente faltaba en la del
+  producto.
+- **Un cero que faltaba, el mismo defecto por el otro lado.** `tg(x)·cos(x)` es
+  `sen(x)`, de periodo `2·pi`, y `tg` se dobla en `pi` declarando un cero, así que
+  `pi` no se generaba nunca. Cada factor aporta ahora sus ceros hasta el periodo
+  del producto, con vueltas enteras de su propio periodo.
+- **Un «no hay soluciones» falso**: `cot(x)^3 > 4` publicaba `∅` sobre una
+  expresión llena de soluciones. Sus ceros necesitan `tg(x) = 4^(-1/3)`, que no
+  es múltiplo racional de `pi`, y el solucionador devolvía una lista de familias
+  vacía **sin registrar el rechazo**. La prueba independiente es el teorema del
+  valor intermedio: una función continua sin polo ni cero no cambia de signo, y
+  un cambio demuestra que el cero existe. `cos(x)^3 > 1` pasa la misma prueba, y
+  ahí `∅` es la verdad.
+- **El dominio se comía un `0/0`**: `1/sen(x)` declaraba existir en `pi` y en
+  `2pi`, donde vale `1/0`. `0` y el final del periodo son el mismo punto, la regla
+  que la carta de signos ya seguía. Tres expectativas de prueba clavaban el
+  comportamiento equivocado, derivadas de la salida y no de lo que las
+  expresiones son; corregidas con el razonamiento escrito.
+
+13 expresiones de producto y cociente contrastadas punto a punto contra la
+función: **0 discrepancias**, antes 2 ceros falsos y 1 que faltaba.
+
 **COMPLETADAS:** T-01 a T-24.
 
-**PARCIALES:** T-13 completa pero sin el análisis de dominio multivariable.
+**NOTA sobre T-13.** La especificación la marca COMPLETADA y su lista no pide
+dominio multivariable —`dominio()` toma la variable como parámetro y sirve para
+cualquiera—. Las fracciones racionales **multivariable** son ML-12, otra fase, y
+no un hueco de esta.
 
 **PENDIENTES:** ninguna de la especificación; lo que queda es lo que cada línea dice.
 

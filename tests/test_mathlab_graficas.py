@@ -147,8 +147,12 @@ def test_los_ceros_son_exactos_y_no_una_muestra(expresion, ceros):
 def test_las_discontinuidades_son_los_polos():
     assert [p.texto() for p in k("tan(x)").discontinuidades] == \
         ["1/2·π", "3/2·π"]
+    # `1/sen(x)` has a hole at 0, at `pi` AND at `2pi`, because `2pi` is the
+    # same point as 0 and `1/sen(0)` is `1/0`. It used to publish only the
+    # first two, and the omission came from `ceros` answering with one
+    # # period: the zero at the end of the period is the zero at its start.
     assert [p.texto() for p in k("1/sin(x)").discontinuidades] == \
-        ["0", "π"]
+        ["0", "π", "2·π"]
 
 
 def test_un_punto_del_borde_que_no_es_discontinuidad_no_se_declara():

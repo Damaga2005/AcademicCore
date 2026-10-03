@@ -415,6 +415,81 @@ error una respuesta que es correcta.
 2064 pasan y 8 se saltan, de 2072 recogidas, en los dieciséis ficheros
 `test_mathlab_*.py`, más los cuatro de la familia E0/E01 que tocan el integrador.
 
+## Unreleased — MathLab: dos escrituras de la misma pregunta, y dos respuestas
+
+El motor **tenia la respuesta y se negaba a darla**. `sec(x)^2 > 4` se rechazaba
+mientras `1/cos(x)^2 > 4` se resolvia, que es la misma pregunta; y en el lado de
+las ecuaciones pasaba igual con `sec(x)^2 = 4`. Es exactamente la enfermedad que
+T-14 cerró para las integrales, en los dos solucionadores que aquella tanda no
+tocó.
+
+- **La potencia del recíproco iba FUERA del cociente.** Reescribir `sec(u)^n`
+  como `(1/cos(u))^n` es el mismo número en otra forma, y es una forma que nada
+  de lo que viene después reconoce. Va DENTRO: `1/cos(u)^n`, que es como lo
+  escribe el estudiante. Solo para entero positivo, que es donde
+  `(a/b)^n = a^n/b^n` es exacto. `cot(u)^n` tenía además su propia forma —el
+  cociente `cos/sin`—, y por eso `cot(x)^2 > 1` se rechazaba mientras
+  `1/tan(x)^2 > 1` se resolví­a. Medido: **6 de 8 parejas** de la misma pregunta
+  coinciden ahora; eran 2 de 8.
+
+- **Dos ceros FALSOS, que es peor que un rechazo.** `tg(x)·cos(x)` publicaba
+  `pi/2` y `3pi/2` como ceros, y `tg` no existe ahí. El producto es cero donde lo
+  sea un factor —eso es cierto— pero solo donde el producto **existe**, y el
+  filtro que ya tenía la rama del cociente faltaba en la del producto.
+
+- **Un cero que faltaba, y era el mismo defecto por el otro lado.** `tg(x)·cos(x)`
+  es `sen(x)`, de periodo `2·pi`, mientras `tg` se dobla en `pi` y declara un solo
+  cero —así que `pi`, un cero real, no se generaba nunca. Un cero que falta no es
+  un cero de más, pero deja la carta de signos sin un punto crítico con el que
+  explicar un cambio de signo, y el motor se negaba diciendo justo eso. La regla:
+  **cada factor aporta sus ceros hasta el periodo del producto**, con vueltas
+  enteras de su propio periodo. Repartir la unión por todo el periodo del
+  producto se probó primero y sobregenera —movió ocho pruebas en tres ficheros—;
+  la regla del factor no.
+
+- **Un «no hay soluciones» FALSO.** `cot(x)^3 > 4` publicaba `∅` sobre una
+  expresión llena de soluciones. Sus ceros necesitan `tg(x) = 4^(-1/3)`, que no es
+  múltiplo racional de `pi`, y el solucionador de ecuaciones devolvía una lista de
+  familias vacía **sin registrar el rechazo**: leído tal cual, «no hay ceros». El
+  propio módulo lleva escrito que `∅` **no** es «no lo sé», y esa es justo la
+  conversión que hacía. La comprobación independiente es el teorema del valor
+  intermedio —una función continua sin polo ni cero no cambia de signo—, que
+  demuestra que el cero **existe** sin poder decir dónde. `cos(x)^3 > 1` pasa la
+  misma prueba, y ahí `∅` es la verdad: no se convierte todo lo desconocido en un
+  rechazo, solo se deja de hacer la conversión equivocada.
+
+- **El dominio se comía un `0/0`.** `ceros` contesta con UN periodo, así que el
+  denominador `sen(x)` declaraba su cero en 0 y no en `pi`, y el dominio publicaba
+  que `1/sen(x)` existía en `pi` —donde vale `1/0`— y de ahí le salía un cero
+  falso. `0` y el final del periodo son el mismo punto: la regla que la carta de
+  signos ya seguía y que aquí no. Tres expectativas de prueba clavaban el
+  comportamiento equivocado —`cos/sen`, `1/tg` y las discontinuidades de
+  `1/sen`—, y estaban derivadas de la salida, no de lo que las expresiones **son**.
+  Corregidas con el razonamiento escrito, no con la salida nueva.
+
+**Medido, no supuesto.** 13 expresiones de producto y cociente contrastadas punto
+a punto contra la función, contando solo los puntos donde el dominio dice que
+existe: **0 discrepancias**, antes 2 ceros falsos y 1 que faltaba.
+
+**Lo que queda declarado, con su motivo:**
+
+- `sen(x)/tg(x) < 2` frente a `cos(x) < 2`. Son la misma pregunta donde todo
+  existe, pero cancelarlas exige reescribir `tg` como `sen/cos` **conservando el
+  dominio** —en `pi/2` el cociente no existe—, y el sitio donde eso va es la
+  reescritura de identidades, no la carta de signos.
+- `tg(x)·cos(x) > 0` frente a `sen(x) > 0` **no son la misma pregunta**: difieren
+  en los polos de `tg`, y el motor da `(0, pi/2) ∪ (pi/2, pi)`, que es lo correcto
+  de la primera. Compararlas sería un error de la comprobación, no del motor.
+- `sec(x)^3 > 8` se niega con el motivo correcto: su cero necesita `cos = 1/2`
+  exacta pero el camino de la raíz cúbica no lo alcanza. `sec(x)^2 > 4` sí se
+  resuelve.
+
+**Pruebas**: 33 nuevas en `tests/test_mathlab_auditoria.py`, que pasa de 485 a 518
+comprobaciones. 2083 pasan y 8 se saltan, de 2094 recogidas, en los dieciséis
+ficheros `test_mathlab_*.py`. La comprobación de las dos escrituras lleva un
+ejemplo al lado que **no** es la misma función, para que ajustar el motor a la
+prueba sea visible.
+
 
 ## Unreleased — Windows Product 1.0 (productización)
 - Producto/UX post-roadmap (sin fase nueva): menú Go agrupado sobre los 13 tabs intactos; índice de módulos reales; Virtual Lab/Simulation en secciones Experiment/Inputs/Execution/Results sin renombrar widgets; vista orbital F16 con números reales; dashboard editorial con recents reales; motion 150 ms sin bounce.

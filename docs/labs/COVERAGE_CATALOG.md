@@ -130,6 +130,24 @@ Lo que salió limpio: T-16 entero, las otras cinco familias de ramas de T-11, y 
 periodo, la frecuencia, la amplitud y los ceros de T-23. 159 comprobaciones nuevas
 en `tests/test_mathlab_auditoria.py`, que pasa de 326 a 485.
 
+**T-13: dos escrituras de la misma pregunta, y dos respuestas.** Cerrado el
+resto del hueco que quedaba, y con él tres bugs de respuesta falsa:
+
+- **La potencia del recíproco iba fuera del cociente**, así que `sec(x)^2 > 4` se
+  rechazaba y `1/cos(x)^2 > 4` se resolvía. Va dentro, y solo para entero positivo.
+  `cot(u)^n` tenía además su propia forma, y por eso `cot(x)^2 > 1` se rechazaba.
+  **6 de 8 parejas** coinciden ahora; eran 2 de 8.
+- **Dos ceros falsos** en `tg(x)·cos(x)`, en `pi/2` y `3pi/2`, donde `tg` no
+  existe, y **un cero que faltaba**, `pi`. Los dos son la misma regla mal aplicada:
+  un producto es cero donde lo sea un factor, pero solo donde el producto existe.
+- **Un «no hay soluciones» falso** en `cot(x)^3 > 4`: el solucionador devolvía las
+  familias vacías sin registrar el rechazo, y el módulo lleva escrito que `∅` **no**
+  es «no lo sé». La prueba independiente es el teorema del valor intermedio.
+- **El dominio declaraba que `1/sen(x)` existía en `pi` y en `2pi`**, donde vale
+  `1/0`: `0` y el final del periodo son el mismo punto.
+
+13 expresiones contrastadas punto a punto contra la función: **0 discrepancias**.
+
 **T-20 cerrado.** `trig.OBJETIVOS` declara los doce objetivos en un solo registro, con dos clases que no son la misma cosa:
 
 - **reescritura** (`simplificar`, `expandir`, `producto_a_suma`, `suma_a_producto`, `potencias`, `sustitucion_universal`, `hiperbolicas`, `exponencial`): disparan reglas sobre subexpresiones y su respuesta es otra expresión, así que llevan un registro de familias **no vacío**. La entrada es un registro de reglas y cambia la forma de la expresión.

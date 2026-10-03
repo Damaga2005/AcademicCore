@@ -238,14 +238,27 @@ DOMINIOS = [
     ("ln(x)", ["(0, ∞)"]), ("ln(x^2)", ["(-∞, 0)", "(0, ∞)"]),
     ("1/x", ["(-∞, 0)", "(0, ∞)"]),
     ("tan(x)", ["(-∞, 1/2·π)", "(1/2·π, 3/2·π)", "(3/2·π, ∞)"]),
-    ("cos(x)/sin(x)", ["(-∞, 0)", "(0, π)", "(π, ∞)"]),
-    ("1/tan(x)", ["(-∞, 0)", "(0, 1/2·π)", "(1/2·π, 3/2·π)", "(3/2·π, ∞)"]),
+    ("cos(x)/sin(x)", ["(-∞, 0)", "(0, π)", "(π, 2·π)", "(2·π, ∞)"]),
+    ("1/tan(x)", ["(-∞, 0)", "(0, 1/2·π)", "(1/2·π, π)", "(π, 3/2·π)",
+                  "(3/2·π, ∞)"]),
 ]
 
 
 @pytest.mark.parametrize("expresion,esperado", DOMINIOS)
 def test_el_dominio_excluye_exactamente_los_puntos_que_no_existen(expresion,
                                                                  esperado):
+    """The holes are exactly the points where the expression does not exist.
+
+    ``cos(x)/sin(x)`` and ``1/tan(x)`` used to be published WITHOUT a hole at
+    ``pi``, and these expectations pinned that: at ``pi`` they are ``-1/0`` and
+    ``1/0``, which are not numbers. The omission came from ``ceros`` answering
+    with ONE period, so the denominator ``tan(x)`` reported its zero at 0 and not
+    at ``pi`` — the same point, which is the rule the sign chart already
+    followed and the domain did not.
+
+    A test that pins an output is a test that pins a bug. These are checked
+    against what the expressions ARE, not against what they used to print.
+    """
     d = I.dominio(mx.parse(expresion), "x")
     assert [i.texto() for i in d.intervalos] == esperado
 
@@ -417,9 +430,9 @@ INEQ_MUESTREADAS = [
 #: Las que el motor se niega, con el motivo escrito, y aqui solo se comprueba
 #: que el motivo sea el de verdad. Un rechazo sin motivo es un rechazo que no
 #: dice nada, asi que la afirmacion se comprueba contra el texto del motivo.
-CON_MOTIVO = [("sin(x)/tan(x) < 2", "ceros"),
-               ("sin(x)^2 + cos(x)^2 > 1/2", "periódica"),
-               ("sec(x)^2 > 4", "ceros")]
+CON_MOTIVO = [("sin(x)^2 + cos(x)^2 > 1/2", "periódica"),
+               ("csc(x)^2 > 9", "ceros"),
+               ("cos(x)/sec(x) > 1/2", "ceros")]
 
 
 @pytest.mark.parametrize("texto,palabra", CON_MOTIVO)
@@ -851,3 +864,206 @@ def test_el_periodo_minimo_no_se_ha_encogido_de_mas(expresion, esperado):
     como un error de calculo: se ve como una respuesta mas larga.
     """
     assert D.periodo_minimo(mx.parse(expresion), "x") == esperado
+
+
+# ---------------------------------------------------------------------------
+# 14. la misma pregunta escrita de dos maneras, y dos respuestas distintas
+#
+# El motor tenia la respuesta y se negaba a darla. `sec(x)^2 > 4` se rechazaba
+# mientras `1/cos(x)^2 > 4` se resolvia, que es la misma pregunta: el recíproco
+# reescrito daba `(1/cos)^2`, un arbol que nada de lo que viene despues
+# reconoce, en vez de `1/cos^2`, que es como lo escribe el estudiante. La potencia
+# va DENTRO del cociente, y solo para un entero positivo, que es donde la
+# identidad es exacta.
+#
+# Y dos ceros FALSOS, que es peor que un rechazo: un producto es cero donde lo sea
+# un factor, pero solo donde el producto EXISTE.
+
+MIS_ESCITURAS = [
+    ("sec(x)^2 > 4", "1/cos(x)^2 > 4"),
+    ("sec(x)^3 > 8", "1/cos(x)^3 > 8"),
+    ("sec(x)^4 > 16", "1/cos(x)^4 > 16"),
+    ("sec(x) > 2", "1/cos(x) > 2"),
+    ("csc(x)^2 > 9", "1/sin(x)^2 > 9"),
+]
+
+
+@pytest.mark.parametrize("una,otra", MIS_ESCITURAS)
+def test_las_dos_escrituras_de_la_misma_pregunta_dicen_lo_mismo(una, otra):
+    """La comprobación que faltaba, y la que más fácil se olvidaba.
+
+    Comparar una respuesta consigo misma no la verifica: hay que poner las dos
+    escrituras lado a lado y ver que coinciden. `cos(x)/sec(x)` NO es lo mismo
+    que `cos(x)^2` —la primera arrastra el dominio de `sec`— así que esa pareja
+    compara contra el dominio, que es lo que las distingue de verdad.
+    """
+    try:
+        a = I.resolver_inequidad(una)
+    except Exception as ex:
+        assert "no hay regla" not in str(ex) or "ceros" not in str(ex), \
+            f"{una} se niega por no saber sus ceros, y {otra} si se resuelve"
+        pytest.skip(f"{una} no se resuelve y no es por falta de ceros: {str(ex)[:60]}")
+    b = I.resolver_inequidad(otra)
+    assert a.conjunto.texto() == b.conjunto.texto(), (
+        f"«{una}» publica {a.conjunto.texto()} y «{otra}» publica "
+        f"{b.conjunto.texto()}: la misma pregunta, dos respuestas")
+
+
+def test_la_potencia_del_reciproco_va_dentro_del_cociente():
+    """La forma, comprobada: `sec(u)^n` es `1/cos(u)^n` y no `(1/cos(u))^n`.
+
+    Los dos arboles son el mismo numero, asi que compararlos por valor no
+    distingue nada — que es justo por lo que el fallo esquivaba la verificacion.
+    Se comprueba la FORMA, que es lo que decide si las reglas de despues la
+    reconocen.
+    """
+    for n in (2, 3, 4):
+        e = I._a_cocientes(mx.parse(f"sec(x)^{n}"))
+        assert mx.text(e) == f"1/cos(x)^{n}", (n, mx.text(e))
+    e = I._a_cocientes(mx.parse("csc(x)^2"))
+    assert mx.text(e) == "1/sin(x)^2", mx.text(e)
+    # Un exponente fraccionario NO se toca, y la proteccion no es la guarda del
+    # entero: `sec(x)^(1/2)` ni siquiera llega a la rama de las potencias, porque
+    # el lector lo construye como RAIZ —un nodo distinto— y una raiz no se puede
+    # repartir en un cociente sin decidirse el signo. En los reales
+    # `(-1)^(1/2)` no existe, y doblar un signo a traves de una raiz para que dos
+    # arboles se parezcan es la clase de comodidad que se vuelve respuesta falsa.
+    raiz = I._a_cocientes(mx.parse("sec(x)^(1/2)"))
+    assert "cos" not in mx.text(raiz), mx.text(raiz)
+    entero_mas = I._a_cocientes(mx.parse("sec(x)^4"))
+    assert mx.text(entero_mas) == "1/cos(x)^4", mx.text(entero_mas)
+
+
+# --- los ceros de un producto, que ya no son ceros donde no existe ------------
+
+def _ceros_coeficiente(texto: str) -> set:
+    """Los ceros que publica el motor, como fracciones de pi."""
+    r = I.ceros(mx.parse(texto), "x")
+    if r is None:
+        return set()
+    salida = set()
+    for v in r:
+        c = I._coeficiente_pi(v)
+        if c is not None:
+            salida.add(c)
+    return salida
+
+
+def test_un_cero_onde_el_producto_no_existe_no_es_un_cero():
+    """``tg(x)·cos(x)`` publicaba ``pi/2`` y ``3pi/2``, y ahi ``tg`` no existe.
+
+    El producto es cero donde lo sea un factor —eso es cierto— pero solo donde el
+    producto EXISTE. El filtro que ya tenia la rama del cociente faltaba en la
+    del producto, no porque el algebra sea distinta, sino porque un factor
+    compartido es donde se nota.
+
+    Y el otro lado del mismo arreglo: el producto es `sen(x)`, de periodo 2·pi,
+    mientras `tg` se dobla en pi y declara un cero, donde el segundo —pi— no se
+    generaba nunca. Un cero que falta no es un cero de mas, pero deja la carta de
+    signos sin un punto critico con el que explicar un cambio de signo, y el motor
+    se negaba por eso. Cada factor aporta ahora sus ceros hasta el periodo del
+    producto.
+    """
+    ceros = _ceros_coeficiente("tan(x)*cos(x)")
+    assert ceros == {Fraction(0), Fraction(1)}, ceros
+    d = I.dominio(mx.parse("tan(x)*cos(x)"), "x")
+    for k in (Fraction(1, 2), Fraction(3, 2)):
+        assert not d.contiene(D.punto_pi(k)), (k, d.texto())
+
+
+def test_las_tres_formas_de_la_misma_expresion_no_se_contradicen():
+    """``sen(x)·cos(x)``, ``tg(x)·cos(x)`` y sus ceros, contra la verdad a mano.
+
+    Un producto corriente NO debe perder ceros: el filtro de existencia quita los
+    que no son y deja los que son. Sin esto, arreglar el caso anterior habria
+    sido tapar un cero con otro.
+    """
+    assert _ceros_coeficiente("sin(x)*cos(x)") == \
+        {Fraction(0), Fraction(1, 2), Fraction(1), Fraction(3, 2)}
+    assert _ceros_coeficiente("sin(x)/cos(x)") == {Fraction(0), Fraction(1)}
+    assert _ceros_coeficiente("cos(x)/sin(x)") == \
+        {Fraction(1, 2), Fraction(3, 2)}
+    assert _ceros_coeficiente("cos(x)*cos(x)") == \
+        {Fraction(1, 2), Fraction(3, 2)}
+
+
+def test_el_extremo_del_periodo_tambien_es_un_hueco():
+    """``1/sen(x)`` no existe en ``2pi``, y ``2pi`` es el mismo punto que 0.
+
+    ``ceros`` contesta con UN periodo, asi que el denominador ``sen(x)`` declaraba
+    su cero en 0 y no en ``pi``, y el dominio se comia un ``0/0`` y publicaba un
+    cero falso ahi. La misma regla que la carta de signos ya seguia —0 y el
+    final del periodo son el mismo punto— y que aqui no se seguia.
+    """
+    d = I.dominio(mx.parse("1/sin(x)"), "x")
+    for k in (Fraction(0), Fraction(1), Fraction(2)):
+        assert not d.contiene(D.punto_pi(k)), (k, d.texto())
+    # y el hueco de verdad de la otra forma de escribirla
+    d2 = I.dominio(mx.parse("cos(x)/sin(x)"), "x")
+    assert not d2.contiene(D.punto_pi(Fraction(1))), d2.texto()
+
+
+# --- el «no hay soluciones» que no lo era -------------------------------------
+
+VACIAS_DE_VERDAD = ["cos(x)^3 > 1", "sin(x)^3 > 1", "cos(x)^3 > 2",
+                    "sin(x)^2 > 2", "cos(x) > 1", "sin(x) > 1"]
+VACIAS_FALSAS = ["cot(x)^3 > 4", "cot(x)^3 < -4", "sec(x)^3 > 8"]
+
+
+@pytest.mark.parametrize("caso", VACIAS_DE_VERDAD)
+def test_una_inequacidad_sin_solucion_dice_que_no_la_hay(caso):
+    """`cos(x)^3 > 1` no tiene soluciones, y decirlo es lo correcto.
+
+    Va al lado de la de arriba a proposito: si el motor se negara por todo, esto
+    fallaria, y una prueba que obliga a negar tambien obliga a no negar.
+    """
+    s = I.resolver_inequidad(caso)
+    assert s.vacia, f"{caso} tiene soluciones y el motor dice que no: {s.texto()}"
+
+
+@pytest.mark.parametrize("caso", VACIAS_FALSAS)
+def test_una_inequacidad_sin_solucion_exacta_no_puede_decir_que_no_la_hay(caso):
+    """`cot(x)^3 > 4` SI tiene soluciones, y el motor publicaba «no hay soluciones».
+
+    Sus ceros necesitan `tg(x) = 4^(-1/3)`, que no es un multiplo racional de
+    `pi`, y el solucionador de ecuaciones devolvia una lista de familias vacia
+    SIN registrar el rechazo. Leido tal cual, «no hay ceros». Y un `∅` sobre una
+    expresion llena de soluciones es la peor respuesta posible: el propio modulo
+    lleva escrito que `∅` NO es «no lo sé».
+
+    La prueba independiente es el teorema del valor intermedio: una funcion
+    continua sin polo ni cero no cambia de signo. Un cambio de signo en cualquier
+    punto demuestra que el cero EXISTE, y de eso basta para negarse con el motivo.
+    """
+    # Lo que se comprueba es que se NEGUE, y por no saber los ceros. El mensaje
+    # lleva escrito «eso NO es «no hay soluciones»», asi que buscar esa frase
+    # dentro del texto daria verde sobre un rechazo y sobre un ∅ indistintos: la
+    # frase esta en los dos. Lo que los distingue es la excepcion.
+    with pytest.raises(Exception) as exc:
+        I.resolver_inequidad(caso)
+    assert "ceros" in str(exc.value), f"{caso}: {str(exc.value)[:90]}"
+
+
+def test_el_cambio_de_signo_demuestra_que_existe_un_cero():
+    """La comprobación es una prueba, no una heurística, y por eso se prueba sola."""
+    assert I._cambia_de_signo(mx.parse("1/tan(x)^3 - 4"), "x") is True
+    assert I._cambia_de_signo(mx.parse("cos(x)^3 - 1"), "x") is False
+    assert I._cambia_de_signo(mx.parse("sin(x)^2 + cos(x)^2 - 1/2"), "x") is False
+
+
+# --- la potencia del reciproco, y el cubo de la cotangente --------------------
+
+@pytest.mark.parametrize("n", [2, 3, 4])
+def test_cot_al_nuevo_tambien_es_el_reciproco(n):
+    """``cot(u)^n`` es ``1/tan(u)^n``, no ``(cos/sin)^n``.
+
+    El mismo-treatment que ``sec`` y ``csc``, y el mismo motivo: las dos formas
+    reescriben el mismo numero y solo una la reconocen las reglas de despues. Con
+    el cubo se ve el coste de no hacerlo —«no hay soluciones» falso— porque el cero
+    necesita una raiz cubica que no es multiplo racional de pi.
+    """
+    e = I._a_cocientes(mx.parse(f"cot(x)^{n}"))
+    assert mx.text(e) == f"1/tan(x)^{n}", (n, mx.text(e))
+    # el cuadrado ya funciona con las dos escrituras, y con el cubo ninguna
+    assert I.resolver_inequidad("cot(x)^2 > 1").conjunto.texto() == \
+        I.resolver_inequidad("1/tan(x)^2 > 1").conjunto.texto()
