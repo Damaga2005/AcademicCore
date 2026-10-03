@@ -1,5 +1,57 @@
 # Changelog
 
+## 2026-10-04 — el factor común, sacado de la suma
+
+De 18 rechazos a 5. Es el paso que faltaba entre el ángulo múltiple y el producto, y
+es el más pequeño de los tres que había: **sacar el factor común de una suma**.
+
+### El hueco
+
+`sen(x) + sen(2x) = 0` se desarrolla a `sen x + 2sen x cos x`. El producto ya
+sabía partir `A·B = 0`, pero ahí **no hay un producto**: hay una suma con el factor
+repetido en cada término, y la regla de producto no ve un producto donde no lo hay.
+
+`sen x + 2sen x cos x` es `sen x · (1 + 2cos x)`. Una vez sacado el factor, las dos preguntas son las que el
+motor ya contestaba solo: `sen x = 0` y `cos x = −1/2`.
+
+Cuatro ecuaciones:
+
+| | antes | después |
+|---|---|---|
+| `sen(x) + sen(2x) = 0` | se negaba | `{0, pi, 2/3·pi, −2/3·pi}` |
+| `sen(x) − sen(2x) = 0` | se negaba | `{0, pi, 1/3·pi, −1/3·pi}` |
+| `cos(x) − sen(2x) = 0` | se negaba | `{1/2·pi, −1/2·pi, 1/6·pi, 5/6·pi}` |
+| `sen(2x) − sen(x) = 0` | se negaba | `{0, pi, 1/3·pi, −1/3·pi}` |
+
+**43 de 49 respondidas con datos, 5 negadas, 0 inventadas, 0 incompletas.**
+
+### La factorización se comprueba por muestreo
+
+Un factorizado que no lo es es **otra ecuación**, y lo más barato aquí es equivocarse
+en silencio. Así que la forma factorizada se compara con la suma original en siete
+puntos y, si discrepan en algo, no se usa. Preguntar al dominio no serviría —las dos
+formas existen donde existe cualquiera de las dos— y preguntar el álgebra sería
+confiar en el álgebra que se está comprobando.
+
+Ese muestreo cobró su trabajo enseguida: la primera versión **perdía el coeficiente de
+cada término** y daba `cos x − 2cos x sin x` → `cos x(cos x − sin x)`, que es otra
+función. Y un término que *es* exactamente el factor común tiene cociente **uno**,
+no cociente vacío; devolver `None` ahí era lo que hacía que todas estas ecuaciones
+siguieran negándose.
+
+### Los cinco que quedan
+
+| | por qué |
+|---|---|
+| `sen(x) + sen(2x) = 1` | no tiene factor común —el `−1` se lo quita— y en `t = tg(x/2)` el numerador es de grado 6 con un solo factor racional, así que queda un quíntico |
+| `cos(3x) + cos(x) = 1` | cúbica irreducible, `4u³ − 2u − 1`: sin raíces racionales ni fórmula |
+| `tg(x) + cos(x) = 0` | mezcla seno y tangente, y el producto no aplica |
+| `tg(x)·sen(x) = 0` | **se niega correctamente**: el producto tiene agujeros |
+| `sen(x)·cos(x)·tg(x) = 0` | **se niegan correctamente**, por lo mismo |
+
+Los dos últimos no son un hueco sino una decisión: una familia `base + paso·k` no
+tiene agujeros, así que una solución con huecos no se puede publicar ni a medias.
+
 ## 2026-10-04 — el ángulo múltiple, desarrollado, y ocho ecuaciones más
 
 Cierra el punto 1 de la lista. Y cierra también un agujero de documentación que

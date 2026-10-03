@@ -156,17 +156,20 @@ RESPONDIDAS = [
     "cos(x) - cos(2*x) = 0", "cos(2*x) - cos(x) = 0",
     "2*cos(2*x) + 2*cos(x) = 0", "cos(2*x) + cos(x) - 1 = 0",
     "cos(3*x) + cos(x) = 0", "sin(3*x) - sin(x) = 0",
+    # Four that were refused for the same reason one step further along: after the
+    # multiple angle is developed they are a SUM with a factor repeated in every
+    # term — `sen x + 2sen x cos x` — and the product rule cannot see a product in
+    # that. Pulling the common factor out gives `sen x·(1 + 2cos x) = 0`, which asks
+    # the two questions the engine already answered on its own.
+    "sin(x) + sin(2*x) = 0", "sin(x) - sin(2*x) = 0",
+    "cos(x) - sin(2*x) = 0", "sin(2*x) - sin(x) = 0",
 ]
 
 #: The two that used to be answered with a DIFFERENT equation's solutions. They
 #: are in the list because a refusal is now the right answer for them, and a
 #: refusal is a result that can be checked: no family may be published.
 NEGADAS_ANTES = [
-    "sin(x) + sin(2*x) = 0",
-    "sin(x) - sin(2*x) = 0",
     "sin(x) + sin(2*x) = 1",
-    "cos(x) - sin(2*x) = 0",
-    "sin(2*x) - sin(x) = 0",
     "sin(2*x) + sin(x) = 1",
     "cos(3*x) + cos(x) = 1",
     "tan(x) + cos(x) = 0",

@@ -960,6 +960,130 @@ def _factores_planos(e: mx.Expr) -> list[mx.Expr]:
     return [e]
 
 
+def _saca_nombre(factorizado: mx.Expr) -> str:
+    """The common factor of a factored expression, written for the trace."""
+    factores = [g for g in _factores_planos(factorizado)
+                if not isinstance(g, mx.Num)]
+    comun = [g for g in factores
+             if sum(1 for h in factores if mx.text(h) == mx.text(g)) > 1]
+    return "·".join(mx.text(g) for g in comun) or mx.text(factorizado)
+
+
+def _factores_de_un_termino(e: mx.Expr) -> list[mx.Expr]:
+    """A term as a flat list of factors, its numeric coefficient last."""
+    if isinstance(e, mx.Mul):
+        salida: list[mx.Expr] = []
+        for hijo in (e.left, e.right):
+            salida.extend(_factores_de_un_termino(hijo))
+        return salida
+    return [e]
+
+
+def _saca_factor_comun(f: mx.Expr, var: str):
+    """``sen(x) + 2·sen(x)·cos(x)`` as ``sen(x)·(1 + 2·cos(x))``, or ``None``.
+
+    This is the step that was missing between the multiple angle and the product
+    rule. ``sen(x) + sen(2x) = 0`` develops to ``sen x + 2sen x cos x``, and the
+    product rule cannot see a product in that: it is written as a SUM, with the
+    factor repeated in each term instead of pulled out in front. Factoring it gives
+    ``sen x·(1 + 2cos x) = 0``, which asks the two questions the engine can already
+    answer on its own — ``sen x = 0`` and ``cos x = -1/2``.
+
+    **The result is checked by SAMPLING before it is used.** A factorisation that is
+    not one is a different equation, and the cheapest way to be wrong here is to be
+    wrong quietly: the guard is the value at seven points, and if they disagree by
+    anything the answer is ``None``. Asking the DOMAIN would not do — both forms
+    exist wherever either does — and asking the algebra would mean trusting the
+    algebra that is being checked.
+    """
+    from academic_core.domain.engineering.mathlab.trig import _terminos
+
+    if not isinstance(f, (mx.Add, mx.Sub)):
+        return None
+    terminos = [termino for _, termino in _terminos(f) if termino is not None]
+    if len(terminos) < 2:
+        return None
+
+    listas = []
+    for coeficiente, termino in _terminos(f):
+        if termino is None:
+            continue
+        # The coefficient is PART of the term. Leaving it out is how
+        # `cos x - 2cos x sin x` came out as `cos x(cos x - sin x)` — a different
+        # function — and the sampling below caught it, which is what it is for.
+        factores = _factores_de_un_termino(termino)
+        if coeficiente is not None and coeficiente != 1:
+            factores = [mx.Num(coeficiente)] + factores
+        if not any(not isinstance(g, mx.Num) for g in factores):
+            return None               # a constant term: nothing common to pull out
+        listas.append(factores)
+    if len(listas) < 2:
+        return None
+
+    comun: list[mx.Expr] = []
+    for factor in listas[0]:
+        if isinstance(factor, mx.Num):
+            continue
+        clave = mx.text(factor)
+        if all(any(mx.text(g) == clave for g in otros) for otros in listas[1:]):
+            comun.append(factor)
+    if not comun:
+        return None
+
+    comas_claves = {mx.text(g) for g in comun}
+
+    def cociente(factores: list[mx.Expr]) -> mx.Expr | None:
+        quedan = list(factores)
+        for clave in comas_claves:
+            for i, g in enumerate(quedan):
+                if mx.text(g) == clave:
+                    quedan.pop(i)
+                    break
+            else:
+                return None
+        if not quedan:
+            # The term IS the common factor. Its quotient is one, not nothing:
+            # `sen x + 2 sen x cos x` has a term that is exactly `sen x`, and
+            # returning None here is what made this refuse every equation it was
+            # written for.
+            return mx.Num(1)
+        salida = quedan[0]
+        for g in quedan[1:]:
+            salida = mx.Mul(salida, g)
+        return salida
+
+    cocientes = []
+    for factores in listas:
+        c = cociente(factores)
+        if c is None:
+            return None
+        cocientes.append(c)
+    if len(cocientes) < 2:
+        return None                   # factoring it out would gain nothing
+
+    fuera = cocientes[0]
+    for c in cocientes[1:]:
+        fuera = mx.Add(fuera, c)
+    comun_expr = comun[0]
+    for g in comun[1:]:
+        comun_expr = mx.Mul(comun_expr, g)
+    factorizado = mx.Mul(comun_expr, fuera)
+
+    # The same function, asked of the two forms at seven points.
+    comparados = 0
+    for k in range(1, 15, 2):
+        x = k * 0.37
+        antes = mx.valor_real(f, {var: x})
+        despues = mx.valor_real(factorizado, {var: x})
+        if antes is None or despues is None:
+            continue
+        comparados += 1
+        escala = max(1.0, abs(antes))
+        if abs(antes - despues) > 1e-9 * escala:
+            return None                # no es la misma función: no se usa
+    return factorizado if comparados >= 3 else None
+
+
 def _caso_producto(f: mx.Expr, var: str):
     """``A·B = 0`` is ``A = 0`` or ``B = 0``: one factor at a time.
 
@@ -976,6 +1100,23 @@ def _caso_producto(f: mx.Expr, var: str):
     """
     if isinstance(f, mx.Sub) and f.right == mx.ZERO:
         f = f.left                      # «A·B - 0» es «A·B», no otra cosa
+    if isinstance(f, (mx.Add, mx.Sub)):
+        # A sum with a common factor is a product written the long way round. The
+        # factors go in front and the rule below asks each of them, so the only
+        # thing missing was pulling them out.
+        factorizado = _saca_factor_comun(f, var)
+        if factorizado is None:
+            return None
+        parcial = _caso_producto(factorizado, var)
+        if parcial is None:
+            return None
+        familias, hipotesis, espurias = parcial
+        comas = "el lado izquierdo se escribe como producto sacando el factor "
+        comun = _saca_nombre(factorizado)
+        hipotesis = [f"{comas}común «{comun}» y se pregunta cada factor por separado"] \
+            + list(hipotesis)
+        # checked against the ORIGINAL sum, not against the factored form
+        return _deduplica(familias), hipotesis, _comprobar(familias, f, var)
     if not isinstance(f, mx.Mul):
         return None
     from academic_core.domain.engineering.mathlab import inequaciones as Iq
