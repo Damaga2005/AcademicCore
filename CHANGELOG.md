@@ -1,5 +1,59 @@
 # Changelog
 
+## 2026-10-03 — la familia del medio ángulo, entera
+
+De las diez formas de la familia del medio ángulo, el motor reconocía **dos**:
+`(1∓cos x)/(1+cos x)` y `(1+cos x)/(1∓cos x)`, que son las que llevan el
+cuadrado. Las ocho restantes pasaban de largo, y entre ellas la que es la misma
+identidad sin el cuadrado: `(1∓cos x)/(1+cos x)` se doblaba a `tg(x/2)²` mientras
+`sen(x)/(1+cos x)` se quedaba como estaba.
+
+### Solo dos de las ocho van en la simplificación, y el motivo está medido
+
+`(1∓cos x)/sen x = tg(x/2)` es **más barata** que lo que reemplaza — 7 nodos y
+19 caracteres por 4 y 8 — así que §5.5b la acepta, y entró en `simplify` a la
+primera. Se sacó porque **cambia el dominio**:
+
+| original | nuevo | dominio |
+|---|---|---|
+| `sen/(1+cos x)` | `tg(x/2)` | el mismo |
+| `sen/(1∓cos x)` | `cotg(x/2)` | el mismo |
+| `(1∓cos x)/sen x` | `tg(x/2)` | **cambia**: gana `0` y `2·pi` |
+| `(1+cos x)/sen x` | `cotg(x/2)` | **cambia**: gana `pi` |
+| `cos/(1+sen x)` | `(1∓tg(x/2))/(1+tg(x/2))` | **cambia** |
+| `(1∓sen x)/cos x` | `(1∓tg(x/2))/(1+tg(x/2))` | **cambia**: pierde `pi` |
+| `1/(1±sen x)` | `(1∓sen x)/cos²x` | **cambia** |
+
+El original no existe en **todos** los múltiplos de `pi` porque el denominador se
+anula, y `tg(x/2)` solo en los impares. Un dominio que **gana** puntos es la
+dirección peligrosa — un agujero que desaparece se convierte en una solución
+falsa — y `simplify` es justo lo que leen los solucionadores.
+
+Los seis que lo cambian van en dos objetivos nuevos, uno por dirección, porque
+mezclarlas en un bucle es lo que lo hace no terminar:
+
+- `trig.medio_angulo(expr)`: las dos baratas que tapan un agujero. Su paso dice
+  cuál tapa (`«un agujero que se tapa se convierte en una solución falsa», §5.7).
+- `trig.medio_angulo_racional(expr)`: las cuatro caras — racionalizar el
+  denominador. Van con `reducir=False` porque cuestan más: 7 nodos y 19
+  caracteres por 13 y 29.
+
+El docstring de la primera versión decía que las cuatro caras conservaban el
+dominio. **Es falso**, y lo cazó el muestreo: `1/(1∓sen x)` vale `1/2` en
+`x = 3·pi/2` y `(1+sen x)/cos²x` vale `2/0` ahí — el numerador se anula
+exactamente donde el denominador también. La muestreo también cazó el signo
+invertido en una de las dos ramas, que daba `cotg(x/2)` donde toca `tg(x/2)`.
+
+### Un bug encontrado de paso, y **no** es de esta familia
+
+`dominio()` publica los huecos de **un solo periodo** como si fueran los únicos.
+Para `1/(1∓sen x)` publica `(−∞, π/2) ∪ (π/2, ∞)`: un solo hueco,
+cuando `1∓sen x` se anula en `π/2 + 2k·pi`. Preguntado por `5·pi/2` responde que
+el punto **existe**, y el evaluador responde `None`.
+
+Es previo, es de otro módulo, y las pruebas de esta familia se han escrito
+**dentro de un periodo** para no apoyarse en él. Queda declarado y pendiente.
+
 ## 2026-10-03 — las seis escrituras de `tg = sen/cos`, en un objetivo aparte
 
 T-02 estaba marcada COMPLETADA con su última línea —«todas las formas

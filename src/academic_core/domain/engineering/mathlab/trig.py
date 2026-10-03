@@ -842,6 +842,52 @@ def _uno_mas_f(e: mx.Expr, nombre: str) -> tuple[mx.Expr, int] | None:
     return None
 
 
+def _r_medio_angulo_lineal(e: mx.Expr) -> mx.Expr | None:
+    """``sen(x)/(1+cos(x)) = tg(x/2)`` and its sign-flipped sibling (T-07).
+
+    The squared member of the family was here and the linear ones were not, which
+    is the worst kind of half-finished: ``(1−cos x)/(1+cos x)`` folded to
+    ``tg(x/2)²`` while ``sen(x)/(1+cos x)`` — the same identity without the square
+    on either side — went through untouched.
+
+    **Only two of the six linear spellings are here, and the reason is measured.**
+    These two keep the domain exactly:
+
+    ==================  ==========================  =========================
+    original            nuevo                      dominio
+    ==================  ==========================  =========================
+    ``sen/(1+cos x)``   ``tg(x/2)``                el mismo
+    ``sen/(1−cos x)``   ``cotg(x/2)``              el mismo
+    ``(1−cos x)/sen``   ``tg(x/2)``                **cambia**: pierde 0 y 2π
+    ``(1+cos x)/sen``   ``cotg(x/2)``              **cambia**: pierde π
+    ==================  ==========================  =========================
+
+    The two that change it are cheaper than what they replace, so cost alone would
+    have let them in, and it did on the first attempt. They are not here because
+    ``simplify`` is what the solvers read, and an expression that gains a point in
+    its domain hands the inequality solver a solution at a point where the original
+    is undefined: ``(1−cos x)/sen x`` is not defined at ``x = 0`` and ``tg(x/2)``
+    is ``0`` there. A gain is the dangerous direction — a hole that disappears
+    becomes a false solution. They live in :func:`medio_angulo` instead, which is
+    asked for on purpose.
+
+    The sign is read off the node by :func:`_uno_mas_f`, never off a ``Neg``:
+    ``1 − cos(x)`` is a ``Sub``, and taking the wrong one silently swaps
+    ``tg(x/2)`` for ``cotg(x/2)`` — which is what happened first time.
+    """
+    if not isinstance(e, mx.Div):
+        return None
+    u = _arg(e.left, "sin")
+    if u is None:
+        return None
+    pareja = _uno_mas_f(e.right, "cos")
+    if pareja is None or pareja[0] != u:
+        return None
+    # sen/(1+cos) = tg(x/2) y sen/(1−cos) = cotg(x/2): el signo del denominador
+    # va al revés aquí que en la rama de (1∓cos)/sen
+    return _fn("tan" if pareja[1] > 0 else "cot", _medio_angulo(u))
+
+
 def _r_medio_angulo_doblado(e: mx.Expr) -> mx.Expr | None:
     """Recognise the half angle written in full angles (T-07 inverso).
 
@@ -1094,6 +1140,12 @@ _REGLAS: tuple[tuple[str, str, object], ...] = (
      "(1∓cos x)/2 y (1∓cos x)/(1±cos x) son el medio ángulo al cuadrado: al "
      "cuadrado no hay problema de signo, y sin cuadrado sí lo habría (T-07)",
      _r_medio_angulo_doblado),
+    ("medio_angulo_lineal",
+     "sen/(1+cos) y (1∓cos)/sen son tg(x/2), y con el signo cambiado cotg(x/2): "
+     "son más baratas, 7 nodos y 19 caracteres por 4 y 8, así que van en la "
+     "simplificación por defecto. Conservan el dominio: tg(x/2) tampoco existe "
+     "en π (T-07)",
+     _r_medio_angulo_lineal),
     ("hiperbolicas_relaciones",
      "cosh²−sinh²=1 y 1−tanh²=sech² son las de T-02 con un signo cambiado; las "
      "recíprocas y los cocientes se reconocen igual que en el caso circular",
@@ -1576,6 +1628,67 @@ _REGLAS_EXPONENCIAL: tuple[tuple[str, str, object], ...] = (
 )
 
 
+def _r_medio_angulo_racional(e: mx.Expr) -> mx.Expr | None:
+    """The other four of the half-angle family, the ones that COST more (T-07).
+
+    ``cos(x)/(1+sen(x))`` and ``(1−sen x)/cos(x)`` are ``(1−t)/(1+t)`` with
+    ``t = tg(x/2)``, and ``1/(1±sen(x))`` is ``(1∓sen x)/cos²(x)``. All four are
+    what rationalising a denominator is made of, and all four are MORE expensive
+    than what they replace: 7 nodes and 19 characters become 13 and 29, or 6 and
+    14 become 9 and 21.
+
+    So they do not go in the default simplification, where §5.5b accepts only
+    strictly cheaper rewrites — a rule that can go either way is a rule that can
+    undo itself, and the loop with it stops being well founded. They get their own
+    objective, which is what ``rationalize`` already is for the t-substitution.
+
+    All four keep the domain, and this one is worth checking rather than assuming.
+    ``1/(1+sen x)`` is undefined where ``sen x = −1``, and there ``cos x`` is also
+    zero, so ``(1−sen x)/cos²x`` is undefined at exactly the same points: 2/0 and
+    1/0. The two are missing the same places, not different ones (§5.7).
+    """
+    if not isinstance(e, mx.Div):
+        return None
+    arriba, abajo = e.left, e.right
+
+    # 1/(1 ± sen u)  ->  (1 ∓ sen u)/cos²(u)
+    if arriba == mx.ONE:
+        pareja = _uno_mas_f(abajo, "sin")
+        if pareja is not None:
+            u, signo = pareja
+            # the CONJUGATE of the denominator: `1 + sen` has conjugate `1 − sen`,
+            # and building it out of a sign helper gives `−sen`, which is not the
+            # same expression and has a different value at every point
+            seno = _fn("sin", u)
+            conjugado = (mx.Sub(mx.ONE, seno) if signo > 0
+                         else mx.Add(mx.ONE, seno))
+            return mx.Div(conjugado, mx.Pow(_fn("cos", u), _num(2)))
+        return None
+
+    # cos(u)/(1 + sen u)  ->  (1 − tg(u/2))/(1 + tg(u/2))
+    u = _arg(arriba, "cos")
+    if u is not None:
+        pareja = _uno_mas_f(abajo, "sin")
+        if pareja is not None and pareja[0] == u and pareja[1] > 0:
+            return _frac_medio_angulo(u)
+        return None
+
+    # (1 − sen u)/cos(u)  ->  (1 − tg(u/2))/(1 + tg(u/2))
+    pareja = _uno_mas_f(arriba, "sin")
+    if pareja is None:
+        return None
+    v = _arg(abajo, "cos")
+    if v is None or v != pareja[0] or pareja[1] > 0:
+        return None
+    return _frac_medio_angulo(v)
+
+
+def _frac_medio_angulo(u: mx.Expr) -> mx.Expr:
+    """``(1 − tg(u/2))/(1 + tg(u/2))``, the half-angle as a tangent of a shift."""
+    t = _fn("tan", _medio_angulo(u))
+    return mx.Div(mx.Sub(mx.ONE, t), mx.Add(mx.ONE, t))
+
+
 #: ``t = tan(x/2)`` lives in its own objective and never shares one with the
 #: identities. It is a change of variable (§5.6), not an identity, and mixing the
 #: two is not a matter of taste: the substitution *creates* ``tan(x/2)`` and the
@@ -1613,6 +1726,95 @@ def razones(expr: mx.Expr, *, max_passes: int = MAX_PASSES) -> Simplificacion:
     domain of an inequality wrong without saying anything.
     """
     resultado, pasos = _bucle(expr, _REGLAS_RAZONES, reducir=False,
+                             max_passes=max_passes)
+    return Simplificacion(resultado, tuple(dict.fromkeys(pasos)))
+
+
+def _r_medio_angulo_lineal_perdiendo_dominio(e: mx.Expr) -> mx.Expr | None:
+    """``(1∓cos x)/sen x = tg(x/2)``: más barato, y con un agujero que se tapa.
+
+    These two are strictly cheaper (7 nodes and 19 characters become 4 and 8), so
+    §5.5b would accept them in the default simplification — and did, on the first
+    attempt. They are not there now, because they change the domain:
+
+    - ``(1−cos x)/sen x`` is undefined wherever ``sen x = 0``, that is at every
+      multiple of ``pi``. ``tg(x/2)`` is undefined only at the ODD ones. So the
+      rewrite gains ``x = 0`` and ``x = 2·pi``, where the original does not exist.
+    - ``(1+cos x)/sen x`` has the same holes at every multiple, and
+      ``cotg(x/2)`` has them only at the EVEN ones, so it gains ``x = pi``.
+
+    A domain that gains points is the dangerous direction and the one a solver
+    feels: the answer comes out with a solution at a point where the expression
+    cannot even be evaluated. So this is an objective of its own, and its step says
+    so (§5.7).
+
+    Direction ``reducir=True``, because these get cheaper. They are not in the same
+    loop as :func:`_r_medio_angulo_racional`, which gets more expensive: mixing the
+    two directions in one loop is what makes it non-terminating, and §5.5b exists
+    precisely because that failure is easy to reach and hard to see.
+    """
+    if not isinstance(e, mx.Div):
+        return None
+    pareja = _uno_mas_f(e.left, "cos")
+    if pareja is None:
+        return None
+    u = _arg(e.right, "sin")
+    if u is None or u != pareja[0]:
+        return None
+    return _fn("tan" if pareja[1] < 0 else "cot", _medio_angulo(u))
+
+
+#: Its own objective because it changes the domain, which is not a question of
+#: cost. ``simplify`` is what the solvers read, and the solvers turn a domain into
+#: a solution set.
+_REGLAS_MEDIO_ANGULO: tuple[tuple[str, str, object], ...] = (
+    ("medio_angulo_tapa_un_hueco",
+     "(1\u2213cos x)/sen x es tg(x/2) y (1+cos x)/sen x es cotg(x/2): m\u00e1s barato "
+     "(7 nodos y 19 caracteres por 4 y 8), pero NO conservan el dominio. El "
+     "original no existe en todos los m\u00faltiplos de pi y el nuevo solo en los "
+     "impares, as\u00ed que gana x=0 y x=2\u00b7pi. Un agujero que se tapa se "
+     "convierte en una soluci\u00f3n falsa, y por eso no va en la simplificaci\u00f3n "
+     "por defecto (T-07, \u00a75.7)",
+     _r_medio_angulo_lineal_perdiendo_dominio),
+)
+
+
+def medio_angulo(expr: mx.Expr, *, max_passes: int = MAX_PASSES) -> Simplificacion:
+    """``(1∓cos x)/sen x`` as a half-angle, which is cheaper and loses a hole.
+
+    Separate from :func:`simplify` because of WHAT it changes, not because of what
+    it costs: the result is defined at points where the original is not, and the
+    step says which ones (§5.7).
+    """
+    resultado, pasos = _bucle(expr, _REGLAS_MEDIO_ANGULO, reducir=True,
+                             max_passes=max_passes)
+    return Simplificacion(resultado, tuple(dict.fromkeys(pasos)))
+
+
+#: Its own objective because it is not cheaper, and §5.5b only lets the default
+#: simplification go down. The direction of the loop is what guarantees that each
+#: one ends, so a family that goes up needs a loop that goes up.
+_REGLAS_MEDIO_ANGULO_RACIONAL: tuple[tuple[str, str, object], ...] = (
+    ("medio_angulo_racional",
+     "cos/(1+sen) y (1-sen)/cos son (1-tg(x/2))/(1+tg(x/2)), y 1/(1\u00b1sen) es "
+     "(1\u2213sen)/cos\u00b2: racionalizar el denominador con el medio \u00e1ngulo. Son "
+     "M\u00c1S caras (7 nodos y 19 caracteres por 13 y 29), as\u00ed que no van en la "
+     "simplificaci\u00f3n por defecto. Conservan el dominio: donde 1/(1+sen) no existe, "
+     "cos tampoco, y (1-sen)/cos\u00b2 tampoco (T-07)",
+     _r_medio_angulo_racional),
+)
+
+
+def medio_angulo_racional(expr: mx.Expr, *,
+                          max_passes: int = MAX_PASSES) -> Simplificacion:
+    """The half-angle identities that rationalise a denominator, and only those.
+
+    Separate from :func:`simplify` because they make the expression LONGER, and
+    §5.5b asks that a family only ever move in one direction: that is what makes
+    the loop terminate. These are asked for when the next step needs a rational
+    function of ``t = tg(x/2)``, not by default.
+    """
+    resultado, pasos = _bucle(expr, _REGLAS_MEDIO_ANGULO_RACIONAL, reducir=False,
                              max_passes=max_passes)
     return Simplificacion(resultado, tuple(dict.fromkeys(pasos)))
 
