@@ -39,45 +39,72 @@ MEDIO_ANGULO_FALTA = [
     "1/(cos(x)+cos(2*x))",
 ]
 
-#: Inequalities whose critical points are NOT rational, and where the sign chart
-#: refuses. This list exists because of what happened when somebody removed the
-#: refusal: the chart answered, and answered WRONG.
+#: Inecuaciones cuyos puntos críticos NO son racionales. Antes eran un rechazo, y el
+#: rechazo era porque la carta solo sabía colocar un punto crítico en la rejilla de
+#: múltiplos de `pi`.
 #:
-#: The chart builds its intervals from the points it is given, and it silently
-#: DISCARDED the ones that are neither a rational nor a multiple of `pi`. So it
-#: drew a chart with two boundaries where there are four and reported it as a
-#: solution:
+#: Quitar el rechazo la PRIMERA vez dio tres respuestas FALSAS, porque la carta corta
+#: sus huecos por `Punto.coeficiente` y un punto que es una expresión tiene coeficiente
+#: CERO: todos los radicales iban a parar al origen.
 #:
-#: | inecuación | decía | verdad |
+#: | inecuación | decía (mal) | |
 #: |---|---|---|
-#: | `x^2 - 2 > 0` | `∅` | `(-inf, -sqrt(2)) ∪ (sqrt(2), +inf)` |
-#: | `x^3 - 2x > 0` | `(-inf, 0)` | `(-sqrt(2), 0) ∪ (sqrt(2), +inf)` |
-#: | `2x^3 - 3x + 1 > 0` | `(-inf, 0) ∪ (1, +inf)` | `(-inf, -0.618) ∪ (1.618, +inf)` |
+#: | `x^2 - 2 > 0` | `∅` | dos fronteras donde hay dos raíces |
+#: | `x^3 - 2x > 0` | `(-∞, 0)` | los agujeros de `±√2` desaparecieron |
+#: | `2x^3 - 3x + 1 > 0` | `(-∞, 0) ∪ (1, ∞)` | dos fronteras donde hay tres |
 #:
-#: An empty answer and a half answer are both worse than «no lo sé», and the
-#: refusal is what the engine does today. So `completar=False` in
-#: `ceros_en_puntos` is not laziness: it is the thing standing between the chart
-#: and those three rows.
+#: Ninguna de las tres se anunció como dudosa. La carta ahora corta por los puntos y
+#: muestrea por su VALOR, y lo que la sujeta a eso es esta prueba.
 INEQUIDADES_RAIZ_IRRACIONAL = [
-    "x^2 - 2 > 0",
-    "x^3 - 2*x > 0",
-    "2*x^3 - 3*x + 1 > 0",
+    "x^2 - 2 > 0", "x^2 - 2 < 0", "x^3 - 2*x > 0", "x^3 - 2*x < 0",
+    "2*x^3 - 3*x + 1 > 0", "2*x^3 - 3*x + 1 < 0",
 ]
 
 
 @pytest.mark.parametrize("inequidad", INEQUIDADES_RAIZ_IRRACIONAL)
-def test_una_carta_de_signos_sin_todos_los_ceros_se_niega(inequidad):
-    """Si esto falla, la carta ya coloca los puntos que son expresiones: bien.
+def test_la_carta_no_inventa_ni_omite_un_punto(inequidad):
+    """Sonido y completitud a la vez, comparando el conjunto publicado con el signo.
 
-    Y entonces hay que mirar lo que devuelve antes de quitar la prueba, porque las
-    tres respuestas de la tabla de arriba salieron de exactamente este camino y
-    ninguna se anunció como dudosa: se publican con la misma seguridad que una
-    acertada. La prueba está puesta para que el día que se cierre el hueco avise.
+    Dos preguntas en una, porque un conjunto puede contestar solo a una de las dos: un
+    intervalo publicado donde la inecuación no se cumple es una solución falsa, y un
+    punto donde sí se cumple y el conjunto no contiene es una omisión. La rejilla se
+    compara por los dos lados en cada punto, que es la única manera de ver un tramo
+    omitido: una carta que perdió `±√2` en silencio sigue teniendo aspecto de respuesta.
     """
-    from academic_core.domain.engineering.mathlab import inequaciones as I
+    import re
+    from fractions import Fraction
 
-    with pytest.raises(Exception):
-        I.resolver_inequidad(inequidad)
+    from academic_core.domain.engineering.mathlab import dominio as D
+    from academic_core.domain.engineering.mathlab import inequaciones as I
+    from academic_core.domain.engineering.mathlab import mvexpr as M
+
+    izquierda, operador, derecha = re.split(r"(<=|>=|<|>|=)", inequidad,
+                                           maxsplit=1)
+    expresion = M.parse(f"({izquierda.strip()}) - ({derecha.strip()})")
+    conjunto = I._carta_aperiodica(expresion, "x", operador)
+    assert conjunto is not None, inequidad
+
+    def se_cumple(x: float):
+        valor = M.valor_real(expresion, {"x": x})
+        if valor is None:
+            return None
+        return {"<": valor < 0, ">": valor > 0,
+                "<=": valor <= 0, ">=": valor >= 0}[operador]
+
+    falsos, omitidos = [], []
+    for j in range(-600, 601):
+        x = j * 0.02
+        cumple = se_cumple(x)
+        if cumple is None:
+            continue
+        dentro = conjunto.contiene(
+            D.Punto(expresion=M.Num(Fraction(x).limit_denominator(10 ** 9))))
+        if cumple and not dentro:
+            omitidos.append(round(x, 3))
+        if dentro and not cumple:
+            falsos.append(round(x, 3))
+    assert not falsos, f"{inequidad}: publica {falsos[:4]}, que no la cumplen"
+    assert not omitidos, f"{inequidad}: no publica {omitidos[:4]}"
 
 
 @pytest.mark.parametrize("integrando", HIPERBOLICAS_FALTAN)

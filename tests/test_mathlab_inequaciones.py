@@ -313,10 +313,28 @@ def test_un_extremo_infinito_nunca_se_cierra():
 
 
 def test_el_dominio_rechaza_lo_que_no_sabe_en_vez_de_adivinar():
-    """A denominator whose zeros are an irrational pair cannot be named exactly."""
-    with pytest.raises(UnsupportedError) as exc:
-        I.dominio(mx.parse("1/(x^2-2)"))
-    assert "no se saben los ceros" in str(exc.value) or "no lo sabe" in str(exc.value)
+    """A denominator whose zeros are an irrational pair — named exactly now.
+
+    This test used to demand a REFUSAL for ``1/(x^2-2)``, and the refusal was
+    right at the time: the domain could place a critical point only on the grid of
+    multiples of ``pi``, and ``√2`` is not one of them. ``Punto`` now has a third
+    form for a point that is an arbitrary exact expression, and the chart cuts its
+    gaps by the points themselves instead of by their coefficients — a point that
+    is an expression has coefficient zero, and reading the coefficients used to
+    send every radical to the origin.
+
+    So the domain can say where ``1/(x^2-2)`` does not exist, and the refusal it
+    used to give was an admission of a gap, not a property of the problem.
+    """
+    dominio = I.dominio(mx.parse("1/(x^2-2)"))
+    texto = dominio.texto()
+    assert "∞" in texto and texto.count("∪") == 2, texto
+    assert dominio.contiene(D.punto(Fraction(0))), "el origen sí existe"
+    assert dominio.contiene(D.punto(Fraction(3))), "3 sí existe"
+    # and the two holes are the two roots of `x^2-2`, at ±√2 and not at the origin
+    raiz = mx.Root(2, mx.Num(2))
+    for punto in (D.Punto(expresion=raiz), D.Punto(expresion=mx.Neg(raiz))):
+        assert not dominio.contiene(punto), punto.texto()
 
 
 def test_ceros_en_puntos_solo_acepta_conjuntos_finitos():

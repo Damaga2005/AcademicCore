@@ -1,5 +1,65 @@
 # Changelog
 
+## 2026-10-04 — la carta de signos ya coloca los puntos que son expresiones
+
+Cierra el punto 2 de la lista. `Punto` tenía desde el principio una tercera forma
+—un punto de la recta que es una expresión, y no un racional o un múltiplo de `pi`— y
+su docstring decía que existía justo para esto. Lo que faltaba no era el tipo: era
+que **la carta no lo usaba**, y lo usaba de la peor manera posible.
+
+### El fallo
+
+La carta cortaba sus huecos por los **coeficientes** de los puntos:
+
+```python
+coeficientes = [p.coeficiente for p in puntos]
+```
+
+Un punto que es una expresión tiene coeficiente **cero**. Así que todos los
+radicales iban a parar al origen, y la carta dibujaba con menos fronteras de las
+que tenía:
+
+| inecuación | decía | verdad |
+|---|---|---|
+| `x^2 - 2 > 0` | `∅` | `(-∞, -√2) ∪ (√2, ∞)` |
+| `x^3 - 2x > 0` | `(-∞, 0)` | `(-√2, 0) ∪ (√2, ∞)` |
+| `2x^3 - 3x + 1 > 0` | `(-∞, 0) ∪ (1, ∞)` | `(-∞, (1-√5)/2) ∪ ((1+√5)/2, ∞)` |
+
+No descartaba los puntos: los **convertía en el origen**. Y ninguna de las tres se
+anunciaba como dudosa.
+
+### El arreglo
+
+Eran dos cosas:
+
+1. `ceros_en_puntos` pide `completar=True` y convierte una raíz que no es racional
+   en `D.Punto(expresion=raiz)`, ordenando por `valor()` y no por coeficiente.
+2. `_carta_aperiodica` corta por los **puntos** y muestrea por su **`valor()`**. El
+   extremo del intervalo es el `Punto` entero —que es lo que se imprime— y su
+   posición es el número —que es lo que se evalúa—. Son dos preguntas distintas, y
+   mezclarlas es lo que perdía los puntos.
+
+Una trampa de paso: `Root` es una subclase de `Call`, así que la guardia que
+descartaba «una llamada» descartaba también `√2`. Un radical no es una función
+transcendental, y aquella guardia lo daba por una.
+
+### Lo que se gana
+
+`x^2 - 2 > 0`, `x^3 - 2x > 0` y `2x^3 - 3x + 1 > 0`, con sus cinco inequalities hermanas,
+más el dominio de `1/(x^2-2)`, que antes se negaba y ahora da los tres intervalos
+con los dos agujeros en `±√2`. Comprobado por muestreo denso: **19 de 19, 0 falsos,
+0 omitidos**, que es sonido y completitud a la vez — como se comprueba un conjunto y
+no una expresión.
+
+Con esto cae la última razón de `completar=False`: ya no es que la carta no sepa
+nombrar un radical, es que ahora sí.
+
+### Lo que queda mal escrito
+
+Los extremos salen como `(-0 - sqrt(8))/2` donde deberían leerse `√2`. Es correcto y
+es legible-peor, y la causa es que **no hay simplificador de radicales en el motor**:
+`T.simplify` no toca `sqrt(8)`. Reducirlo es trabajo nuevo y no se ha hecho aquí.
+
 ## 2026-10-04 — las raíces racionales se dividen, y lo que queda se resuelve
 
 Cierra el defecto que abrió la entrada siguiente. Allí «sen(x)³ - sen(x)/2 = 0»

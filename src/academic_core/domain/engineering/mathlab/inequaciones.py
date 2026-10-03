@@ -1372,14 +1372,29 @@ def ceros_en_puntos(e: mx.Expr, var: str = "x") -> list[D.Punto] | None:
         return None
     from academic_core.domain.engineering.mathlab import ecuaciones as E
 
-    raices, _ = E._raices_reales(q, mx.Sym(var))
+    # `completar=True`: a sign chart built from HALF the critical points is not an
+    # unfinished answer, it is a wrong one. `x**3 - 2x > 0` has three zeros and two
+    # of them are not rational, and the chart would draw two boundaries where there
+    # are three.
+    raices, _ = E._raices_reales(q, mx.Sym(var), completar=True)
     puntos: list[D.Punto] = []
     for raiz in raices:
         valor = mx.exact_value(raiz)
-        if valor is None:
-            return None                  # irrational or not exactly representable
-        puntos.append(D.punto(valor))
-    return sorted(set(puntos), key=lambda p: p.coeficiente)
+        if valor is not None:
+            puntos.append(D.punto(valor))
+            continue
+        if mx.depends(raiz, var) or any(llamada.name != "sqrt"
+                                        for llamada in _llamadas(raiz)):
+            return None      # not a number this engine can place on the line
+        # `sqrt(2)` is not a rational and it is not a multiple of `pi`, and it IS a
+        # point on the line. `Punto` has a third form for exactly that, whose own
+        # docstring gives the reason: the chart used to place a critical point ONLY
+        # on the grid of multiples of `pi`.
+        puntos.append(D.Punto(expresion=raiz))
+    # Ordered BY VALUE and not by coefficient. An expression point has coefficient
+    # zero, so sorting by it would put every radical at the origin and build the
+    # intervals in the wrong order — a chart with its ends swapped.
+    return sorted(puntos, key=lambda punto: punto.valor())
 
 
 def _carta_aperiodica(e: mx.Expr, var: str, operador: str) -> D.Conjunto | None:
@@ -1403,30 +1418,36 @@ def _carta_aperiodica(e: mx.Expr, var: str, operador: str) -> D.Conjunto | None:
             "una expresión con denominador no se acota por carta aperiodica: "
             "habría que quitar antes sus polos (§5.4)")
     cierra = operador.endswith("=")
-    coeficientes = [p.coeficiente for p in puntos]
+    # The gaps are cut by the POINTS, not by their coefficients. A point that is an
+    # expression has coefficient zero, so reading the coefficients turned every
+    # radical into the origin: `x**2 - 2 > 0` had two critical points at `0` and the
+    # chart drew one gap, sampled the single region it knew, and published the empty
+    # set. `x**3 - 2x > 0` published `(-inf, 0)`. Three answers, all wrong, none of
+    # them flagged as uncertain.
+    #
+    # So the endpoint is the `Punto` itself, and its POSITION is `valor()`. The two
+    # are different questions and mixing them is what dropped the points: `Punto`
+    # carries the exact expression for printing and `valor()` the number for sampling.
     piezas: list[D.Intervalo] = []
-    for indice, izquierda in enumerate([None] + coeficientes):
-        derecha = coeficientes[indice] if indice < len(coeficientes) else None
-        if izquierda is not None and derecha is not None \
-                and izquierda == derecha:
+    for indice, izquierda in enumerate([None] + puntos):
+        derecha = puntos[indice] if indice < len(puntos) else None
+        if izquierda is not None and derecha is not None and izquierda == derecha:
             continue
         if izquierda is None:
-            muestra = derecha - 1
+            muestra = derecha.valor() - 1
         elif derecha is None:
-            muestra = izquierda + 1
+            muestra = izquierda.valor() + 1
         else:
-            muestra = (izquierda + derecha) / 2
+            muestra = (izquierda.valor() + derecha.valor()) / 2
         valor = mx.evaluate(e, {var: float(muestra)})
         if valor is None or abs(valor.imag) > 1e-9:
             continue
         if not _cumple(valor.real, operador):
             continue
-        izq = None if izquierda is None else D.punto(izquierda)
-        der = None if derecha is None else D.punto(derecha)
         # an unbounded end is open: printing «(0, ∞]» claims a point at infinity
-        piezas.append(D.Intervalo(izq, der,
-                                  izq is None or not cierra,
-                                  der is None or not cierra))
+        piezas.append(D.Intervalo(izquierda, derecha,
+                                  izquierda is None or not cierra,
+                                  derecha is None or not cierra))
     if not piezas:
         return D.Conjunto()
     return D.desde_intervalos(piezas)
