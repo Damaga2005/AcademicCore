@@ -119,7 +119,18 @@ def _publicados(ecuacion: str):
     exactos, crudos = [], []
     for f in r.familias:
         if not f.en_x:
-            return None
+            # A family that is a SINGLE POINT rather than `base + paso·k` \u2014 which
+            # is how the substitution publishes `x = pi`, the one place `t = tg(x/2)`
+            # cannot reach. It is a solution like any other and the instrument has to
+            # measure it: skipping it made `sen(x)·cos(x)·tg(x) = 0` unmeasurable,
+            # and an instrument that cannot see an answer is not evidence that the
+            # answer is wrong.
+            v = mx.evaluate(f.base, {})
+            if v is None or abs(getattr(v, "imag", 0.0)) > 1e-9:
+                return None
+            exactos.append(float(v.real) / math.pi)
+            crudos.append((float(v.real) / math.pi) % 2.0)
+            continue
         for k in range(-8, 9):
             v = mx.evaluate(f.miembro(k, "x"), {"x": 0})
             if v is None or abs(getattr(v, "imag", 0.0)) > 1e-9:
@@ -175,6 +186,12 @@ RESPONDIDAS = [
     # it is, the denominator appears, and with `cos**2 = 1 - sen**2` it becomes a
     # polynomial in one function: `sen²x - sen x - 1 = 0`.
     "tan(x) + cos(x) = 0",
+    # The last of the eighteen, answered by the universal substitution. It was
+    # refused for a long time and the refusal was RIGHT by a wrong argument: the
+    # product has holes, yes, and `cos x = 0` lands in one, but `tg x = 0` gives
+    # `k*pi` and not one of those is a hole. `A*B = 0` asks both questions and
+    # only one of them had holes.
+    "sin(x)*cos(x)*tan(x) = 0",
     # A cubic by Cardano. Irreducible means «no RATIONAL root», not «unsolvable»:
     # a cubic always has a real root, and refusing this one was refusing arithmetic
     # rather than the engine. `cos(3x) + cos(x) = 1` develops to `4c^3 - 2c - 1`.
@@ -191,7 +208,6 @@ NEGADAS_ANTES = [
     # pi/2 and `sen(x)` does, so `A·B = 0` is not `A = 0` or `B = 0` there: at
     # `x = pi/2` the product is `0·0·undefined` and the equation is not even
     # posed. A family cannot be published with holes, so the whole thing refuses.
-    "sin(x)*cos(x)*tan(x) = 0",
 ]
 
 
@@ -397,18 +413,20 @@ def test_el_paso_dice_que_un_producto_se_anula_si_alguno_de_sus_factores():
 
 #: Products whose factors do NOT share a domain, and what the right answer is for
 #: each. `A·B = 0` is `A = 0` or `B = 0` only where the WHOLE PRODUCT exists, and
-#: the condition that decides it is not «the factors have the same domain» — that
-#: is too strong — but «no solution point lands in a hole of the product».
+#: the condition that decides it is not «the factors have the same domain» — that is
+#: too strong — but «no solution point lands in a hole of the product».
 PRODUCTOS_CON_DOMINIOS_DISTINTOS = [
     # `tg` dies at pi/2 + k·pi; the solutions are `k·pi`, and none of those is
     # a hole. Published, and complete.
     ("tan(x)*sin(x) = 0", True),
     ("sin(x)*tan(x) = 0", True),
-    # `cos(x) = 0` gives pi/2 + k·pi, which IS a hole: refused.
-    ("cos(x)*tan(x) = 0", False),
-    ("sin(x)*cos(x)*tan(x) = 0", False),
-    # Its only solutions ARE the holes. Refused, and this is the case the old rule
-    # was accidentally right about.
+    # `cos(x) = 0` gives pi/2 + k·pi, which IS a hole — and the solutions of the
+    # PRODUCT are still `k·pi`, because the hole only removes a candidate and
+    # `tg x = 0` supplies the answer on its own. Published.
+    ("cos(x)*tan(x) = 0", True),
+    ("sin(x)*cos(x)*tan(x) = 0", True),
+    # Here the candidates ARE the holes: `1/tg(x)` is undefined at every `k·pi`, and
+    # `sen x = 0` is the whole solution set. Refused.
     ("1/(tan(x))*sin(x) = 0", False),
 ]
 
@@ -418,15 +436,20 @@ PRODUCTOS_CON_DOMINIOS_DISTINTOS = [
 def test_el_producto_publica_si_ningun_punto_cae_en_un_agujero(ecuacion, responde):
     """The soundness condition on the product rule, as one table.
 
-    It used to be «the factors share a domain», and that refused `tg(x)·sen(x) = 0`
-    — whose answer is `k·pi`, with not one hole in it. The refusal was an admission
-    of a gap that was not there, and it cost a correct answer.
+    It has been three different things, and the third one is right. It used to be
+    «the factors share a domain», which refused `tg(x)·sen(x) = 0` — whose answer is
+    `k·pi`, with not one hole in it. It then became «every solution point has to be
+    inside the domain of the product», which is the exact condition, and it still
+    refused `cos(x)·tg(x) = 0`, because `_caso_producto` gave up before the check: the
+    holes of `tg` are at `pi/2 + k·pi` and `cos x = 0` lands there, so that candidate
+    is not publishable — but `tg x = 0` gives `k·pi`, which is, and it is the whole
+    answer.
 
-    The condition is exact and it is asked of the DOMAIN of the product, never of
-    the evaluator: at `x = pi/2` the evaluator sees `cos = 6·10⁻¹⁷` and
-    `tg = 1.6·10¹⁶` and calls the product a large ordinary number where there
-    is nothing at all. Asking «does this exist here?» of a float gets an answer, and
-    that answer is a lie.
+    So the universal substitution gets there: it solves the product as a rational
+    function of `t = tg(x/2)`, and every published point is checked against the domain
+    of what was ASKED. Asked of the DOMAIN and never of the evaluator, which at
+    `x = pi/2` sees `cos = 6·10⁻¹⁷` and `tg = 1.6·10¹⁶` and calls the product a large
+    ordinary number where there is nothing at all.
     """
     from academic_core.domain.engineering.mathlab import inequaciones as Iq
 

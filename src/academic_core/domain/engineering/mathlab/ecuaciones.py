@@ -321,6 +321,10 @@ def _casos(f: mx.Expr, var: str):
     tangente = _caso_tangente(f, var)
     if tangente is not None:
         return tangente
+    universal = _caso_sustitucion_universal(
+        _desarrolla_angulos_multiples(f, var), var)
+    if universal is not None:
+        return universal
     # No case matched. That is *not* the same as «there is no solution»: it is
     # «this engine does not solve this», and the difference is the whole point of
     # §5.4. Saying «no solutions» here would be a false answer presented with
@@ -943,7 +947,22 @@ def _caso_racional(f: mx.Expr, var: str):
                  f"denominador y queda «{mx.text(numerador)} = 0». Los puntos donde "
                  f"el denominador se anula son polos, no soluciones"]
     familias, h, espurias = _casos(numerador, var)
-    return familias, hipotesis + list(h), espurias
+    # Multiplying by the denominator ADDS candidates: every zero of that denominator
+    # now satisfies `N/D = 0`, and none of them satisfies the equation, because the
+    # equation is not posed there. `1/tg(x)*sen(x) = 0` becomes `sen(x) = 0` over
+    # `tg(x)`, and `x = 0` solves THAT \u2014 where the original is `1/0`.
+    #
+    # The hypothesis said the poles were not solutions; this makes it true. Asked of
+    # the DOMAIN and never of the evaluator, which at `x = pi/2` sees `tg = 1.6*10^16`
+    # and calls a pole a large ordinary number.
+    if familias:
+        publicables = _publica_si_el_punto_existe(familias, f, var)
+        if publicables is None:
+            return [], hipotesis + list(h), []
+        familias = publicables
+        espurias = _comprobar(familias, f, var)
+    hipotesis = hipotesis + list(h)
+    return familias, hipotesis, espurias
 
 
 def _factores_planos(e: mx.Expr) -> list[mx.Expr]:
@@ -1350,10 +1369,25 @@ def _publica_si_el_punto_existe(familias: list[Familia], original: mx.Expr,
             valor = mx.valor_real(familia.miembro(k, var), {})
             if valor is None:
                 return None
-            punto = D.Punto(
-                expresion=mx.Num(Fraction(valor).limit_denominator(10 ** 9)))
-            if not dominio.contiene(punto):
-                return None
+            # The point has to be built the way the DOMAIN builds its own, or the two
+            # are not the same kind of point and the comparison says nothing useful.
+            # `Punto(expresion=Num(6.28...))` and `Punto(es_pi=True, coeficiente=2)`
+            # are the same place and two different objects; asking a rational-expressed
+            # point whether it is inside a domain whose holes are multiples of pi
+            # answers the wrong question, and the answer was «yes».
+            cociente = valor / math.pi
+            racional = Fraction(cociente).limit_denominator(10 ** 6)
+            candidatos = [D.Punto(
+                expresion=mx.Num(Fraction(valor).limit_denominator(10 ** 9)))]
+            if abs(float(racional) - cociente) < 1e-9:
+                candidatos.append(D.punto_pi(racional))
+            for punto in candidatos:
+                try:
+                    dentro = dominio.contiene(punto)
+                except Exception:       # noqa: BLE001 «no lo sé» es respuesta
+                    return None
+                if not dentro:
+                    return None
     return _deduplica(familias)
 
 
@@ -1379,6 +1413,154 @@ def _caso_tangente(f: mx.Expr, var: str):
         "denominador; los puntos donde ese denominador se anula quedan fuera, y "
         "no son soluciones de la ecuación original"] + list(hipotesis)
     return publicables, hipotesis, _comprobar(publicables, f, var)
+
+
+def _a_racional_en_u(e: mx.Expr, var: str):
+    """``e`` as a rational function of ``u = tg(x/2)``, or ``None``.
+
+    The substitution that makes every trigonometric expression rational, written
+    down here rather than taken from :mod:`trig` because the solver needs the
+    DIRECTION \u2014 from ``x`` to ``u`` \u2014 and the module only had the way back.
+
+    **The argument has to BE the unknown.** ``sen(2x)`` is not ``2u/(1+u^2)``: that
+    table entry is ``sen(v)`` for ``v = x``, and reading ``2x`` as an affine ``v`` is
+    the same mistake :func:`_como_polinomio` used to make \u2014 substituting a function by
+    its name without looking at what is inside. It answered
+    ``cos(x) + cos(2x) = 0`` with ``2*arctg(1)``, and at ``x = pi/2`` the left side is
+    ``-1``.
+
+    A multiple angle is handled BEFORE this, by writing it in powers of the same
+    function, so ``cos(2x)`` is never still a ``cos(2x)`` by the time the substitution
+    looks at it.
+    """
+    from academic_core.domain.engineering.mathlab import mvexpr as M
+
+    u = M.Sym("u")
+    u2 = M.Pow(u, M.Num(2))
+    uno_mas = M.Add(M.Num(1), u2)
+    tabla = {
+        "sin": M.Div(M.Mul(M.Num(2), u), uno_mas),
+        "cos": M.Div(M.Sub(M.Num(1), u2), uno_mas),
+        "tan": M.Div(M.Mul(M.Num(2), u), M.Sub(M.Num(1), u2)),
+    }
+
+    def baja(nodo: mx.Expr) -> mx.Expr:
+        if isinstance(nodo, mx.Call) and len(nodo.args) == 1 \
+                and nodo.name in tabla:
+            if not (isinstance(nodo.args[0], mx.Sym)
+                    and nodo.args[0].name == var):
+                return nodo
+            return tabla[nodo.name]
+        if isinstance(nodo, mx.Call):
+            return M.Call(nodo.name, tuple(baja(a) for a in nodo.args))
+        if isinstance(nodo, mx.Neg):
+            return M.Neg(baja(nodo.arg))
+        if isinstance(nodo, mx.Pow):
+            return M.Pow(baja(nodo.base), baja(nodo.exponent))
+        if isinstance(nodo, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+            return type(nodo)(baja(nodo.left), baja(nodo.right))
+        return nodo
+
+    ratio = P.as_ratio(baja(e), "u")
+    if ratio is None or ratio.is_constant_ratio():
+        return None
+    # `u` has to be the only variable left. `sen(x) = x` becomes `2u/(1+u^2) = x`,
+    # and a rational function of `u` AND `x` is not a polynomial in `u`, so without
+    # this the case would claim to solve it and then answer with the roots of a
+    # polynomial in the wrong variable.
+    if P.real_variables(ratio.numerator) - {"u"} \
+            or P.real_variables(ratio.denominator) - {"u"}:
+        return None
+    if P.atoms_of(ratio.numerator) or P.atoms_of(ratio.denominator):
+        # A division that is not by a constant becomes an ATOM, and an atom is a
+        # variable this case cannot see the value of. `degree_in` then counts the
+        # exponent of the `u^2` buried inside the atom and reports «degree 2», the
+        # quadratic formula runs on a fraction, and the roots come out as `0/0`.
+        return None
+    return ratio
+
+
+def _caso_sustitucion_universal(f: mx.Expr, var: str):
+    """``t = tg(x/2)``: every trigonometric expression becomes rational.
+
+    What it buys: two trigonometric terms with DIFFERENT arguments become a
+    polynomial, and the product rule already knows how to solve the factors. This is
+    the last path for the equations that survive every other one.
+
+    Three things are checked rather than assumed, because each one is a way of
+    answering a different question:
+
+    - a root where the DENOMINATOR vanishes is SPURIOUS \u2014 it came from clearing
+      denominators, not from the equation, and ``tg``'s denominator is dead at
+      ``u = \u00b11``;
+    - ``x = pi`` is where the substitution is not defined (``tg(pi/2)``), so it is
+      asked separately instead of being silently absent;
+    - every published family goes back through :func:`_comprobar` against the
+      ORIGINAL expression.
+    """
+    ratio = _a_racional_en_u(f, var)
+    if ratio is None:
+        return None
+    raices, motivo = _raices_reales(ratio.numerator, mx.Sym("u"))
+    if not raices:
+        return None
+    if motivo:
+        # The roots are PARTIAL and this case must refuse rather than publish half.
+        # `sen(x) + sen(2x) = 1` is `u^6 - 4u^5 + 2u^4 + 3u^3 + 3u^2 - 6u + 1` in
+        # `t = tg(x/2)`, and its only rational root is `u = 1`: what is left over is a
+        # quintic. Publishing the one root that was found is publishing `pi/2` and
+        # saying nothing about the other solution, which is the failure §5.4 is about
+        # in the exact place that demands exactness.
+        return None
+    paso = mx.Mul(mx.Num(2), mx.PI)
+    hipotesis = ["con t = tg(x/2) el lado izquierdo se vuelve racional en t y su "
+                 f"numerador es de grado {P.degree_in(ratio.numerator, 'u')}: se "
+                 "buscan sus raíces exactas y luego se deshace el cambio de variable"]
+    validas: list[Familia] = []
+    for raiz in raices:
+        valor_den = _valor_de_la_raiz(ratio.denominator, raiz)
+        if valor_den is not None and abs(valor_den) < 1e-9:
+            hipotesis.append(
+                f"la raíz t = {mx.text(raiz)} se descarta: ahí el denominador se "
+                "anula y la ecuación ni siquiera está planteada")
+            continue
+        limpia = trig.reducir_radicales(raiz).expresion
+        base = mx.Add(mx.Mul(mx.Num(2), mx.Call("atan", (limpia,))), paso)
+        validas.append(Familia(base, paso, "u = t y x = 2·arctg(t) + 2k·pi"))
+    hipotesis.append(
+        "t = tg(x/2) no está definida en x = pi, que es el punto que el cambio de "
+        "variable no alcanza: se pregunta aparte")
+    en_pi = _evaluar(mx.substitute(f, var, mx.PI))
+    if en_pi is not None and abs(en_pi) < 1e-9:
+        validas.append(Familia(mx.PI, mx.Num(Fraction(0)), "x = pi", en_x=False))
+        hipotesis.append("x = pi sí anula la ecuación: el cambio de variable no la "
+                         "alcanza porque tg(pi/2) no existe")
+    if not validas:
+        return None
+    # Every published point has to be a point where the ORIGINAL expression exists.
+    # `1/tg(x)*sen(x) = 0` reduces to `(1 - u^2)/(1 + u^2) = 0`, whose roots `u = ±1`
+    # are perfectly good zeros of that rational function \u2014 and at `x = 0` the original
+    # is `1/0`, which is not a number. The substitution cannot see that: it made a
+    # quotient of two quotients and lost the inner pole. So the domain of what was
+    # ASKED is the last word, and it is asked per point.
+    publicables = _publica_si_el_punto_existe(validas, f, var)
+    if publicables is None:
+        return None
+    espurias = _comprobar(publicables, f, var)
+    return _deduplica(publicables), hipotesis, espurias
+
+
+def _valor_de_la_raiz(polinomio, raiz: mx.Expr):
+    """A polynomial at a root that may be a radical, as a float, or ``None``.
+
+    The root is evaluated FIRST and handed over as a number: it arrives as an
+    expression \u2014 ``sqrt(2)/2`` is a ``Div`` of a ``Root`` \u2014 and the evaluator takes
+    numbers in its environment, not trees.
+    """
+    valor_raiz = mx.valor_real(raiz, {})
+    if valor_raiz is None:
+        return None
+    return mx.valor_real(P.to_expr(polinomio), {"u": valor_raiz})
 
 
 def _caso_polinomio(f: mx.Expr, var: str):

@@ -1,5 +1,75 @@
 # Changelog
 
+## 2026-10-04 — la sustitución universal, y con ella el último rechazo
+
+**47 de 49 ecuaciones del catálogo de sonido respondidas. 0 inventadas, 0
+incompletas.** De los 18 rechazos con los que empezó esto, quedan 2 — y son la misma
+ecuación escrita al revés.
+
+### Qué es
+
+`t = tg(x/2)`, con la que **toda** expresión trigonométrica se vuelve racional:
+`sen → 2u/(1+u²)`, `cos → (1−u²)/(1+u²)`, `tg → 2u/(1−u²)`. Es el último camino,
+después de todos los demás, y lo que compra es una clase entera: dos términos
+trigonométricos con argumentos distintos, que antes no se leían.
+
+`cos(x)/cos(2x) = 1` es un ejemplo de lo que se abre: tres familias, completas.
+
+### Tres cosas comprobadas, que son tres preguntas distintas
+
+**El argumento tiene que SER la incógnita.** `sen(2x)` **no** es `2u/(1+u²)`: esa
+entrada de la tabla es `sen(v)` para `v = x`, y leer `2x` como una `v` afín es el
+**mismo error que `_como_polinomio` cometía** — sustituir una función por su nombre
+sin mirar qué hay dentro. Por eso el desarrollo de ángulos múltiples ocurre **antes**:
+`cos(2x)` nunca llega a ser un `cos(2x)` cuando la sustitución lo mira.
+
+**Una raíz donde se anula el denominador es espuria.** Viene de despejar
+denominadores, no de la ecuación, y el denominador de `tg` está muerto en `u = ±1`.
+
+**`x = pi` se pregunta aparte.** `t = tg(x/2)` no está definida ahí, y un punto que el
+cambio de variable no alcanza no es un punto que no sea solución: se pregunta, y si
+anula la ecuación se publica como lo que es — un punto suelto, no una familia.
+
+### Y el dominio del original, que es la última palabra
+
+`1/tg(x)·sen(x) = 0` se reduce a `(1−u²)/(1+u²) = 0`, cuyas raíces `u = ±1` son
+ceros perfectamente buenos de esa función racional — y en `x = 0` el original es `1/0`.
+La sustitución no puede verlo: hizo un cociente de cocientes y perdió el polo interior.
+
+### El fallo que encontró de paso: `_caso_racional` no filtraba los polos
+
+Multiplicar por el denominador **añade candidatos**: cada cero de ese denominador
+ahora satisface `N/D = 0`, y ninguno satisface la ecuación, porque la ecuación no está
+planteada ahí. La hipótesis decía que los polos no eran soluciones; **esto lo hace
+cierto**, y era un agujero de sonido anterior a este commit que solo se hizo visible
+cuando otro camino consiguió responder al numerador reducido.
+
+### El último rechazo era correcto por un motivo equivocado
+
+`sen(x)·cos(x)·tg(x) = 0` llevaba mucho tiempo negándose, y la negativa era *cierta*
+por un argumento *equivocado*: el producto sí tiene agujeros y `cos x = 0` cae en uno,
+pero `tg x = 0` da `k·pi` y **ninguno de esos puntos es un agujero**. `A·B = 0` hace
+las dos preguntas y solo una tenía agujeros.
+
+Igual que con la etiqueta de `T-14` hace dos semanas: la afirmación era falsa, y lo
+falso estaba escrito con la seguridad de lo verdadero.
+
+### Lo que queda
+
+| | |
+|---|---|
+| `sen(x) + sen(2x) = 1` | **aritmética.** En `t = tg(x/2)` su numerador es `u⁶ − 4u⁵ + 2u⁴ + 3u³ + 3u² − 6u + 1`, con un solo factor racional y un **quíntico** detrás. Ningún motor lo resuelve por radicales |
+
+Aparece dos veces en el catálogo porque es la misma ecuación escrita al revés. Dos
+entradas, un problema, y no es del motor.
+
+### Y una tercera cosa que el arnés no veía
+
+La batería no sabía medir una familia que es **un punto suelto** en vez de
+`base + paso·k`, que es como la sustitución publica `x = pi`. Se las saltaba, y un
+instrumento que no ve una respuesta no es evidencia de que la respuesta sea mala: lo
+hizo `sen(x)·cos(x)·tg(x) = 0` inmedible.
+
 ## 2026-10-04 — `sech` y `csch`, y con ellas T-14 entera
 
 Dos entradas de tabla y una etiqueta de documentación que pasa a **COMPLETADA**.
