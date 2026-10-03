@@ -172,9 +172,27 @@ def test_e01_p04_normal_form_rules_are_named():
 
 
 def test_e01_p05_step_log_bounds():
+    """The ceiling is the TRACE's ceiling, 2000, and it is still a ceiling.
+
+    It was 500, which is below what the derivation of a real integration records:
+    the derivative of a 234-character primitive is 511 characters long, so the log
+    refused the step that PROVED the integral — the verification and the record of
+    it failing for the same reason at once. The limit did not move because bigger
+    is better; it moved to the format's own ceiling, which is where a limit
+    belongs.
+    """
+    from academic_core.domain.engineering.symbolic import steps as S
+
+    assert S.MAX_FIELD == 2000, "el techo es el del formato de traza"
+    # one field over the ceiling is refused, and one just under it is recorded: a
+    # limit that also refused honest work would be as wrong as a missing one
     log = StepLog()
     with pytest.raises(ValidationError, match="EXPRESSION_LIMIT"):
-        log.add("op", "r", "x" * 501, "y")
+        log.add("op", "r", "x" * (S.MAX_FIELD + 1), "y")
+    log.add("op", "r", "x" * (S.MAX_FIELD - 1), "y")
+    # and the number of steps has its own ceiling, on a log of its own so the two
+    # limits are not counted together
+    log = StepLog()
     for _ in range(MAX_STEPS):
         log.add("op", "r", "a", "b")
     with pytest.raises(ValidationError, match="EXPRESSION_LIMIT"):

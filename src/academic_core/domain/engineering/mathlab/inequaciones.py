@@ -259,10 +259,18 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
         base = _dentro_del_periodo(familia.base)
         if base is not None and all(mx.text(base) != mx.text(v) for v in vistos):
             vistos.append(base)
+        elif not mx.depends(familia.base, var):
+            # Not a multiple of pi, but an EXACT value and already inside one
+            # period — the equation solver wrote it down and there is no reason to
+            # drop it. Used to return None here, which is the same false answer as
+            # «no zeros» one level down, over an engine that had the zeros.
+            limpio = _punto_limpio(familia.base)
+            if all(mx.text(limpio) != mx.text(v) for v in vistos):
+                vistos.append(limpio)
     if not vistos and resolucion.familias:
-        # there ARE zeros, but they come out as arcsin(...) and cannot be placed
-        # on the pi grid exactly. Saying «no zeros» here would be the exact same
-        # false answer as «no solutions», one level down.
+        # there ARE zeros, and they are values this engine cannot even write as an
+        # expression — an unresolved root of a quartic, say. Saying «no zeros» here
+        # would be the exact same false answer as «no solutions», one level down.
         return None
     return vistos
 
@@ -563,13 +571,371 @@ def _dentro_del_periodo(base: mx.Expr) -> mx.Expr | None:
     return mx.Mul(mx.Num(coeficiente % 2), mx.PI) if coeficiente is not None else None
 
 
+def _en_un_periodo(p: D.Punto, periodo: Fraction) -> float:
+    """Where a point sits inside one period, as a plain number.
+
+    A multiple of ``pi`` folds exactly, by arithmetic. An expression point folds by
+    subtracting whole turns until it is inside, and that is a FLOAT comparison on
+    purpose: the alternative is refusing every point the grid cannot hold
+    exactly, which is where this started.
+    """
+    if p.expresion is None:
+        return float(p.coeficiente % periodo)
+    v = p.valor() / 3.141592653589793
+    return v % float(periodo)
+
+
+def _punto_limpio(e: mx.Expr) -> mx.Expr:
+    """A critical point written the way a textbook writes it.
+
+    Two things happen here, and both are about what the READER sees rather than
+    about the truth of the answer.
+
+    - Arithmetic over numbers is folded, bottom up. The equation solver reaches
+      ``1/3`` through the rational-root theorem and hands it over as
+      ``(-0 + 6)/(-18)``, which is true and unreadable; a critical point printed
+      that way is a point the reader has to re-derive before they can check it.
+      Folding is done with exact rationals, so it cannot change the value.
+    - a negative argument is pulled out to a negation, using the identity that
+      does not move the point: ``arcsen(-t) = -arcsen(t)`` and
+      ``acos(-t) = pi - acos(t)``.
+
+      There is a third spelling here, ``arcsen(-t) = pi - arcsen(t)``, and it is
+      WRONG to use: it differs from ``-arcsen(t)`` by exactly ``pi``, so it is a
+      different point on the circle unless the expression happens to have period
+      ``pi``. It was in this function for one measurement and produced a correct
+      answer for ``cosec(x)^2 > 9`` — whose expression does have period pi — which
+      is the most dangerous way to be wrong: right for the case you measured and
+      wrong for every other.
+
+    None of this changes which point it is. That is the whole requirement.
+    """
+    if isinstance(e, mx.Call) and e.name in ("asin", "acos", "atan") \
+            and len(e.args) == 1:
+        v = _racional(_plegar_mezcla(e.args[0]))
+        if v is None:
+            return e
+        if v > 0:
+            return mx.Call(e.name, (mx.Num(v),))
+        positivo = mx.Call(e.name, (mx.Num(-v),))
+        # arcsen and arctan are ODD: arcsen(-t) = -arcsen(t), and the point moves
+        # to its mirror through the origin — which is NOT where pi - arcsen(t) is,
+        # because that differs from -arcsen(t) by exactly pi, so it is a different
+        # place on the circle unless the expression happens to have period pi. That
+        # third spelling was in this function for one measurement and got
+        # `cosec(x)^2 > 9` right, whose expression does have period pi: right for
+        # the case you measured and wrong for every other.
+        #
+        # arccos is the even one, and even does not mean symmetric: arccos(-t) is
+        # the MIRROR point, pi - arccos(t), which is where it actually is.
+        return mx.Sub(mx.PI, positivo) if e.name == "acos" else mx.Neg(positivo)
+    return _plegar_mezcla(e)
+
+
+def _plegar(e: mx.Expr) -> mx.Expr:
+    """Rebuild ``e`` with the arithmetic over numbers done exactly, bottom up."""
+    if isinstance(e, mx.Num):
+        return e
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        izquierda, derecha = _plegar(e.left), _plegar(e.right)
+        if _solo_numeros(izquierda) and _solo_numeros(derecha):
+            try:
+                r = _racional_valor(mx.evaluate(_rehacer(e, izquierda, derecha), {}))
+            except Exception:              # noqa: BLE001 — «no se» es respuesta
+                r = None
+            if r is not None:
+                return mx.Num(r)
+        return _rehacer(e, izquierda, derecha)
+    if isinstance(e, mx.Neg):
+        interior = _plegar(e.arg)
+        if _solo_numeros(interior):
+            r = _racional(interior)
+            if r is not None:
+                return mx.Num(-r)
+        return mx.Neg(interior)
+    if isinstance(e, mx.Call):
+        # into the arguments, because that is where `pi - arcsen((-0 + 6)/(-18))`
+        # hides: the arcsine is nested one level down and a rewrite that only looks
+        # at the outside leaves it exactly as it was
+        limpio = tuple(_punto_limpio(a) for a in e.args)
+        return e if limpio == e.args else mx.Call(e.name, limpio)
+    return e
+
+
+def _rehacer(e: mx.Expr, izquierda: mx.Expr, derecha: mx.Expr) -> mx.Expr:
+    """``e`` with its two children replaced."""
+    if isinstance(e, mx.Add):
+        return mx.Add(izquierda, derecha)
+    if isinstance(e, mx.Sub):
+        return mx.Sub(izquierda, derecha)
+    if isinstance(e, mx.Mul):
+        return mx.Mul(izquierda, derecha)
+    return mx.Div(izquierda, derecha)
+
+
+def _racional_valor(valor) -> Fraction | None:
+    if abs(getattr(valor, "imag", 0.0)) > 1e-12:
+        return None
+    real = getattr(valor, "real", valor)
+    r = Fraction(real).limit_denominator(10 ** 9)
+    return r if abs(float(r) - real) < 1e-12 else None
+
+
+def _lineal(e: mx.Expr) -> tuple[Fraction, Fraction] | None:
+    """``e`` as ``racional + racional·pi``, or ``None`` when it is not linear.
+
+    Needed because the canonical form of a point inside one period is a sum with a
+    whole number of periods, and folding has to be able to CANCEL those again:
+    ``pi - arcsen(-1/3) - pi`` is ``arcsen(1/3)``, and printed unsimplified it is a
+    second spelling of a point the answer already had, which the chart then read
+    as a different critical point.
+    """
+    if isinstance(e, mx.Num):
+        return Fraction(e.value), Fraction(0)
+    if isinstance(e, mx.Const) and e.name == "pi":
+        return Fraction(0), Fraction(1)
+    if isinstance(e, mx.Neg):
+        interior = _lineal(e.arg)
+        return None if interior is None else (-interior[0], -interior[1])
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul)):
+        izquierda = _lineal(e.left)
+        derecha = _lineal(e.right)
+        if izquierda is None or derecha is None:
+            return None
+        if isinstance(e, mx.Mul):
+            a, b = izquierda
+            c, d = derecha
+            if b == 0 and d == 0:
+                return a * c, Fraction(0)
+            if b == 0 and c == 0:
+                return Fraction(0), a * d
+            if b == 0:
+                return a * c, a * d          # (a)·(c + d·pi)
+            if d == 0:
+                return c * a, c * b          # (a + b·pi)·(c)
+            return None                      # pi² is not linear
+        if isinstance(e, mx.Add):
+            return izquierda[0] + derecha[0], izquierda[1] + derecha[1]
+        return izquierda[0] - derecha[0], izquierda[1] - derecha[1]
+    return None
+
+
+def _de_lineal(r: Fraction, p: Fraction) -> mx.Expr | None:
+    """Back to an expression, or ``None`` when it would have to be ``0``."""
+    if p == 0:
+        return mx.Num(r)
+    if r == 0:
+        return mx.PI if p == 1 else mx.Mul(mx.Num(p), mx.PI)
+    return mx.Add(mx.Num(r), mx.PI if p == 1 else mx.Mul(mx.Num(p), mx.PI))
+
+
+def _plegar_lineal(e: mx.Expr) -> mx.Expr | None:
+    """``e`` folded exactly when it is ``r + p·pi``, else ``None``."""
+    lineal = _lineal(e)
+    return None if lineal is None else _de_lineal(*lineal)
+
+
+def _plegar_mezcla(e: mx.Expr) -> mx.Expr:
+    """Fold every linear part of the tree exactly, leave the rest alone.
+
+    A point inside one period is usually ``pi - arcsen(-1/3) - pi``: a linear part
+    that cancels completely and one function call that does not. Folding the whole
+    expression as linear leaves the ``pi`` in it, and then the chart holds two
+    spellings of one point — ``asin(1/3)`` and ``pi - asin(-1/3) - pi`` — finds it
+    cannot establish their order, and refuses an inequality it can otherwise
+    answer.
+
+    So the linear leaves are gathered, folded among themselves, and put back once.
+    Anything that is not linear is returned untouched, which is not a failure: a
+    function call is a value nobody here can expand, and its presence is exactly
+    why the point is not a multiple of pi.
+    """
+    if isinstance(e, mx.Num):
+        return e
+    if isinstance(e, mx.Const):
+        return e
+    if isinstance(e, mx.Neg):
+        interior = _plegar_mezcla(e.arg)
+        lineal = _lineal(interior)
+        return mx.Neg(interior) if lineal is None else _de_lineal(-lineal[0],
+                                                                  -lineal[1])
+    if isinstance(e, mx.Call):
+        if e.name in ("asin", "acos", "atan") and len(e.args) == 1:
+            return _punto_limpio(e)
+        args = tuple(_plegar_mezcla(a) for a in e.args)
+        return e if args == e.args else mx.Call(e.name, args)
+    if isinstance(e, mx.Mul):
+        izquierda, derecha = _plegar_mezcla(e.left), _plegar_mezcla(e.right)
+        producto = None
+        if _lineal(izquierda) and _lineal(derecha):
+            producto = _lineal(_rehacer(e, izquierda, derecha))
+        return _de_lineal(*producto) if producto is not None \
+            else _rehacer(e, izquierda, derecha)
+    if isinstance(e, (mx.Add, mx.Sub)):
+        return _plegar_suma(_hojas(e))
+    return e
+
+
+def _hojas(e: mx.Expr, signo: int = 1) -> list[tuple[int, mx.Expr]]:
+    """The terms of a sum with their signs, stopping at anything not a sum."""
+    if isinstance(e, mx.Add):
+        return _hojas(e.left, signo) + _hojas(e.right, signo)
+    if isinstance(e, mx.Sub):
+        return _hojas(e.left, signo) + _hojas(e.right, -signo)
+    if isinstance(e, mx.Neg):
+        return _hojas(e.arg, -signo)
+    return [(signo, e)]
+
+
+def _plegar_suma(hojas: list[tuple[int, mx.Expr]]) -> mx.Expr:
+    """Sum: the linear terms folded into one, the others left in place.
+
+    Folding only when BOTH sides are linear is not enough, and the case that needs
+    it is the ordinary one: ``pi - arcsen(-1/3) - pi`` has a ``pi`` on each side of
+    a function call, so the two never meet. Gathered, they cancel, and what is left
+    is the point itself.
+
+    The subtraction is a real ``Sub`` and not ``Add`` with a negated child, because
+    ``text`` promises that reading back what it wrote gives the same expression —
+    and ``pi - arcsen(1/3)`` reads back as a ``Sub``, while ``pi + -arcsen(1/3)``
+    reads back as the ``Add`` it was printed from. A printer fix would have been the
+    wrong place to solve this.
+    """
+    racional, por_pi = Fraction(0), Fraction(0)
+    partes: list[tuple[int, mx.Expr]] = []
+    for signo, hoja in hojas:
+        # the leaves are folded too, or `pi - arcsen(-1/3)` keeps the negative
+        # argument that the identity two lines above exists to remove
+        hoja = _plegar_mezcla(hoja)
+        if isinstance(hoja, mx.Neg):
+            hoja, signo = hoja.arg, -signo
+        lineal = _lineal(hoja)
+        if lineal is None:
+            partes.append((signo, hoja))
+        else:
+            racional += signo * lineal[0]
+            por_pi += signo * lineal[1]
+    if racional or por_pi:
+        partes.insert(0, (1, _de_lineal(racional, por_pi)))
+    if not partes:
+        return mx.Num(0)
+    salida = partes[0][1] if partes[0][0] > 0 else mx.Neg(partes[0][1])
+    for signo, hoja in partes[1:]:
+        salida = mx.Add(salida, hoja) if signo > 0 else mx.Sub(salida, hoja)
+    return salida
+
+
+def _solo_numeros(e: mx.Expr) -> bool:
+    """Whether the tree is arithmetic over numbers and nothing else.
+
+    The discipline that keeps ``pi - arcsen(1/3)`` from being read as a number:
+    evaluating an expression with no free variable in it gives a value for almost
+    any constant, so «no unknowns left» is NOT enough to decide that a number can
+    be written down. It has to be built only out of numbers.
+    """
+    if isinstance(e, mx.Num):
+        return True
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return _solo_numeros(e.left) and _solo_numeros(e.right)
+    if isinstance(e, mx.Neg):
+        return _solo_numeros(e.arg)
+    return False
+
+
+def _racional(e: mx.Expr) -> Fraction | None:
+    """The exact rational ``e`` is, or ``None`` when it is not one."""
+    if isinstance(e, mx.Num):
+        return Fraction(e.value)
+    if not _solo_numeros(e):
+        return None
+    try:
+        valor = mx.evaluate(e, {})
+    except Exception:                      # noqa: BLE001 — any failure is «no»
+        return None
+    if valor is None or abs(valor.imag) > 1e-12:
+        return None
+    racional = Fraction(valor.real).limit_denominator(10 ** 9)
+    return racional if abs(float(racional) - valor.real) < 1e-12 else None
+
+
+def _dentro_del_periodo_exacto(punto: D.Punto, periodo: Fraction) -> D.Punto:
+    """A point moved into ``[0, periodo·pi]`` as an EXPRESSION, exactly.
+
+    The same point has several exact spellings — ``-arcsen(1/3)`` and
+    ``pi - arcsen(1/3)`` are one place on the circle — and which one a chart keeps
+    used to be decided by which came off the list first. So the answer to
+    ``cosec(x)^2 <= 9`` ended at ``-arcsen(1/3)`` with a duplicate of the other end
+    as a separate piece: two intervals, one point, and a set whose shape no
+    textbook uses.
+
+    Adding whole periods is arithmetic on the expression, so nothing is rounded. The
+    move is repeated because folding the linear terms can push the value back out:
+    ``-2·pi - arcsen(1/3)`` comes out of the first fold, and it needs three more
+    periods before it is inside.
+    """
+    if punto.expresion is None:
+        return punto
+    largo = float(periodo) * 3.141592653589793
+    expresion = _plegar_mezcla(punto.expresion)
+    for _ in range(6):
+        valor = _valor_de(expresion)
+        if valor is None:
+            break
+        # NEGATIVE of the floor, because the periods are ADDED: a point at -0.34
+        # with a period of pi is at 2.80, one period up, not one period down.
+        vueltas = -math.floor(valor / largo)
+        if vueltas == 0:
+            break
+        cuantos = Fraction(vueltas * periodo)
+        expresion = _plegar_mezcla(
+            mx.Add(expresion, mx.PI if cuantos == 1
+                   else mx.Mul(mx.Num(cuantos), mx.PI)) if cuantos > 0
+            else mx.Sub(expresion, mx.PI if cuantos == -1
+                        else mx.Mul(mx.Num(-cuantos), mx.PI)))
+    return punto if expresion == punto.expresion else D.Punto(expresion=expresion)
+
+
+def _valor_de(expresion: mx.Expr) -> float | None:
+    try:
+        valor = mx.evaluate(expresion, {})
+    except Exception:                      # noqa: BLE001 — «no se» es respuesta
+        return None
+    if valor is None or abs(getattr(valor, "imag", 0.0)) > 1e-12:
+        return None
+    return float(valor.real)
+
+
+def _posicion(punto: D.Punto, periodo: Fraction) -> float:
+    """Where a point sits in one period, in units of ``pi``, to nine decimals.
+
+    Nine decimals is the tolerance for calling two spellings the same point.
+    Without it the grid carried ``0.108173247`` twice — once for ``arcsen(1/3)``
+    and once for ``pi + arcsen(1/3)`` — and two spellings of one point became two
+    critical points, which produced zero-width gaps and endpoints that a reader
+    cannot match up.
+    """
+    return _en_un_periodo(punto, periodo)
+
+
 def _punto(valor: Fraction) -> D.Punto:
     return D.punto_pi(valor)
 
 
 def _a_punto(e: mx.Expr) -> D.Punto | None:
+    """A solution value as a point: a multiple of pi, or an exact expression.
+
+    The second form is what a value like ``arcsen(1/3)`` is. It used to come back
+    as ``None`` and take the whole answer down with it — ``cosec(x)^2 > 9`` was
+    refused with «no se saben los ceros» by an engine whose own equation solver had
+    already written ``arcsen(1/3)`` down. Refusing to PLACE a point is not the
+    same as not knowing it, and only the second one is a real gap.
+    """
     coeficiente = _coeficiente_pi(e)
-    return D.punto_pi(coeficiente) if coeficiente is not None else None
+    if coeficiente is not None:
+        return D.punto_pi(coeficiente)
+    if not mx.depends(e, "x"):
+        return D.Punto(expresion=e)
+    return None
 
 
 def resolver_inequidad(texto_inequidad: str, var: str = "x") -> Solucion:
@@ -623,12 +989,13 @@ def resolver_inequidad(texto_inequidad: str, var: str = "x") -> Solucion:
     period_pi = periodo  # dominio.periodo_minimo ya devuelve la razón en pi
     criticos = sorted({c for c in (_a_punto(v) for v in ceros_f + singulares)
                        if c is not None},
-                      key=lambda p: p.coeficiente % period_pi)
+                      key=lambda p: _en_un_periodo(p, period_pi))
     if len(criticos) < len([v for v in ceros_f if _a_punto(v)]) + \
             len([v for v in singulares if _a_punto(v)]):
         raise sin_refuso(
-            "algún cero no es un múltiplo exacto de pi, así que el patrón "
-            "periódico no se puede escribir de forma exacta (§5.4)")
+            "algún cero no se puede escribir como número exacto, así que el "
+            "patrón periódico no se puede expresar de forma exacta (§5.4)")
+
 
     if operador == "=":
         # An equation has no interior. The sign chart describes the gaps between
@@ -666,57 +1033,101 @@ def _carta_de_signos(f: mx.Expr, var: str, periodo: Fraction,
 
     - a **zero** is in the set for ``>=`` and out for ``>``, which is the ordinary
       business;
-    - a **pole** is never in the set, for any operator, because the expression
-      does not exist there — closing it would put a point in the solution at which
-      the inequality cannot even be evaluated;
+    - a **pole** is never in the set, for any operator, because the expression does
+      not exist there — closing it would put a point in the solution at which the
+      inequality cannot even be evaluated;
     - the **point where the period starts** is neither, and it has to be read off
-      the value of the function. Leaving it always open silently drops a real
+      the the value of the function. Leaving it always open silently drops a real
       solution: ``cos(x)^2 > 1/2`` holds at 0, and 0 is where the chart begins.
+
+    The points are ``Punto``s and not fractions of pi, because a critical point is
+    not always on that grid: the zeros of ``cosec(x)^2 > 9`` are ``arcsen(1/3)``
+    and ``pi - arcsen(1/3)``, and the engine knows both exactly.
+
+    The grid keeps the POSITION and the POINT together instead of throwing one away.
+    The position is what the gaps are measured in, and it has to be a float
+    because two spellings of one point only agree to about fifteen digits; the
+    point is what gets published, and for a multiple of pi that means the exact
+    rational rather than its fifteen-digit image — rounding the grid and rebuilding
+    published ``1/6·pi`` as ``83333336/500000015·pi``, which is the same number to
+    a thousandth of a percent and useless to anyone checking the answer.
     """
-    period_pi = periodo
-    rejilla = [Fraction(0)] + sorted(
-        {p.coeficiente % period_pi for p in ceros_p | polos_p} | {period_pi})
+    criticos: list[tuple[float, D.Punto]] = []
+
+    def anota(posicion: float, punto: D.Punto) -> None:
+        for i, (otra, guardada) in enumerate(criticos):
+            if abs(otra - posicion) < 1e-9:
+                # an exact expression is a better spelling than a rational
+                # approximation of it, so it takes the slot
+                if guardada.expresion is None and punto.expresion is not None:
+                    criticos[i] = (otra, punto)
+                return
+        criticos.append((posicion, punto))
+
+    for pto in ceros_p | polos_p:
+        plegado = _dentro_del_periodo_exacto(pto, periodo)
+        canonico = (plegado if plegado.expresion is not None
+                    else D.punto_pi(plegado.coeficiente % periodo))
+        anota(_posicion(plegado, periodo), canonico)
+    anota(0.0, D.Punto(Fraction(0)))
+    anota(float(periodo), D.punto_pi(periodo))
+    criticos.sort(key=lambda par: par[0])
+
     piezas: list[D.Intervalo] = []
-    for izquierda, derecha in zip(rejilla, rejilla[1:]):
-        if derecha <= izquierda:
+    for (izq, punto_izq), (der, punto_der) in zip(criticos, criticos[1:]):
+        if der - izq <= 0:
             continue
-        signo = _signo_del_hueco(f, var, izquierda, derecha)
+        signo = _signo_del_hueco(f, var, izq, der)
         if not _cumple(signo, operador):
             continue
-        abierta_izq = not _extremo_entra(f, var, izquierda, periodo,
+        abierta_izq = not _extremo_entra(f, var, izq, periodo,
                                          ceros_p, polos_p, operador)
-        abierta_der = not _extremo_entra(f, var, derecha, periodo,
+        abierta_der = not _extremo_entra(f, var, der, periodo,
                                          ceros_p, polos_p, operador)
-        piezas.append(D.Intervalo(_punto(izquierda), _punto(derecha),
-                                  abierta_izq, abierta_der))
+        piezas.append(D.Intervalo(punto_izq, punto_der, abierta_izq, abierta_der))
+
     # A solution can have no interior at all, and a chart of GAPS never sees it:
     # `sen(x) >= 1` holds only at the two tangencies, no gap has positive sign,
     # and the answer came out empty — a false «no hay soluciones» over an
-    # expression full of them. The isolated critical points that satisfy the
-    # inequality are added here, and skipped when a kept interval covers them.
-    for punto in sorted(ceros_p, key=lambda q: q.coeficiente % period_pi):
-        c = punto.coeficiente % period_pi
-        if D.punto_pi(c) in _modulo(polos_p, period_pi):
+    # expression full of them. The critical points that satisfy the inequality on
+    # their own are added here, and skipped when a kept interval covers them.
+    for posicion, punto in criticos:
+        if abs(posicion - float(periodo)) < 1e-9:
+            continue                     # the end of the period is the start of it
+        if any(abs(posicion - _posicion(q, periodo)) < 1e-9 for q in polos_p):
+            continue                     # a pole is never in the solution set
+        if not _extremo_entra(f, var, posicion, periodo, ceros_p, polos_p,
+                              operador):
             continue
-        if not _extremo_entra(f, var, c, periodo, ceros_p, polos_p, operador):
+        if any(intervalo.contiene(punto) for intervalo in piezas):
             continue
-        singleton = _punto(c)
-        if any(pieza.contiene(singleton) for pieza in piezas):
-            continue
-        # 0 and the end of the period are the same point, so a tangent there is
-        # already written down as the closing bracket at the other end. Listing
-        # both would make the answer say `[0, 0]` next to `[pi, 2·pi]` and read as
-        # two facts where there is one.
-        if c == 0 and any(pieza.contiene(D.punto_pi(period_pi))
-                          for pieza in piezas):
-            continue
-        piezas.append(D.Intervalo(singleton, singleton, False, False))
+        piezas.append(D.Intervalo(punto, punto, False, False))
     return D.desde_intervalos(piezas, mergir_tocados=False)
 
 
-def _signo_del_hueco(f: mx.Expr, var: str, izquierda: Fraction,
-                      derecha: Fraction) -> float:
-    """The sign on one gap, sampled — and refused rather than guessed."""
+def _punto_de_valor(v: float) -> D.Punto:
+    """A grid coordinate, which is in units of ``pi``, as a point.
+
+    ALWAYS a multiple of ``pi``, never a plain rational: the grid coordinate is a
+    count of halves of pi, and handing it over as the rational ``1`` publishes an
+    interval ``(0, 1)`` where the answer is ``(0, pi)``. That mistake made six
+    inequalities come out with their endpoints moved, and the function name is the
+    only warning it will ever give.
+    """
+    c = Fraction(v).limit_denominator(10 ** 9)
+    if abs(float(c) - v) < 1e-12:
+        return D.punto_pi(c)
+    return D.Punto(expresion=mx.Mul(mx.Num(c), mx.PI))
+
+
+def _signo_del_hueco(f: mx.Expr, var: str, izquierda: float,
+                      derecha: float) -> float:
+    """The sign on one gap, sampled — and refused rather than guessed.
+
+    The gap arrives in units of ``pi``, and that is what the error message says,
+    because a gap with an ``arcsen`` at one end is the normal case now and its
+    bound is still a number the reader can place on the circle.
+    """
     paso = (derecha - izquierda) / (MUESTRAS_POR_HUECO + 1)
     signos = set()
     for i in range(MUESTRAS_POR_HUECO):
@@ -736,19 +1147,35 @@ def _signo_del_hueco(f: mx.Expr, var: str, izquierda: Fraction,
     return next(iter(signos))
 
 
-def _extremo_entra(f: mx.Expr, var: str, coeficiente: Fraction, periodo: Fraction,
+def _extremo_entra(f: mx.Expr, var: str, coeficiente: float, periodo: Fraction,
                    ceros_p: set[D.Punto], polos_p: set[D.Punto],
                    operador: str) -> bool:
-    """Whether the endpoint at ``coeficiente * pi`` belongs to the solution."""
+    """Whether the endpoint at ``coeficiente * pi`` belongs to the solution.
+
+    The endpoint arrives already folded, and it is compared against the critical
+    points BY VALUE: the sets hold points that may be ``arcsen(1/3)``, and a
+    membership test that went by coefficient would never match one. ``0`` and the
+    end of the period are the same point, which is the rule this whole function is
+    built on.
+    """
     # The endpoint folds BEFORE the comparison. `_modulo` already folded the sets,
     # so comparing an unfolded endpoint against them misses the zero at the end of
     # the period — and then the value decides, and at `pi` tan(x) is 1e-16, which
     # passes `< 0`. That is how `tg(x) < 0` came out with `pi` inside it.
-    punto = D.punto_pi(coeficiente % periodo)
-    if punto in _modulo(polos_p, periodo):
-        return False            # a pole is never in the solution set
-    if punto in _modulo(ceros_p, periodo):
-        return operador.endswith("=")
+    punto = _punto_de_valor(coeficiente)
+    # The endpoint folds FIRST: `periodo` and `0` are the same point, and that is
+    # the rule this function is built on. Without the fold, `2·pi` is compared
+    # against a grid of `[0, periodo)` and never matches, so the decision falls to
+    # the sampled value — where `sen(2·pi)` is -1.2e-16 and passes any `< 0`, which
+    # is how `tg(x) < 0` came out with `pi` inside it.
+    v = float(coeficiente) % float(periodo)
+    punto = _punto_de_valor(v)
+    for p in polos_p:
+        if abs(_en_un_periodo(p, periodo) - v) < 1e-9:
+            return False        # a pole is never in the solution set
+    for p in ceros_p:
+        if abs(_en_un_periodo(p, periodo) - v) < 1e-9:
+            return operador.endswith("=")
     valor = mx.evaluate(f, {var: float(coeficiente) * 3.141592653589793})
     if valor is None or abs(valor.imag) > 1e-9 or abs(valor.real) > 1e12:
         return False

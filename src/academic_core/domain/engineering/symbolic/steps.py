@@ -25,7 +25,14 @@ from dataclasses import dataclass
 from academic_core.domain.engineering.symbolic.expr import invalid
 
 MAX_STEPS = 2000
-MAX_FIELD = 500  # every recorded text must fit an execution-trace/1 string (512)
+# Every recorded text has to fit the trace format. The mathlab trace, which is
+# the one that actually serialises these, allows 2000 (execution-trace/1 and
+# friends use 512 for a NAME, not for a step's `after`). The 500 here was
+# below what the derivation of a real integration produces: the derivative of
+# a 234-character primitive is longer than 500 characters, so the trace refused
+# to record the step that PROVED the integral — the verification and the
+# record of it were failing for the same reason at once.
+MAX_FIELD = 2000  # the ceiling is the trace's, not an arbitrary number
 
 
 @dataclass(frozen=True)

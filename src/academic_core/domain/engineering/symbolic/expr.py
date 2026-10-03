@@ -40,7 +40,17 @@ from academic_core.errors import UnsupportedError, ValidationError
 FUNCTIONS = ("sin", "cos", "tan", "exp", "log", "sqrt", "abs")  # log = natural logarithm (engine semantics)
 MAX_SOURCE = 256
 MAX_DEPTH = 48
-MAX_TEXT = 480
+# The printed length of an expression. This is a SAFETY limit, not a correctness
+# one, and 480 was too tight for the one job that matters most here: the
+# differentiation engine builds the derivative in THIS tree, so an integration
+# whose answer the mathslab tree can print in 234 characters could not be
+# verified because ITS derivative did not fit in 480. The engine was handing out
+# a correct answer it could not check.
+#
+# `MAX_SOURCE` stays at 256 — that one bounds what a person may TYPE, which is a
+# different question from how far a machine may derive. Raised to 4000, which is
+# under mathslab's own MAX_TEXT of 2000 doubled for the derivative's growth.
+MAX_TEXT = 4000
 
 _TOKEN = re.compile(r"\s*(?:(?P<num>[0-9]+(?:\.[0-9]+)?)|(?P<name>[A-Za-z_][A-Za-z0-9_]*)|(?P<op>\*\*|[-+*/^()]))")
 

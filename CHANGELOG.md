@@ -1,5 +1,74 @@
 # Changelog
 
+## 2026-10-03 — los ceros fuera de la rejilla de pi, y una primitiva que ya se
+puede verificar
+
+### Los puntos críticos ya no tienen que caer en un múltiplo de pi
+
+`cosec(x)^2 > 9` se negaba con «no se saben los ceros» sobre un motor cuyo
+solucionador de ecuaciones ya había escrito `arcsen(1/3)`. Los dos hechos son
+compatibles y la combinación era absurda: lo que faltaba no era el conocimiento,
+era una carta de signos que supiera colocar un punto que no es `k·pi`.
+
+- `Punto` admite una tercera forma además de racional y de múltiplo de pi: una
+  expresion exacta cualquiera. Comparar dos de esos no se puede hacer exacto, así
+  que la comparación corchetea con `PI_BAJO`/`PI_ALTO` y **se niega** cuando el
+  corchete no alcanza. La igualdad exacta de valores sí es decidible y no se
+  niega: preguntar «¿es este extremo el que ya tengo?» es parte de la carta.
+- `carta_de_signos` trabaja con pares (posición, punto). La posición es un
+  flotante porque dos escrituras de un mismo punto solo coinciden a quince dígitos;
+  el punto es lo que se publica, y para un múltiplo de pi eso significa el
+  racional exacto y no su imagen a quince dígitos. Sin esa separación la
+  respuesta a `sen(x) < 1/2` salía con el extremo en `83333336/500000015·pi`.
+- Los puntos se canonizan dentro de un periodo **como expresión**, añadiendo
+  periodos enteros, y la operación se repite porque plegar los términos lineales
+  puede sacar el valor otra vez: `-2·pi - arcsen(1/3)` necesita tres periodos más.
+- El plegado recoge los términos lineales a través de la suma antes de sumarlos.
+  `pi - arcsen(-1/3) - pi` tiene un `pi` a cada lado de una llamada y nunca se
+  encuentran si solo se pliega lo que ya es lineal a ambos lados.
+- Las identidades son las que no mueven el punto: `arcsen(-t) = -arcsen(t)` y
+  `arctan(-t) = -arctan(t)` son impares, `arccos(-t) = pi - arccos(t)` es el punto
+  espejo. Una tercera escritura, `arcsen(-t) = pi - arcsen(t)`, estaba en el código
+  durante una medición y daba bien `cosec(x)^2 > 9` — cuya expresión sí tiene
+  periodo pi. Correcta para el caso medido y errónea para todos los demás: esa
+  es la forma más peligrosa de estar equivocado.
+- Se negate la regla «algún cero no es un múltiplo exacto de pi» que convertía
+  una duda de representación en un «no lo sé». `ceros` ya no devuelve `None`
+  por no saber COLOCAR un cero que sabe ESCRIBIR; sigue devolviéndolo cuando no
+  puede escribirlo, que es el «no lo sé» de verdad.
+
+Medido: 45 inecuaciones con nivel irracional (`sen(x) > 1/3`, `cos(x) <= -1/3`,
+`cosec(x)^2 > 9`, `cosec(x)^3 > 8`, `tg(x) >= -1/3`, `sec(x) > 2`, …) con **0
+respuestas incorrectas** en 767 puntos de muestreo cada una, saltándose los polos
+que el punto flotante ve como número enorme.
+
+Siguen negándose, y ahora se dice por qué: `cot(x)^3 > 4` necesita
+`tg(x) = 4^(-1/3)`, una raíz irracional de un polinomio. Ahí el hueco es del
+solucionador de ecuaciones, no de la carta.
+
+### El presupuesto de 480 caracteres estaba por debajo del trabajo
+
+El motor entrega la primitiva correcta de `sen^6·cos^6` — 234 caracteres, bien
+dentro — y no podía comprobarla: el verificador construye la derivada en el
+árbol simbólico, con un presupuesto de 480, y la de esa primitiva mide 511. El
+límite no era una protección, era un obstáculo, y la respuesta correcta quedaba
+sin verificar.
+
+- `expr.MAX_TEXT`: 480 → 4000. `MAX_SOURCE` se queda en 256, que acota lo que una
+  persona ESCRIBE, que es otra pregunta distinta de hasta dónde puede derivar una
+  máquina.
+- `steps.MAX_FIELD`: 500 → 2000, que es el techo del formato de traza (2000), no un
+  número arbitrario. El log se negaba a registrar el paso que probaba la integral.
+
+Medido: `sen^6·cos^6` (511), `sen^8·cos^8` (839), `sec^6`, `cot^6`, `tg^8` verifican
+por el camino simbólico, 8/8 puntos, en 0,02 s.
+
+### La primitiva larga se verifica por los dos caminos
+
+La prueba de diferencias finitas que allowía saber que la respuesta era correcta se
+queda como segunda comprobación: dos caminos que llegan al mismo sitio valen más
+que uno.
+
 ## Unreleased — MathLab: motor trigonométrico exacto (T-01 a T-23, T-24)
 - **Punto de partida: la suite estaba en rojo.** El motor entregado en `20e031f` dejaba `tests/test_mathlab_trig.py` con 4 fallos por tres causas distintas: `sec`, `csc` y `cot` no eran evaluables numéricamente; la paridad solo se aplicaba a `Neg(Call)` y por tanto `sin(-x)` no se reducía nunca; y tres expectativas comparaban contra `pretty()` —la forma española Unicode para pantalla (§5.1)— lo que el motor produce en `text()`, que es la forma canónica ASCII.
 - **Motor.** `mathlab/trig.py` reescrito como motor de reglas por objetivo (T-20, §5.5b): cada transformación pertenece a un objetivo y solo acepta reescrituras estrictamente más baratas o estrictamente más caras, medidas por `(nodos, longitud del texto canónico)`. Esa medida es un orden bien fundado, así que cada objetivo termina y su resultado es punto fijo por construcción. Mezclar las dos direcciones en un mismo bucle no puede terminar: `sin(2x)` se desarrolla a `2·sin(x)·cos(x)` y vuelve a colapsarse.

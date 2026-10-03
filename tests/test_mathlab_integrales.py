@@ -209,29 +209,32 @@ def test_el_caso_par_par_lleva_el_doble_del_argumento():
     assert "sin(2*x)" in texto, texto
 
 
-def test_una_primitiva_correcta_que_nadie_puede_verificar():
-    """``sen^6·cos^6`` integrates, and its derivative does not fit in 480 chars.
+def test_una_primitiva_larga_que_ya_se_puede_verificar():
+    """``sen^6·cos^6`` integraba bien y su derivada no cabia en 480 caracteres.
 
-    This is a different failure from a refused integral and worth naming: the
-    primitive is RIGHT — 234 characters, well inside the budget — and the tree
-    that differentiating it produces is not. So the engine hands back an answer
-    it cannot check, which is exactly the situation the budget exists to make
-    visible instead of hiding.
+    El motor entregaba una respuesta CORRECTA que no podia comprobar: el
+    verificador construia su derivada en el arbol simbolico, con un presupuesto
+    de 480, y la de una primitiva de 234 caracteres mide 511. El limite estaba
+    por debajo del trabajo que tenia que hacer —no era una proteccion, era un
+    obstaculo—. La prueba de diferencias finitas de este mismo test es la que
+    hacia posible saber que la respuesta era correcta: sin ella, el motor podia
+    estar equivocado y nadie enterarse.
 
-    So this test does the one check still available: finite differences on the
-    primitive against the integrand. If that agrees, the answer is right and the
-    gap is in the verifier, not in the answer.
+    Ahora se verifica por el camino simbolico, que es el que se queria desde el
+    principio, y las diferencias finitas se quedan como segunda comprobacion: dos
+    caminos que llegan al mismo sitio valen mas que uno.
     """
     integrando = "sin(x)^6*cos(x)^6"
     primitiva = integra(integrando)
-    with pytest.raises(Exception) as exc:
-        derive_mv.differentiate(primitiva, "x")
-    assert "EXPRESSION_LIMIT" in str(exc.value)
+    derivada = derive_mv.differentiate(primitiva, "x")
+    ok, _metodo, detalle = V.numeric_agreement(derivada, mx.parse(integrando),
+                                              samples=8)
+    assert ok, f"la derivada no verifica: {detalle}"
 
     for punto in (0.31, 0.77, 1.19, 1.63):
         antes = mx.evaluate(primitiva, {"x": punto - 1e-6})
         despues = mx.evaluate(primitiva, {"x": punto + 1e-6})
         objetivo = mx.evaluate(mx.parse(integrando), {"x": punto})
         assert antes is not None and despues is not None and objetivo is not None
-        derivada = (despues - antes) / 2e-6
-        assert abs(derivada - objetivo) < 1e-6 * max(1.0, abs(objetivo))
+        derivada_numerica = (despues - antes) / 2e-6
+        assert abs(derivada_numerica - objetivo) < 1e-6 * max(1.0, abs(objetivo))

@@ -430,8 +430,12 @@ INEQ_MUESTREADAS = [
 #: Las que el motor se niega, con el motivo escrito, y aqui solo se comprueba
 #: que el motivo sea el de verdad. Un rechazo sin motivo es un rechazo que no
 #: dice nada, asi que la afirmacion se comprueba contra el texto del motivo.
+# `csc(x)^2 > 9` estuvo en esta lista hasta que los ceros fuera de la
+# rejilla de pi se pudieron colocar: los suyos son `arcsen(1/3)` y
+# `pi - arcsen(1/3)`, y el solucionador de ecuaciones ya los escribia.
+# Lo que no habia era una carta de signos que los aceptara, que es otra
+# cosa distinta de no saberlos.
 CON_MOTIVO = [("sin(x)^2 + cos(x)^2 > 1/2", "periódica"),
-               ("csc(x)^2 > 9", "ceros"),
                ("cos(x)/sec(x) > 1/2", "ceros")]
 
 
@@ -1008,7 +1012,12 @@ def test_el_extremo_del_periodo_tambien_es_un_hueco():
 VACIAS_DE_VERDAD = ["cos(x)^3 > 1", "sin(x)^3 > 1", "cos(x)^3 > 2",
                     "sin(x)^2 > 2", "cos(x) > 1", "sin(x) > 1",
                     "cos(x) > 2", "sin(x) > 2", "cos(x)^2 > 4"]
-VACIAS_FALSAS = ["cot(x)^3 > 4", "cot(x)^3 < -4", "csc(x)^2 > 9"]
+# `csc(x)^2 > 9` se resolvio cuando la carta acepto puntos criticos que
+# no son multiplos de pi, y su respuesta es exacta:
+# `(0, arcsen(1/3)) ∪ (pi - arcsen(1/3), pi)`. `cot(x)^3 > 4` sigue aqui
+# porque su cero necesita `tg(x) = 4^(-1/3)`, una raiz irracional de un
+# polinomio: ahi el hueco es del SOLUCIONADOR DE ECUACIONES.
+VACIAS_FALSAS = ["cot(x)^3 > 4", "cot(x)^3 < -4"]
 
 
 @pytest.mark.parametrize("caso", VACIAS_DE_VERDAD)

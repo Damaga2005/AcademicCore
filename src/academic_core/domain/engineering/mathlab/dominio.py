@@ -57,6 +57,33 @@ PI_BAJO = Fraction(3141592653589793, 10 ** 15)
 PI_ALTO = Fraction(3141592653589794, 10 ** 15)
 
 
+def _comparacion_por_valor(a: "Punto", b: "Punto") -> int:
+    """Order two points when at least one is an arbitrary exact expression.
+
+    There is no exact order for ``arcsen(1/3)`` against ``pi/2`` without proving
+    a transcendence result nobody has written down here, so the comparison is done
+    on values and it SAYS so: when the two are within a relative 10⁻¹² of each
+    other it refuses, because a wrong order here is a wrong interval and a
+    refused order is only an unfinished answer.
+    """
+    va, vb = a.valor(), b.valor()
+    escala = max(1.0, abs(va), abs(vb))
+    if va == vb:
+        # Equal computed values are the SAME point, and that is decidable — it is
+        # the only comparison here that is. A chart asks «is this endpoint the
+        # endpoint I already have?» on every critical point, and refusing that
+        # question refuses every inequality whose answer has a critical point of
+        # its own as a bound, which is most of the ones worth answering.
+        return 0
+    if abs(va - vb) <= 1e-12 * escala:
+        raise invalid(
+            "AMBIGUO",
+            f"«{a.texto()}» y «{b.texto()}» están a {abs(va - vb):.3g} uno del otro: "
+            "su orden no se puede decidir con la precisión necesaria, y un "
+            "intervalo con los extremos cambiados es peor que ninguno")
+    return (va > vb) - (va < vb)
+
+
 def _comparacion_exacta(a: "Punto", b: "Punto") -> int:
     """``-1``, ``0`` or ``1`` for ``a`` against ``b``, decided exactly.
 
@@ -64,6 +91,8 @@ def _comparacion_exacta(a: "Punto", b: "Punto") -> int:
     bracket above decides it; if the bracket straddles, the two are within
     10⁻¹⁵ of each other and a float is honest enough — and it says so.
     """
+    if a.expresion is not None or b.expresion is not None:
+        return _comparacion_por_valor(a, b)
     if a.es_pi == b.es_pi:
         return (a.coeficiente > b.coeficiente) - (a.coeficiente < b.coeficiente)
     if a.es_pi:
@@ -92,12 +121,31 @@ def _comparacion_exacta(a: "Punto", b: "Punto") -> int:
 
 @dataclass(frozen=True, order=False)
 class Punto:
-    """An exact real point: ``coeficiente`` in units of ``pi`` when ``es_pi``."""
+    """An exact real point: a rational, a multiple of ``pi``, or an expression.
 
-    coeficiente: Fraction
+    The third form is what a point like ``arcsen(1/3)`` needs, and it exists
+    because the sign chart used to be able to place a critical point ONLY on the
+    grid of multiples of ``pi``. So ``cosec(x)^2 > 9`` — whose zeros are exactly
+    those — was refused with «no se saben los ceros» by an engine whose equation
+    solver had already written them down as ``arcsen(1/3)``.
+
+    The price is that a point which is neither rational nor a multiple of ``pi``
+    cannot be ORDERED exactly, only bracketed. The comparison is honest about
+    that: it brackets with the same ``PI_BAJO``/``PI_ALTO`` discipline, and when
+    the bracket straddles it says so instead of guessing.
+    """
+
+    coeficiente: Fraction = Fraction(0)
     es_pi: bool = False
+    expresion: "mx.Expr | None" = None
+
+    @property
+    def es_expresion(self) -> bool:
+        return self.expresion is not None
 
     def expr(self) -> mx.Expr:
+        if self.expresion is not None:
+            return self.expresion
         if self.es_pi:
             if self.coeficiente == 1:
                 return mx.PI
@@ -109,6 +157,8 @@ class Punto:
     def texto(self) -> str:
         # written by hand rather than through ``mx.pretty``, which parenthesises
         # a negative coefficient and would print the interval as «([(-1/2)·π, …]»
+        if self.expresion is not None:
+            return mx.text(self.expresion)
         if not self.es_pi:
             return str(self.coeficiente)
         if self.coeficiente == 0:
@@ -120,6 +170,11 @@ class Punto:
         return f"{self.coeficiente}·π"
 
     def valor(self) -> float:
+        if self.expresion is not None:
+            v = mx.evaluate(self.expresion, {})
+            if v is None:
+                raise invalid("VALOR", "el punto no se puede evaluar")
+            return float(v.real if isinstance(v, complex) else v)
         return float(self.coeficiente) * (3.141592653589793 if self.es_pi else 1.0)
 
     def __lt__(self, other: "Punto") -> bool:

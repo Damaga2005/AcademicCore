@@ -343,12 +343,38 @@ def test_una_expresion_no_periodica_se_rechaza_diciendo_por_que():
     assert "no es periódica" in str(exc.value)
 
 
-def test_un_valor_que_no_sabe_colocarse_en_la_rejilla_se_rechaza():
-    """0.1234567 has no exact arcsine, so no exact critical points can be named."""
+def test_un_cero_exacto_fuera_de_la_rejilla_de_pi_se_coloca_igual():
+    """0.1234567 no es un multiplo de pi, su arcseno tampoco, y aun asi se puede.
+
+    Esta prueba estuvo Years asserting the OPPOSITE: que ``sen(x) > 0.1234567``
+    tenia que negarse porque no se podia nombrar ningun punto critico exacto. La
+    negativa era cierta en su momento y falsa en cuanto se pudo resolver, y una
+    prueba que documenta un hueco se acaba convirtiendo en una prueba que lo
+    bloquea. Por eso esta comprueba la RESPUESTA, y no la ausencia de respuesta.
+
+    El punto critico no es ``pi/2``: es ``arcsen(1234567/10000000)``, que el
+    solucionador de ecuaciones ya escribia desde hacia tiempo. Lo que faltaba era
+    una carta de signos que aceptara un punto que no cae en la rejilla de
+    multiplos de pi.
+    """
+    s = I.resolver_inequidad("sen(x) > 0.1234567")
+    # `texto()` is the ASCII form, so the function prints as `asin`; the Spanish
+    # spelling is `mx.pretty`, and this engine is careful about which one round-trips
+    assert s.conjunto.texto() == (
+        "(asin(1234567/10000000), pi - asin(1234567/10000000))"), s.conjunto.texto()
+    assert s.periodo == Fraction(2), s.periodo
+
+
+def test_una_expresion_cuyos_ceros_no_se_saben_sigue_negandose():
+    """El rechazo sigue existiendo, y con el motivo escrito.
+
+    Lo que se cerro fue la carta de signos, no el solucionador de ecuaciones:
+    ``sen(x)*cos(x) - 0.1234567`` sigue sin ceros que el motor sepa escribir, y ahi
+    la respuesta correcta es negarse y decirlo.
+    """
     with pytest.raises(UnsupportedError) as exc:
-        I.resolver_inequidad("sin(x) > 0.1234567")
-    assert "no se saben los ceros" in str(exc.value)
-    assert "NO es «no hay soluciones»" in str(exc.value)
+        I.resolver_inequidad("1/(sen(x)*cos(x) - 0.1234567) > 0")
+    assert "no se saben" in str(exc.value)
 
 
 def test_un_denominador_desconocido_tambien_rehusa_y_lo_dice():
@@ -359,7 +385,11 @@ def test_un_denominador_desconocido_tambien_rehusa_y_lo_dice():
 
 def test_ceros_devuelve_none_y_no_una_lista_vacia_cuando_no_sabe():
     """None means «I don't know». [] would mean «there are none», which is a claim."""
-    assert I.ceros(mx.parse("sin(x) - 0.1234567")) is None
+    # `sen(x) - 0.1234567` estuvo aqui: sus ceros son `arcsen(1234567/10000000)` y su
+    # reflejo, el motor los escribe exactamente, y una lista de ceros que declara
+    # no saber escribir un numero que si sabe escribir es una lista equivocada.
+    assert [mx.text(v) for v in I.ceros(mx.parse("sin(x) - 0.1234567"))] == [
+        "asin(1234567/10000000)", "pi - asin(1234567/10000000)"]
     assert I.ceros(mx.parse("(sin(x)*cos(x) - 0.1234567)^2")) is None
     assert I.ceros(mx.parse("sin(x) - 1/2")) is not None
 
