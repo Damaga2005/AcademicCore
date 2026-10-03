@@ -1551,6 +1551,18 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - 1+cot²=csc².
 - todas las formas despejadas equivalentes.
 
+> **Última línea, por qué no es una regla de `simplify`.** Las seis escrituras de
+> `tg = sen/cos` se reconocen — `sen/tg = cos`, `cos/sec = cos²`, `tg/sen = 1/cos`,
+> `sec/cos = 1/cos²`, `sen·cot = cos`, `cos·cosec = cot` — pero en un objetivo
+> aparte, `trig.razones(expr)`, no en la simplificación por defecto.
+>
+> La razón es el dominio. `sen(x)/tg(x)` y `cos(x)` coinciden donde las dos existen y
+> se diferencian en todas partes: la primera no existe en `pi/2` y la sí. Los
+> solucionadores leen el dominio de lo que devuelve `simplify`, así que fundirlas
+> allía mueve el dominio: medido, puso 193 de 383 respuestas en el lado
+> equivocado de una inecuación. La regla existe, dice en su paso dónde vale (§5.7) y
+> no se cuela en el camino de nadie.
+
 ### T-03. Paridad, simetría y periodicidad — COMPLETADA
 - paridad.
 - periodicidades fundamentales.

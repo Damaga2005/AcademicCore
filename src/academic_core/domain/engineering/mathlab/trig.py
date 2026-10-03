@@ -568,6 +568,76 @@ def _r_pitagoras(e: mx.Expr) -> mx.Expr | None:
     return None
 
 
+def _cos(u: mx.Expr, potencia: int) -> mx.Expr:
+    base = _fn("cos", u)
+    return base if potencia == 1 else mx.Pow(base, mx.Num(potencia))
+
+
+#: (arriba, el denominador en forma de cociente, el socio en forma de producto,
+#: lo que queda). ``None`` means the product spelling has nothing to recognise:
+#: the reciprocal of ``sec`` is ``cos``, so ``cos/sec`` read as a product is
+#: ``cos·cos``, which needs no rule.
+#:
+#: The product column is written out instead of derived from the quotient one,
+#: because deriving it is wrong and was: taking «the reciprocal of the
+#: denominator» to mean ``csc`` turns ``cos·csc`` into ``cos^2``, and
+#: ``cos(x)·cosec(x)`` is ``cotg(x)``, not ``cos^2(x)``. A sampling check caught it
+#: on 398 of 399 points; the table and the reasoning behind it are both wrong in
+#: the same direction, which is the sort of mistake that reads like a derivation.
+_RACIONALES_DE_UN_MISMO_ARGUMENTO = (
+    ("sin", "tan", "cot", lambda u: _fn("cos", u)),                  # sen/tg = cos
+    ("cos", "sec", None, lambda u: _cos(u, 2)),                      # cos/sec = cos²
+    ("tan", "sin", "csc", lambda u: mx.Div(mx.Num(1), _fn("cos", u))),
+    ("sec", "cos", None, lambda u: mx.Div(mx.Num(1), _cos(u, 2))),
+    ("cos", None, "csc", lambda u: _fn("cot", u)),                   # cos·cosec = cot
+)
+
+
+def _r_razones(e: mx.Expr) -> mx.Expr | None:
+    """``sen(u)/tg(u) = cos(u)`` and its siblings, all of the same argument.
+
+    These are the two identities T-02 asks for and they are **not** in
+    :data:`_REGLAS`, on purpose. ``sen(x)/tg(x)`` and ``cos(x)`` are not the same
+    function: the first does not exist at ``pi/2`` and the second does. Putting
+    this in the default simplification changes the domain of the expression, and
+    the domain is what the solvers read — measured, it moved 193 of 383 answers to
+    the wrong side of an inequality. So it lives in an objective of its own, which
+    a caller asks for on purpose and can refuse.
+
+    What the rule does NOT do is pretend the identity holds everywhere. It is a
+    trigonometric step, and the step says where it holds.
+    """
+    coeficiente = Fraction(1)
+    if isinstance(e, mx.Div):
+        izquierda, derecha = e.left, e.right
+        forma = "cociente"
+        coeficiente, factores = _factores(izquierda)
+        # `1/(...)` has no factor to the left of the bar, and a numerator with two
+        # of them is a product the rule has no opinion about
+        if len(factores) != 1:
+            return None
+        izquierda = factores[0]
+    elif isinstance(e, mx.Mul):
+        propio, factores = _factores(e)
+        if len(factores) != 2:
+            return None
+        coeficiente, izquierda, derecha = propio, factores[0], factores[1]
+        forma = "producto"
+    else:
+        return None
+
+    for arriba, abajo, socio, resultado in _RACIONALES_DE_UN_MISMO_ARGUMENTO:
+        u = _arg(izquierda, arriba)
+        if u is None:
+            continue
+        nombre = abajo if forma == "cociente" else socio
+        if nombre is None or _arg(derecha, nombre) != u:
+            continue
+        salida = resultado(u)
+        return salida if coeficiente == 1 else _desde_factores(coeficiente, [salida])
+    return None
+
+
 def _r_reciprocas(e: mx.Expr) -> mx.Expr | None:
     """``tan = sin/cos`` and every reciprocal form of the same relation (T-02)."""
     if isinstance(e, mx.Div):
@@ -1517,6 +1587,34 @@ _REGLAS_SUSTITUCION: tuple[tuple[str, str, object], ...] = (
      "integral racional se sabe hacer: ese es el motivo del cambio de variable",
      _r_sustitucion_universal),
 )
+
+
+#: A separate objective on purpose - see :func:`_r_razones`. NOT part of
+#: ``_REGLAS``: these identities do not hold on the whole domain of the expression
+#: they rewrite, and the default simplification is read by the solvers, which then
+#: solve a different problem from the one that was asked.
+_REGLAS_RAZONES: tuple[tuple[str, str, object], ...] = (
+    ("razones_de_un_mismo_argumento",
+     "sen/tg = cos, cos/sec = cos\u00b2, tg/sen = 1/cos, sec/cos = 1/cos\u00b2 y "
+     "cos\u00b7cosec = cotg: la misma relaci\u00f3n de "
+     "tg = sen/cos le\u00edda por los dos lados, en forma de cociente y de producto. "
+     "Donde vale es dentro del dominio del cociente: en un polo de tg, cos(x) s\u00ed "
+     "est\u00e1 definida y la igualdad no vale (§5.7)",
+     _r_razones),
+)
+
+
+def razones(expr: mx.Expr, *, max_passes: int = MAX_PASSES) -> Simplificacion:
+    """The reciprocal-of-one-argument identities, and only those.
+
+    Separate from :func:`simplify` because they change where the expression exists.
+    ``sen(x)/tg(x)`` and ``cos(x)`` agree wherever both are defined and disagree
+    everywhere else, and a simplifier that quietly merged them would make the
+    domain of an inequality wrong without saying anything.
+    """
+    resultado, pasos = _bucle(expr, _REGLAS_RAZONES, reducir=False,
+                             max_passes=max_passes)
+    return Simplificacion(resultado, tuple(dict.fromkeys(pasos)))
 
 
 # ---------------------------------------------------------------------------

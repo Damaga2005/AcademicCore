@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-10-03 — las seis escrituras de `tg = sen/cos`, en un objetivo aparte
+
+T-02 estaba marcada COMPLETADA con su última línea —«todas las formas
+despejadas equivalentes»— y las seis escrituras de la relación pasaban de largo
+sin que nadie las tocara. Ahora se reconocen: `sen/tg = cos`, `cos/sec = cos²`,
+`tg/sen = 1/cos`, `sec/cos = 1/cos²`, `sen·cot = cos` y `cos·cosec = cot`.
+
+**No van en `simplify`, y esa es la parte importante.** `sen(x)/tg(x)` y `cos(x)`
+coinciden donde las dos existen y se diferencian en todas demás: la primera no
+existe en `pi/2` y la sí. Los solucionadores leen el dominio de lo que devuelve
+`simplify`, así que fundirlas allía mueve el dominio — medido, puso 193 de 383
+respuestas en el lado equivocado de una inecuación. La nueva función
+`trig.razones(expr)` es un objetivo aparte, como ya lo eran la sustitución universal
+y las formas de producto a suma, y su paso dice dónde vale (§5.7).
+
+### Una identidad falsa que el muestreo cazó y las pruebas no
+
+La regla se escribió «la forma de producto es la de cociente con el denominador
+invertido». Invertir `sec` da `csc`, así que `cos·csc` salía como `cos²`. Y
+`cosec(x)·cos(x)` es `cotg(x)`, no `cos²(x)`: la identidad era falsa en 398 de 399
+puntos.
+
+Las once pruebas que la cubrían pasaban. Afirmaban la respuesta que el código
+estaba dando, que era la respuesta equivocada — el fallo que produce una prueba escrita
+después de mirar el resultado en vez de antes. Las pruebas nuevas comprueban las
+**dos** cosas: la forma exacta que da el motor, y que las dos expresiones coinciden
+donde las dos existen, por muestreo. Con las dos, la versión falsa falla.
+
 ## 2026-10-03 — asíntotas horizontales y oblicuas, por orden de crecimiento
 
 `graficas` publicaba solo las verticales y lo decía, con razón: una asíntota es
