@@ -1,5 +1,62 @@
 # Changelog
 
+## 2026-10-04 — la tangente como cociente, y Pitágoras en el sitio correcto
+
+De 4 rechazos a 3, y de 18 a 3 en las tres últimas tandas. `tg(x) + cos(x) = 0`.
+
+### El hueco
+
+`as_ratio` no podía ayudar con `tg(x) + cos(x) = 0` porque lee `tg(x)` como un
+**átomo**: en `cos(x) + tg(x)` no hay ninguna división, así que el cociente no llega
+a aparecer y el caso racional nunca dispara. El cociente solo existe después de
+escribir la tangente como lo que es.
+
+`tg(x) + cos(x) = 0` es `sen(x)/cos(x) + cos(x) = 0`; el caso racional multiplica
+por el denominador y sale `sen(x) + cos²(x) = 0`; y con `cos²x = 1 − sen²x` queda
+`sen²(x) − sen(x) − 1 = 0`, cuyas raíces son `(1 ± √5)/2` — y solo una de las dos es
+un valor del seno. La traza dice las tres cosas, incluida la que rechaza la otra raíz.
+
+La Pitágoras va **en el caso del solucionador**, no en `trig.simplificar`, porque los
+solucionadores leen ese y esta reescritura **crece** la expresión: `sen²x` son cinco
+caracteres donde `cos²x` son seis. Una reescritura que alarga pertenece a su objetivo
+(§5.5b), y lo único que la quiere es el solucionador.
+
+Y se aplica **solo cuando la lectura simple del mismo candidato ha fallado**, porque
+`1/cos(x)⁴ = 16` leída como `cos` es una cuadrática, y leída como `sen` a través de
+Pitágoras es un cuártico sin raíces racionales. Una reescritura que ayuda en un sitio
+y esconde la respuesta en otro es peor que no tenerla.
+
+### Un test que afirmaba algo falso
+
+`sen(x) + 1` y `cos²(x) + 1` se comparaban como «diferencia sin ceros», y se creían
+porque el motor **no sabía** encontrar las raíces: `sen x − cos²x = 0` es
+`sen²x + sen x − 1 = 0`, cuya raíz `(√5 − 1)/2 ≈ 0.618` **está en el rango del seno**.
+Sí se cortan, en `x = arcsen(0.618) ≈ 0.666`, y ahí los dos lados valen `1.618`.
+
+Una prueba que afirma una cosa falsa pasa exactamente mientras el motor sea bastante
+ignorante, y esta llevaba pasando por eso. Ahora hay dos: una con un par que de
+verdad no se cortan (`cos²x` contra `sen²x + 2`, cuya diferencia es `cos 2x − 2` y
+está acotada por `−1`), y otra que dice en voz alta que el par antiguo sí se corta.
+
+### El método, que es la otra mitad del commit
+
+El intento anterior mezcló las dos piezas y rompió `cos(x)² > 1/2`. Esta vez, **una
+variable cada vez**: primero Pitágoras sola —y el culpable resultó ser un fallo mío
+concreto: reescribía `cos(x)` a `cos(u)`, con lo que el «ángulo» que `_trasladar`
+deshace pasaba a ser `u` en vez de `x`, y todas las soluciones se desplazaban— y solo
+después la tangente encima.
+
+Es la misma lección del propio CHANGELOG, escrita y luego incumplida dos veces en la
+misma tarde.
+
+### Lo que queda: tres, y son distintos entre sí
+
+| | por qué |
+|---|---|
+| `sen(x) + sen(2x) = 1` | sin factor común —el `−1` se lo quita— y por `t = tg(x/2)` su numerador es de grado 6 con un solo factor racional: queda un **quíntico**, sin solución por radicales. Es aritmética, no una carencia del motor |
+| `cos(3x) + cos(x) = 1` | cúbica irreducible `4u³ − 2u − 1`. **Cardano la resuelve**, con raíz cúbica de un irracional |
+| `sen(x)·cos(x)·tg(x) = 0` | **se niega correctamente.** No es un hueco: una familia `base + paso·k` no tiene agujeros, y el producto sí los tiene |
+
 ## 2026-10-04 — el factor común, sacado de la suma
 
 De 18 rechazos a 5. Es el paso que faltaba entre el ángulo múltiple y el producto, y

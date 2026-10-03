@@ -169,6 +169,12 @@ RESPONDIDAS = [
     # too strong; asking the domain of the PRODUCT and checking each point is the
     # exact condition.
     "tan(x)*sin(x) = 0",
+    # `tg(x) + cos(x) = 0` is `sen(x)/cos(x) + cos(x) = 0`. `as_ratio` could not see
+    # the quotient because it reads `tg(x)` as an ATOM — there is no division in
+    # `cos(x) + tg(x)` — so the rational case never fired. Written as the quotient
+    # it is, the denominator appears, and with `cos**2 = 1 - sen**2` it becomes a
+    # polynomial in one function: `sen²x - sen x - 1 = 0`.
+    "tan(x) + cos(x) = 0",
 ]
 
 #: The two that used to be answered with a DIFFERENT equation's solutions. They
@@ -178,7 +184,6 @@ NEGADAS_ANTES = [
     "sin(x) + sin(2*x) = 1",
     "sin(2*x) + sin(x) = 1",
     "cos(3*x) + cos(x) = 1",
-    "tan(x) + cos(x) = 0",
     # Two products whose factors do NOT share a domain. `tg(x)` does not exist at
     # pi/2 and `sen(x)` does, so `A·B = 0` is not `A = 0` or `B = 0` there: at
     # `x = pi/2` the product is `0·0·undefined` and the equation is not even

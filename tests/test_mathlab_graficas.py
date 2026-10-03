@@ -241,9 +241,32 @@ def test_dos_funciones_iguales_lo_dicen_aunque_no_haya_ceros():
 
 
 def test_una_diferencia_sin_ceros_equivale_a_identicas():
-    """«No zeros of f-g anywhere» is the claim, and it is a real one."""
-    c = G.comparar(mx.parse("sin(x) + 1"), mx.parse("cos(x)^2 + 1"))
+    """«No zeros of f-g anywhere» is the claim, and it is a real one.
+
+    ``cos(x)²`` and ``sen(x)² + 2`` differ by ``cos 2x - 2``, which is at most ``-1``:
+    no crossing, anywhere. That is what «no zeros» has to look like to be worth
+    asserting.
+    """
+    c = G.comparar(mx.parse("cos(x)^2"), mx.parse("sin(x)^2 + 2"))
     assert c.se_cortan_en == ()
+
+
+def test_una_diferencia_que_si_tiene_ceros_no_equivale_a_identicas():
+    """The pair this file used to assert the opposite about, and why it was wrong.
+
+    ``sen(x) + 1`` and ``cos(x)² + 1`` were compared as a difference with no zeros,
+    and they were believed because the engine could not find the roots:
+    ``sen x - cos²x = 0`` is ``sen²x + sen x - 1 = 0``, whose root
+    ``(√5 - 1)/2 ≈ 0.618`` is in the range of the sine. They DO cross, at
+    ``x = arcsen(0.618) ≈ 0.666``, and both sides read ``1.618`` there.
+
+    A test that asserts a false claim passes exactly as long as the engine is
+    ignorant enough, and this one had been passing for that reason. It is here now
+    to say the opposite thing out loud.
+    """
+    c = G.comparar(mx.parse("sin(x) + 1"), mx.parse("cos(x)^2 + 1"))
+    assert c.se_cortan_en, "sen x + 1 y cos²x + 1 se cortan, y el motor lo sabe"
+    assert c.identicas is False
 
 
 # ---------------------------------------------------------------------------

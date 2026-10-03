@@ -318,6 +318,9 @@ def _casos(f: mx.Expr, var: str):
     producto = _caso_producto(f, var)
     if producto is not None:
         return producto
+    tangente = _caso_tangente(f, var)
+    if tangente is not None:
+        return tangente
     # No case matched. That is *not* the same as «there is no solution»: it is
     # «this engine does not solve this», and the difference is the whole point of
     # §5.4. Saying «no solutions» here would be a false answer presented with
@@ -1176,6 +1179,208 @@ def _caso_producto(f: mx.Expr, var: str):
     return _deduplica(familias), hipotesis, espurias
 
 
+def _potencia_de_pitagoras(argumento, exponente: int, nombre: str):
+    """``(1 - sen(u)**2)**k`` written out, as a sum of powers of ``sen(u)``.
+
+    The expansion is done with ``Fraction`` arithmetic because a ``Pow`` of a ``Sub``
+    is an ATOM to :func:`poly.as_poly`, and an atom is exactly what
+    :func:`_como_polinomio` refuses: it cannot see that ``cos(x)**2`` and
+    ``sen(x)**2`` are the same thing squared.
+
+    Only even powers are rewritten, and only for the pair ``sen``/``cos``:
+    ``cos**2 = 1 - sen**2`` holds everywhere, so this changes no domain at all.
+    ``tg**2`` has no such form and is left alone.
+
+    ``argumento`` is the symbol the trig function is applied to, and it has to be the
+    one the caller already uses \u2014 ``x``, not ``u``. :func:`_como_polinomio` replaces
+    ``nombre(·)`` by ``u`` and then hands back the argument it replaced, and
+    :func:`_trasladar` undoes exactly that substitution afterwards. Writing ``cos(u)``
+    here made the argument ``u`` before the substitution ever happened, so the undo
+    step shifted every solution by ``u`` instead of by ``x`` and
+    ``cos(x)**2 > 1/2`` lost its critical points.
+    """
+    base = mx.Call(nombre, (argumento,))
+    cociente = P.as_poly(mx.Sub(mx.Num(1), mx.Pow(base, mx.Num(2))))
+    polinomio = cociente
+    for _ in range(max(0, exponente - 1)):
+        polinomio = P.mul(polinomio, cociente)
+    return P.to_expr(polinomio)
+
+
+def _pitagoras_para(f: mx.Expr, nombre: str, var: str):
+    """``cos(x)**2`` as ``1 - sen(x)**2``, so a SUM of two functions becomes a
+    polynomial in one of them.
+
+    ``sen(x) + cos**2(x) = 0`` has two functions in it and no case could read it,
+    which is why ``tg(x) + cos(x) = 0`` refused: the quotient brings it to
+    ``sen(x) + cos²(x) = 0`` and then it is stuck one step short. With Pythagoras it
+    is ``sen²(x) - sen(x) - 1 = 0``, whose roots are ``(1 ± √5)/2`` \u2014 and only one of
+    the two is a value of the sine.
+
+    Written here and not added to ``trig.simplify`` because the solvers read that
+    one, and this GROWS the expression: ``sen\u00b2x`` is five characters where ``cos\u00b2x``
+    is six. A rewrite that makes the expression longer belongs to its own objective
+    (\u00a75.5b), and the only thing that wants it is the solver.
+
+    Returned **per candidate function**, and only tried when the plain reading of
+    the same candidate has failed: ``1/cos(x)**4 = 16`` read as ``cos`` is
+    ``cos**4 = 1/16`` and solved, and read as ``sen`` through Pythagoras it is
+    ``(1 - sen**2)**2 = 1/16``, a quartic with no rational roots. A rewrite that
+    helps in one place and hides the answer in another is worse than not having it.
+    """
+    if nombre not in ("sin", "cos"):
+        return None
+    otro = "cos" if nombre == "sin" else "sin"
+    simbolo = mx.Sym(var)
+
+    def reescribe(e: mx.Expr) -> mx.Expr:
+        if isinstance(e, mx.Call) and e.name == otro and len(e.args) == 1 \
+                and e.args[0] == simbolo:
+            return mx.Call(otro, (simbolo,))
+        if isinstance(e, mx.Call):
+            return mx.Call(e.name, tuple(reescribe(a) for a in e.args))
+        if isinstance(e, mx.Neg):
+            return mx.Neg(reescribe(e.arg))
+        if isinstance(e, mx.Pow):
+            base, exponente = reescribe(e.base), e.exponent
+            if isinstance(base, mx.Call) and base.name == otro \
+                    and isinstance(exponente, mx.Num) \
+                    and exponente.value.denominator == 1 \
+                    and exponente.value >= 2 and exponente.value % 2 == 0:
+                # HALF the exponent: `cos**2 = 1 - sen**2`, so `cos**(2k)` is
+                # `(1 - sen**2)**k`. Using the whole exponent gives `cos**4` the
+                # value of `cos**8`, and `cos(x)**2 = 1/2` came out with no
+                # solutions at all.
+                return _potencia_de_pitagoras(simbolo, int(exponente.value) // 2,
+                                              nombre)
+            return mx.Pow(base, exponente)
+        if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+            izquierda, derecha = reescribe(e.left), reescribe(e.right)
+            if isinstance(e, mx.Add):
+                return mx.Add(izquierda, derecha)
+            if isinstance(e, mx.Sub):
+                return mx.Sub(izquierda, derecha)
+            if isinstance(e, mx.Mul):
+                return mx.Mul(izquierda, derecha)
+            return mx.Div(izquierda, derecha)
+        return e
+
+    resultado = reescribe(f)
+    return None if resultado == f else resultado
+
+
+def _cociente_de_tangente(f: mx.Expr, var: str):
+    """``tg`` and ``cotg`` written as the quotient they are, or ``None``.
+
+    ``as_ratio`` cannot help with ``tg(x) + cos(x) = 0`` because it treats
+    ``tg(x)`` as an ATOM: there is no division in ``cos(x) + tg(x)``, so the
+    quotient never appears and the rational case never fires. The ratio only exists
+    after this rewrite.
+
+    ``tg(u) = sen(u)/cos(u)`` and ``cotg(u) = cos(u)/sen(u)`` are equal wherever
+    BOTH sides exist, and they do not exist at the same points: the quotient is dead
+    at ``cos(u) = 0`` and the tangent is alive there, and vice versa. So this is not
+    something to put in ``trig.simplificar`` \u2014 the solvers read that one, and it would
+    change the domain of ``1/tg(x)`` without saying so (\u00a75.7). It is applied HERE,
+    once, and every published point is then checked against the domain of the
+    ORIGINAL expression, which is where the poles get excluded.
+    """
+    if not _tiene_tangente_o_cotangente(f):
+        return None
+    reemplazos = {"tan": ("sin", "cos"), "cot": ("cos", "sin")}
+
+    def reescribe(e: mx.Expr) -> mx.Expr:
+        if isinstance(e, mx.Call) and e.name in reemplazos and len(e.args) == 1:
+            numerador, denominador = reemplazos[e.name]
+            u = e.args[0]
+            return mx.Div(mx.Call(numerador, (u,)), mx.Call(denominador, (u,)))
+        if isinstance(e, mx.Call):
+            return mx.Call(e.name, tuple(reescribe(a) for a in e.args))
+        if isinstance(e, mx.Neg):
+            return mx.Neg(reescribe(e.arg))
+        if isinstance(e, mx.Pow):
+            return mx.Pow(reescribe(e.base), e.exponent)
+        if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+            izquierda, derecha = reescribe(e.left), reescribe(e.right)
+            if isinstance(e, mx.Add):
+                return mx.Add(izquierda, derecha)
+            if isinstance(e, mx.Sub):
+                return mx.Sub(izquierda, derecha)
+            if isinstance(e, mx.Mul):
+                return mx.Mul(izquierda, derecha)
+            return mx.Div(izquierda, derecha)
+        return e
+
+    cociente = reescribe(f)
+    return None if cociente == f else cociente
+
+
+def _tiene_tangente_o_cotangente(e: mx.Expr) -> bool:
+    if isinstance(e, mx.Call):
+        return e.name in ("tan", "cot") or any(
+            _tiene_tangente_o_cotangente(a) for a in e.args)
+    if isinstance(e, mx.Neg):
+        return _tiene_tangente_o_cotangente(e.arg)
+    if isinstance(e, mx.Pow):
+        return _tiene_tangente_o_cotangente(e.base)
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return (_tiene_tangente_o_cotangente(e.left)
+                or _tiene_tangente_o_cotangente(e.right))
+    return False
+
+
+def _publica_si_el_punto_existe(familias: list[Familia], original: mx.Expr,
+                                var: str):
+    """Publish only if every point of every family is a point where ``original``
+    exists.
+
+    A family ``base + paso·k`` cannot express a hole, so a solution with holes in it
+    cannot be published at all. Asked of the DOMAIN and never of the evaluator,
+    which at ``x = pi/2`` sees ``cos = 6·10⁻¹⁷`` and calls the tangent a large
+    ordinary number where there is nothing at all.
+    """
+    from academic_core.domain.engineering.mathlab import inequaciones as Iq
+
+    try:
+        dominio = Iq.dominio(original, var)
+    except Exception:                       # noqa: BLE001 «no lo sé» es respuesta
+        return None
+    for familia in familias:
+        for k in range(-3, 4):
+            valor = mx.valor_real(familia.miembro(k, var), {})
+            if valor is None:
+                return None
+            punto = D.Punto(
+                expresion=mx.Num(Fraction(valor).limit_denominator(10 ** 9)))
+            if not dominio.contiene(punto):
+                return None
+    return _deduplica(familias)
+
+
+def _caso_tangente(f: mx.Expr, var: str):
+    """``tg(x) + cos(x) = 0``, which is a polynomial in ``sen`` once divided.
+
+    ``tg(x) + cos(x) = 0`` is ``sen(x)/cos(x) + cos(x) = 0``, the rational case
+    multiplies by the denominator and gets ``sen(x) + cos²(x) = 0``, and Pythagoras
+    turns that into ``sen²(x) - sen(x) - 1 = 0``. Its roots are ``(1 ± √5)/2``, and
+    only one of the two is a value of the sine.
+    """
+    cociente = _cociente_de_tangente(f, var)
+    if cociente is None:
+        return None
+    familias, hipotesis, espurias = _casos(cociente, var)
+    if not familias:
+        return None
+    publicables = _publica_si_el_punto_existe(familias, f, var)
+    if publicables is None:
+        return None
+    hipotesis = [
+        "la tangente se escribe como su cociente, que es donde aparece el "
+        "denominador; los puntos donde ese denominador se anula quedan fuera, y "
+        "no son soluciones de la ecuación original"] + list(hipotesis)
+    return publicables, hipotesis, _comprobar(publicables, f, var)
+
+
 def _caso_polinomio(f: mx.Expr, var: str):
     """``P(sin(u)) = 0`` and its sisters: exact roots first, then back up."""
     from academic_core.domain.engineering.mathlab.trig import _terminos
@@ -1185,16 +1390,28 @@ def _caso_polinomio(f: mx.Expr, var: str):
     terminos = _terminos(f)
     if len(terminos) < 2:
         return None
+    primer_rechazo: list[str] | None = None
     for nombre in ("sin", "cos", "tan"):
         sub = mx.Sym("u")
+        # Pythagoras is a SECOND TRY, not the first one. `1/cos(x)**4 = 16` read as
+        # `cos` is a quadratic; read as `sen` through Pythagoras it is a quartic with
+        # no rational roots. So the plain reading is asked first, per candidate, and
+        # the rewrite only happens when that candidate failed.
         encontrado = _como_polinomio(f, nombre, sub, var)
         if encontrado is None:
-            continue
+            reescrito = _pitagoras_para(f, nombre, var)
+            if reescrito is None:
+                continue
+            encontrado = _como_polinomio(reescrito, nombre, sub, var)
+            if encontrado is None:
+                continue
         polinomio, angulo = encontrado
         raices, motivo = _raices_reales(polinomio, sub)
         grado = P.degree_in(polinomio, sub.name)
         if not raices:
-            return [], [motivo], []
+            if primer_rechazo is None:
+                primer_rechazo = [motivo]
+            continue
         familias: list[Familia] = []
         hipotesis = [f"el lado izquierdo es un polinomio de grado {grado} en "
                      f"{nombre}(u): se buscan sus raíces exactas y luego se "
@@ -1232,7 +1449,9 @@ def _caso_polinomio(f: mx.Expr, var: str):
             hipotesis.extend(h)
         espurias = _comprobar(familias, f, var)
         return _deduplica(familias), hipotesis, espurias
-    return None
+    # Nobody answered. The first refusal is reported, so the reason the student sees
+    # is a real one and not the leftover of a candidate that was the wrong shape.
+    return ([], primer_rechazo, []) if primer_rechazo else None
 
 
 def _misma_familia(a: Familia, b: Familia) -> bool:
