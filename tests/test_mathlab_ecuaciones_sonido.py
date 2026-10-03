@@ -163,6 +163,12 @@ RESPONDIDAS = [
     # the two questions the engine already answered on its own.
     "sin(x) + sin(2*x) = 0", "sin(x) - sin(2*x) = 0",
     "cos(x) - sin(2*x) = 0", "sin(2*x) - sin(x) = 0",
+    # `tg(x)·sen(x) = 0` has `tg` undefined at pi/2 + k·pi, so the FACTORS have
+    # different domains — and the solution set is `k·pi`, none of which is a hole.
+    # The rule that refused it compared the factors against each other, which is
+    # too strong; asking the domain of the PRODUCT and checking each point is the
+    # exact condition.
+    "tan(x)*sin(x) = 0",
 ]
 
 #: The two that used to be answered with a DIFFERENT equation's solutions. They
@@ -177,7 +183,6 @@ NEGADAS_ANTES = [
     # pi/2 and `sen(x)` does, so `A·B = 0` is not `A = 0` or `B = 0` there: at
     # `x = pi/2` the product is `0·0·undefined` and the equation is not even
     # posed. A family cannot be published with holes, so the whole thing refuses.
-    "tan(x)*sin(x) = 0",
     "sin(x)*cos(x)*tan(x) = 0",
 ]
 
@@ -382,26 +387,52 @@ def test_el_paso_dice_que_un_producto_se_anula_si_alguno_de_sus_factores():
     assert paso in hipotesis, hipotesis
 
 
-def test_un_producto_con_dominios_distintos_no_se_parte():
-    """The soundness condition on the product rule, stated as one assertion.
+#: Products whose factors do NOT share a domain, and what the right answer is for
+#: each. `A·B = 0` is `A = 0` or `B = 0` only where the WHOLE PRODUCT exists, and
+#: the condition that decides it is not «the factors have the same domain» — that
+#: is too strong — but «no solution point lands in a hole of the product».
+PRODUCTOS_CON_DOMINIOS_DISTINTOS = [
+    # `tg` dies at pi/2 + k·pi; the solutions are `k·pi`, and none of those is
+    # a hole. Published, and complete.
+    ("tan(x)*sin(x) = 0", True),
+    ("sin(x)*tan(x) = 0", True),
+    # `cos(x) = 0` gives pi/2 + k·pi, which IS a hole: refused.
+    ("cos(x)*tan(x) = 0", False),
+    ("sin(x)*cos(x)*tan(x) = 0", False),
+    # Its only solutions ARE the holes. Refused, and this is the case the old rule
+    # was accidentally right about.
+    ("1/(tan(x))*sin(x) = 0", False),
+]
 
-    `A·B = 0` is `A = 0` or `B = 0` exactly where BOTH exist. Sharing the
-    domain is what makes that equivalence true, and it is checked by asking the
-    DOMAIN — never the evaluator, which at `x = pi/2` sees `cos = 6·10⁻¹⁷` and
+
+@pytest.mark.parametrize("ecuacion,responde",
+                         PRODUCTOS_CON_DOMINIOS_DISTINTOS)
+def test_el_producto_publica_si_ningun_punto_cae_en_un_agujero(ecuacion, responde):
+    """The soundness condition on the product rule, as one table.
+
+    It used to be «the factors share a domain», and that refused `tg(x)·sen(x) = 0`
+    — whose answer is `k·pi`, with not one hole in it. The refusal was an admission
+    of a gap that was not there, and it cost a correct answer.
+
+    The condition is exact and it is asked of the DOMAIN of the product, never of
+    the evaluator: at `x = pi/2` the evaluator sees `cos = 6·10⁻¹⁷` and
     `tg = 1.6·10¹⁶` and calls the product a large ordinary number where there
-    is nothing at all.
+    is nothing at all. Asking «does this exist here?» of a float gets an answer, and
+    that answer is a lie.
     """
-    from academic_core.domain.engineering.mathlab import dominio as Dm
     from academic_core.domain.engineering.mathlab import inequaciones as Iq
 
-    mismo = Iq.dominio(mx.parse("sen(x)*cos(x)")).texto()
-    assert Iq.dominio(mx.parse("sen(x)")).texto() == mismo
-    assert Iq.dominio(mx.parse("cos(x)")).texto() == mismo
-
-    distinto = Iq.dominio(mx.parse("tan(x)*sen(x)")).texto()
-    assert Iq.dominio(mx.parse("tan(x)")).texto() != \
-        Iq.dominio(mx.parse("sen(x)")).texto()
-    for ecuacion in ("tan(x)*sin(x) = 0", "sin(x)*cos(x)*tan(x) = 0"):
-        r = E.resolver(ecuacion)
+    r = E.resolver(ecuacion)
+    if responde:
+        assert r.familias, (ecuacion, r.hipotesis)
+    else:
         assert not r.familias, (ecuacion, [f.texto("x") for f in r.familias])
-    assert distinto != mismo
+
+    # And the factors really do have different domains, or the table proves
+    # nothing about the condition it is meant to exercise.
+    piezas = [p.strip() for p in ecuacion.split("*")]
+    primero = piezas[0]
+    ultimo = piezas[-1].split("=")[0].strip()
+    assert primero != ultimo
+    assert Iq.dominio(mx.parse(primero)).texto() != \
+        Iq.dominio(mx.parse(ultimo)).texto(), ecuacion

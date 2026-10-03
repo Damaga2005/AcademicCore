@@ -1139,41 +1139,39 @@ def _caso_producto(f: mx.Expr, var: str):
         hipotesis.extend(pasos)
     if not familias:
         return None
-    # ``A·B = 0`` is ``A = 0`` or ``B = 0`` only where the WHOLE PRODUCT exists.
-    # ``sen(x)·cos(x)·tg(x) = 0`` has ``cos(x) = 0`` as an answer to one of its
-    # factors, and at ``x = pi/2`` the product is ``0·0·undefined``: the equation
-    # is not even posed there. Publishing that family would put points in the
-    # solution set where the expression cannot be evaluated — the same failure
-    # as a domain that gained a hole, in the answer instead of in the set.
+    # ``A·B = 0`` is ``A = 0`` or ``B = 0`` only where the WHOLE PRODUCT exists, and
+    # the question is asked of the product, NOT of the factors against each other.
     #
-    # A family cannot be published with holes — ``base + paso·k`` has none — so a
-    # family with one refuses the whole product rather than publish half of it.
-    # Los factores tienen que compartir el dominio, y la pregunta se le hace al
-    # DOMINIO y no al evaluador porque el evaluador no puede ver un polo: en
-    # `x = pi/2` el coseno vale `6·10⁻¹⁷` y la tangente `1.6·10¹⁶`, y el producto
-    # sale un número grande y corriente donde no hay nada. Preguntar «existe
-    # aquí?» a un punto flotante da una respuesta, y esa respuesta es mentira.
+    # Comparing the factors' domains was too strong, and it refused two equations it
+    # could answer. ``tg(x)·sen(x) = 0`` has ``tg`` undefined at ``pi/2 + k·pi`` and
+    # ``sen`` defined there, so their domains differ and the check said no. But the
+    # solutions are ``x = k·pi``, and not one of those is ``pi/2 + k·pi``: the
+    # solution set has **no holes at all** and the refusal was an admission of a gap
+    # that was not there. The same for ``sen(x)·cos(x)·tg(x) = 0``.
     #
-    # Con dominios iguales la equivalencia es exacta: `A·B = 0` es `A = 0` o
-    # `B = 0` sobre un dominio donde ambos existen, y `A` y `B` se anulan a lo
-    # sumo donde el otro tampoco existe. Con dominios distintos NO lo es:
-    # `sen(x)·cos(x)·tg(x) = 0` tiene `cos(x) = 0` como respuesta de uno de sus
-    # factores, y en `x = pi/2` el producto es `0·0·indefinido` — la ecuación ni
-    # siquiera está planteada. Publicar esa familia metería puntos donde la
-    # expresión no se puede evaluar, que es el mismo fallo que un dominio que gana
-    # un agujero, en la respuesta en vez de en el conjunto.
+    # So: ask the domain of the PRODUCT and check every published point against it.
+    # That is the exact condition — a point solves ``A·B = 0`` when it is a zero of
+    # some factor AND the product exists there — and it is neither too strong nor
+    # too weak. A point that lands in a hole refuses the whole product, because a
+    # family cannot be published with holes in it.
     #
-    # No es una limitación de convenience: una familia `base + paso·k` no tiene
-    # agujeros, así que una solución con huecos no se puede publicar ni a medias.
-    dominios = []
-    for factor in factores:
-        try:
-            dominios.append(Iq.dominio(factor, var).texto())
-        except Exception:                   # noqa: BLE001 «no lo sé» es respuesta
-            return None
-    distintos = {d for d in dominios}
-    if len(distintos) != 1:
+    # Asked of the DOMAIN and never of the evaluator, which at `x = pi/2` sees
+    # `cos = 6·10⁻¹⁷` and `tg = 1.6·10¹⁶` and calls the product a large ordinary
+    # number where there is nothing at all. Asking «does this exist here?» of a
+    # float gets an answer, and that answer is a lie.
+    try:
+        dominio_producto = Iq.dominio(f, var)
+    except Exception:                       # noqa: BLE001 «no lo sé» es respuesta
         return None
+    for familia in familias:
+        for k in (-2, -1, 0, 1, 2):
+            valor = mx.valor_real(familia.miembro(k, var), {})
+            if valor is None:
+                return None
+            punto = D.Punto(
+                expresion=mx.Num(Fraction(valor).limit_denominator(10 ** 9)))
+            if not dominio_producto.contiene(punto):
+                return None
     espurias = _comprobar(familias, f, var)
     return _deduplica(familias), hipotesis, espurias
 

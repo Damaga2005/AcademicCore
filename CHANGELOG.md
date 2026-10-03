@@ -52,6 +52,34 @@ siguieran negándose.
 Los dos últimos no son un hueco sino una decisión: una familia `base + paso·k` no
 tiene agujeros, así que una solución con huecos no se puede publicar ni a medias.
 
+## 2026-10-04 — el producto se parte por los puntos, no por los dominios
+
+De 5 rechazos a 4. Y uno de los que se negaban **no debía negarse**.
+
+### El rechazo que sobraba
+
+`tg(x)·sen(x) = 0` se negaba porque `tg` no existe en `x = pi/2 + k·pi` y `sen` sí, de modo que los dos factores tienen dominios distintos y la regla de producto exigía que coincidieran. Pero las soluciones son `x = k·pi`, y **ninguno de esos puntos es un agujero**. El conjunto solución no tiene ni un hueco, y el rechazo era una admisión de hueco donde no lo hay.
+
+La condición correcta es exacta y es sobre el **producto**: un punto resuelve `A·B = 0` cuando es cero de algún factor **y el producto existe allí**. Así que se pregunta el dominio del producto y se comprueba punto por punto. Ni demasiado fuerte ni demasiado floja.
+
+La tabla que la pone a prueba:
+
+| | dominios distintos | se publica |
+|---|---|---|
+| `tg(x)·sen(x) = 0` | sí | **sí** \u2014 las soluciones son `k·pi`, sin un agujero |
+| `sen(x)·tg(x) = 0` | sí | **sí**, por lo mismo |
+| `cos(x)·tg(x) = 0` | sí | **no** \u2014 `cos x = 0` da `pi/2 + k·pi`, que sí es agujero |
+| `sen(x)·cos(x)·tg(x) = 0` | sí | **no**, por lo mismo |
+| `1/tg(x)·sen(x) = 0` | sí | **no** \u2014 su única solución *es* el agujero |
+
+La pregunta se le hace al DOMINIO y nunca al evaluador, que en `x = pi/2` ve `cos = 6·10⁻¹⁷` y `tg = 1.6·10¹⁶` y llama al producto un número grande y corriente donde no hay nada.
+
+### Y lo que queda de los cinco
+
+- `sen(x) + sen(2x) = 1`: sin factor común —el `−1` se lo quita— y en `t = tg(x/2)` su numerador es `t⁶ − 4t⁵ + 2t⁴ + 3t³ + 3t² − 6t + 1`, con un solo factor racional y un **quíntico** detrás. No tiene solución por radicales. El rechazo es correcto y no es una_LIMITACIÓn del motor sino de la aritmética.
+- `cos(3x) + cos(x) = 1`: cúbica irreducible `4u³ − 2u − 1`. **Cardano la resuelve**, con razón cúbica de un irracional; la respuesta sería exacta pero horrible de leer, y el motor no tiene forma de escribirla.
+- `tg(x) + cos(x) = 0`: aquí el camino existe pero falta una pieza. Necesita `tg → sen/cos` y `cos²x → 1 − sen²x`, y **ninguna de las dos identidades está en el motor**: `trig.razones` no reescribe `tg` ni `cos²`, y `as_ratio` trata `tg(x)` como átomo, así que nunca ve el cociente. Por `t = tg(x/2)` tampoco sale: el numerador es `t⁴ + 2t³ − 2t² + 2t + 1`, sin raíces racionales \u2014 aunque es **palindródrico**, así que con `w = t + 1/t` cae a `w² + 2w − 4 = 0` y de ahí sí. Ese es el camino corto y es trabajo de una tarde.
+
 ## 2026-10-04 — el ángulo múltiple, desarrollado, y ocho ecuaciones más
 
 Cierra el punto 1 de la lista. Y cierra también un agujero de documentación que
