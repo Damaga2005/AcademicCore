@@ -1636,6 +1636,21 @@ def _raices_reales(polinomio: P.Polynomial, sub: mx.Expr,
                 mx.Div(mx.Add(mx.Neg(mx.Num(c1)), raiz), mx.Num(2 * c2)),
                 mx.Div(mx.Sub(mx.Neg(mx.Num(c1)), raiz), mx.Num(2 * c2))])
         return _limpias(raices), ""
+    if grado_resto == 3:
+        # A cubic always has a real root, so refusing it as «irreducible» is refusing
+        # arithmetic rather than the engine. Cardano reaches it exactly, and the
+        # coefficients are all `Fraction`, so `p`, `q` and the discriminant are exact
+        # and the cube roots nest. `cos(3x) + cos(x) = 1` develops to `4c^3 - 2c - 1`,
+        # which is one of them.
+        #
+        # Only `Δ > 0`. `Δ < 0` is the casus irreducibilis: three real roots that
+        # Cardano only reaches through COMPLEX cube roots, and writing those down is
+        # a worse answer than not writing one (§5.4). `Δ == 0` never arrives, because
+        # a cubic with a repeated root has a rational one and the branch above took
+        # it.
+        cubica = _raiz_cubica(resto, sub.name)
+        if cubica is not None:
+            return _limpias(raices + cubica), ""
     return _limpias(raices), (
         f"el polinomio es de grado {grado}; se han divididos sus factores lineales "
         "y "
@@ -1643,6 +1658,35 @@ def _raices_reales(polinomio: P.Polynomial, sub: mx.Expr,
         "racionales que se han encontrado están todas; de las demás **no puede "
         "afirmar** que sean reales, y eso no es lo mismo que decir que no lo sean "
         "(§5.4)")
+
+
+def _raiz_cubica(polinomio: P.Polynomial, var: str):
+    """The real root of a cubic with ``Δ > 0`` by Cardano, or ``None``.
+
+    The depressed form ``v³ + pv + q`` has the single real root
+    ``∛(-q/2 + √Δ) + ∛(-q/2 - √Δ)`` with ``Δ = (q/2)² + (p/3)³``, and going back is
+    ``u = v - b/(3a)``. Written with :class:`~mvexpr.Root` so the cube roots nest
+    inside the square root rather than becoming decimals, which is the whole
+    difference between an exact answer and a rounded one (§5.4).
+    """
+    c3 = polinomio.get(((var, 3),), Fraction(0))
+    c2 = polinomio.get(((var, 2),), Fraction(0))
+    c1 = polinomio.get(((var, 1),), Fraction(0))
+    c0 = polinomio.get((), Fraction(0))
+    if c3 == 0:
+        return None
+    p = (3 * c3 * c1 - c2 * c2) / (3 * c3 * c3)
+    q = (2 * c2 ** 3 - 9 * c3 * c2 * c1 + 27 * c3 * c3 * c0) / (27 * c3 ** 3)
+    if p == 0:
+        return None                    # biquadratic wearing a cubic's coat
+    delta = (q / 2) ** 2 + (p / 3) ** 3
+    if delta <= 0:
+        return None
+    raiz_delta = _raiz_exacta(delta)
+    medio = mx.Num(-q / 2)
+    v = mx.Add(mx.Root(3, mx.Add(medio, raiz_delta)),
+               mx.Root(3, mx.Sub(medio, raiz_delta)))
+    return [mx.Sub(v, mx.Num(c2 / (3 * c3)))]
 
 
 #: How many times a rational root is divided out before giving up. Bounded so a

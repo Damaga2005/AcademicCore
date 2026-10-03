@@ -1,5 +1,63 @@
 # Changelog
 
+## 2026-10-04 — Cardano, y lo que «irreducible» no significa
+
+De 3 rechazos a 2, y de 18 a 2 en cuatro tandas. `cos(3x) + cos(x) = 1`.
+
+### El rechazo que era aritmética, no motor
+
+`cos(3x) + cos(x) = 1` se desarrolla a `4c³ − 2c − 1` y se negaba con el motivo «queda
+un factor de grado 3 sin raíces racionales, que este motor no resuelve».
+
+**Irreducible quiere decir «sin raíz racional», no «sin solución».** Una cúbica
+siempre tiene una raíz real: es la razón por la que existe la fórmula de Cardano. El
+motor estaba negándose a la aritmética y lo escribía como si fuera una carencia suya.
+
+En la forma deprimida `v³ + pv + q` la raíz real es
+`∛(−q/2 + √Δ) + ∛(−q/2 − √Δ)` con `Δ = (q/2)² + (p/3)³`, y volver es `u = v − b/(3a)`.
+Todos los coeficientes son `Fraction`, así que `p`, `q` y `Δ` son exactos y las raíces
+cúbicas **se anidan** dentro de la cuadrada. El resultado para esta ecuación es
+`cos x = 0.8846461771`, y el lado izquierdo se anula a 1e-15.
+
+**Solo con `Δ > 0`.** `Δ < 0` es el *casus irreducibilis*: tres raíces reales que
+Cardano solo alcanza por raíces cúbicas **complejas**, y escribir eso es peor respuesta
+que no escribirla (§5.4). Y `Δ = 0` nunca llega aquí, porque una cúbica con raíz
+repetida tiene raíz racional y la rama anterior ya la cogió.
+
+De regalo, `cos(x)³ − 2cos(x) + 1 = 0` también responde ahora: raíz racional `1` y
+cuadrática detrás, que es donde ya estaba el camino.
+
+### Lo que cuesta
+
+La respuesta es legible-peor de lo que uno querría:
+
+```
+x = arccos(raiz(1/8 + √19/1728, 3) + raiz(1/8 - √19/1728, 3) - 0) + 2·π·k
+```
+
+Es exacta y es honesta —un decimal disfrazado de solución exacta sería peor (§5.4)—,
+pero es larga. El `- 0` del final es ruido del constructor. Un simplificador de
+radicales que escribiera `raiz(1/8 + √19/1728, 3)` como `(∛9 + ∛3)/(2·∛3)` no existe
+todavía en el motor, y es el mismo trabajo que quedó pendiente para `(-0 - sqrt(8))/2`.
+
+### El estado
+
+**46 de 49 ecuaciones del catálogo de sonido respondidas, 3 negadas, 0 inventadas, 0
+incompletas.** Y el hueco de clasificación que llevaba abierto desde el principio se
+cerró solo: ya no hay ninguna ecuación que conteste vacío sin declarar por qué.
+
+Las tres que quedan:
+
+| | |
+|---|---|
+| `sen(x) + sen(2x) = 1` | sin factor común —el `−1` se lo quita— y por `t = tg(x/2)` su numerador es de grado 6 con un solo factor racional: queda un **quíntico**, que no tiene solución por radicales. Aparece dos veces en el catálogo, es la misma ecuación escrita al revés |
+| `sen(x)·cos(x)·tg(x) = 0` | **se niega correctamente.** Una familia `base + paso·k` no tiene agujeros y el producto sí |
+
+Las dos categorías que quedan son, por fin, de naturaleza distinta: **una es aritmética**
+—ningún motor la puede resolver— **y la otra es una decisión de diseño.** Durante
+tres tandas fueron las cuatro cosas lo mismo, y esa indistinción es lo que ha costado
+más trabajo que cualquier otro.
+
 ## 2026-10-04 — la tangente como cociente, y Pitágoras en el sitio correcto
 
 De 4 rechazos a 3, y de 18 a 3 en las tres últimas tandas. `tg(x) + cos(x) = 0`.
