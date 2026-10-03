@@ -160,6 +160,11 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
     """
     if not mx.depends(e, var):
         return [] if mx.evaluate(e) != 0 else None
+    # Kept, because the existence filter asks the DOMAIN of the expression AS IT
+    # WAS WRITTEN. Rewriting `sen(x)/tg(x)` to `cos(x)` does not make the quotient
+    # exist where `tg` does not, and a filter that asked `cos(x)` would believe
+    # it does — which is how a hole becomes a published zero.
+    original = e
     e = _a_cocientes(e)
     if isinstance(e, mx.Sub) and e.right == mx.ZERO:
         return ceros(e.left, var)
@@ -172,7 +177,7 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
         numerador = ceros(e.left, var)
         if numerador is None:
             return None
-        return _donde_existe(numerador, e, var)
+        return _donde_existe(numerador, original, var)
     if isinstance(e, mx.Mul):
         izquierda, derecha = ceros(e.left, var), ceros(e.right, var)
         if izquierda is None or derecha is None:
@@ -210,7 +215,7 @@ def ceros(e: mx.Expr, var: str = "x") -> list[mx.Expr] | None:
         for factor, sus_ceros in ((e.left, izquierda), (e.right, derecha)):
             juntos = _une(juntos, _ceros_del_factor(factor, sus_ceros,
                                                    per_producto, var))
-        return _donde_existe(juntos, e, var)
+        return _donde_existe(juntos, original, var)
     if isinstance(e, mx.Pow):
         n = mx.exact_integer(e.exponent)
         if n is not None and n > 1:
@@ -456,6 +461,9 @@ def _a_cookies_base(e: mx.Expr) -> mx.Expr:
     if isinstance(e, mx.Pow):
         return mx.Pow(_a_cookies_base(e.base), _a_cookies_base(e.exponent))
     if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        # The reduction is tried on the children AS WRITTEN, before the reciprocal
+        # rewrite: after it, `sen(x)/tg(x)` is `sen(x)/(cos(x)/sen(x))` and the pair
+        # `sen`, `tg` is no longer there to recognise.
         return type(e)(_a_cookies_base(e.left), _a_cookies_base(e.right))
     return e
 
@@ -509,6 +517,19 @@ def _a_cocientes(e: mx.Expr) -> mx.Expr:
         return type(e)(_a_cocientes(e.left), _a_cocientes(e.right))
     return e
 
+
+# NOTA, y es un NO HECHO a proposito: `sen(u)/tg(u)` es `cos(u)` y `cos(u)/sec(u)`
+# es `cos(u)^2`, y reducirlos aqui NO es una mejora. Se probo y se revirtio.
+#
+# La razon esta en el periodo, no en el dominio. `cos(u)^2` tiene periodo `pi` y
+# `cos(u)/sec(u)` tiene periodo `2·pi`, porque `sec` no existe donde `cos` se
+# anula: reescribir borra el dominio Y el periodo, y el conjunto publicado pasa a
+# ser el de otra funcion —`cos(x)/sec(x) > 1/2` salia mal en 193 de 383 puntos—.
+# Un filtro de existencia no lo arregla, porque el filtro quita puntos y lo que
+# falta es un turno entero.
+#
+# El sitio correcto es la reescritura de identidades, que conserva el dominio
+# mientras simplifica. Aqui no, y por eso queda escrito en vez de hecho.
 
 def _fn(nombre: str, arg: mx.Expr) -> mx.Expr:
     return mx.Call(nombre, (arg,))

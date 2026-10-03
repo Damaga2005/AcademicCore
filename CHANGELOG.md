@@ -490,6 +490,47 @@ ficheros `test_mathlab_*.py`. La comprobación de las dos escrituras lleva un
 ejemplo al lado que **no** es la misma función, para que ajustar el motor a la
 prueba sea visible.
 
+## Unreleased — MathLab: el reciproco con potencia impar, y un no-hecho documentado
+
+Quedaba un hueco de capacidad, no un bug: `sec(x)^3 > 8` se negaba con el motivo
+correcto —su cero necesita `cos = 1/2`, que es exacto— mientras `sec(x)^2 > 4` se
+resolvía. La única diferencia era el grado.
+
+- **El teorema de la raíz racional usaba solo el término constante.** Dice «divisor
+  del constante SOBRE divisor del coeficiente PRINCIPAL», y aquí se usaba el
+  primero. Para `-16·u^4 + 1` eso da ±1, y la raíz es 1/2. El cuadrado se
+  resolvía por otra vía y el cubo no, y el divisor del coeficiente principal se
+  tomaba de su **denominador** —que es 1— en vez de su numerador, que es donde
+  están el 2, el 4 y el 16. Ahora `1/cos(u)^n = c` resuelve para toda potencia
+  entera, y con ella `sec^3 > 8`, `sec^5 > 32`, `csc^3 > 8` y `1/tan^3 > 1`.
+
+- **Un NO HECHO que se probó y se revirtió, escrito para que no se intente otra
+  vez.** `sen(u)/tg(u)` es `cos(u)` y `cos(u)/sec(u)` es `cos(u)^2`, y reducirlos
+  en la normalización de los solucionadores parece obvio. No lo es, y el motivo
+  está en el **periodo**: `cos²` tiene periodo `pi` y `cos/sec` tiene periodo
+  `2·pi`, porque `sec` no existe donde `cos` se anula. Reescribir borra el dominio
+  *y* el periodo, y el conjunto publicado pasa a ser el de otra función —medido:
+  `cos(x)/sec(x) > 1/2` quedaba mal en **193 de 383 puntos**—. Un filtro de
+  existencia no lo arregla, porque el filtro quita puntos y lo que falta es un
+  turno entero. El sitio correcto es la reescritura de identidades, que conserva
+  el dominio mientras simplifica. Queda escrito en el código, con el número.
+
+  `cos(x)/sec(x) > 1/2` y `sen(x)/tg(x) = 1` siguen negándose, con el motivo, y
+  la petición queda con el mecanismo exacto: es la reescritura, no la carta.
+
+**Medido.** 18 inecuaciones del recíproco y sus potencias, contrastadas punto a
+punto contra la función con 384 muestras cada una y los polos saltados y
+**declarados**: 0 respuestas incorrectas. Antes nueve de ellas fallaban en 1 de
+191 puntos, y las nueve fallaban en el mismo —el polo, donde `cos(pi/2)` vale
+6·10⁻¹⁷ y `sec` parece enorme—. Saltarlos no relaja la comprobación: le quita su
+única fuente de falsos positivos.
+
+**Pruebas**: 12 nuevas en `tests/test_mathlab_auditoria.py`, que pasa de 518 a 530
+comprobaciones. La del recíproco sustituye el caso de §5 por el nombre, y las
+expectativas se derivan de la verdad y no de la salida. 2106 pasan y 9 se saltan,
+de 2115 recogidas, en los dieciséis ficheros `test_mathlab_*.py`, más los cuatro
+de E0/E01.
+
 
 ## Unreleased — Windows Product 1.0 (productización)
 - Producto/UX post-roadmap (sin fase nueva): menú Go agrupado sobre los 13 tabs intactos; índice de módulos reales; Virtual Lab/Simulation en secciones Experiment/Inputs/Execution/Results sin renombrar widgets; vista orbital F16 con números reales; dashboard editorial con recents reales; motion 150 ms sin bounce.

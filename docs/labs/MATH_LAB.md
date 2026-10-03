@@ -1990,6 +1990,26 @@ esa tanda no tocó:
 13 expresiones de producto y cociente contrastadas punto a punto contra la
 función: **0 discrepancias**, antes 2 ceros falsos y 1 que faltaba.
 
+**Tercera tanda, segunda parte: el reciproco con potencia impar.** `sec(x)^3 > 8`
+se negaba con el motivo correcto —su cero necesita `cos = 1/2`, exacto— mientras
+`sec(x)^2 > 4` se resolvía, y la única diferencia era el grado. El teorema de la
+raíz racional dice «divisor del constante **sobre** divisor del coeficiente
+**principal**» y aquí se usaba solo el primero: para `-16·u^4 + 1` eso da ±1 y la
+raíz es 1/2. Con el numerador del principal en el juego, `1/cos(u)^n = c` resuelve
+para toda potencia entera.
+
+**Y un no-hecho, probado y revertido, escrito para que no se intente otra vez.**
+`sen(u)/tg(u)` es `cos(u)` y `cos(u)/sec(u)` es `cos(u)^2`, y reducirlos parece
+obvio. El motivo para no hacerlo está en el **periodo**: `cos²` tiene periodo `pi`
+y `cos/sec` tiene `2·pi`, porque `sec` no existe donde `cos` se anula. Reescribir
+borra el dominio *y* el periodo, y el conjunto publicado pasa a ser el de otra
+función —medido: `cos(x)/sec(x) > 1/2` quedaba mal en 193 de 383 puntos—. El
+sitio correcto es la reescritura de identidades. Queda escrito en el código, con
+el número.
+
+18 inecuaciones del recíproco contrastadas punto a punto, 384 muestras cada una y
+los polos saltados y declarados: **0 respuestas incorrectas**.
+
 **COMPLETADAS:** T-01 a T-24.
 
 **NOTA sobre T-13.** La especificación la marca COMPLETADA y su lista no pide

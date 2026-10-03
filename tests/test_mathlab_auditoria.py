@@ -1006,8 +1006,9 @@ def test_el_extremo_del_periodo_tambien_es_un_hueco():
 # --- el «no hay soluciones» que no lo era -------------------------------------
 
 VACIAS_DE_VERDAD = ["cos(x)^3 > 1", "sin(x)^3 > 1", "cos(x)^3 > 2",
-                    "sin(x)^2 > 2", "cos(x) > 1", "sin(x) > 1"]
-VACIAS_FALSAS = ["cot(x)^3 > 4", "cot(x)^3 < -4", "sec(x)^3 > 8"]
+                    "sin(x)^2 > 2", "cos(x) > 1", "sin(x) > 1",
+                    "cos(x) > 2", "sin(x) > 2", "cos(x)^2 > 4"]
+VACIAS_FALSAS = ["cot(x)^3 > 4", "cot(x)^3 < -4", "csc(x)^2 > 9"]
 
 
 @pytest.mark.parametrize("caso", VACIAS_DE_VERDAD)
@@ -1030,6 +1031,11 @@ def test_una_inequacidad_sin_solucion_exacta_no_puede_decir_que_no_la_hay(caso):
     SIN registrar el rechazo. Leido tal cual, «no hay ceros». Y un `∅` sobre una
     expresion llena de soluciones es la peor respuesta posible: el propio modulo
     lleva escrito que `∅` NO es «no lo sé».
+
+    `sec(x)^3 > 8` estuvo en esta lista hasta que se arreglo —su cero es
+    `cos = 1/2`, exacto, y el motor no lo encontraba— y ahora esta unas lineas mas
+    abajo, en las que se resuelve. Una lista de rechazos que no se relee es una
+    lista de huecos que nadie vuelve a mirar.
 
     La prueba independiente es el teorema del valor intermedio: una funcion
     continua sin polo ni cero no cambia de signo. Un cambio de signo en cualquier
@@ -1067,3 +1073,102 @@ def test_cot_al_nuevo_tambien_es_el_reciproco(n):
     # el cuadrado ya funciona con las dos escrituras, y con el cubo ninguna
     assert I.resolver_inequidad("cot(x)^2 > 1").conjunto.texto() == \
         I.resolver_inequidad("1/tan(x)^2 > 1").conjunto.texto()
+
+
+# --- el reciproco con potencia impar, que era el unico que no resolvia --------
+
+RECIPROCO_IMPAR = ["1/cos(x)^3 = 8", "1/cos(x)^4 = 16", "1/cos(x)^5 = 32",
+                   "1/cos(x)^6 = 64", "1/sin(x)^3 = 8"]
+
+
+@pytest.mark.parametrize("ecuacion", RECIPROCO_IMPAR)
+def test_el_reciproco_resuelve_con_cualquier_potencia(ecuacion):
+    """``1/cos(u)^3 = 8`` tiene la misma solucion que ``1/cos(u)^2 = 4``: ``cos = 1/2``.
+
+    El teorema de la raiz racional dice «divisor del término constante SOBRE
+    divisor del coeficiente PRINCIPAL», y aqui solo se usaba el constante: para
+    ``-16·u^4 + 1`` eso da ±1, y la raiz es 1/2. El cuadrado se resolvia por otra
+    via y el cubo no, y la unica diferencia era el grado.
+    """
+    r = E.resolver(ecuacion)
+    assert r.familias, f"{ecuacion} no da ninguna familia"
+
+
+@pytest.mark.parametrize("ecuacion", ["1/cos(x)^2 = 4", "1/cos(x)^3 = 8",
+                                     "1/cos(x)^4 = 16", "cos(x)^3 = 1/8"])
+def test_cada_familia_de_un_reciproco_satisface_la_ecuacion(ecuacion):
+    """Las bases de cada familia se sustituyen en la ecuación original.
+
+    Es lo único que caza una solución espuria, y el camino no consulta el
+    solucionador que produjo la familia.
+    """
+    cuerpo, _, lado = ecuacion.partition(" = ")
+    izquierda = mx.parse(cuerpo)
+    valor_esperado = mx.parse(lado)
+    for familia in E.resolver(ecuacion).familias:
+        for k in range(0, 6):
+            # `Familia` is `x = base + paso·k`, so the member is composed here:
+            # there is no method for it, and writing one for a check would be a
+            # second implementation of what `texto()` already says
+            x = mx.evaluate(mx.Add(familia.base, mx.Mul(familia.paso,
+                                                        mx.Num(Fraction(k)))))
+            if x is None:
+                continue
+            x = float(x.real if isinstance(x, complex) else x)
+            v = mx.evaluate(izquierda, {"x": x})
+            d = mx.evaluate(valor_esperado, {"x": x})
+            if v is None or d is None:
+                continue
+            if abs(v) > 1e12:
+                continue                  # numerically infinite: the pole
+            assert abs(v - d) < 1e-6, (ecuacion, mx.text(familia.base), k)
+
+
+POTENCIAS_DEL_RECIPROCO = ["sec(x)^2 > 4", "sec(x)^3 > 8", "sec(x)^4 > 16",
+                           "sec(x)^5 > 32", "sec(x)^6 > 64", "csc(x)^3 > 8",
+                           "1/cos(x)^3 > 8", "tan(x)^3 > 1", "sec(x) > 2"]
+
+
+@pytest.mark.parametrize("caso", POTENCIAS_DEL_RECIPROCO)
+def test_la_potencia_del_reciproco_responde_lo_verdadero(caso):
+    """Cada inecuación del reciprocado, punto a punto contra la función.
+
+    Con los polos SALTADOS y DICHO: a `pi/2` el valor del coseno es 6·10⁻¹⁷ y no
+    cero, así que `sec` parece enorme ahí y la comparación por punto flotante
+    daría un «error» en una respuesta que es correcta. Nueve de estos casos
+    fallaban en 1 de 191 puntos antes de contar los polos, y los nueve fallaban
+    en el mismo: el polo. Saltarlos no es relajar la comprobación, es quitarle
+    la unica fuente de falsos positivos que tiene.
+    """
+    import math as _math
+
+    cuerpo, operador, lado = None, None, None
+    for o in (">=", "<=", ">", "<"):
+        i = caso.find(o)
+        if i >= 0:
+            cuerpo, operador, lado = caso[:i], o, caso[i + len(o):]
+            break
+    texto = (cuerpo.replace("^", "**").replace("sen", "sin").replace("tg", "tan")
+             .replace("sec", "1/cos").replace("csc", "1/sin").replace("cot", "1/tan"))
+    entorno = {"sin": _math.sin, "cos": _math.cos, "tan": _math.tan,
+               "pi": _math.pi}
+    f = eval(f"lambda x: {texto}", dict(entorno))
+    d = eval(f"lambda x: {lado}", dict(entorno))
+
+    s = I.resolver_inequidad(caso)
+    periodo = s.periodo or Fraction(2)
+    for i in range(1, 192):
+        k = Fraction(i * periodo, 192)
+        x = float(k) * _math.pi
+        try:
+            v = f(x)
+        except (ZeroDivisionError, ValueError):
+            continue
+        if abs(v) > 1e12:
+            continue                      # un polo no es verdad de nada
+        tol = 1e-9
+        real = {"<": v < d(x) - tol, ">": v > d(x) + tol,
+                "<=": v <= d(x) + tol, ">=": v >= d(x) - tol}[operador]
+        assert s.contiene(k) is real, (
+            f"{caso} en {k}·pi: el conjunto dice {s.contiene(k)} y la funcion "
+            f"dice {real}")

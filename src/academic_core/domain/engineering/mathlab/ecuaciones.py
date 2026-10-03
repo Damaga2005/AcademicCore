@@ -991,8 +991,22 @@ def _divisores_racionales(polinomio: P.Polynomial, var: str) -> list[Fraction]:
         return [Fraction(0)] + _divisores_racionales(desinflado, var)
     numerador = abs(constante.numerator)
     denominador = constante.denominator
+    principal = _coeficiente_principal(polinomio)
     divisores_n = _divisores(numerador)[:32]
     divisores_d = _divisores(denominador)[:32]
+    # The rational root theorem says «divisor of the constant term OVER divisor of
+    # the LEADING coefficient». Using only the constant gives ±1 for `1 − 8·u³`,
+    # whose root is `1/2` — so `1/cos(x)^3 = 8` came back with no solutions while
+    # `1/cos(x)^2 = 4` was solved, and the only difference was the degree.
+    #
+    # Both sets are generated: this only ADDS candidates, so it cannot lose a root
+    # that was being found before, and the cap keeps the bound of §5.5.
+    # `q` divides the LEADING coefficient, numerator and denominator both: for
+    # `-16·u^4 + 1` that is 1, 2, 4, 8 and 16, which is where 1/2 comes from.
+    denominadores_p = [1]
+    if principal:
+        denominadores_p = (_divisores(abs(principal.numerator))[:32]
+                           + _divisores(principal.denominator)[:32]) or [1]
     salida: list[Fraction] = []
     for n in divisores_n:
         for d in divisores_d:
@@ -1000,7 +1014,26 @@ def _divisores_racionales(polinomio: P.Polynomial, var: str) -> list[Fraction]:
                 valor = Fraction(signo * n, d)
                 if valor not in salida:
                     salida.append(valor)
+    for n in divisores_n:
+        for d in denominadores_p:
+            for signo in (1, -1):
+                valor = Fraction(signo * n, d)
+                if valor not in salida:
+                    salida.append(valor)
     return salida[:256]
+
+
+def _coeficiente_principal(polinomio: P.Polynomial) -> Fraction | None:
+    """The coefficient of the highest total degree, or ``None`` when there is none.
+
+    A monomial is a tuple of ``(variable, exponent)`` pairs, so the degree is the
+    sum of the exponents and not the length of the tuple — which is how the first
+    version of this asked for the length of a pair and got a `TypeError`.
+    """
+    if not polinomio:
+        return None
+    clave = max(polinomio, key=lambda m: (sum(g for _n, g in m), m))
+    return polinomio[clave]
 
 
 def _divisores(n: int) -> list[int]:

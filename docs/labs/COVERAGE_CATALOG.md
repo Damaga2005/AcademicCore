@@ -148,6 +148,17 @@ resto del hueco que quedaba, y con él tres bugs de respuesta falsa:
 
 13 expresiones contrastadas punto a punto contra la función: **0 discrepancias**.
 
+- **El reciproco con potencia impar.** `1/cos(u)^n = c` se negaba para n ≥ 3 y se
+  resolvía para n = 2, y la única diferencia era el grado: el teorema de la raíz
+  racional usaba solo el término constante, cuando dice «divisor del constante
+  sobre divisor del coeficiente **principal**». Con eso, `sec^3 > 8`, `sec^5 > 32`
+  y `csc^3 > 8` responden, verificados punto a punto.
+- **Un no-hecho documentado:** `sen(u)/tg(u) = cos(u)` y `cos(u)/sec(u) = cos(u)^2`
+  **no** se reducen en los solucionadores, porque `cos²` tiene periodo `pi` y
+  `cos/sec` tiene `2·pi`: la reescritura borra el dominio y el periodo a la vez, y
+  el conjunto publicado pasa a ser el de otra función (193 de 383 puntos mal). El
+  sitio correcto es la reescritura de identidades.
+
 **T-20 cerrado.** `trig.OBJETIVOS` declara los doce objetivos en un solo registro, con dos clases que no son la misma cosa:
 
 - **reescritura** (`simplificar`, `expandir`, `producto_a_suma`, `suma_a_producto`, `potencias`, `sustitucion_universal`, `hiperbolicas`, `exponencial`): disparan reglas sobre subexpresiones y su respuesta es otra expresión, así que llevan un registro de familias **no vacío**. La entrada es un registro de reglas y cambia la forma de la expresión.
