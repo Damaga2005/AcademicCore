@@ -1,0 +1,214 @@
+# SPDX-License-Identifier: MIT
+"""El solucionador no puede responder una ecuacion que no le han Asked.
+
+Dos bugs distintos, los dos del mismounderlying tipo: mirar una cosa y no mirar
+la otra.
+
+**La sustitucion sin mirar el argumento.** ``_como_polinomio`` reemplazaba todo
+``cos(·)`` por ``u`` sin mirar que habia dentro, de modo que ``cos(x) + cos(2x)``
+se converitia en ``2u`` y el motor contestaba ``cos(x) = 0`` — las soluciones de
+OTRA ecuacion — a la que se le Ask. ``cos(x) + cos(2x) = 0`` publicaba
+``{pi/2, -pi/2}`` y el dominio de ``1/(cos(x) + cos(2x))`` heredaba dos huecos
+que no lo son mientras se le escapaban los tres que si lo son.
+
+**La comprobacion asimetrica del argumento.** En ``_caso_fase`` el argumento se
+comprobaba en la rama del coseno y no en la del seno, que ademas asignaba ``u``
+sin mirar. ``cos(x) - sen(2x)`` se leia como una sola funcion de un solo angulo
+con dos nombres, y contestaba ``{pi/8, 5pi/8, ...}``, que son las soluciones de
+``tg(2x) = 1``.
+
+Las dos formas de fallo son la misma: una sustitucion que no se comprueba donde se
+hace. Y el guardia que ya existia no las veia, porque al borrar ``2x`` no queda
+nada fuera de sitio.
+
+Este fichero mide las dos cosas que si se pueden medir sin，画面 del motor:
+
+- **sonido** — cada punto publicado tiene que anular la ecuacion;
+- **completitud** — cada raiz real tiene que estar cerca de un punto publicado,
+  y las raices se buscan por CAMBIO DE SIGNO, que no depende de donde caiga la
+  raiz. Buscar «si es exactamente cero» solo ve las que caen en la rejilla, y
+  entonce una respuesta erronea parece incompleta en vez de erronea.
+"""
+
+from __future__ import annotations
+
+import math
+
+import pytest
+
+from academic_core.domain.engineering.mathlab import ecuaciones as E
+from academic_core.domain.engineering.mathlab import mvexpr as mx
+
+MUESTRAS = 1500
+
+
+def _f(ecuacion: str):
+    """``izq - der`` as a callable of x, through Python's own arithmetic."""
+    izq, der = ecuacion.split("=")
+    txt = (izq.strip() + " - (" + der.strip() + ")").replace("^", "**")
+    for nombre in ("cos", "sin", "tan", "tg"):
+        txt = txt.replace(f"{nombre}(", f"math.{nombre}(")
+    return eval(f"lambda x: {txt}", dict(math=math))       # noqa: S307
+
+
+def _fusiona(valores, tol=1e-6):
+    salida = []
+    for v in sorted(valores):
+        if not salida or v - salida[-1] > tol:
+            salida.append(v)
+    return salida
+
+
+def _raices(ecuacion: str) -> list[float]:
+    """Roots over one period by sign change, in multiples of pi."""
+    f = _f(ecuacion)
+    paso = 2 * math.pi / MUESTRAS
+    brutos, anterior = [], None
+    for j in range(MUESTRAS + 1):
+        x = j * paso
+        try:
+            v = f(x)
+        except (ValueError, ZeroDivisionError):
+            v = None
+        if v is None:
+            anterior = None                 # a pole only suspends the test
+            continue
+        if abs(v) < 1e-11:
+            brutos.append(x)
+        elif anterior is not None and anterior * v < 0:
+            izq, der = x - paso, x
+            for _ in range(50):
+                medio = (izq + der) / 2
+                vm = f(medio)
+                if vm is None:
+                    break
+                if f(izq) * vm <= 0:
+                    der = medio
+                else:
+                    izq = medio
+            raiz = (izq + der) / 2
+            # A sign change ACROSS A POLE is not a root, and the bisection cannot
+            # tell the two apart by where it lands: both converge. What separates
+            # them is that a root is where the function IS zero, and a pole is
+            # where it is not. Checking |f| at the root is the difference between
+            # four solutions and four phantom ones for `tg(2x) = 1`, whose poles
+            # sit at pi/4 + k·pi/2 — close enough to the sampling that no
+            # magnitude threshold on the neighbours sees them coming.
+            if abs(f(raiz)) < 1e-6:
+                brutos.append(raiz)
+        anterior = v
+    return _fusiona(b % (2 * math.pi) for b in brutos)
+
+
+def _publicados(ecuacion: str):
+    """``(valores exactos, conjunto redondeado, numero de familias)`` or None."""
+    r = E.resolver(ecuacion)
+    if r.refusos:
+        return None
+    exactos, crudos = [], []
+    for f in r.familias:
+        if not f.en_x:
+            return None
+        for k in range(-8, 9):
+            v = mx.evaluate(f.miembro(k, "x"), {"x": 0})
+            if v is None or abs(getattr(v, "imag", 0.0)) > 1e-9:
+                return None
+            exactos.append(float(v.real) / math.pi)
+            crudos.append((float(v.real) / math.pi) % 2.0)
+    return exactos, _fusiona(crudos), len(r.familias)
+
+
+#: Equations the engine answers today. Every one of these is checked for SOUNDNESS
+#: and COMPLETENESS, so a wrong answer fails here even when it looks plausible.
+RESPONDIDAS = [
+    "cos(x) = 0", "cos(2*x) = 0", "sin(x) = 0", "sin(2*x) = 0",
+    "cos(3*x) = 1/2", "sin(3*x) = 1/2", "tan(2*x) = 1", "cos(x)^2 = 1/2",
+    "sin(x) + sin(x)^2 = 0", "cos(x) + 1 = 0", "2*sin(2*x) = 1",
+    "sin(x) + cos(x) = 0", "cos(x/2) = 1/2", "sin(x/2) = 1/3",
+    "1 + 2*cos(x) = 0", "sin(x)*sin(x) = 1/4",
+]
+
+#: The two that used to be answered with a DIFFERENT equation's solutions. They
+#: are in the list because a refusal is now the right answer for them, and a
+#: refusal is a result that can be checked: no family may be published.
+NEGADAS_ANTES = [
+    "cos(x) + cos(2*x) = 0",
+    "sin(x) + sin(2*x) = 0",
+    "sin(x) - sin(2*x) = 0",
+    "cos(x) + cos(2*x) = 1",
+    "sin(x) + sin(2*x) = 1",
+    "cos(x) - sin(2*x) = 0",
+    "cos(x) - cos(2*x) = 0",
+    "cos(2*x) - cos(x) = 0",
+    "2*cos(2*x) + 2*cos(x) = 0",
+    "cos(2*x) + cos(x) - 1 = 0",
+    "cos(3*x) + cos(x) = 0",
+]
+
+
+@pytest.mark.parametrize("ecuacion", RESPONDIDAS)
+def test_ninguna_solucion_publicada_inventa_un_punto(ecuacion):
+    """Soundness: every published point has to annul the equation.
+
+    Evaluated at the EXACT value of a member, not at the rounded one used to
+    compare sets: rounding a position to five decimals and then demanding the
+    equation vanish to 1e-7 there calls `4/3` a false solution, which is how a
+    previous version of this file accused the engine of inventing things.
+    """
+    f = _f(ecuacion)
+    falsos = [p for p in _publicados(ecuacion)[0] if abs(f(p * math.pi)) > 1e-7]
+    assert not falsos, f"{ecuacion}: publica {[round(p, 4) for p in falsos]}, que no la anulan"
+
+
+@pytest.mark.parametrize("ecuacion", RESPONDIDAS)
+def test_no_deja_sin_contar_ninguna_solucion(ecuacion):
+    """Completeness: every real root has to be near a published point."""
+    _exactos, puntos, _n = _publicados(ecuacion)
+    perdidos = [round(v / math.pi, 4) for v in _raices(ecuacion)
+                if all(min(abs(v / math.pi - p), 2.0 - abs(v / math.pi - p)) > 5e-3
+                       for p in puntos)]
+    assert not perdidos, f"{ecuacion}: no publica {perdidos}"
+
+
+@pytest.mark.parametrize("ecuacion", NEGADAS_ANTES)
+def test_una_ecuacion_que_no_se_sabe_no_publica_familias(ecuacion):
+    """A refusal is the honest answer; publishing families is not one.
+
+    These used to be answered with the solutions of a different equation. Each of
+    them has real solutions — the sign-change sweep finds them — so «se niega» is
+    an admission of a gap, not a claim that there is none. That is the whole point:
+    §5.4 says «no lo sé» is not «no hay».
+    """
+    r = E.resolver(ecuacion)
+    publicas = [mx.text(f.base) for f in r.familias]
+    assert not publicas, (f"{ecuacion} publica {publicas} sin saber resolverla")
+    if r.refusos:
+        assert any("no" in h for h in r.refusos), r.refusos
+
+
+def test_la_sustitucion_mira_el_argumento_y_no_solo_el_nombre():
+    """The bug in one assertion: `cos(2x)` is not a value of `cos(x)`.
+
+    ``cos(x) + cos(2x) = 0`` in one substitution is ``2u``, whose only root is
+    ``u = 0``; read back through ``cos(x) = 0`` that is ``{pi/2, -pi/2}``, and the
+    equation that was asked has solutions at ``pi/3, pi, 5pi/3``.
+    """
+    from academic_core.domain.engineering.mathlab import mvexpr as M
+    from academic_core.domain.engineering.mathlab.ecuaciones import _como_polinomio
+
+    u = M.Sym("u")
+    assert _como_polinomio(M.parse("cos(x) + cos(2*x)"), "cos", u, "x") is None
+    assert _como_polinomio(M.parse("cos(x) + cos(x)"), "cos", u, "x") is not None
+
+
+def test_el_argumento_compartido_se_deshace_con_su_escala():
+    """``tg(x/2) = -1`` is ``x = -pi/2 + 2k·pi``, not ``x = -pi/4 + k·pi``.
+
+    The polynomial gives a VALUE of ``tg(·)``, and the scale inside the argument is
+    what turns it back into a value of ``x``. Passing ``x`` as the substitution
+    variable skipped that step and the two answers differ by a factor of two.
+    """
+    r = E.resolver("tan(x/2) = -1")
+    assert r.familias, "debe responder: es un caso directo"
+    punto = mx.evaluate(r.familias[0].miembro(0, "x"), {"x": 0})
+    assert abs(float(punto.real) / math.pi - 1.5) < 1e-9, mx.text(punto)

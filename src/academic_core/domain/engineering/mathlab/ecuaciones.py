@@ -745,14 +745,21 @@ def _caso_fase(f: mx.Expr, var: str):
         funcion = factores[0]
         if not (isinstance(funcion, mx.Call) and len(funcion.args) == 1):
             return None
-        if funcion.name == "sin" and a is None:
-            a, u = signo * coeficiente, funcion.args[0]
-        elif funcion.name == "cos" and b is None:
-            b, u2 = signo * coeficiente, funcion.args[0]
+        # The argument is checked ONCE, for both functions and before either is
+        # taken. It used to be checked in the cosine branch only, and the sine
+        # branch assigned `u` outright — so `cos(x) - sen(2x)` was read as one
+        # function of one angle with two names on it, and answered as though both
+        # were `u`. That published `{pi/8, 5pi/8, ...}`, the solutions of
+        # `tg(2x) = 1`, for an equation none of whose solutions that is.
+        if funcion.name in ("sin", "cos"):
             if u is None:
-                u = u2
-            elif u != u2:
+                u = funcion.args[0]
+            elif u != funcion.args[0]:
                 return None
+        if funcion.name == "sin" and a is None:
+            a = signo * coeficiente
+        elif funcion.name == "cos" and b is None:
+            b = signo * coeficiente
         else:
             return None
     if a is None or b is None or u is None or (a == 0 and b == 0):
@@ -863,9 +870,10 @@ def _caso_polinomio(f: mx.Expr, var: str):
         return None
     for nombre in ("sin", "cos", "tan"):
         sub = mx.Sym("u")
-        polinomio = _como_polinomio(f, nombre, sub)
-        if polinomio is None:
+        encontrado = _como_polinomio(f, nombre, sub, var)
+        if encontrado is None:
             continue
+        polinomio, angulo = encontrado
         raices, motivo = _raices_reales(polinomio, sub)
         grado = P.degree_in(polinomio, sub.name)
         if not raices:
@@ -875,16 +883,19 @@ def _caso_polinomio(f: mx.Expr, var: str):
                      f"{nombre}(u): se buscan sus raíces exactas y luego se "
                      "deshace el cambio"]
         for raiz in raices:
-            # The polynomial gave the value of ``sin(u)``, so the next equation is
-            # ``sin(x) = raiz`` — not ``u = arcsin(raiz)`` with ``u`` left over.
-            # Passing the variable itself as ``u`` is what makes _trasladar a
-            # no-op instead of leaving a dangling change of variable.
+            # The polynomial gave the value of ``cos(angulo)``, so the next equation
+            # is ``cos(u) = raiz`` in ``u``, and then ``u = angulo`` has to be undone.
+            # Passing ``x`` as ``u`` skips that step, and it is not a no-op:
+            # ``tg(x/2) = -1`` came out as ``x = -pi/4 + k·pi`` when the answer is
+            # ``x = -pi/2 + 2k·pi``. The scale inside the argument is the whole
+            # difference between those two, and it was being thrown away.
             if nombre == "sin":
-                nuevas, h = _soluciones_seno(raiz, mx.Sym(var), var)
+                nuevas, h = _soluciones_seno(raiz, mx.Sym("u"), "u")
             elif nombre == "cos":
-                nuevas, h = _soluciones_coseno(raiz, mx.Sym(var), var)
+                nuevas, h = _soluciones_coseno(raiz, mx.Sym("u"), "u")
             else:
-                nuevas, h = _soluciones_tangente(raiz, mx.Sym(var), var)
+                nuevas, h = _soluciones_tangente(raiz, mx.Sym("u"), "u")
+            nuevas = _trasladar(nuevas, angulo, var)
             familias.extend(nuevas)
             hipotesis.extend(h)
         espurias = _comprobar(familias, f, var)
@@ -905,10 +916,26 @@ def _deduplica(familias: list[Familia]) -> list[Familia]:
     return list(vistos.values())
 
 
-def _como_polinomio(f: mx.Expr, nombre: str, sub: mx.Expr):
-    """``f`` seen as a polynomial in ``sub``, or ``None``."""
+def _como_polinomio(f: mx.Expr, nombre: str, sub: mx.Expr, var: str = "x"):
+    """``f`` seen as a polynomial in ``sub``, or ``None``.
+
+    **The argument is checked, and not checking it invents solutions.** Replacing
+    every ``cos(·)`` by ``u`` regardless of what is inside turns ``cos(x) + cos(2x)``
+    into ``2u``, and the solver then answers ``cos(x) = 0`` \u2014 the solutions of a
+    DIFFERENT equation \u2014 for the equation that was asked. That is the worst thing
+    this engine can do: ``cos(x) + cos(2x) = 0`` published ``{pi/2, -pi/2}``, and the
+    domain of ``1/(cos(x) + cos(2x))`` inherited two holes that are not holes while
+    missing the three that are.
+
+    The guard below could not catch it either: nothing is left over, because
+    ``2x`` was deleted along with the ``cos``. A substitution has to be checked
+    where it is made, and this is the place.
+    """
+    comun: list[mx.Expr] = []
+
     def sustituir(e: mx.Expr) -> mx.Expr:
         if isinstance(e, mx.Call) and e.name == nombre and len(e.args) == 1:
+            comun.append(e.args[0])
             return sub
         if isinstance(e, mx.Neg):
             return mx.Neg(sustituir(e.arg))
@@ -934,7 +961,16 @@ def _como_polinomio(f: mx.Expr, nombre: str, sub: mx.Expr):
     variables = P.real_variables(polinomio)
     if variables - {sub.name} or sub.name not in variables:
         return None
-    return polinomio
+    # One argument for every call of this name, or there is no single substitution.
+    # ``cos(x) + cos(2x)`` is not a polynomial in ``cos(.)``: replacing both by ``u``
+    # turns it into ``2u``, and the solver then answers ``cos(x) = 0`` \u2014 the
+    # solutions of a DIFFERENT equation \u2014 for the one that was asked. That is the
+    # worst thing this engine can do, and the guard that was here could not see it
+    # because nothing is left over: ``2x`` was deleted along with the ``cos``.
+    distintos = {mx.text(a) for a in comun}
+    if len(distintos) != 1:
+        return None
+    return polinomio, comun[0]
 
 
 def _raices_reales(polinomio: P.Polynomial, sub: mx.Expr):

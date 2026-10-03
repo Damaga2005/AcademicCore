@@ -1,5 +1,76 @@
 # Changelog
 
+## 2026-10-03 — el solucionador de ecuaciones ya no contesta otra ecuación
+
+El aviso anterior decía que `ceros(cos x + cos 2x)` daba `{pi/2, 3pi/2}`, que
+no son ceros. Es cierto, y el motivo resulta ser **una sustitución que no mira
+lo que sustituye**. Los dos bugs que he encontrado aquí son el mismo error
+fundamental en dos sitios distintos.
+
+### Uno: `_como_polinomio` reemplazaba `cos(·)` por `u` sin mirar el argumento
+
+`cos(x) + cos(2x)` se convertía en `u + u = 2u`, cuya única raíz es `u = 0`, y
+eso se leía como `cos(x) = 0`: **`{pi/2, -pi/2}`**, las soluciones de otra
+ecuación. El guardia que ya había no podía verlo, porque al borrar `2x` no
+queda nada fuera de sitio: no sobraba ningún término, faltaba uno.
+
+Medido antes y después sobre 35 ecuaciones, con dos comprobaciones que no dependen
+de la opinion del motor — **sonido** (cada punto publicado anula la ecuación) y
+**completitud** (cada raíz real está cerca de un punto publicado, con las raíces
+buscadas por **cambio de signo** para que no dependan de dónde caigan):
+
+| | antes | después |
+|---|---|---|
+| soluciones **inventadas** | 8 ecuaciones | **0** |
+| se niegan con soluciones | 13 | 19 |
+
+El intercambio es deliberado: **un rechazo es honesto, una solución inventada no**.
+Las 19 son huecos declarados, con su motivo escrito.
+
+Además, ahora que hay **un solo argumento** por nombre de función, se recuerda
+cuál era y se deshace al final. Antes se pasaba `x` como variable de sustitución, lo
+que hacía que el paso fuera un no-op — y no lo es: `tg(x/2) = -1` salía como
+`x = -pi/4 + k·pi` cuando la respuesta es `x = -pi/2 + 2k·pi`. La escala dentro del
+argumento es toda la diferencia entre esas dos, y se estaba tirando.
+
+### Dos: `_caso_fase` comprobaba el argumento en una rama y no en la otra
+
+La rama del coseno comparaba `u` con el argumento nuevo y se negaba si no
+coincidían; la del seno **asignaba `u` sin mirar**. Asimétrica. `cos(x) - sen(2x)`
+se leía como una sola función de un solo ángulo con dos nombres encima, y
+respondía `{pi/8, 5pi/8, 9pi/8, 13pi/8}`: las soluciones de `tg(2x) = 1`, para una
+ecuación que no tiene ninguna de esas.
+
+### Y un paso que abre equations que no se sabían
+
+Un ángulo múltiple al lado de otro término no lo cubría ningún caso:
+`cos(x) - cos(2x) = 0` se negaba. Ahora, antes del análisis de casos y **solo si el
+original no ha respondido**, `sen(n·x)` y `cos(n·x)` con `|n|` entre 2 y 3 se
+escriben en potencias de la misma función — `cos(2x) = 2cos²(x) - 1`,
+`sen(3x) = -4sen³(x) + 3sen(x)` — y de ahí las resuelve el mismo camino que ya
+resolvía `cos(x)² = 1/2`.
+
+El original va primero a propósito: `cos(2x) = 0` ya tenía una respuesta limpia de
+dos familias, y expandir primero la sustituía por cuatro que describen el mismo
+conjunto menos claramente.
+
+### Una corrección sobre el aviso anterior
+
+Avisé de que `cos(2x) = 0` y `sen(2x) = 0` estaban mal. **Estaban bien**, y el
+error era de mi arnés: comparaba las bases de las familias y no las familias, y el
+paso es lo que lleva el resto. Con los pasos enumerados, los dos dan la solución
+completa. Un arnés que llama erróneo a lo correcto es peor que ninguno.
+
+### Lo que queda, y es un hueco grande de cobertura
+
+19 ecuaciones con soluciones que el motor **se niega** a resolver, y todas con el
+mismo motivo: producto de factores (`sen(x)·cos(x) = 0` — la más simple del
+montá), y dos términos trigonomótricos con argumentos distintos
+(`sen(x) + sen(2x) = 0` se factoriza a `sen(x)·(2cos(x)+1) = 0`). El motor sabe
+resolver cada factor por separado; lo que no sabe es **sacar el producto**.
+
+Es la pieza que falta, y es la queI'd atacar a continuación.
+
 ## 2026-10-03 — el dominio era cierto en un solo periodo
 
 `dominio()` encontraba los huecos de **un** periodo, los quitaba de la recta
