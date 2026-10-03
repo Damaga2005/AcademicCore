@@ -39,6 +39,46 @@ MEDIO_ANGULO_FALTA = [
     "1/(cos(x)+cos(2*x))",
 ]
 
+#: Inequalities whose critical points are NOT rational, and where the sign chart
+#: refuses. This list exists because of what happened when somebody removed the
+#: refusal: the chart answered, and answered WRONG.
+#:
+#: The chart builds its intervals from the points it is given, and it silently
+#: DISCARDED the ones that are neither a rational nor a multiple of `pi`. So it
+#: drew a chart with two boundaries where there are four and reported it as a
+#: solution:
+#:
+#: | inecuación | decía | verdad |
+#: |---|---|---|
+#: | `x^2 - 2 > 0` | `∅` | `(-inf, -sqrt(2)) ∪ (sqrt(2), +inf)` |
+#: | `x^3 - 2x > 0` | `(-inf, 0)` | `(-sqrt(2), 0) ∪ (sqrt(2), +inf)` |
+#: | `2x^3 - 3x + 1 > 0` | `(-inf, 0) ∪ (1, +inf)` | `(-inf, -0.618) ∪ (1.618, +inf)` |
+#:
+#: An empty answer and a half answer are both worse than «no lo sé», and the
+#: refusal is what the engine does today. So `completar=False` in
+#: `ceros_en_puntos` is not laziness: it is the thing standing between the chart
+#: and those three rows.
+INEQUIDADES_RAIZ_IRRACIONAL = [
+    "x^2 - 2 > 0",
+    "x^3 - 2*x > 0",
+    "2*x^3 - 3*x + 1 > 0",
+]
+
+
+@pytest.mark.parametrize("inequidad", INEQUIDADES_RAIZ_IRRACIONAL)
+def test_una_carta_de_signos_sin_todos_los_ceros_se_niega(inequidad):
+    """Si esto falla, la carta ya coloca los puntos que son expresiones: bien.
+
+    Y entonces hay que mirar lo que devuelve antes de quitar la prueba, porque las
+    tres respuestas de la tabla de arriba salieron de exactamente este camino y
+    ninguna se anunció como dudosa: se publican con la misma seguridad que una
+    acertada. La prueba está puesta para que el día que se cierre el hueco avise.
+    """
+    from academic_core.domain.engineering.mathlab import inequaciones as I
+
+    with pytest.raises(Exception):
+        I.resolver_inequidad(inequidad)
+
 
 @pytest.mark.parametrize("integrando", HIPERBOLICAS_FALTAN)
 def test_las_dos_integrales_que_faltan_de_T14_siguen_faltando(integrando):
