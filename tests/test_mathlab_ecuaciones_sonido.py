@@ -97,7 +97,18 @@ def _raices(ecuacion: str) -> list[float]:
             if abs(f(raiz)) < 1e-6:
                 brutos.append(raiz)
         anterior = v
-    return _fusiona(b % (2 * math.pi) for b in brutos)
+
+    def en_periodo(b: float) -> float:
+        b %= 2 * math.pi
+        # The sweep ENDS exactly at 2·pi, and the modulo of that is a residue of
+        # about 1e-15 rather than 0 — so `x = 2·pi` gets counted as a root distinct
+        # from `x = 0`, which is the same point. It showed up as a seventh root of
+        # `sen(x)**3 - sen(x)/2 = 0`, an equation with six, and it is worth writing
+        # down why: the harness is the instrument, and an instrument that ADDS
+        # points accuses the engine of inventing solutions.
+        return 0.0 if b > 2 * math.pi - 1e-6 else b
+
+    return _fusiona(en_periodo(b) for b in brutos)
 
 
 def _publicados(ecuacion: str):
@@ -129,6 +140,12 @@ RESPONDIDAS = [
     "sin(x)*cos(x) = 0", "sin(2*x)*cos(x) = 0",
     "cos(x)*sin(2*x) = 0", "sin(x)^2*cos(x) = 0", "sin(x)*cos(x)^2 = 0",
     "(sin(x) - 1/2)*cos(x) = 0", "sin(x)*x = 0",
+    # Four that used to be answered with HALF the solutions and no warning: the
+    # polynomial in one trigonometric function is cubic and the rational root
+    # theorem could only see the rational root of it.
+    "sin(x)^3 - sin(x)/2 = 0", "cos(x)^3 - cos(x)/2 = 0",
+    "sin(x) - sin(x)^3/2 = 0", "cos(x) - cos(x)^3 = 0",
+    "1/cos(x)^5 = 32", "1/cos(x)^6 = 64",
 ]
 
 #: The two that used to be answered with a DIFFERENT equation's solutions. They
@@ -160,22 +177,21 @@ NEGADAS_ANTES = [
 ]
 
 
-#: Equations the engine answers with SOME of the roots and has to SAY SO. Each of
-#: these is a polynomial in one trigonometric function whose degree is 3 or more,
-#: and the rational root theorem finds only the rational roots of it. They were the
-#: hole in this file: not one of the 41 equations in RESPONDIDAS produced a
-#: polynomial with irrational roots, so a wrong answer here passed 41 soundness and
-#: completeness checks without being seen.
+#: Equations the engine answers with SOME of the roots and has to SAY SO. Each is a
+#: polynomial in one trigonometric function whose degree is 3 or more, so factoring
+#: out the rational roots leaves a factor of degree 4 that this engine does not
+#: solve. They were the hole in this file: not one of the 41 equations in
+#: RESPONDIDAS produced a polynomial with irrational roots, so a wrong answer here
+#: passed 41 soundness and completeness checks without being seen.
 #:
-#: The proof that the hole was real, on the first one. `sen(x)³ - sen(x)/2 = 0` is
-#: `-u³ + u/2` in `u = sen(x)`. Its roots are `0`, `±1/√2`; the theorem finds `0`
-#: and stops, and the engine published `{0, pi}` — **four of the eight solutions** —
-#: with nothing said about the four it had dropped.
+#: They are in RESPONDIDAS too, and that is not a contradiction: for THESE the roots
+#: that are left out are complex, so the answer is right. What is pinned here is not
+#: that the answer is wrong but that the engine does not KNOW that it is right — it
+#: got there by finding the rational roots and cannot prove the others are not
+#: real, and the difference between those two states is what the note says.
 PARCIALES = [
-    "sin(x)^3 - sin(x)/2 = 0",
-    "cos(x)^3 - cos(x)/2 = 0",
-    "sin(x) - sin(x)^3/2 = 0",
-    "cos(x) - cos(x)^3 = 0",
+    "1/cos(x)^5 = 32",
+    "1/cos(x)^6 = 64",
 ]
 
 
@@ -197,20 +213,46 @@ def test_una_respuesta_parcial_dice_que_lo_es(ecuacion):
                      f"sin decir que le faltan raíces: {r.hipotesis}")
 
 
-def test_lo_que_falta_en_una_respuesta_parcial_se_puede_contar():
-    """The gap measured, so that «better» means something.
+def test_completar_las_raices_quito_cuatro_de_las_seis():
+    """What the completion bought, counted, so that «better» means something.
 
-    Not a test of the engine — the engine refuses to have this opinion. It is a
-    test that the recorded state of the world stays true until somebody fixes it:
-    if the answer ever becomes complete, this fails and the list above is a bug
-    report rather than a description.
+    ``sen(x)³ - sen(x)/2 = 0`` is ``-u³ + u/2``, and the rational root theorem finds
+    ``u = 0`` and stops. The engine used to publish ``{0, pi}`` — **four of the six
+    solutions** — and say nothing: ``sen x = 0`` gives two of them and
+    ``sen²x = 1/2`` gives the other four. Factoring out the rational roots leaves a
+    quadratic, and ``-4u³ + 2u`` is the plainest case of it.
+
+    The count is written down because getting it wrong is easy and the arithmetic is
+    not the engine's: a test that asserted «eight» here failed against a sweep that
+    found seven distinct points modulo ``2·pi`` and seven of them right.
+
+    If a future change ever loses this, the answer is incomplete again and this
+    fails. If a future change completes it further, the assertion on the count has
+    to be updated deliberately, which is the point of writing it down.
     """
-    verdad = {round(v / math.pi, 4) for v in _raices("sin(x)^3 - sin(x)/2 = 0")}
-    _exactos, puntos, _n = _publicados("sin(x)^3 - sin(x)/2 = 0")
+    ecuacion = "sin(x)^3 - sin(x)/2 = 0"
+    verdad = {round(v / math.pi, 4) for v in _raices(ecuacion)}
+    _exactos, puntos, _n = _publicados(ecuacion)
     faltan = [p for p in sorted(verdad)
               if all(min(abs(p - q), 2.0 - abs(p - q)) > 5e-3 for q in puntos)]
-    # four of the eight: the four roots of `sen(u) = ±1/√2`
-    assert len(faltan) == 4, (f"faltan {faltan}", sorted(verdad))
+    assert len(verdad) == 6, sorted(verdad)          # six is six
+    assert not faltan, f"vuelve a faltar {faltan}"
+
+
+def test_una_nota_que_no_puede_afirmar_no_dice_que_sea_falso():
+    """The wording is the claim, and there are three different things to say.
+
+    «No hay raíces» — false, the answer would be wrong. «No lo sí» — true and
+    useless. «Sén estas, y de las demás no puedo afirmar que sean reales» — true, and
+    the only one of the three that leaves the student able to act on it. The third
+    is what this engine can actually support, so the second is out.
+    """
+    for ecuacion in PARCIALES:
+        r = E.resolver(ecuacion)
+        notas = [h for h in r.hipotesis if "no puede" in h]
+        assert notas, (ecuacion, r.hipotesis)
+        assert not any("no hay raíces" in h or "no existen" in h
+                       for h in r.hipotesis), r.hipotesis
 
 
 @pytest.mark.parametrize("ecuacion", RESPONDIDAS)

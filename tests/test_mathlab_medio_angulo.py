@@ -104,12 +104,43 @@ def _agujeros(antes: str, despues: str) -> set[int]:
             and not dentro_despues.contiene(D.punto_pi(Fraction(k, 2)))}
 
 
+def _difiere(antes: str, despues: str) -> bool:
+    r"""Whether the two domains hold different points, in EITHER direction.
+
+    Both arguments are EXPRESSIONS, not the printed domains: `dominio()` writes a
+    domain with the character for infinity, which no parser reads back, so the
+    printed form is for the reader and the `Conjunto` is for the comparison.
+
+    Compared by membership and not by printed text, because the same set has more
+    than one spelling: ``sen(x)/(1 + cos(x)) - tg(x/2)`` has domain
+    ``R \ {pi + 2k·pi}``, and ``dominio()`` writes that once as
+    ``(-inf, pi) ∪ (pi, inf)`` with period ``2·pi`` and another time as
+    ``(-inf, -pi) ∪ (-pi, pi) ∪ (pi, inf)`` with the same period, because ``-pi``
+    and ``pi`` are the same point of a ``2·pi`` period and only one of them is a
+    representative. The two spellings are the same set, and a test that compares
+    them as strings fails a claim that is still true.
+
+    Both directions, because ``_agujeros`` only sees holes GAINED: a rewrite that
+    silently dropped one would pass it, and dropping a hole is the worse of the two
+    mistakes. Scoped to one period for the reason ``_agujeros`` gives.
+    """
+    from fractions import Fraction
+    from academic_core.domain.engineering.mathlab import dominio as D
+
+    dentro_antes = I.dominio(mx.parse(antes))
+    dentro_despues = I.dominio(mx.parse(despues))
+    return any(dentro_antes.contiene(D.punto_pi(Fraction(k, 2)))
+               != dentro_despues.contiene(D.punto_pi(Fraction(k, 2)))
+               for k in range(0, 5))
+
+
 @pytest.mark.parametrize("expresion,esperado,objetivo,conserva", FAMILIA)
 def test_el_dominio_se_conserva_o_no_segun_medido(
         expresion, esperado, objetivo, conserva):
     """The claim in the table above, checked against ``dominio()`` and nothing else."""
-    antes, despues = _dominio(expresion), _dominio(mx.text(_aplica(expresion, objetivo)))
-    assert (despues == antes) is conserva, (
+    despues_texto = mx.text(_aplica(expresion, objetivo))
+    antes, despues = _dominio(expresion), _dominio(despues_texto)
+    assert (not _difiere(expresion, despues_texto)) is conserva, (
         f"{expresion}: el dominio pasa de {antes} a {despues} y la tabla dice "
         f"{'igual' if conserva else 'distinto'}")
 

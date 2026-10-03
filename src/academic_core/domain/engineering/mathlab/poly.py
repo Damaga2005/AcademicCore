@@ -513,11 +513,20 @@ def _divide_linear(num: Polynomial, den: Polynomial, var: str
                    ) -> tuple[Polynomial, Polynomial]:
     """Exact synthetic division by a linear ``den``, in ``var``.
 
-    ``den = a·v + b`` with ``a``, ``b`` polynomials in the other variables.
-    At each step the leading term of the remainder must be divisible by ``a``;
-    if it is not, the division is inexact and the original polynomial is
-    returned as the remainder, so the caller leaves the expression alone
-    instead of showing a wrong cancellation.
+    ``den = a·v + b``. The division is exact when the remainder that comes out at
+    the end is zero, and that is the only test: the caller
+    (:func:`_divide_exact`) checks ``is_zero(remainder)``.
+
+    There used to be an EARLY exit on the way, ``coeff % a != 0``, and it was
+    wrong twice over. ``a`` is one coefficient, so it is always a ``Fraction``, and
+    ``coeff / a`` is therefore always a valid rational quotient — requiring it to be
+    a whole number asked a question about the representation instead of about the
+    division. And the `%` it used is Python's integer modulo, so
+    ``Fraction(-1, 2) % 1`` is ``Fraction(1, 2)`` and not zero, which made it fire
+    even when the check it was standing in for would have passed.
+
+    What it cost: ``u**3 - u/2`` divided by ``u`` bailed at the coefficient ``1/2``
+    and reported itself inexact. That is the plainest division there is.
     """
     deg_den = degree_in(den, var)
     if deg_den != 1:
@@ -537,16 +546,7 @@ def _divide_linear(num: Polynomial, den: Polynomial, var: str
         term = mono_div(top, lead_mono)
         if term is None:
             return {}, num
-        coeff = rest[top]
-        # NOT `coeff % a != 0`. Python's modulo on Fractions is integer modulo and
-        # lands on the sign of the divisor, so `Fraction(-1, 2) % 1` is
-        # `Fraction(1, 2)` and NOT zero: a division that is exactly representable
-        # was declared inexact. `u**3 - u/2` divided by `u` is the plainest case
-        # there is, and it failed. The question is whether the quotient is a whole
-        # number, and the denominator is what answers that.
-        factor = coeff / a
-        if factor.denominator != 1:
-            return {}, num
+        factor = rest[top] / a
         quotient = add(quotient, {term: factor})
         # mul() accumulates: a dict comprehension would collide two terms of
         # the divisor that share the multiplied monomial

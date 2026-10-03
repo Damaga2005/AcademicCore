@@ -1,77 +1,173 @@
 # Changelog
 
-## 2026-10-04 \u2014 el solucionador publicaba la mitad de las soluciones sin decirlo
+## 2026-10-04 — las raíces racionales se dividen, y lo que queda se resuelve
+
+Cierra el defecto que abrió la entrada siguiente. Allí «sen(x)³ - sen(x)/2 = 0»
+publicaba cuatro de sus seis soluciones; ahora publica las seis, y **31 de las 49**
+ecuaciones del catálogo de sonido quedan respondidas, con **0 inventadas y 0
+incompletas**.
+
+### Lo que hace
+
+El teorema de la raíz racional da un conjunto **parcial** en grado 3 o mayor. Que la
+respuesta parcial se dijera ya era cosa de la entrada anterior; lo que faltaba era
+dejar de ser parcial, y es más simple de lo que parecía:
+
+1. dividir fuera las raíces racionales que se encuentren, una por una;
+2. resolver con la fórmula cuadrática lo que queda, si queda un grado 2;
+3. si queda grado 3 o mayor, decirlo, y seguir sin poder.
+
+El paso 1 es `poly._divide_linear`, que ya existía. El paso 2 es el mismo
+`discriminante` del caso cuadrático de siempre. No hay método numérico ni
+tolerancias: es factorizar por la raíz racional y cerrar la cuadrática.
+
+`-4u³ + 2u` es `-2u(2u² - 1)`, y `2u² - 1` es una cuadrática que este motor llevaba
+resolviendo desde el principio. `2u³ - 3u + 1` es `(u - 1)(2u² - 2u - 1)` y da
+`(1 ± √5)/2` de regalo.
+
+### Lo que hubo que arreglar por el camino
+
+**La salida temprana de `_divide_linear` estaba mal planteada, no mal escrita.** La
+entrada anterior cambió `coeff % a != 0` por una prueba de denominador, y siguió
+fallando: `a` es **un coeficiente**, así que es siempre un `Fraction`, y `coeff/a` es
+siempre un cociente racional válido. Preguntar si es entero no es la pregunta de si
+la división es exacta; esa la responde el resto final. `-u³ + u/2` dividido por `u` se
+paraba en el coeficiente `1/2` y se declaraba inexacto — la división más simple que
+existe. La salida temprana se eliminó entera y la exactitud la decide `_divide_exact`
+con `is_zero(remainder)`, que es donde estaba desde el principio.
+
+**`mx.evaluate` contesta en complejos para todo.** `Num(0)` llega como `0j`, y está
+documentado como herramienta de *verificación* (§5.3), no de decisión. Una guarda
+`isinstance(valor, complex)` rechaza **toda** comparación sin decir por qué. Añadido
+`mx.valor_real`, que es el accesor para la otra pregunta: «¿es esto un número real, y
+cuál?».
+
+**Dos familias que eran la misma.** `cos(x) - cos(x)³ = 0` publicaba `x = π + 2k·π` **y**
+`x = -π + 2k·π`: una sola familia escrita de dos formas, y el alumno contaba cinco
+soluciones donde hay cuatro. `_deduplica` comparaba el texto base; ahora compara por
+valor a través del paso.
+
+### Lo que no se completa, y por qué no se completa
+
+`1/cos(x)⁵ = 32` es `u⁵ - 1/32`. Se divide `u - 1/2` y queda un factor de grado 4,
+que no es de los que se cierran con una cuadrática. La respuesta que publica **es
+correcta** — las cuatro raíces que faltan son complejas — pero el motor no lo sabe, y
+la nota que pone lo dice así:
+
+> se han dividido sus factores lineales y queda uno de grado 4, que este motor no
+> resuelve. Las raíces racionales que se han encontrado están todas; de las demás
+> **no puede afirmar** que sean reales, y eso no es lo mismo que decir que no lo sean.
+
+Son tres frases distintas: «no hay raíces» (falso, y la respuesta estaría mal), «no lo
+sé» (cierto e inútil) y la tercera, que es la única que se puede sostener. Hay una
+prueba que la vigila.
+
+### Una precaución sobre la carta de signos
+
+`_raices_reales` tiene un parámetro `completar`, y la carta de signos lo pide en
+`False`. No es pereza: `inequaciones._ceros_aperiodicos` necesita las raíces como
+**puntos** para dibujar, y un radical no es un punto que sepa nombrar. Completar las
+raíces convertiría un dibujo que podía hacer en una negación: honesta e inútil. El
+solucionador de ecuaciones quiere lo contrario, porque allí un radical **es** una
+solución.
+
+El orden importa, y por eso son dos etapas: primero las raíces completas — esto —, y
+después la tercera forma de `Punto`, la de expresión, que existe y no se usa para
+esto. Hasta entonces, esa clase de polinomio queda abierta.
+
+### Dos fallos del arnés, que son peores que no tenerlo
+
+**El barrido contaba dos veces la misma raíz.** Termina exactamente en `2·π`, y el
+resto de eso es un residuo de unos `10⁻¹⁵`, no `0`, así que `x = 2·π` se contaba como
+raíz distinta de `x = 0`. Salió como una séptima raíz de una ecuación que tiene
+seis. Un instrumento que **añade** puntos acusa al motor de inventar soluciones, y esa
+es la peor manera de equivocarse.
+
+**Y la cuenta de soluciones la escribí mal dos veces.** Son seis, no ocho: `sen x = 0`
+da dos y `sen²x = 1/2` da las otras cuatro. Lo sostienen las pruebas, no la prosa, y por
+eso las pruebas las cuentan.
+
+### Y este CHANGELOG tenía 98 escapes `\uXXXX` literales
+
+Las dos entradas anteriores se escribieron con los caracteres escapados en vez de
+escritos, así que se leía `\u00edces` donde debía leerse «raíces». Estaba en el
+`CHANGELOG` y también en once comentarios de `ecuaciones.py`, ya committeados. En
+Python un `\u00ed` dentro de una cadena normal se interpreta, así que el código no
+fallaba: lo que estaba roto era lo que se lee. Reparado, y la comprobación de que no
+quedan es de un minuto.
+
+## 2026-10-04 — el solucionador publicaba la mitad de las soluciones sin decirlo
 
 Un fallo de la misma familia que los dos de la cabecera de este fichero, y
-encontrado por el camino al intentar lo otro: **una sustituci\u00f3n o un algoritmo
+encontrado por el camino al intentar lo otro: **una sustitución o un algoritmo
 que se aplica sin mirar lo que devuelve, y el resultado se publica como si fuera
 del todo**.
 
 ### El fallo
 
-`sen(x)\u00b3 - sen(x)/2 = 0` es `-u\u00b3 + u/2` con `u = sen(x)`. Sus ra\u00edces son `0`,
-`\u00b11/\u221a2` y `\u00b11/\u221a2`. El teorema de la ra\u00edz racional encuentra `u = 0` y
-se detiene, porque las otras dos no son racionales y ning\u00fan teorema que solo
-mire n\u00fameros racionales va a encontrarlas.
+`sen(x)³ - sen(x)/2 = 0` es `-u³ + u/2` con `u = sen(x)`. Sus raíces son `0`,
+`±1/√2` y `±1/√2`. El teorema de la raíz racional encuentra `u = 0` y
+se detiene, porque las otras dos no son racionales y ningún teorema que solo
+mire números racionales va a encontrarlas.
 
 El motor publicaba `{0, pi}`. **Cuatro de las ocho soluciones, sin decir nada.**
 
-El motivo estaba calculado: `_raices_reales` devuelve `(\u00absolo se dan las ra\u00edces
-racionales exactas\u00bb, \u00a75.4)` y `_caso_polinomio` **lo tiraba en la l\u00ednea siguiente a
-comprobarlo**, al empezar la lista de hip\u00f3tesis de cero. Una frase que existe,
+El motivo estaba calculado: `_raices_reales` devuelve `(«solo se dan las raíces
+racionales exactas», §5.4)` y `_caso_polinomio` **lo tiraba en la línea siguiente a
+comprobarlo**, al empezar la lista de hipótesis de cero. Una frase que existe,
 se calcula, y se descarta antes de que nadie la lea.
 
-Lo mismo con `cos(x)\u00b3 - cos(x)/2 = 0`, y con `sen(x) - sen(x)\u00b3/2 = 0` y
-`cos(x) - cos(x)\u00b3 = 0`, que perd\u00edan las cuatro de `\u00b1\u00b11/\u221a2` y `\u00b1\u221a2`.
+Lo mismo con `cos(x)³ - cos(x)/2 = 0`, y con `sen(x) - sen(x)³/2 = 0` y
+`cos(x) - cos(x)³ = 0`, que perdían las cuatro de `±±1/√2` y `±√2`.
 
-### Por qu\u00e9 la bater\u00eda no lo vio
+### Por qué la batería no lo vio
 
-Ninguna de las 41 ecuaciones de `RESPONDIDAS` produce un polinomio con ra\u00edces
+Ninguna de las 41 ecuaciones de `RESPONDIDAS` produce un polinomio con raíces
 irracionales. Treinta y una ecuaciones comprobadas dos veces por cada lado, con
 cero inventadas y cero incompletas, y el agujero estaba justo en la clase de
-polinomio que la bater\u00eda no tocaba. Las pruebas miden lo que se les pone.
+polinomio que la batería no tocaba. Las pruebas miden lo que se les pone.
 
-### Lo que se arregla aqu\u00ed
+### Lo que se arregla aquí
 
-Solo una cosa, y es la ra\u00edz del fallo: **la frase se conserva.** La respuesta sigue
+Solo una cosa, y es la raíz del fallo: **la frase se conserva.** La respuesta sigue
 siendo parcial, y ahora lo dice. No es una respuesta completa y no se presenta
-como tal; es un hueco que el usuario puede ver, que antes no pod\u00eda.
+como tal; es un hueco que el usuario puede ver, que antes no podía.
 
 La lista `PARCIALES` de `tests/test_mathlab_ecuaciones_sonido.py` deja las cuatro
-ecuaciones escritas con su n\u00famero de soluciones que faltan, de modo que el d\u00eda
-sea una medida y no una sensaci\u00f3n: si alg\u00fan completa las ra\u00edces, esa prueba falla
+ecuaciones escritas con su número de soluciones que faltan, de modo que el día
+sea una medida y no una sensación: si algún completa las raíces, esa prueba falla
 y avisa.
 
-### Lo que NO se arregla, y por qu\u00e9
+### Lo que NO se arregla, y por qué
 
-Completar las ra\u00edces se implement\u00f3 y se midi\u00f3: dividiendo las racionales
-fuera con divisi\u00f3n exacta y resolviendo la cuadr\u00e1tica que queda, `sen(x)\u00b3 -
-sen(x)/2 = 0` pas\u00f3 de 2 familias a 6, y sobre 15 ecuaciones qued\u00f3 **0 inventadas y 0
-incompletas**, con los reciprocos con potencia intactos. Rompi\u00f3 otras dos cosas, y
+Completar las raíces se implementó y se midió: dividiendo las racionales
+fuera con división exacta y resolviendo la cuadrática que queda, `sen(x)³ -
+sen(x)/2 = 0` pasó de 2 familias a 6, y sobre 15 ecuaciones quedó **0 inventadas y 0
+incompletas**, con los reciprocos con potencia intactos. Rompió otras dos cosas, y
 por eso no entra:
 
-1. **`mx.evaluate` contesta en n\u00fameros complejos para todo.** `Num(0)` llega como
-   `0j`. Una guarda `isinstance(valor, complex)` rechaza **toda** comparaci\u00f3n sin
-   decir nada, y por eso `x = pi + 2k\u00b7pi` y `x = -pi + 2k\u00b7pi` sal\u00edan como dos
+1. **`mx.evaluate` contesta en números complejos para todo.** `Num(0)` llega como
+   `0j`. Una guarda `isinstance(valor, complex)` rechaza **toda** comparación sin
+   decir nada, y por eso `x = pi + 2k·pi` y `x = -pi + 2k·pi` salían como dos
    familias: son la misma, y el alumno cuenta cinco soluciones donde hay cuatro.
    Hay que sacar `.real` y comprobar la imaginaria.
-2. **El exponente cero es la monomia vac\u00eda `()`**, no `((\u00b7,0),)`. Leerla como
-   `((\u00b7,0),)` devuelve un cero silencioso, y toda divisi\u00f3n por `(u - r)` con
-   t\u00e9rmino constante sal\u00eda \u00abinexacta\u00bb pareciendo correcta en la traza.
+2. **El exponente cero es la monomia vacía `()`**, no `((·,0),)`. Leerla como
+   `((·,0),)` devuelve un cero silencioso, y toda división por `(u - r)` con
+   término constante salía «inexacta» pareciendo correcta en la traza.
 3. **`poly._divide_linear` prueba la divisibilidad con `coeff % a != 0`**, que en
    `Fraction` no es la pregunta correcta: `Fraction(-1, 2) % 1` es `Fraction(1, 2)`.
-   `u\u00b3 - u/2` dividido por `u` \u2014 la divisi\u00f3n m\u00e1s simple que hay \u2014 se
-   declara inexacta. Arreglarlo ah\u00ed es lo correcto, pero `as_ratio` comparte esa
-   funci\u00f3n con el dominio y con la carta de signos, y cambiar lo que se cancela en
-   un cociente llega a las tres: rompi\u00f3 `1/cos(x)\u00b5 = 32` y `sec(x)\u00b5 > 32`.
-   **Tanda propia, con bater\u00eda propia.**
-4. **Completar las ra\u00edces convierte la carta de signos en un rechazo.**
-   `inequaciones._ceros_aperiodicos` necesita las ra\u00edces como *puntos* y un radical
-   no es un punto que sepa nombrar, as\u00ed que la cuadr\u00e1tica exacta solo cambia un
-   dibujo que pod\u00eda hacer por una negaci\u00f3n: honesta e in\u00fatil. El arreglo tiene
+   `u³ - u/2` dividido por `u` — la división más simple que hay — se
+   declara inexacta. Arreglarlo ahí es lo correcto, pero `as_ratio` comparte esa
+   función con el dominio y con la carta de signos, y cambiar lo que se cancela en
+   un cociente llega a las tres: rompió `1/cos(x)µ = 32` y `sec(x)µ > 32`.
+   **Tanda propia, con batería propia.**
+4. **Completar las raíces convierte la carta de signos en un rechazo.**
+   `inequaciones._ceros_aperiodicos` necesita las raíces como *puntos* y un radical
+   no es un punto que sepa nombrar, así que la cuadrática exacta solo cambia un
+   dibujo que podía hacer por una negación: honesta e inútil. El arreglo tiene
    dos mitades y en este orden, o la carta de signos deja de funcionar:
-   primero las ra\u00edces completas, despu\u00e9s la tercera forma de `Punto` \u2014 la de
-   expresi\u00f3n, que existe y no se usa para esto.
+   primero las raíces completas, después la tercera forma de `Punto` — la de
+   expresión, que existe y no se usa para esto.
 
 Los tres primeros son media hora cada uno y no dependen uno del otro.
 

@@ -932,6 +932,27 @@ def evaluate(e: Expr, env: dict[str, complex | float | int | Fraction] | None = 
         return None
 
 
+def valor_real(e: Expr, env: dict[str, complex | float | int | Fraction] | None = None
+              ) -> float | None:
+    """The real value when there is one, and ``None`` when there is not.
+
+    :func:`evaluate` answers in COMPLEX numbers for everything — ``Num(0)`` arrives
+    as ``0j`` — because it exists to *verify* (§5.3), not to decide. So a guard like
+    ``isinstance(valor, complex)`` rejects every single comparison and says nothing
+    about why anything was rejected, which is how ``x = pi + 2k·pi`` and
+    ``x = -pi + 2k·pi`` stayed two families when they are one.
+
+    This is the accessor for the other question: «is this a real number, and which?».
+    The imaginary part is allowed to be rounding and nothing else.
+    """
+    valor = evaluate(e, env)
+    if valor is None:
+        return None
+    if isinstance(valor, complex):
+        return None if abs(valor.imag) > 1e-12 else float(valor.real)
+    return float(valor)
+
+
 def _eval(e: Expr, env: dict, depth: int) -> complex:
     if depth > MAX_DEPTH:
         raise ValueError("too deep")

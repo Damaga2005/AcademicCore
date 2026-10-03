@@ -214,7 +214,7 @@ def _inversa(funcion: str, valor) -> tuple[mx.Expr, bool, str]:
             return mx.Neg(D.punto_pi(k_negativo).expr()), True, ""
     if mx.exact_value(expresion) is not None:
         nota = (f"{funcion}({mx.text(expresion)}) no es un ángulo notable: se deja "
-                "como expresión exacta y no como decimal (\u00a75.4)")
+                "como expresión exacta y no como decimal (§5.4)")
     else:
         nota = (f"{funcion}({mx.text(expresion)}) no es racional, pero su inversa "
                 "sigue siendo exacta: por eso la solución es exacta aunque no "
@@ -884,7 +884,7 @@ def _caso_producto(f: mx.Expr, var: str):
 
     The engine already solves ``sen(x) = 0`` and ``cos(x) = 0``; what it could not
     do was notice that a product of them asks both questions at once. ``sen(x)·cos(x)
-    = 0`` was refused, and it is the simplest equation in this family \u2014 so the
+    = 0`` was refused, and it is the simplest equation in this family — so the
     refusal was not a limitation to declare but a gap that made the whole family
     invisible.
 
@@ -904,7 +904,7 @@ def _caso_producto(f: mx.Expr, var: str):
         return None
     familias: list[Familia] = []
     hipotesis = ["un producto se anula si y solo si se anula alguno de sus "
-                 "factores, as\u00ed que la ecuaci\u00f3n se parte en una por factor y "
+                 "factores, así que la ecuación se parte en una por factor y "
                  "se responden todas"]
     for factor in factores:
         parcial = _casos(mx.Sub(factor, mx.ZERO), var)
@@ -921,10 +921,10 @@ def _caso_producto(f: mx.Expr, var: str):
     # ``sen(x)·cos(x)·tg(x) = 0`` has ``cos(x) = 0`` as an answer to one of its
     # factors, and at ``x = pi/2`` the product is ``0·0·undefined``: the equation
     # is not even posed there. Publishing that family would put points in the
-    # solution set where the expression cannot be evaluated \u2014 the same failure
+    # solution set where the expression cannot be evaluated — the same failure
     # as a domain that gained a hole, in the answer instead of in the set.
     #
-    # A family cannot be published with holes \u2014 ``base + paso·k`` has none \u2014 so a
+    # A family cannot be published with holes — ``base + paso·k`` has none — so a
     # family with one refuses the whole product rather than publish half of it.
     # Los factores tienen que compartir el dominio, y la pregunta se le hace al
     # DOMINIO y no al evaluador porque el evaluador no puede ver un polo: en
@@ -1015,17 +1015,41 @@ def _caso_polinomio(f: mx.Expr, var: str):
     return None
 
 
+def _misma_familia(a: Familia, b: Familia) -> bool:
+    """Whether two families describe the same set of points.
+
+    Comparing the printed base is not enough, and ``cos(x) - cos(x)³ = 0`` shows
+    why: it publishes ``x = pi + 2k·pi`` AND ``x = -pi + 2k·pi``, which are one
+    family — both are the odd multiples of pi — written two ways. The student counts
+    solutions and finds five where there are four, and this function's own comment
+    already said that duplicates are a bug worth reporting.
+
+    So the bases are compared BY VALUE through the step: the two are the same when
+    their difference is a whole number of steps. Asked of ``mx.valor_real`` and never
+    of ``mx.evaluate``, which answers in complex numbers for everything — ``Num(0)``
+    arrives as ``0j`` — so a bare ``isinstance(valor, complex)`` guard would reject
+    every single comparison here, silently.
+    """
+    if a.en_x != b.en_x:
+        return False
+    if not a.en_x:
+        return mx.text(a.base) == mx.text(b.base)
+    valor = mx.valor_real(mx.Div(mx.Sub(a.base, b.base), a.paso), {})
+    return valor is not None and abs(valor - round(valor)) < 1e-9
+
+
 def _deduplica(familias: list[Familia]) -> list[Familia]:
     """The same family twice is a bug the student would report; drop it.
 
     ``sin(x)³ − sin(x) = 0`` has roots 0, 1 and −1, and the root 0 reaches the
-    sine case by more than one route.
+    sine case by more than one route. Compared by value, so that ``pi`` and ``-pi``
+    with the same step are recognised as the one family they are.
     """
-    vistos: dict[str, Familia] = {}
+    salida: list[Familia] = []
     for familia in familias:
-        clave = (mx.text(familia.base), mx.text(familia.paso))
-        vistos.setdefault(clave, familia)
-    return list(vistos.values())
+        if not any(_misma_familia(familia, visto) for visto in salida):
+            salida.append(familia)
+    return salida
 
 
 def _como_polinomio(f: mx.Expr, nombre: str, sub: mx.Expr, var: str = "x"):
@@ -1033,8 +1057,8 @@ def _como_polinomio(f: mx.Expr, nombre: str, sub: mx.Expr, var: str = "x"):
 
     **The argument is checked, and not checking it invents solutions.** Replacing
     every ``cos(·)`` by ``u`` regardless of what is inside turns ``cos(x) + cos(2x)``
-    into ``2u``, and the solver then answers ``cos(x) = 0`` \u2014 the solutions of a
-    DIFFERENT equation \u2014 for the equation that was asked. That is the worst thing
+    into ``2u``, and the solver then answers ``cos(x) = 0`` — the solutions of a
+    DIFFERENT equation — for the equation that was asked. That is the worst thing
     this engine can do: ``cos(x) + cos(2x) = 0`` published ``{pi/2, -pi/2}``, and the
     domain of ``1/(cos(x) + cos(2x))`` inherited two holes that are not holes while
     missing the three that are.
@@ -1075,8 +1099,8 @@ def _como_polinomio(f: mx.Expr, nombre: str, sub: mx.Expr, var: str = "x"):
         return None
     # One argument for every call of this name, or there is no single substitution.
     # ``cos(x) + cos(2x)`` is not a polynomial in ``cos(.)``: replacing both by ``u``
-    # turns it into ``2u``, and the solver then answers ``cos(x) = 0`` \u2014 the
-    # solutions of a DIFFERENT equation \u2014 for the one that was asked. That is the
+    # turns it into ``2u``, and the solver then answers ``cos(x) = 0`` — the
+    # solutions of a DIFFERENT equation — for the one that was asked. That is the
     # worst thing this engine can do, and the guard that was here could not see it
     # because nothing is left over: ``2x`` was deleted along with the ``cos``.
     distintos = {mx.text(a) for a in comun}
@@ -1085,8 +1109,17 @@ def _como_polinomio(f: mx.Expr, nombre: str, sub: mx.Expr, var: str = "x"):
     return polinomio, comun[0]
 
 
-def _raices_reales(polinomio: P.Polynomial, sub: mx.Expr):
-    """Exact real roots, with a Spanish reason when there are none to give."""
+def _raices_reales(polinomio: P.Polynomial, sub: mx.Expr,
+                   completar: bool = True):
+    """Exact real roots, with a Spanish reason when there are none to give.
+
+    ``completar`` exists for the caller that needs the roots as POINTS rather than
+    as expressions: the inequality sign chart draws one point per zero and cannot
+    name a radical, so completing the roots with a quadratic formula would only
+    turn a chart it CAN draw into one it refuses. The equation solver wants the
+    opposite — there a radical root is a solution, and leaving it out is a wrong
+    answer — so it asks for the complete set.
+    """
     grado = P.degree_in(polinomio, sub.name)
     if grado < 1:
         return [], "el polinomio es constante y no se anula: no hay solución"
@@ -1107,14 +1140,100 @@ def _raices_reales(polinomio: P.Polynomial, sub: mx.Expr):
         raiz = _raiz_exacta(discriminante)
         return [mx.Div(mx.Add(mx.Neg(mx.Num(c1)), raiz), mx.Num(2 * c2)),
                 mx.Div(mx.Sub(mx.Neg(mx.Num(c1)), raiz), mx.Num(2 * c2))], ""
-    exactas = [mx.Num(r) for r in _divisores_racionales(polinomio, sub.name)
-               if _valor_en(polinomio, r, sub.name) == 0]
-    if exactas:
-        return exactas, ("solo se dan las raíces racionales exactas: el resto "
-                         "depende de una cúbica o de un grado mayor y se dice (§5.4)")
-    return [], (f"el polinomio es de grado {grado} y no tiene raíces racionales: "
-                "este motor no resuelve ese caso y no va a devolver un decimal "
-                "disfrazado de solución exacta (§5.4)")
+    # Degree three and up. The rational root theorem on its own gives a PARTIAL
+    # set, and that partial set was published as if it were the answer:
+    # `sen(x)**3 - sen(x)/2` is `-u**3 + u/2`, whose roots are `0`, `+/-1/√2`;
+    # the theorem finds `u = 0` and stops, and the engine published `{0, pi}` —
+    # four of the SIX solutions, `sen x = 0` gives two and `sen²x = 1/2` gives the
+    # other four — saying only now, after 8c680ce, that it had left them out.
+    #
+    # So the rational roots are divided OUT and what is left is solved exactly.
+    # `-4u**3 + 2u` is `-2u(2u**2 - 1)` and `2u**2 - 1` is a quadratic this engine
+    # has always done. Not a trick and not numerical: factoring by the rational
+    # root, then a closed form for the rest.
+    #
+    # What is left when a factor of degree three or more SURVIVES is stated, not
+    # hidden — `u**5 - 1/32` is one, and proving that its other four roots are
+    # complex is not something this engine can do.
+    if not completar:
+        exactas = [mx.Num(r) for r in _divisores_racionales(polinomio, sub.name)
+                   if _valor_en(polinomio, r, sub.name) == 0]
+        if exactas:
+            return exactas, ("solo se dan las raíces racionales exactas: el resto "
+                             "depende de una cúbica o de un grado mayor y se dice "
+                             "(§5.4)")
+        return [], (f"el polinomio es de grado {grado} y no tiene raíces racionales: "
+                    "este motor no resuelve ese caso y no va a devolver un decimal "
+                    "disfrazado de solución exacta (§5.4)")
+
+    raices, resto = [], polinomio
+    for _ in range(MAX_FACTORES_RACIONALES):
+        candidatas = [r for r in _divisores_racionales(resto, sub.name)
+                      if _valor_en(resto, r, sub.name) == 0]
+        if not candidatas:
+            break
+        nuevo_resto = resto
+        for r in candidatas:
+            cociente, residuo = P._divide_linear(
+                nuevo_resto, P.add(P.variable(sub.name), P.const(-r)), sub.name)
+            if cociente and P.is_zero(residuo):
+                nuevo_resto = cociente
+                raices.append(mx.Num(r))
+        if P.degree_in(nuevo_resto, sub.name) >= P.degree_in(resto, sub.name):
+            break                       # no progress: stop rather than loop (§5.5)
+        resto = nuevo_resto
+
+    grado_resto = P.degree_in(resto, sub.name)
+    if grado_resto == 0:
+        return _limpias(raices), ""
+    if grado_resto <= 2:
+        c2 = resto.get(((sub.name, 2),), Fraction(0))
+        c1 = resto.get(((sub.name, 1),), Fraction(0))
+        c0 = resto.get((), Fraction(0))
+        discriminante = c1 * c1 - 4 * c2 * c0
+        if discriminante >= 0:
+            raiz = _raiz_exacta(discriminante)
+            raices.extend([
+                mx.Div(mx.Add(mx.Neg(mx.Num(c1)), raiz), mx.Num(2 * c2)),
+                mx.Div(mx.Sub(mx.Neg(mx.Num(c1)), raiz), mx.Num(2 * c2))])
+        return _limpias(raices), ""
+    return _limpias(raices), (
+        f"el polinomio es de grado {grado}; se han dividido sus factores lineales y "
+        f"queda uno de grado {grado_resto}, que este motor no resuelve. Las raíces "
+        "racionales que se han encontrado están todas; de las demás **no puede "
+        "afirmar** que sean reales, y eso no es lo mismo que decir que no lo sean "
+        "(§5.4)")
+
+
+#: How many times a rational root is divided out before giving up. Bounded so a
+#: polynomial with a repeated root — `u**4`, whose only root is `0` with multiplicity four
+#: — terminates instead of looping (§5.5).
+MAX_FACTORES_RACIONALES = 8
+
+
+def _limpias(raices: list[mx.Expr]) -> list[mx.Expr]:
+    """Each root once, and written as plainly as it can be written.
+
+    ``-4u**3 + 2u`` gives ``u = 0`` twice, and it is one root. The quadratic formula
+    hands back ``(-0 + 0)/(-8)`` where the answer is ``1/2``, which is correct and
+    unreadable, and a root that turns out to be a plain rational is rebuilt as a
+    ``Num`` so that it reads as one.
+
+    Deduplicated by EXACT value where there is one — `exact_value` knows a radical
+    that is really a rational — and by the printed text otherwise, because two
+    spellings of the same irrational are the same root and the student only has to
+    read one of them.
+    """
+    vistos: dict[str, mx.Expr] = {}
+    for raiz in raices:
+        valor = mx.exact_value(raiz)
+        if valor is not None:
+            raiz = mx.Num(valor)
+            clave = f"r:{valor}"
+        else:
+            clave = "t:" + mx.text(raiz)
+        vistos.setdefault(clave, raiz)
+    return list(vistos.values())
 
 
 def _divisores_racionales(polinomio: P.Polynomial, var: str) -> list[Fraction]:
