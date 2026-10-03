@@ -27,11 +27,51 @@ def integra(texto: str):
     return mx.from_symbolic(primitiva)
 
 
-#: (integral, porque se dice que falta) — T-14, las dos hiperb-olicas que faltan
-HIPERBOLICAS_FALTAN = [
+#: Lo que se dice que falta de T-14. VACÍO desde 2026-10-04: las dos que faltaban
+#: están en HIPERBOLICAS_CERRADAS. Se deja la lista porque una lista vacía que se ve
+#: vacía informa de lo mismo que una llena, y porque la alarma sigue conectada.
+HIPERBOLICAS_FALTAN: list[str] = []
+
+#: The two that were missing until 2026-10-04. Neither is the derivative of
+#: something already in the table, which is why they were missing and not something
+#: somebody forgot: `d/du arctg(senh u) = cosh/(1+sinh^2) = cosh/cosh^2 = 1/cosh`,
+#: and `d/du log|tanh(u/2)| = 1/(2*senh(u/2)*cosh(u/2)) = 1/senh`.
+HIPERBOLICAS_CERRADAS = [
     "sech(x)",
     "csch(x)",
 ]
+
+
+@pytest.mark.parametrize("integrando", HIPERBOLICAS_CERRADAS)
+def test_las_dos_integrales_que_faltaban_de_T14_ya_estan(integrando):
+    """Cerradas, y cerradas por la única comprobación que decide: derivar.
+
+    La primitiva no se comprueba como texto: se deriva y se compara con el
+    integrando, porque una entrada de tabla que se lee bien y no se diferencia a su
+    integrando es peor que un rechazo.
+    """
+    from academic_core.domain.engineering.mathlab import derive_mv
+
+    primitiva, _paso = I.integrate(mx.to_symbolic(mx.parse(integrando)), "x",
+                                   I.StepLog())
+    diferencia = derive_mv.differentiate(mx.from_symbolic(primitiva), "x")
+    for x in (0.7, 1.3, 2.1):
+        valor_derivada = mx.valor_real(diferencia, {"x": x})
+        valor_integrando = mx.valor_real(mx.parse(integrando), {"x": x})
+        assert valor_derivada is not None and valor_integrando is not None
+        escala = max(1.0, abs(valor_integrando))
+        assert abs(valor_derivada - valor_integrando) < 1e-9 * escala, (
+            integrando, valor_derivada, valor_integrando)
+
+
+def test_de_T14_no_falta_ninguna_integral():
+    """The hole list of T-14, asserted empty, and that is the whole point of it.
+
+    It is not a parametrised test over an empty list — pytest does not take that, and
+    rightly. It is one assertion that says what the list is for: when an integral is
+    missing, it goes in the list and the list stops being empty.
+    """
+    assert HIPERBOLICAS_FALTAN == [], HIPERBOLICAS_FALTAN
 
 #: T-18, el único punto abierto de la lista: la sustitución del ángulo medio
 MEDIO_ANGULO_FALTA = [
@@ -105,17 +145,6 @@ def test_la_carta_no_inventa_ni_omite_un_punto(inequidad):
             falsos.append(round(x, 3))
     assert not falsos, f"{inequidad}: publica {falsos[:4]}, que no la cumplen"
     assert not omitidos, f"{inequidad}: no publica {omitidos[:4]}"
-
-
-@pytest.mark.parametrize("integrando", HIPERBOLICAS_FALTAN)
-def test_las_dos_integrales_que_faltan_de_T14_siguen_faltando(integrando):
-    """Si esto falla, `sech` y `csch` ya se integran: actualiza la etiqueta.
-
-    Las seis **derivadas** de la familia existen desde hace tiempo y la etiqueta
-    de T-14 llegó a decir que no. Lo que falta son dos integrales, y son estas.
-    """
-    with pytest.raises(Exception):
-        integra(integrando)
 
 
 @pytest.mark.parametrize("integrando", MEDIO_ANGULO_FALTA)

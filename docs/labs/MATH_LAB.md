@@ -1633,7 +1633,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - restricciones de inversas.
 - conjuntos solución periódicos.
 
-### T-14. Trigonometría hiperbólica — PARCIAL (identidades, suma/diferencia, dobles, inversas y conexión exponencial, y **las seis derivadas**; faltan dos integrales, `sech(x)` y `csch(x)`. Etiqueta revisada el 2026-10-04: aquí decía «faltan derivadas e integrales», y las derivadas existían todas)
+### T-14. Trigonometría hiperbólica — COMPLETADA (identidades, suma/diferencia, dobles, inversas, conexión exponencial, **las seis derivadas y las seis integrales**. Las dos últimas —`sech` y `csch`— se cerraron el 2026-10-04, y la etiqueta decía «faltan las derivadas», que existían todas)
 - sinh, cosh, tanh, coth, sech, csch.
 - identidades.
 - suma/diferencia.

@@ -1,5 +1,43 @@
 # Changelog
 
+## 2026-10-04 — `sech` y `csch`, y con ellas T-14 entera
+
+Dos entradas de tabla y una etiqueta de documentación que pasa a **COMPLETADA**.
+
+```
+∫sech(u) du = arctg(senh u)
+∫csch(u) du = log|tanh(u/2)|
+```
+
+No estaban porque no son la derivada de nada que ya estuviera en la tabla, y eso es
+una razón distinta de «alguien se olvidó»:
+
+- `d/du arctg(senh u) = cosh u / (1 + senh²u) = cosh u / cosh²u = 1/cosh u`
+- `d/du log|tanh(u/2)| = 1/(2·senh(u/2)·cosh(u/2)) = 1/senh u`
+
+Ninguna de las dos se escribe desde la tabla de derivadas por multiplicación por la
+recíproca, que es como salen `∫senh`, `∫cosh`, `∫tanh` y `∫cotanh`. Hacen falta las
+identidades hiperbólicas, y por eso se escriben como la derivada de una primitiva
+**legible**: la entrada de la tabla se puede comprobar derivándola, que es lo que
+hace la prueba.
+
+### Lo que la alarma hizo
+
+`tests/test_mathlab_huecos_documentados.py` tenía estas dos en una lista de huecos,
+con una prueba que exigía que **fallaran** si algún día se integraban. Fallaron al
+integrarlas, que es exactamente lo que se les pidió: una alarma que no suena cuando el
+hueco se cierra no es una alarma.
+
+Y la lista no se ha borrado: está vacía a propósito, con una aserción que dice que lo
+está. Una lista de huecos vacía que **se ve** vacía informa de lo mismo que una
+llena, y en seis meses alguien tendrá que añadir algo a ella. La alarma sigue
+conectada.
+
+### Etiquetas
+
+`T-14` pasa a **COMPLETADA**: identidades, sumas y diferencias, dobles, inversas,
+conexión exponencial, seis derivadas y seis integrales.
+
 ## 2026-10-04 — un reductor de radicales, que hace legible lo que ya era exacto
 
 Sin ecuaciones nuevas: esto es **legibilidad**, y es una falta distinta de las de las

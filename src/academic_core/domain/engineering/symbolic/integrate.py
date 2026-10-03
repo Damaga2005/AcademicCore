@@ -87,6 +87,15 @@ _TABLE = {
     "tanh": ("tabla: ∫tanh(u) du = log(cosh(u))", lambda u: Fn("log", Fn("cosh", u))),
     "coth": ("tabla: ∫cotanh(u) du = log(abs(senh(u)))",
              lambda u: Fn("log", Fn("abs", Fn("sinh", u)))),
+    # The last two of the family. Neither is the derivative of something already in
+    # the table, which is why they were missing: `d/du arctg(senh u) = cosh/(1+sinh²)
+    # = cosh/cosh² = 1/cosh = sech`, and `d/du log|tanh(u/2)| = 1/(2·sinh(u/2)·cosh(u/2))
+    # = 1/senh u = cosecante hiperbolica`. Both written as the derivative of a
+    # readable antiderivative, so the table entry can be checked by differentiating.
+    "sech": ("tabla: ∫sech(u) du = arctg(senh(u))",
+             lambda u: Fn("atan", Fn("sinh", u))),
+    "csch": ("tabla: ∫cosecH(u) du = log(abs(tanh(u/2)))",
+             lambda u: Fn("log", Fn("abs", Fn("tanh", Div(u, Num(Fraction(2))))))),
 }
 
 
