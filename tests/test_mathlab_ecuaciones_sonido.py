@@ -160,6 +160,59 @@ NEGADAS_ANTES = [
 ]
 
 
+#: Equations the engine answers with SOME of the roots and has to SAY SO. Each of
+#: these is a polynomial in one trigonometric function whose degree is 3 or more,
+#: and the rational root theorem finds only the rational roots of it. They were the
+#: hole in this file: not one of the 41 equations in RESPONDIDAS produced a
+#: polynomial with irrational roots, so a wrong answer here passed 41 soundness and
+#: completeness checks without being seen.
+#:
+#: The proof that the hole was real, on the first one. `sen(x)³ - sen(x)/2 = 0` is
+#: `-u³ + u/2` in `u = sen(x)`. Its roots are `0`, `±1/√2`; the theorem finds `0`
+#: and stops, and the engine published `{0, pi}` — **four of the eight solutions** —
+#: with nothing said about the four it had dropped.
+PARCIALES = [
+    "sin(x)^3 - sin(x)/2 = 0",
+    "cos(x)^3 - cos(x)/2 = 0",
+    "sin(x) - sin(x)^3/2 = 0",
+    "cos(x) - cos(x)^3 = 0",
+]
+
+
+@pytest.mark.parametrize("ecuacion", PARCIALES)
+def test_una_respuesta_parcial_dice_que_lo_es(ecuacion):
+    """A partial answer is a wrong answer unless it says it is partial.
+
+    The gap is real and this file does not close it: completing the roots needs a
+    quadratic formula on what is left after dividing out the rational ones, and
+    every attempt so far has broken something else. What is asserted here is the
+    lesser and still necessary thing — that the engine stops presenting half an
+    answer as a whole one. The sentence existed and was thrown away one line after
+    it was computed.
+    """
+    r = E.resolver(ecuacion)
+    assert r.familias, f"{ecuacion}: se nega, y no deberia"
+    motivos = [h for h in r.hipotesis if "racional" in h or "grado" in h]
+    assert motivos, (f"{ecuacion} publica {[mx.text(f.base) for f in r.familias]} "
+                     f"sin decir que le faltan raíces: {r.hipotesis}")
+
+
+def test_lo_que_falta_en_una_respuesta_parcial_se_puede_contar():
+    """The gap measured, so that «better» means something.
+
+    Not a test of the engine — the engine refuses to have this opinion. It is a
+    test that the recorded state of the world stays true until somebody fixes it:
+    if the answer ever becomes complete, this fails and the list above is a bug
+    report rather than a description.
+    """
+    verdad = {round(v / math.pi, 4) for v in _raices("sin(x)^3 - sin(x)/2 = 0")}
+    _exactos, puntos, _n = _publicados("sin(x)^3 - sin(x)/2 = 0")
+    faltan = [p for p in sorted(verdad)
+              if all(min(abs(p - q), 2.0 - abs(p - q)) > 5e-3 for q in puntos)]
+    # four of the eight: the four roots of `sen(u) = ±1/√2`
+    assert len(faltan) == 4, (f"faltan {faltan}", sorted(verdad))
+
+
 @pytest.mark.parametrize("ecuacion", RESPONDIDAS)
 def test_ninguna_solucion_publicada_inventa_un_punto(ecuacion):
     """Soundness: every published point has to annul the equation.

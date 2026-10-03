@@ -1,5 +1,80 @@
 # Changelog
 
+## 2026-10-04 \u2014 el solucionador publicaba la mitad de las soluciones sin decirlo
+
+Un fallo de la misma familia que los dos de la cabecera de este fichero, y
+encontrado por el camino al intentar lo otro: **una sustituci\u00f3n o un algoritmo
+que se aplica sin mirar lo que devuelve, y el resultado se publica como si fuera
+del todo**.
+
+### El fallo
+
+`sen(x)\u00b3 - sen(x)/2 = 0` es `-u\u00b3 + u/2` con `u = sen(x)`. Sus ra\u00edces son `0`,
+`\u00b11/\u221a2` y `\u00b11/\u221a2`. El teorema de la ra\u00edz racional encuentra `u = 0` y
+se detiene, porque las otras dos no son racionales y ning\u00fan teorema que solo
+mire n\u00fameros racionales va a encontrarlas.
+
+El motor publicaba `{0, pi}`. **Cuatro de las ocho soluciones, sin decir nada.**
+
+El motivo estaba calculado: `_raices_reales` devuelve `(\u00absolo se dan las ra\u00edces
+racionales exactas\u00bb, \u00a75.4)` y `_caso_polinomio` **lo tiraba en la l\u00ednea siguiente a
+comprobarlo**, al empezar la lista de hip\u00f3tesis de cero. Una frase que existe,
+se calcula, y se descarta antes de que nadie la lea.
+
+Lo mismo con `cos(x)\u00b3 - cos(x)/2 = 0`, y con `sen(x) - sen(x)\u00b3/2 = 0` y
+`cos(x) - cos(x)\u00b3 = 0`, que perd\u00edan las cuatro de `\u00b1\u00b11/\u221a2` y `\u00b1\u221a2`.
+
+### Por qu\u00e9 la bater\u00eda no lo vio
+
+Ninguna de las 41 ecuaciones de `RESPONDIDAS` produce un polinomio con ra\u00edces
+irracionales. Treinta y una ecuaciones comprobadas dos veces por cada lado, con
+cero inventadas y cero incompletas, y el agujero estaba justo en la clase de
+polinomio que la bater\u00eda no tocaba. Las pruebas miden lo que se les pone.
+
+### Lo que se arregla aqu\u00ed
+
+Solo una cosa, y es la ra\u00edz del fallo: **la frase se conserva.** La respuesta sigue
+siendo parcial, y ahora lo dice. No es una respuesta completa y no se presenta
+como tal; es un hueco que el usuario puede ver, que antes no pod\u00eda.
+
+La lista `PARCIALES` de `tests/test_mathlab_ecuaciones_sonido.py` deja las cuatro
+ecuaciones escritas con su n\u00famero de soluciones que faltan, de modo que el d\u00eda
+sea una medida y no una sensaci\u00f3n: si alg\u00fan completa las ra\u00edces, esa prueba falla
+y avisa.
+
+### Lo que NO se arregla, y por qu\u00e9
+
+Completar las ra\u00edces se implement\u00f3 y se midi\u00f3: dividiendo las racionales
+fuera con divisi\u00f3n exacta y resolviendo la cuadr\u00e1tica que queda, `sen(x)\u00b3 -
+sen(x)/2 = 0` pas\u00f3 de 2 familias a 6, y sobre 15 ecuaciones qued\u00f3 **0 inventadas y 0
+incompletas**, con los reciprocos con potencia intactos. Rompi\u00f3 otras dos cosas, y
+por eso no entra:
+
+1. **`mx.evaluate` contesta en n\u00fameros complejos para todo.** `Num(0)` llega como
+   `0j`. Una guarda `isinstance(valor, complex)` rechaza **toda** comparaci\u00f3n sin
+   decir nada, y por eso `x = pi + 2k\u00b7pi` y `x = -pi + 2k\u00b7pi` sal\u00edan como dos
+   familias: son la misma, y el alumno cuenta cinco soluciones donde hay cuatro.
+   Hay que sacar `.real` y comprobar la imaginaria.
+2. **El exponente cero es la monomia vac\u00eda `()`**, no `((\u00b7,0),)`. Leerla como
+   `((\u00b7,0),)` devuelve un cero silencioso, y toda divisi\u00f3n por `(u - r)` con
+   t\u00e9rmino constante sal\u00eda \u00abinexacta\u00bb pareciendo correcta en la traza.
+3. **`poly._divide_linear` prueba la divisibilidad con `coeff % a != 0`**, que en
+   `Fraction` no es la pregunta correcta: `Fraction(-1, 2) % 1` es `Fraction(1, 2)`.
+   `u\u00b3 - u/2` dividido por `u` \u2014 la divisi\u00f3n m\u00e1s simple que hay \u2014 se
+   declara inexacta. Arreglarlo ah\u00ed es lo correcto, pero `as_ratio` comparte esa
+   funci\u00f3n con el dominio y con la carta de signos, y cambiar lo que se cancela en
+   un cociente llega a las tres: rompi\u00f3 `1/cos(x)\u00b5 = 32` y `sec(x)\u00b5 > 32`.
+   **Tanda propia, con bater\u00eda propia.**
+4. **Completar las ra\u00edces convierte la carta de signos en un rechazo.**
+   `inequaciones._ceros_aperiodicos` necesita las ra\u00edces como *puntos* y un radical
+   no es un punto que sepa nombrar, as\u00ed que la cuadr\u00e1tica exacta solo cambia un
+   dibujo que pod\u00eda hacer por una negaci\u00f3n: honesta e in\u00fatil. El arreglo tiene
+   dos mitades y en este orden, o la carta de signos deja de funcionar:
+   primero las ra\u00edces completas, despu\u00e9s la tercera forma de `Punto` \u2014 la de
+   expresi\u00f3n, que existe y no se usa para esto.
+
+Los tres primeros son media hora cada uno y no dependen uno del otro.
+
 ## 2026-10-03 — la sustitución universal, intentada y revertida
 
 El paso que quedaba era factorizar después de `t = tg(x/2)`. Se ha

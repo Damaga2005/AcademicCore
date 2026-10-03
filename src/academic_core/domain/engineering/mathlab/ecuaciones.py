@@ -979,6 +979,21 @@ def _caso_polinomio(f: mx.Expr, var: str):
         hipotesis = [f"el lado izquierdo es un polinomio de grado {grado} en "
                      f"{nombre}(u): se buscan sus raíces exactas y luego se "
                      "deshace el cambio"]
+        if motivo:
+            # The sentence that says the answer above is PARTIAL. It was dropped
+            # here — computed on the line before and never read — and that is why
+            # `sen(x)³ - sen(x)/2 = 0` could publish `{0, pi}` without a word.
+            #
+            # What happened there: the polynomial in `sen(u)` is `-u³ + u/2`, and
+            # the rational root theorem finds `u = 0` and stops, because the other
+            # two roots are `±1/√2` and no theorem that only looks for rational
+            # numbers is going to find them. Four of the eight solutions were
+            # missing and the engine said nothing about it.
+            #
+            # So this does not FIX the answer, and it is not claiming to. It stops
+            # the answer from pretending to be complete, which is the difference
+            # between a gap the user can see and one they cannot.
+            hipotesis.append(motivo)
         for raiz in raices:
             # The polynomial gave the value of ``cos(angulo)``, so the next equation
             # is ``cos(u) = raiz`` in ``u``, and then ``u = angulo`` has to be undone.
