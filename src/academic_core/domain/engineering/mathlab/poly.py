@@ -538,9 +538,15 @@ def _divide_linear(num: Polynomial, den: Polynomial, var: str
         if term is None:
             return {}, num
         coeff = rest[top]
-        if coeff % a != 0:
-            return {}, num
+        # NOT `coeff % a != 0`. Python's modulo on Fractions is integer modulo and
+        # lands on the sign of the divisor, so `Fraction(-1, 2) % 1` is
+        # `Fraction(1, 2)` and NOT zero: a division that is exactly representable
+        # was declared inexact. `u**3 - u/2` divided by `u` is the plainest case
+        # there is, and it failed. The question is whether the quotient is a whole
+        # number, and the denominator is what answers that.
         factor = coeff / a
+        if factor.denominator != 1:
+            return {}, num
         quotient = add(quotient, {term: factor})
         # mul() accumulates: a dict comprehension would collide two terms of
         # the divisor that share the multiplied monomial

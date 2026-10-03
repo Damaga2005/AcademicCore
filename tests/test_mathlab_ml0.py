@@ -275,6 +275,35 @@ def test_la_forma_racional_cancela_y_conserva_el_dominio():
     assert r.excluded_values() == {1}  # printed by the UI, not lost
 
 
+@pytest.mark.parametrize("cociente,resultado", [
+    # (x^3 - 1)/(x - 1)  and friends: the constant term is NEGATIVE, which is the
+    # whole point. Python's modulo on Fractions lands on the sign of the divisor,
+    # so `Fraction(-1, 2) % 1` is `Fraction(1, 2)` and not zero — the old test
+    # `coeff % a != 0` therefore declared these INEXACT and left them uncancelled.
+    ("(x^3-1)/(x-1)", "x^2+x+1"),
+    ("(x^3-8)/(x-2)", "x^2+2x+4"),
+    ("(x^2-1/4)/(x-1/2)", "x+1/2"),
+])
+def test_una_division_exacta_no_se_toma_por_inexacta(cociente, resultado):
+    """Cancelar es un acto, y un acto mal hecho cambia la respuesta.
+
+    ``_divide_linear`` comprobaba la divisibilidad con ``coeff % a != 0``, que en
+    ``Fraction`` no es la pregunta correcta: ``Fraction(-1, 2) % 1`` vale
+    ``Fraction(1, 2)``. Toda división exacta con término constante negativo se
+    declaraba inexacta y el cociente se quedaba sin simplificar.
+
+    No se nota mirando el resultado — un cociente sin simplificar sigue siendo la
+    misma función — y por eso hace falta una afirmación que lo compruebe. Y no
+    solo para estos tres: ``as_ratio`` comparte esa función con el dominio y con la
+    carta de signos, y una cancelación de más o de menos cambia los dos.
+    """
+    ra = P.as_ratio(mx.parse(cociente), "x")
+    rb = P.as_ratio(mx.parse(resultado), "x")
+    assert ra is not None and rb is not None
+    assert P.same_ratio(ra, rb), (cociente, P.to_expr(ra.numerator),
+                                  P.to_expr(ra.denominator))
+
+
 @pytest.mark.parametrize("a,b,igual", [
     ("(x^2-1)/(x-1)", "x+1", True),
     ("(x^3-1)/(x-1)", "x^2+x+1", True),
