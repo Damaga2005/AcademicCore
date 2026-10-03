@@ -1,5 +1,64 @@
 # Changelog
 
+## 2026-10-03 — la sustitución universal, intentada y revertida
+
+El paso que quedaba era factorizar después de `t = tg(x/2)`. Se ha
+implementado, se ha medido, **produce respuestas incompletas**, y se ha revertido.
+Queda escrito por qué, que es lo que hace útil el siguiente intento.
+
+### Lo que se midió bien
+
+El mecanismo funciona donde la sustitución queda plana, y abre siete ecuaciones
+que el motor se negaba:
+
+| | antes | después |
+|---|---|---|
+| `cos(x) + cos(2x) = 0` | se negaba | `{1/3·pi, pi, -1/3·pi}` |
+| `cos(x) - cos(2x) = 0` | se negaba | `{2/3·pi, 0, -2/3·pi}` |
+| `cos(3x) + cos(x) = 0` | se negaba | `{1/2·pi, -1/2·pi}` |
+| `cos(x) + cos(2x) = 1` | se negaba | `acos((-1 + √17)/4)` ± |
+
+Y `cos(x) + cos(2x) = 0` pasó a leerse en potencias de la misma función —
+`cos x + 2cos²x - 1` — y de ahí la resuelve el camino que ya resolvía
+`cos(x)² = 1/2`. Ese es el punto bueno del asunto: **las identidades ya estaban, lo
+que faltaba era un caso que las usara**.
+
+### Por qué se revierte
+
+`sen(3x) - sen(x) = 0` se respondía `{0, pi}` y le faltan las de
+`cos(2x) = 0`. Es una **respuesta incompleta presentada como completa**, que es
+justo el fallo que §5.4 recuento, en el sitio donde el motor se le exige
+exactitud. Un rechazo es honesto; publicar la mitad de las soluciones con la misma
+seguridad con que se publican todas, no.
+
+Las cuatro cosas que hay que tener resueltas antes de reintentarlo, en orden:
+
+1. **`as_ratio` NO despeja una división anidada.** El numerador de
+   `cos(x) - cos(2x)` llega como `(1-u²)/(1+u²) - 2((1-u²)/(1+u²))² + 1`, con
+   fracciones dentro. `degree_in` lee el exponente del `u²` interior y dice
+   «grado 2», la fórmula cuadrática corre sobre una fracción y las raíces salen
+   como `0/0`. La forma tiene que comprobarse **donde se produce la respuesta**,
+   que es donde no la comprobaba nadie.
+2. **La sustitución solo lee el nombre de la función.** `cos(2x)` no es
+   `(1-t²)/(1+t²)`: esa entrada de la tabla es `cos(u)` con `u = x`. Leír
+   `2x` como `u` afín es **el mismo error que `_como_polinomio` cometía** —
+   sustituir una función por su nombre sin mirar qué hay dentro — y contestó
+   `cos(x) + cos(2x) = 0` con `2·arctg(1)`, un punto donde el lado izquierdo es `−1`.
+   Por eso el desarrollo de ángulos múltiples tiene que ocurrir ANTES.
+3. **Las raíces de grado alto son irracionales.** `sen(x) + sen(2x) = 0` es
+   `2t(3 - t²)` en `t`: `0` y `±√3`. El teorema de la raíz racional no las ve, y
+   sin la cuadrótica exacta el caso solo puede negarse. Publicar las racionales
+   que se encontram **sin decir que faltan las demás** es la misma respuesta
+   incompleta de arriba.
+4. **`x = pi` es donde `t = tg(x/2)` no está definida.** Hay que preguntarlo por
+   separado, no dejar que falte en silencio.
+
+Además, un descuido propio que conviene no repetir: al pegar bloques por
+índice de línea se perdió por el camino una función entera
+(`_desarrolla_angulos_multiples`), y el CHANGELOG de la tanda anterior segú
+afirmando que existía. Las afirmaciones del CHANGELOG hay que comprobarse
+contra el código, no contra lo que uno recuerda haber escrito.
+
 ## 2026-10-03 — `A·B = 0` se parte en sus factores, con su condición de sonido
 
 `sen(x)·cos(x) = 0` se negaba, y es la ecuación más simple de la familia. El motor
