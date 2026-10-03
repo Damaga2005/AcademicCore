@@ -80,11 +80,26 @@ Incluye funciones, inversas, identidades, periodicidad, ecuaciones, inecuaciones
 
 Lo implantado son las familias de identidades, ramas, ecuaciones, inecuaciones, dominio, complejos, fasores, derivadas, series y gráficas. Todas tienen un módulo propio con operación en `calculators.py` y un sello producido por un camino que no consulta el cálculo que dio la respuesta: sustitución de miembros para ecuaciones, muestreo bidireccional para inecuaciones, contraejemplo para ramas, contrato de fase con `CIRCUITS_LAB` para fasores, sensibilidad medida para el camino numérico, y muestreo denso de la función contra los hechos declarados para gráficas.
 
-Lo que queda, y por qué:
+Lo que queda, y por qué — **revisado contra el código el 2026-10-04**, porque las
+tres afirmaciones que estaban aquí eran falsas y se contradecían cuatro líneas más
+abajo, donde T-18 ya figuraba cerrado:
 
-- **T-14** sin derivadas ni integrales propias; las de la familia viven en T-17.
-- **T-18** sin reducción de potencias de seno o coseno al integrando, y sin encadenar integración por partes para logaritmos. `sen(x)^2` se rechaza en vez de Integration by parts + double angle.
-- **T-19** con un término de más en el polinomio de Taylor de un monomio. Las derivadas se comprueban una a una y son correctas; el fallo está en cómo se arman los términos. Hay una prueba que lo documenta sin aprobarlo. T-23 lo esquivó: donde hay serie conocida usa `series.maclaurin`, que es correcta, y avisa de que si no la hay va por `taylor`.
+- ~~**T-14** sin derivadas ni integrales propias~~. **FALSO.** Las seis derivadas
+  existen (`d/dx senh = cosh`, `d/dx tanh = 1/cosh²`, `d/dx sech = -sech·tanh`, …) y
+  cuatro de las seis integrales (`senh`, `cosh`, `tanh` → `ln(cosh)`, `coth` →
+  `ln|sinh|`). **Lo que sí falta:** las integrales de `sech(x)` y `csch(x)`, que se
+  niegan.
+- ~~**T-18** sin reducción de potencias ni partes encadenadas, y `sen(x)^2` se
+  rechaza~~. **FALSO.** `∫sen³`, `∫sen⁴`, `∫sen⁵`, `∫sen⁷` y sus cuatro hermanas de
+  coseno, `∫tg³`, `∫cot³`, `∫sec²`, `∫cosec²`, `∫cot²`, `∫x·ln x`, `∫ln²x` y
+  `∫x³eˣ` responden, y `sen(x)^2` ya no se rechaza. **Lo que sí falta:** la
+  sustitución `t = tg(x/2)` en la integración — `∫1/(1+cos x)` y
+  `∫1/(cos x + cos 2x)` se niegan.
+- ~~**T-19** con un término de más en el polinomio de Taylor de un monomio~~.
+  **FALSO, y medido:** 168 combinaciones de coeficiente, grado y orden, **0
+  distintas de lo esperado**. El polinomio de `x⁷` al orden 4 es `0`, que es lo
+  correcto, y no un término de más.
+
 Lo que queda, y por qué:
 
 - **T-18 cerrado entero.** Los tres huecos que quedaban eran el mismo fallo de lectura —una regla que mira una cosa y no la otra— y los tres están resueltos:

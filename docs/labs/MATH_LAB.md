@@ -1633,7 +1633,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - restricciones de inversas.
 - conjuntos solución periódicos.
 
-### T-14. Trigonometría hiperbólica — PARCIAL (identidades, suma/diferencia, dobles, inversas y conexión exponencial; faltan derivadas e integrales, que son de T-17 y T-18)
+### T-14. Trigonometría hiperbólica — PARCIAL (identidades, suma/diferencia, dobles, inversas y conexión exponencial, y **las seis derivadas**; faltan dos integrales, `sech(x)` y `csch(x)`. Etiqueta revisada el 2026-10-04: aquí decía «faltan derivadas e integrales», y las derivadas existían todas)
 - sinh, cosh, tanh, coth, sech, csch.
 - identidades.
 - suma/diferencia.
@@ -1666,7 +1666,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - órdenes superiores.
 - verificación independiente.
 
-### T-18. Integración trigonométrica — PARCIAL (básicas, potencias de recíprocas y recíprocas e hiperbólicas; faltan reducción de potencias de seno y coseno al integrando, y integración por partes encadenada para logaritmos)
+### T-18. Integración trigonométrica — PARCIAL (básicas, potencias, **reducción de potencias de seno, coseno y tangente**, partes encadenadas y recíprocas e hiperbólicas; falta la sustitución `t = tg(x/2)`, que es el único punto abierto de la lista: `∫1/(1+cos x)` y `∫1/(cos x + cos 2x)` se niegan. Etiqueta revisada el 2026-10-04: aquí decía que faltaban la reducción de potencias y las partes para logaritmos, y ambas existen desde hace tiempo)
 - integrales básicas.
 - potencias y productos.
 - sustituciones.
@@ -1676,7 +1676,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - detección de primitivas no elementales.
 - verificación por derivación.
 
-### T-19. Series y aproximaciones — PARCIAL (series conocidas con residuo y cota alternativa, y Taylor por derivadas; el polinomio de un monomio todavía lleva un término de más, documentado en las pruebas)
+### T-19. Series y aproximaciones — PARCIAL (series conocidas con residuo y cota alternativa, y Taylor por derivadas; **el polinomio de un monomio es correcto**: 168 combinaciones de coeficiente, grado y orden comprobadas el 2026-10-04, 0 distintas de lo esperado. Esta etiqueta decayse en lo único que queda, que es la cota de error cuando no hay cota sobre la derivada omitida: la serie entonces lleva `cota = None` y lo dice, porque un polinomio sin precisión declarada no es una aproximación, es otra expresión)
 - Taylor/Maclaurin.
 - orden solicitado.
 - término residual.
@@ -1684,7 +1684,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - convergencia.
 - comparación exacta/aproximada.
 
-### T-20. Estrategia de transformación — PARCIAL (selección por objetivo y estrategia de resolución; faltan los objetivos integrar, derivar, complejos y fasores, que son de T-15 a T-18 y se han añadido caso a caso en vez de como objetivo)
+### T-20. Estrategia de transformación — PARCIAL (ocho objetivos con reglas —simplificar, expandir, producto_a_suma, suma_a_producto, potencias, sustitucion_universal, hiperbolicas, exponencial— y cuatro declarados **con su porqué y cero reglas**: derivar, integrar, complejos y fasores. Etiqueta revisada el 2026-10-04: era la única de estas cuatro cuya afirmación seguía siendo cierta, y ahora lo dice con la cuenta de reglas)
 El motor debe seleccionar transformaciones según el objetivo: simplificar, demostrar, resolver, integrar, derivar, pasar a complejos o preparar señales/fasores. Debe evitar ciclos y explosión combinatoria mediante búsqueda acotada.
 
 ### T-21. Valores exactos y constantes — COMPLETADA
