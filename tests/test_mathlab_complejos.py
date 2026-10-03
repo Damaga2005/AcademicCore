@@ -151,10 +151,53 @@ def test_el_argumento_del_cero_no_esta_definido():
 
 
 def test_argumento_no_principal_gana_una_vuelta_entera():
-    base = mx.evaluate(z("3+4i").argumento())
-    otro = mx.evaluate(z("3+4i").argumento(principal=False))
-    assert abs(otro.real - base.real) < 1e-12     # same value, named differently
-    assert abs(math.sin(otro.real) - math.sin(base.real)) < 1e-12
+    """``principal=False`` must name the SAME angle one whole turn away.
+
+    This test used to assert the two were EQUAL, which is the opposite of what its
+    name says, and it did it on ``3+4i`` — first quadrant, where the unfolded
+    ``atan(y/x)`` is already principal and the flag changes nothing. So it passed
+    for an implementation that ignored the flag entirely, and it could never have
+    caught the second quadrant, where the unfolded ``atan(y/x)`` is not an
+    argument of ``z`` at all.
+    """
+    for fuente in ("3+4i", "-3+4i", "3-4i", "-3-4i", "1+1i", "-1+1i"):
+        base = mx.evaluate(z(fuente).argumento())
+        otro = mx.evaluate(z(fuente).argumento(principal=False))
+        assert abs(abs(otro.real - base.real) - 2 * math.pi) < 1e-12, fuente
+        assert abs(math.sin(otro.real) - math.sin(base.real)) < 1e-12, fuente
+
+
+@pytest.mark.parametrize("coordenadas", [
+    (3, 4), (-3, 4), (3, -4), (-3, -4), (1, 1), (1, -1), (-1, 1), (-1, -1),
+    (7, 1), (-7, 1),
+])
+def test_el_argumento_principal_cae_en_el_rango_declarado(coordenadas):
+    """``(-pi, pi]`` for every quadrant, including both negative-real ones.
+
+    The second and third quadrants fold in OPPOSITE directions — there ``y/x`` is
+    negative in one and positive in the other — and folding them alike put
+    ``arg(-3+4i)`` at -4.069, outside the range it declares. ``atan2`` is the
+    authority: it shares no code with the engine.
+    """
+    re, im = coordenadas
+    zc = K.Complejo(mx.Num(Fraction(re)), mx.Num(Fraction(im)))
+    a = mx.evaluate(zc.argumento()).real
+    assert abs(a - math.atan2(im, re)) < 1e-12, coordenadas
+    assert -math.pi <= a <= math.pi, coordenadas
+
+
+def test_el_argumento_no_principal_reconstruye_el_mismo_numero():
+    """A turn away is the same point on the circle, and that has to be checked.
+
+    Comparing the two angles is not enough: an angle with the wrong sign on its
+    cosine is a whole turn from nothing. So the number is rebuilt and compared.
+    """
+    for re, im in ((3, 4), (-3, 4), (-3, -4), (-1, 1)):
+        zc = K.Complejo(mx.Num(Fraction(re)), mx.Num(Fraction(im)))
+        modulo = mx.evaluate(zc.modulo()).real
+        a = mx.evaluate(zc.argumento(principal=False)).real
+        assert abs(complex(modulo * math.cos(a), modulo * math.sin(a))
+                    - complex(re, im)) < 1e-9
 
 
 # ---------------------------------------------------------------------------

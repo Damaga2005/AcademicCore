@@ -1851,16 +1851,53 @@ faltaba; arreglarlo destapó que `0·pi` y `0` eran dos puntos distintos para el
 motor, que la regla de fusión de intervalos estaba al revés y que un extremo
 infinito no ganaba nunca en una fusión.
 
-**COMPLETADAS:** T-01 a T-23 (salvo las partes señaladas).
+**COMPLETADAS:** T-01 a T-24 (salvo las partes señaladas).
 
 **T-14, T-18 y T-19 cerradas.** `∫sen^n`, `∫cos^n` y `∫tg^n` por la fórmula de reducción, `∫ln^n` por partes tabulares, y las primitivas propias de la familia —`cot`, `sec^2`, `cosec^2`, `cot^2`, `coth`, `sech^2`— en tabla. El polinomio de Taylor de un monomio ya coincide con el monomio.
 
-Queda de T-18 un caso concreto: `sen(x)^3·cos(x)^2`, un producto de dos potencias, no entra por la reducción —que es de UNA potencia— ni por el cambio de variable. `exp(x)·sen(x)` y `senh(x)^2` también se niegan, con el motivo escrito.
+**T-18 cerrada entera.** Los tres huecos que quedaban están resueltos, y los tres
+eran el mismo fallo de lectura: una regla que miraba una cosa y no la otra.
+
+- **El producto de dos potencias.** `sen(x)^3·cos(x)^2` no entraba porque la
+  reducción es de UNA potencia y el cambio de variable no ve el resto. Los tres
+  casos clásicos lo convierten en una SUMA de potencias simples, que es lo único
+  que ya había: exponente impar en `sen`, exponente impar en `cos`, y los dos
+  pares con `sen^(2a)·cos^(2b) = 4^... ·(1-cos(2g))^a(1+cos(2g))^b`. Ningún término
+  nuevo: o es `sen·cos^p` —que el cambio de variable siempre hizo— o es
+  `cos(2g)^k`, que es la reducción con factor de cadena. Solo faltaba leer el
+  integrando para encontrar las que ya existían.
+- **`∫sec^n`, `∫cosec^n`, `∫cot^n` para n ≥ 3.** `f^n = f^(n-2)·f^2` y el
+  cuadrado ya estaba en la tabla. Ojo con la cotangente: NO tiene la misma forma
+  que las otras dos, y fingir que sí es lo que hacía que `∫sec^3` saliera
+  `sec·tg - ln|sec+tg|` —piezas correctas, coeficientes equivocados—, que es peor
+  que no responder porque parece terminado.
+- **`e^x·sen(x)`, `e^x·cos(x)`, `senh(x)^2`, `cosh(x)^2`.** Entradas de tabla. La
+  primera tiene forma cerrada y ningún cambio de variable la encuentra: `u = sen(x)`
+  no aplica y las partes por dos veces vuelven a la integral de la que salieron.
+  `senh^2` y `cosh^2` se diferencian en el SIGNO del término lineal, y comprobarlo
+  derivando es lo que las distingue; leerlas no.
+
+Dos errores de los encontrados al verificar, que ya no se ven porque están
+arreglados:
+
+- El denominador del caso par-par era `4^(a+b)` en vez de `2^(a+b)`, de modo que
+  `∫sen^2·cos^2` salía cuatro veces pequeña. Correcta en la forma y con la
+  constante equivocada.
+- Al caso con exponente impar en `cos` le faltaba el `(-1)^j` del binomio, que es
+  todo lo que separa las dos ramas: `∫sen^2·cos^3` daba una derivada
+  `sen^2·cos(1 + sen^2)`, una expresión real y la primitiva equivocada.
+
+**Un límite que no es un hueco.** `sen(x)^6·cos(x)^6` se integra bien —234
+caracteres, dentro del presupuesto— y su derivada no cabe en los 480. O sea: el
+motor devuelve una respuesta correcta que no puede comprobar. La prueba lo dice y
+lo comprueba por diferencias finitas, porque ahí ya no queda la verificación
+simbólica. Es justo lo que el presupuesto existe para hacer visible en vez de
+esconder.
 
 **Auditoría.** Un barrido del motor entero buscando respuestas FALSAS, no
-capacidades faltantes, vive en `tests/test_mathlab_auditoria.py`: 326
+capacidades faltantes, vive en `tests/test_mathlab_auditoria.py`: **485**
 comprobaciones, cada una por un camino que no consulta el cálculo que la produjo.
-Encontró dos bugs que ninguna otra prueba veía:
+La primera tanda encontró dos bugs que ninguna otra prueba veía:
 
 - `x^(3/2)` volvía del otro árbol de expresiones como `√x`. El numerador del
   exponente se perdía, y la primitiva de `√x` salía `2·√x/3`, cuya derivada
@@ -1871,10 +1908,55 @@ Encontró dos bugs que ninguna otra prueba veía:
   mientras el coeficiente salía como recíproco. Dos fallos que se cancelan, que es
   la razón por la que todo valor intermedio parecía plausible.
 
-**COMPLETADAS:** T-01 a T-23.
+**Segunda tanda de la auditoría: T-13, T-11, T-15 y T-16.** Un barrido por las
+familias que la anterior no cubría encontró **seis bugs de respuesta falsa** y un
+bucle infinito. Ninguno era una capacidad que faltara: todos contestaban mal.
 
-**PARCIALES:** T-13 completa pero sin el análisis de dominio multivariable. De T-18,
-el producto de dos potencias y `exp·sen`.
+- **T-13, el más grave: `sen(x) >= 1` publicaba `∅`.** La carta recorre *huecos* y
+  se queda con los que cumplen; una solución sin interior —el máximo es tangente,
+  no un cambio de signo— no tiene ninguno que quedarse. Se cumple en `pi/2` y en
+  `3pi/2`. Lo escondía el caso vecino: `sen(x) <= 1` salía bien, porque en él
+  cumplen todos los huecos y no hay nada que buscar. También `sen(x) <= -1`,
+  `cos(x) >= 1` y `cos(x) <= -1`.
+- **T-13: `<=` y `<` publicaban el mismo conjunto** en `tg`, con `pi` dentro de
+  `< 0`. El extremo del periodo se comparaba sin doblar contra un conjunto de ceros
+  ya doblado, así que no se reconocía como cero y lo decidía el valor numérico:
+  `tg(pi) = -1e-16` pasa cualquier `< 0`.
+- **T-13: `0·pi` y `periodo·pi` se contestaban distinto** siendo el mismo punto, en
+  las doce combinaciones de operador sobre seno, coseno y tangente. La respuesta
+  declara que se repite cada `P·pi`; no puede separarlos.
+- **T-11: las dos ramas de `acosh(cosh)` estaban cambiadas de sitio.** Publicaba `x`
+  en `(-inf, 0]` y `-x` en `[0, inf)`; `acosh(cosh(x)) = |x|` dice lo contrario. Y
+  la **nota** de cada fila describía el lado correcto, así que el motor se contradecía
+  a sí mismo y las dos frases decían la misma cosa falsa.
+- **T-15: `arg` mal en el segundo cuadrante.** Con parte real negativa hay dos
+  cuadrantes y se doblan en direcciones opuestas: `arg(-3+4i)` salía en -4.069 en
+  vez de +2.214, fuera del rango `(-pi, pi]` que el propio módulo declara.
+- **T-15: `principal=False` no era una vuelta más**, que es lo que su nombre
+  prometía: devolvía el `atan(y/x)` sin doblar, que con parte real negativa no es un
+  argumento del número —el coseno sale con el signo equivocado—.
+- **Un bucle infinito, preexistente.** `periodo_minimo` partía el candidato por la
+  mitad con la condición `candidato / 2 > 0`, y un `Fraction` positivo partido por
+  dos nunca llega a cero. `sen(x)^2 + cos(x)^2 - 1/2` es la constante 1/2 escrita
+  más larga, repite tras cualquier desplazamiento, y **`sen(x)^2 + cos(x)^2 > 1/2`
+  colgaba el motor** hasta que lo mataban. Ahora se niega con el motivo que ya daba
+  `1 > 1/2`: no hay periodo mínimo, y un periodo sin mínimo no lo usa una carta.
+
+Lo que salió limpio, y conviene decirlo porque es la mitad del resultado: T-16
+entero, las otras cinco familias de ramas de T-11, y el periodo, la frecuencia, la
+amplitud —la mitad del recorrido, medida en la prueba y no por el motor— y los
+ceros de T-23, comprobados anulando la función.
+
+Dos comprobaciones de la propia auditoría resultaron **ingenuas** y se corrigieron,
+no el motor: un polo visto por punto flotante es un número grande, así que la
+comprobación de inecuaciones tiene que contarlo como polo o marca como error una
+respuesta correcta; y `test_argumento_no_principal_gana_una_vuelta_entera` afirmaba
+que las dos vías dan lo mismo, sobre `3+4i` —primer cuadrante, donde la opción no
+cambia nada—, así que pasaba con una implementación que ignorara la opción.
+
+**COMPLETADAS:** T-01 a T-24.
+
+**PARCIALES:** T-13 completa pero sin el análisis de dominio multivariable.
 
 **PENDIENTES:** ninguna de la especificación; lo que queda es lo que cada línea dice.
 

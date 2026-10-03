@@ -16,15 +16,18 @@ eso todos los valores intermedios parecían plausibles.
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 
 import pytest
 
+from academic_core.domain.engineering.mathlab import complejos as K
 from academic_core.domain.engineering.mathlab import derive_mv
 from academic_core.domain.engineering.mathlab import dominio as D
 from academic_core.domain.engineering.mathlab import ecuaciones as E
 from academic_core.domain.engineering.mathlab import graficas as Gr
 from academic_core.domain.engineering.mathlab import inequaciones as I
 from academic_core.domain.engineering.mathlab import mvexpr as mx
+from academic_core.domain.engineering.mathlab import ramas as R
 from academic_core.domain.engineering.mathlab import series as S
 from academic_core.domain.engineering.mathlab import trig as T
 from academic_core.domain.engineering.mathlab import verify as V
@@ -383,3 +386,468 @@ def test_la_expresion_sobrevive_al_otro_arbol(expresion):
         pytest.skip(f"el otro árbol no lo representa: {str(exc)[:50]}")
     ok, _m, detalle = V.numeric_agreement(vuelta, e, samples=10)
     assert ok, f"{expresion} -> {mx.text(vuelta)}: {detalle}"
+
+
+# ---------------------------------------------------------------------------
+# 9. T-13: el conjunto publicado, en aritmética exacta
+#
+# La comprobación recorre coeficientes racionales de pi y compara lo que dice
+# `Solucion.contiene` con la verdad evaluada en ESE punto. Un conjunto que fuese
+# solo un subconjunto de la verdad pasaría esta dirección y fallaría en la otra,
+# por eso se comprueban las dos: cada punto tiene que estar dentro exactamente
+# cuando la desigualdad se cumple.
+#
+# Y el tercer bloque fija los TRES bugs que encontró esta auditoría, que son
+# son respuestas FALSAS y no capacidades: `sen(x) >= 1` publicaba ∅, `tg(x) < 0` publicaba
+# `pi` dentro, y `contiene(0)` y `contiene(periodo)` se contradecían siendo el
+# mismo punto.
+
+INEQ_MUESTREADAS = [
+    "sin(x) > 0", "sin(x) < 0", "sin(x) >= 1/2", "sin(x) <= -1/2",
+    "cos(x) > 0", "cos(x) < 0", "cos(x) >= 1/2", "cos(x) >= -1/2",
+    "cos(x) <= 0", "tan(x) < 1", "tan(x) > -1", "tan(x) <= 0", "tan(x) >= 0",
+    "cot(x) > 1", "cot(x) <= 1", "sin(x)^2 > 1/2", "sin(x)^2 <= 1/4",
+    "cos(2*x) > 1/2", "sin(x)*cos(x) > 0", "sin(x)*cos(x) < 0",
+    "sin(x)/cos(x) > 1", "1/tan(x) > 0", "1/tan(x) < 0",
+    "cos(x)^2 >= 1/2", "tan(2*x) < 0", "cos(x) - sin(x) > 0",
+    "sin(x) + cos(x) > 0", "2*sin(x) > 1",
+    "-sin(x) > 1/2", "tan(x)*tan(x) <= 1",
+]
+
+#: Las que el motor se niega, con el motivo escrito, y aqui solo se comprueba
+#: que el motivo sea el de verdad. Un rechazo sin motivo es un rechazo que no
+#: dice nada, asi que la afirmacion se comprueba contra el texto del motivo.
+CON_MOTIVO = [("sin(x)/tan(x) < 2", "ceros"),
+               ("sin(x)^2 + cos(x)^2 > 1/2", "periódica"),
+               ("sec(x)^2 > 4", "ceros")]
+
+
+@pytest.mark.parametrize("texto,palabra", CON_MOTIVO)
+def test_una_inequacidad_que_no_se_resuelve_dice_por_que(texto, palabra):
+    """Negarse es correcto; negarse sin motivo escrito, no."""
+    with pytest.raises(Exception) as exc:
+        I.resolver_inequidad(texto)
+    assert palabra in str(exc.value), f"{texto}: {str(exc.value)[:90]}"
+
+
+def _real(v):
+    """El valor como real, o ``None`` si no lo es.
+
+    El evaluador devuelve complejo para lo que toca una raíz, y en una
+    desigualdad real un resultado imaginario no es verdad ni mentira: es fuera
+    del dominio, que es lo que hay que responder.
+    """
+    if v is None:
+        return None
+    if isinstance(v, complex):
+        return v.real if abs(v.imag) < 1e-12 else None
+    return float(v)
+
+
+def _verdad(texto: str, x: float) -> bool:
+    """La desigualdad en el punto, sin pasar por el solucionador.
+
+    Un polo se devuelve como ``False`` cuando el valor es enorme: ahi la tabla
+    simbólica es la autoridad y el punto flotante solo ve un numero grande. Es la
+    unica concession que hace esta comprobacion, y sin ella marcaria como error
+    una respuesta que es correcta — el motor diciendo que ``pi/2`` no es solucion
+    de ``tg(x) > -1``, que es lo que tiene que decir.
+    """
+    for op in (">=", "<=", ">", "<", "="):
+        i = texto.find(op)
+        if i >= 0:
+            break
+    cuerpo, lado = texto[:i].strip(), texto[i + len(op):].strip()
+    v = _real(mx.evaluate(mx.parse(cuerpo), {"x": x}))
+    d = _real(mx.evaluate(mx.parse(lado), {"x": x}))
+    if v is None or d is None or abs(v) > 1e12:
+        return False
+    tol = 1e-9
+    return {">=": v >= d - tol, "<=": v <= d + tol,
+            ">": v > d + tol, "<": v < d - tol,
+            "=": abs(v - d) < tol}[op]
+
+
+@pytest.mark.parametrize("texto", INEQ_MUESTREADAS)
+def test_el_conjunto_de_una_inequacidad_coincide_con_la_funcion(texto):
+    """Cada punto racional de pi, dentro exactamente cuando se cumple."""
+    s = I.resolver_inequidad(texto)
+    if s.periodo is None:
+        pytest.skip("aperiodica: el conjunto no es un patron")
+    for i in range(16):
+        k = Fraction(i * s.periodo, 16)
+        esperado = _verdad(texto, float(k) * math.pi)
+        assert s.contiene(k) is esperado, (
+            f"{texto} en {k}·pi: el conjunto dice {s.contiene(k)} y la funcion "
+            f"dice {esperado}; publicado «{s.conjunto.texto()}»")
+
+
+def test_el_verificador_de_inequaciones_puede_decir_que_no():
+    """Control negativo: sin el, la comprobación de arriba no compararía nada."""
+    s = I.resolver_inequidad("sin(x) > 0")
+    assert s.contiene(Fraction(1, 4)) is True
+    assert s.contiene(Fraction(3, 4)) is True
+    assert s.contiene(Fraction(5, 4)) is False
+    assert s.contiene(Fraction(7, 4)) is False
+
+
+# --- bug 1: una solucion SIN INTERIOR no tiene ningun hueco que quedarse ------
+
+NIVEL_PROPIO = ["sin(x) >= 1", "sin(x) <= -1", "cos(x) >= 1", "cos(x) <= -1"]
+
+
+@pytest.mark.parametrize("texto", NIVEL_PROPIO)
+def test_una_inequacidad_que_solo_se_cumple_en_un_punto_no_puede_salir_vacia(texto):
+    """``sen(x) >= 1`` se cumple en ``pi/2`` y en ``3pi/2``.
+
+    La carta de signos recorre HUECOS y se queda con los que cumplen. Una
+    solucion sin interior no tiene ninguno que quedarse —el maximo es tangente,
+    no un cambio de signo— y la respuesta salia ``∅``: un «no hay soluciones»
+    falso sobre una expresion llena de ellos. El caso no tangente, ``sen(x) <= 1``,
+    si salia bien, que es lo que lo escondia.
+    """
+    s = I.resolver_inequidad(texto)
+    assert not s.conjunto.vacio, f"{texto} publica ∅ y tiene soluciones: {s.texto()}"
+
+
+@pytest.mark.parametrize("texto,donde", [("sin(x) >= 1", Fraction(1, 2)),
+                                         ("cos(x) >= 1", Fraction(0)),
+                                         ("sin(x) <= -1", Fraction(3, 2)),
+                                         ("cos(x) <= -1", Fraction(1))])
+def test_el_punto_de_tangencia_esta_en_su_conjunto(texto, donde):
+    s = I.resolver_inequidad(texto)
+    assert s.contiene(donde), f"{texto} no contiene {donde}·pi: {s.conjunto.texto()}"
+
+
+# --- bug 2: <= y < no pueden publicar el mismo conjunto ----------------------
+
+IGUALES_QUE_NO_DEBEN = [
+    ("tan(x) <= 0", "tan(x) < 0"), ("sin(x) <= 0", "sin(x) < 0"),
+    ("cos(x) <= 0", "cos(x) < 0"), ("sin(x) <= 1", "sin(x) < 1"),
+    ("tan(x) <= 1", "tan(x) < 1"),
+]
+
+
+@pytest.mark.parametrize("cerrada,abierta", IGUALES_QUE_NO_DEBEN)
+def test_la_version_cerrada_y_la_abierta_no_publican_lo_mismo(cerrada, abierta):
+    """``tg(x) <= 0`` y ``tg(x) < 0`` publicaban las dos ``(pi/2, pi]``.
+
+    El extremo del periodo se decidia comparando el punto SIN doblar contra un
+    conjunto de ceros YA doblado, asi que el cero del final de periodo no se
+    reconocia como cero y se decidia por el valor numerico: ahi ``tg(pi)`` vale
+    -1e-16, que pasa cualquier ``< 0``.
+    """
+    a = I.resolver_inequidad(cerrada)
+    b = I.resolver_inequidad(abierta)
+    assert a.conjunto.texto() != b.conjunto.texto(), (
+        f"«{cerrada}» y «{abierta}» publican lo mismo: {a.conjunto.texto()}")
+
+
+# --- bug 3: el mismo punto con dos nombres -----------------------------------
+
+CON_PARIDAD = [
+    "sin(x) <= 0", "sin(x) >= 0", "sin(x) < 0", "sin(x) > 0",
+    "cos(x) <= 0", "cos(x) >= 0", "cos(x) < 0", "cos(x) > 0",
+    "tan(x) <= 0", "tan(x) >= 0", "tan(x) < 0", "tan(x) > 0",
+]
+
+
+@pytest.mark.parametrize("texto", CON_PARIDAD)
+def test_el_punto_del_periodo_y_el_cero_no_se_contradicen(texto):
+    """La respuesta DECLARA «se repite cada P·pi», luego 0·pi y P·pi son el mismo.
+
+    Antes, ``contiene(0)`` era falso y ``contiene(P)`` verdadero para ``tg(x) <= 0``
+    — y la verdad numerica decia que 0 si es solucion. Un conjunto que pone un
+    punto dentro y el mismo punto fuera no es la solucion de nada.
+    """
+    s = I.resolver_inequidad(texto)
+    assert s.periodo is not None
+    assert s.contiene(Fraction(0)) == s.contiene(Fraction(s.periodo)), (
+        f"{texto}: contiene(0)={s.contiene(Fraction(0))} pero "
+        f"contiene({s.periodo})={s.contiene(Fraction(s.periodo))}; "
+        f"publicado «{s.conjunto.texto()}»")
+
+
+@pytest.mark.parametrize("texto,coeficiente", [("tan(x) <= 0", Fraction(0)),
+                                               ("sin(x) <= 0", Fraction(0)),
+                                               ("tan(x) >= 0", Fraction(0)),
+                                               ("sin(x) >= 0", Fraction(0))])
+def test_el_cero_del_periodo_se_responde_como_tal(texto, coeficiente):
+    """``tg(0) = 0``, asi que ``tg(x) <= 0`` y ``tg(x) >= 0`` se cumplen ahi."""
+    s = I.resolver_inequidad(texto)
+    assert s.contiene(coeficiente), f"{texto} en 0·pi: {s.conjunto.texto()}"
+    assert _verdad(texto, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# 10. T-11: cada rama vale DENTRO de su intervalo y falla en el siguiente
+#
+# La identidad se calcula aqui, con `math`, que no comparte una linea con el
+# motor. Y el control negativo importa: si la misma formula sirviera en las dos
+# ramas, no distinguiría nada y la comprobación pasaría sin comprobar.
+
+IDENTIDAD_RAMAS = {
+    "asin(sin)": lambda x: math.asin(math.sin(x)),
+    "acos(cos)": lambda x: math.acos(math.cos(x)),
+    "atan(tan)": lambda x: math.atan(math.tan(x)),
+    "asinh(sinh)": lambda x: math.asinh(math.sinh(x)),
+    "acosh(cosh)": lambda x: math.acosh(math.cosh(x)),
+    "atanh(tanh)": lambda x: math.atanh(math.tanh(x)),
+}
+
+
+@pytest.mark.parametrize("nombre", sorted(IDENTIDAD_RAMAS))
+def test_cada_rama_declara_una_identidad_que_se_cumple_en_su_intervalo(nombre):
+    """``acosh(cosh(x)) = |x|``, y sus dos filas estaban cambiadas de sitio.
+
+    El motor publicaba ``x`` en ``(-inf, 0]`` y ``-x`` en ``[0, inf)``, que es
+    justo al reves: en la izquierda vale ``-x``. Y lo publicaba dos veces igual,
+    porque la NOTA de cada fila describia el lado correcto y la expresion no — el
+    motor se contradecía a si mismo y las dos frases decian la misma cosa falsa.
+    """
+    identidad = IDENTIDAD_RAMAS[nombre]
+    rs = R.ramas(nombre)
+    for rama in rs:
+        iv = rama.intervalo
+        izq = None if iv.izq is None else iv.izq.coeficiente * math.pi
+        der = None if iv.der is None else iv.der.coeficiente * math.pi
+        if izq is None and der is None:
+            puntos = [-2.0, 0.0, 2.0]
+        elif izq is None:
+            puntos = [der - 0.3, der - 1.0, der - 2.0]
+        elif der is None:
+            puntos = [izq + 0.3, izq + 1.0, izq + 2.0]
+        else:
+            ancho = (der - izq) / 4
+            puntos = [izq + ancho, (izq + der) / 2, der - ancho]
+        for x in puntos:
+            try:
+                verdad = identidad(x)
+            except (ValueError, OverflowError):
+                continue
+            obtenido = _real(mx.evaluate(rama.expresion, {"x": x}))
+            if obtenido is None:
+                continue
+            assert abs(obtenido - verdad) < 1e-9, (
+                f"{nombre} en x={x}: la identidad da {verdad} y la rama dice "
+                f"{obtenido} (intervalo {iv.texto()})")
+
+
+@pytest.mark.parametrize("nombre", sorted(IDENTIDAD_RAMAS))
+def test_una_rama_no_sirve_tambien_en_la_siguiente(nombre):
+    """Si la misma formula valiera en las dos ramas, no distinguirian nada."""
+    identidad = IDENTIDAD_RAMAS[nombre]
+    rs = R.ramas(nombre)
+    for i, rama in enumerate(rs[:-1]):
+        siguiente = rs[i + 1].intervalo
+        a = None if siguiente.izq is None else siguiente.izq.coeficiente * math.pi
+        b = None if siguiente.der is None else siguiente.der.coeficiente * math.pi
+        if a is None or b is None or b <= a:
+            continue
+        x = (a + b) / 2
+        try:
+            verdad = identidad(x)
+        except (ValueError, OverflowError):
+            continue
+        obtenido = _real(mx.evaluate(rama.expresion, {"x": x}))
+        if obtenido is None:
+            continue
+        assert abs(obtenido - verdad) > 1e-9, (
+            f"{nombre}: la rama {i} tambien vale en x={x}, que es de la rama "
+            f"{i + 1}")
+
+
+def test_la_justificacion_de_una_rama_no_describe_otra_rama():
+    """La frase «llega hasta el infinito por la izquierda» la dizia toda familia.
+
+    ``acosh(cosh)`` es no acotada por la DERECHA, asi que la justificacion
+    describia una rama distinta de la que explicaba. Una justificacion que
+    describe otra rama lee bien y argumenta mal, que es lo peor de las dos.
+    """
+    texto = R.evidencia_global("acosh(cosh)")
+    principal = R.rama_principal("acosh(cosh)")
+    iv = principal.intervalo
+    if iv.izq is None:
+        assert "por la izquierda" in texto
+    else:
+        assert "por la izquierda" not in texto
+
+
+# ---------------------------------------------------------------------------
+# 11. T-15: el argumento de un complejo, contra `atan2`
+#
+# `atan2` es la autoridad: no comparte una linea con el motor. Y hay dos
+# cuadrantes con parte real negativa que se doblan en direcciones OPUESTAS, que
+# es donde se escondia el fallo.
+
+CUADRANTES = [(3, 4), (-3, 4), (3, -4), (-3, -4), (1, 1), (1, -1), (-1, 1),
+              (-1, -1), (7, 1), (-7, 1), (1, 7), (1, -7)]
+
+
+@pytest.mark.parametrize("re,im", CUADRANTES)
+def test_el_argumento_principal_coincide_con_atan2(re, im):
+    """``(-pi, pi]`` en los cuatro cuadrantes.
+
+    La real negativa se dobla una y otra vez hacia el mismo lado, y eso solo es
+    correcto en el TERCER cuadrante, donde ``y/x`` es positivo. En el segundo
+    ``y/x`` es negativo y hay que sumar ``pi``, no restarlo: ``arg(-3+4i)`` salia
+    en -4.069, fuera del rango que el propio modulo declara.
+    es correcto en el tercer cuadrante, donde ``y/x`` es positivo. En el segundo
+    ``y/x`` es negativo y hay que sumar ``pi``, no restarlo: ``arg(-3+4i)`` salia
+    en -4.069, fuera del rango que el propio modulo declara.
+    """
+    zc = K.Complejo(mx.Num(Fraction(re)), mx.Num(Fraction(im)))
+    a = _real(mx.evaluate(zc.argumento()))
+    assert a is not None
+    assert abs(a - math.atan2(im, re)) < 1e-12, (re, im)
+    assert -math.pi <= a <= math.pi, (re, im)
+
+
+@pytest.mark.parametrize("re,im", CUADRANTES)
+def test_el_argumento_no_principal_gana_exactamente_una_vuelta(re, im):
+    """Y reconstruye el MISMO numero, que es lo que lo hace la misma fase.
+
+    Comparar los dos angulos no basta: un angulo con el signo del coseno
+    equivocado esta una vuelta entera de nada.
+    """
+    zc = K.Complejo(mx.Num(Fraction(re)), mx.Num(Fraction(im)))
+    principal = _real(mx.evaluate(zc.argumento()))
+    otro = _real(mx.evaluate(zc.argumento(principal=False)))
+    assert otro is not None and principal is not None
+    assert abs(abs(otro - principal) - 2 * math.pi) < 1e-12, (re, im)
+    modulo = _real(mx.evaluate(zc.modulo()))
+    reconstruido = complex(modulo * math.cos(otro), modulo * math.sin(otro))
+    assert abs(reconstruido - complex(re, im)) < 1e-9, (re, im)
+
+
+@pytest.mark.parametrize("re,im", [(3, 4), (-3, 4), (3, -4), (-3, -4), (1, 1)])
+def test_el_argumento_tiene_que_poder_ser_no_principal(re, im):
+    """Control negativo del anterior: si las dos vias dieran lo mismo, no dirian nada."""
+    zc = K.Complejo(mx.Num(Fraction(re)), mx.Num(Fraction(im)))
+    a = _real(mx.evaluate(zc.argumento()))
+    b = _real(mx.evaluate(zc.argumento(principal=False)))
+    assert a != b, (re, im)
+
+
+# ---------------------------------------------------------------------------
+# 12. T-23: los hechos declarados contra la funcion recorrida
+#
+# La amplitud es la MITAD del recorrido —no el máximo, no el recorrido— y el
+# recorrido lo mide esta comprobacion, no el motor. Comparar el número del motor
+# contra si mismo no haria falta; compararloaria falta; compararlo contra el recorrido, que se calcula
+# aqui muestreando, si.
+
+SENOIDES = [("3*sin(2*x)", 3.0), ("sin(x)", 1.0), ("5*cos(x)", 5.0),
+            ("sin(x) + 1", 1.0), ("2*cos(3*x) - 4", 2.0), ("3*cos(x) + 2", 3.0),
+            ("2*sin(x + pi/3)", 2.0), ("5*sin(x + pi/3)", 5.0),
+            ("sin(5*x)", 1.0), ("cos(x)", 1.0), ("-sin(x)", 1.0)]
+
+
+@pytest.mark.parametrize("expresion,amplitud", SENOIDES)
+def test_la_amplitud_es_la_mitad_del_recorrido(expresion, amplitud):
+    e = mx.parse(expresion)
+    valores = []
+    for i in range(720):
+        v = _real(mx.evaluate(e, {"x": 2 * math.pi * i / 720}))
+        if v is not None:
+            valores.append(v)
+    mitad = (max(valores) - min(valores)) / 2
+    declarada = Gr.caracteristicas(e).amplitud
+    assert declarada is not None, f"{expresion} no declara amplitud"
+    assert abs(mitad - amplitud) < 1e-3, f"{expresion}: recorrido/2 = {mitad}"
+    assert abs(declarada - amplitud) < 1e-9, f"{expresion}: declara {declarada}"
+
+
+@pytest.mark.parametrize("expresion,coeficiente", [
+    ("3*sin(2*x)", Fraction(1)), ("sin(x)", Fraction(2)), ("cos(x)", Fraction(2)),
+    ("sin(2*x)", Fraction(1)), ("2*cos(3*x) - 4", Fraction(2, 3)),
+    ("sin(5*x)", Fraction(2, 5)), ("sin(x + pi/3)", Fraction(2)),
+])
+def test_el_periodo_y_la_frecuencia_dicen_lo_mismo(expresion, coeficiente):
+    """``periodo`` viene en unidades de pi y ``frecuencia`` es ``1/periodo``.
+
+    Un periodo por cada pi, que es lo mismo que decir un ciclo cada ``2·pi``.
+    Los dos numeros se declaran a la vez y tienen que cuadrar entre si: si
+    uno de los dos se equivoca, el otro lo compensa y ninguno se delata solo.
+    """
+    c = Gr.caracteristicas(mx.parse(expresion))
+    assert c.periodo == coeficiente, (expresion, c.periodo)
+    assert abs(float(c.frecuencia) * float(coeficiente) - 1.0) < 1e-12, expresion
+
+
+SIN_CERO_EXACTO = ["sin(x)", "cos(x)", "sin(2*x)", "cos(3*x)", "sin(x) + 1",
+                   "2*cos(x) - 1", "sin(x)/cos(x)", "sin(x)*cos(x)"]
+
+
+@pytest.mark.parametrize("expresion", SIN_CERO_EXACTO)
+def test_los_ceros_declarados_anulan_la_funcion(expresion):
+    e = mx.parse(expresion)
+    for p in Gr.caracteristicas(e).ceros:
+        v = _real(mx.evaluate(e, {"x": p.valor()}))
+        assert v is not None, f"{expresion}: {p.texto()} no existe"
+        assert abs(v) < 1e-6, f"{expresion}: en {p.texto()} vale {v}"
+
+
+# ---------------------------------------------------------------------------
+# 13. un bucle sin suelo: `sin(x)^2 + cos(x)^2 > 1/2` colgaba el motor
+#
+# `periodo_minimo` partia el candidato por la mitad mientras la mitad siguiera
+# valiendo, con la condicion `candidato / 2 > 0`. Un `Fraction` positivo
+# partido por dos es otro `Fraction` positivo: NUNCA llega a cero. Para una
+# funcion que repite tras CUALQUIER desplazamiento el bucle no terminaba, y
+# `sin(x)^2 + cos(x)^2 - 1/2` es la constante 1/2 escrita mas larga: repite tras
+# cualquier desplazamiento. El motor se colgaba hasta que lo mataban.
+#
+# La respuesta correcta no es un periodo mas pequeno, es que no hay periodo
+# minimo — y un periodo sin minimo no es un periodo que una carta de signos pueda
+# usar. `1 > 1/2` ya decia exactamente eso.
+
+SIN_PERIODO_MINIMO = ["sin(x)/x", "x + sin(x)", "sin(x)*x",
+                      "sin(x)^2 + cos(x)^2 - 1/2", "sin(x)^2 + cos(x)^2",
+                      "sin(x)^2 + cos(x)^2 + 3", "exp(x)", "1"]
+
+
+@pytest.mark.parametrize("expresion", SIN_PERIODO_MINIMO)
+def test_una_expresion_sin_periodo_minimo_no_cuelga(expresion):
+    """Con el suelo puesto: termina, y dice que no hay periodo."""
+    assert D.periodo_minimo(mx.parse(expresion), "x") is None
+
+
+@pytest.mark.parametrize("expresion", ["sin(x)^2 + cos(x)^2 > 1/2",
+                                      "sin(x)^2 + cos(x)^2 > 2",
+                                      "sin(x)^2 + cos(x)^2 = 1"])
+def test_la_identidad_fundamental_es_no_periodica_para_la_carta_de_signos(expresion):
+    """`sen^2 + cos^2 = 1`, asi que `> 1/2` es cierto en todas partes.
+
+    La carta de signos necesita un periodo; no hay ninguno que valga, asi que la
+    respuesta honesta es negarse con el motivo. Lo que no puede es colgarse.
+    """
+    with pytest.raises(Exception) as exc:
+        I.resolver_inequidad(expresion)
+    assert "periódica" in str(exc.value)
+
+
+# Los periodos minimos de verdad, que el cambio del bucle no puede tocar. Un
+# recorte mal puesto baja un sineide a un cuarto de su periodo y ningun test
+# numerico lo nota, porque el periodo mas pequeño tambien es un periodo.
+PERIODOS_MINIMOS = [
+    ("sin(x)", Fraction(2)), ("cos(x)", Fraction(2)), ("tan(x)", Fraction(1)),
+    ("cot(x)", Fraction(1)), ("sec(x)", Fraction(2)), ("csc(x)", Fraction(2)),
+    ("sin(2*x)", Fraction(1)), ("cos(2*x)", Fraction(1)), ("tan(2*x)", Fraction(1, 2)),
+    ("sin(x)^2", Fraction(1)), ("cos(x)^2", Fraction(1)), ("sin(x)^3", Fraction(2)),
+    ("cos(x)^3", Fraction(2)), ("sin(x)^4", Fraction(1)), ("sin(x)^6", Fraction(1)),
+    ("sin(5*x)", Fraction(2, 5)), ("cos(4*x)", Fraction(1, 2)),
+]
+
+
+@pytest.mark.parametrize("expresion,esperado", PERIODOS_MINIMOS)
+def test_el_periodo_minimo_no_se_ha_encogido_de_mas(expresion, esperado):
+    """`sin(x)^6` tiene periodo `pi`, NO `pi/6`.
+
+    La sexta potencia no sube la frecuencia: `sin(x + pi) = -sin(x)` y una
+    potencia par se lo come. Bajarlo a `pi/6` seria un periodo VALIDO que
+    duplica cada intervalo de la respuesta sin motivo, y ningun muestreo lo
+    detecta porque lo mas pequeño tambien vale. Un recorte mal puesto no se ve
+    como un error de calculo: se ve como una respuesta mas larga.
+    """
+    assert D.periodo_minimo(mx.parse(expresion), "x") == esperado

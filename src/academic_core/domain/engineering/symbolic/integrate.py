@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from fractions import Fraction
+from math import comb
 
 from academic_core.domain.engineering.symbolic.derive import derivative
 from academic_core.domain.engineering.symbolic.expr import (
@@ -215,6 +216,152 @@ def _escala_del_argumento(g: Expr, var: str) -> Fraction | None:
     scratch = StepLog()
     derivada, _paso, _s = derivative(g, var, scratch)
     return exact_value(derivada)
+
+
+def _potencia_producto(e: Expr, var: str, log: StepLog, depth: int
+                       ) -> tuple[Expr, int] | None:
+    """``\u222bsen^m\u00b7cos^n`` when BOTH powers are present.
+
+    :func:`_potencia_trig` only ever looks at ONE function raised to a power, so
+    ``sen(x)^3\u00b7cos(x)^2`` had nothing to reduce and was refused \u2014 not because
+    it is hard, but because no rule was reading the second factor.
+
+    The three classical cases each turn the product into a SUM of single powers,
+    which is the one thing that was already there:
+
+    * ``m`` odd: ``sen^m\u00b7cos^n = sen\u00b7\u03a3_j C((m-1)/2, j)(-1)^j\u00b7cos^(n+2j)``
+    * ``n`` odd: the same with the two exchanged
+    * both even: ``sen^(2a)\u00b7cos^(2b) = 4^-(a+b)\u00b7(1-cos(2g))^a\u00b7(1+cos(2g))^b``
+
+    Every term on the right is either a product ``sen\u00b7cos^p`` \u2014 which the
+    substitution case has always done \u2014 or a single power ``cos(2g)^k``, which
+    is :func:`_potencia_trig` with the chain factor. So this rule adds no new
+    primitive, only the reading of the integrand that finds the existing ones.
+    """
+    if depth > MAX_DEPTH:
+        return None
+    leido = _potencias_hermanas(e, var)
+    if leido is None:
+        return None
+    constante, g, m, n = leido
+    terminos = _desdoblar(m, n, g)
+    if terminos is None:
+        return None
+    scratch = StepLog()
+    salidas: list[Expr] = []
+    pasos: list[int] = []
+    for coeficiente, factor in terminos:
+        integrando = factor if coeficiente == 1 else Mul(_k(coeficiente), factor)
+        got = _attempt(scratch, lambda sc, i=integrando: integrate(i, var, sc, depth + 1))
+        if got is None:
+            return None
+        salidas.append(got[0])
+        pasos.append(got[1])
+    cuerpo = salidas[0]
+    for otra in salidas[1:]:
+        cuerpo = Add(cuerpo, otra)
+    salida = cuerpo if constante == 1 else Mul(_k(constante), cuerpo)
+    desglose = " ; ".join(text(i) for _c, i in terminos)
+    s0 = scratch.add(OP, "desdoblar sen^m\u00b7cos^n", _integral(e, var),
+                     f"{len(terminos)} t\u00e9rminos", uses=())
+    paso = scratch.add(
+        OP, "sumar las primitivas de cada t\u00e9rmino", desglose, text(salida),
+        explanation=("El producto de dos potencias se convierte en una suma de potencias simples, que es lo que ya sab\u00eda integrar; la constante del factor se saca fuera al final."),
+        uses=(s0, *pasos))
+    offset = log.merge(scratch)
+    return salida, paso + offset
+
+
+def _potencias_hermanas(e: Expr, var: str) -> tuple[Fraction, Expr, int, int] | None:
+    """``(constant, g, m, n)`` for ``sen(g)^m \u00b7cos(g)^n`` and for nothing else.
+
+    Only ONE argument, and only sine and cosine. A product that also carries a
+    tangent is a different formula, and refusing it beats guessing one.
+    """
+    if not isinstance(e, Mul):
+        return None
+    constante = Fraction(1)
+    g: Expr | None = None
+    m = 0
+    n = 0
+    for factor, signo in _factors(e):
+        if signo < 0:
+            return None
+        if isinstance(factor, Num):
+            valor = exact_value(factor)
+            if valor is None:
+                return None
+            constante *= valor
+            continue
+        base, exponente = _base_y_exponente(factor)
+        if not isinstance(base, Fn) or base.name not in ("sin", "cos"):
+            return None
+        valor = exact_value(exponente)
+        if valor is None or valor.denominator != 1 or valor < 0:
+            return None
+        if g is None:
+            g = base.arg
+        elif text(g) != text(base.arg):
+            return None
+        if base.name == "sin":
+            m += int(valor)
+        else:
+            n += int(valor)
+    if g is None or m == 0 or n == 0:
+        return None          # a single power is _potencia_trig's job, and an
+                                 # empty product is nothing to reduce
+    if _escala_del_argumento(g, var) in (None, 0):
+        return None          # a non-affine inner function is another formula
+    return constante, g, m, n
+
+
+def _base_y_exponente(factor: Expr) -> tuple[Expr, Expr]:
+    """``(base, exponent)`` for ``f`` and ``f^n`` alike; a bare f is f^1."""
+    if isinstance(factor, Pow):
+        return factor.base, factor.exponent
+    return factor, Num(Fraction(1))
+
+
+def _potencia_de(base: Expr, n: int) -> Expr:
+    """``base^n``, without writing ``base^0``."""
+    if n == 0:
+        return ONE
+    return base if n == 1 else Pow(base, Num(Fraction(n)))
+
+
+def _desdoblar(m: int, n: int, g: Expr) -> list[tuple[Fraction, Expr]] | None:
+    """The single-power terms ``sen(g)^m \u00b7cos(g)^n`` breaks into."""
+    if m % 2:
+        a = m // 2
+        salida = []
+        for j in range(a + 1):
+            coeficiente = Fraction(comb(a, j)) * Fraction(-1) ** j
+            factor = Mul(Fn("sin", g), _potencia_de(Fn("cos", g), n + 2 * j))
+            salida.append((coeficiente, factor))
+        return salida
+    if n % 2:
+        b = n // 2
+        salida = []
+        for j in range(b + 1):
+            coeficiente = Fraction(comb(b, j)) * Fraction(-1) ** j
+            factor = Mul(Fn("cos", g), _potencia_de(Fn("sin", g), m + 2 * j))
+            salida.append((coeficiente, factor))
+        return salida
+    a, b = m // 2, n // 2
+    doble = Fn("cos", Mul(_k(Fraction(2)), g))
+    escala = Fraction(1, 2 ** (a + b))
+    grados: dict[int, Fraction] = {}
+    for j in range(a + 1):
+        for i in range(b + 1):
+            coeficiente = Fraction(comb(a, j) * comb(b, i)) * Fraction(-1) ** j
+            grados[j + i] = grados.get(j + i, Fraction(0)) + coeficiente
+    salida = []
+    for grado in sorted(grados):
+        coeficiente = grados[grado] * escala
+        if coeficiente == 0:
+            continue
+        salida.append((coeficiente, _potencia_de(doble, grado)))
+    return salida or None
 
 
 def _potencia_trig(e: Expr, var: str, log: StepLog, depth: int
@@ -459,18 +606,16 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
             text(salida),
             explanation=("Es la inversa de d/du tg(u) = 1/cos(u)^2, que ya esta "
                          "en la tabla de derivadas. Dominio: cos(u) ≠ 0."))
-    if (isinstance(e, Pow) and isinstance(e.base, Fn) and e.base.name == "cos" and e.base.arg == x
-            and exact_value(e.exponent) == -2) or (isinstance(e, Div) and e.left == ONE and isinstance(e.right, Pow)
-                                                    and e.right.base == Fn("cos", x) and exact_value(e.right.exponent) == 2):
-        out = Fn("tan", x)
-        return out, log.add(OP, "tabla: ∫1/cos(u)^2 du = tan(u)", _integral(e, var), text(out),
-                            explanation="Integral inmediata de la tabla (inversa de d/du tan(u)). Dominio: cos(u) ≠ 0.")
+    # ± 1/cos(u)^2 no tiene rama propia: _PROPIAS la cubre para las dos
+    # escrituras del integrando — cos(u)^-2 y 1/cos(u)^2 — con una sola
+    # etiqueta. La duplicada que había aquí no la alcanzaba nada, y una
+    # prueba clavó su etiqueta en vez de la que sale de verdad.
     propia = _integral_propia(e, x)
     if propia is not None:
         salida, etiqueta, por_que = propia
         return salida, log.add(OP, etiqueta, _integral(e, var), text(salida),
                                 explanation=por_que)
-    for strategy in (_potencia_trig, _potencia_tabulada,
+    for strategy in (_potencia_producto, _potencia_trig, _potencia_tabulada,
                    _substitution, _by_parts):
         got = _attempt(log, lambda scratch, st=strategy: st(e, var, scratch, depth))
         if got is not None:
@@ -526,6 +671,14 @@ def _integral_propia(e: Expr, x: Sym) -> tuple[Expr, str, str] | None:
     for nombre, salida, etiqueta, por_que in _PROPIAS:
         if potencia_de(nombre, 2) is not None:
             return salida(x), etiqueta, por_que
+    recursion = _potencia_propia(e, x)
+    if recursion is not None:
+        cuerpo, etiqueta, por_que = recursion
+        return cuerpo, etiqueta, por_que
+    directa = _de_la_tabla_directa(e, x)
+    if directa is not None:
+        cuerpo, etiqueta, por_que = directa
+        return cuerpo, etiqueta, por_que
     return None
 
 
@@ -545,6 +698,174 @@ _PROPIAS = (
      "Inversa de d/du tanh(u) = sech^2(u)."),
 )
 
+
+#: how each reciprocal lowers its own powers. The SQUARE is in the table above;
+#: above the square, f^n = f^(n-2)·f^2 and the second half of that product is
+#: already answered, so the whole recursion is one line.
+#:
+#:     ∫sec^n   =  sec^(n-2)·tan /(n-1) + (n-2)/(n-1)·∫sec^(n-2)
+#:     ∫cosec^n = -cosec^(n-2)·cot/(n-1) + (n-2)/(n-1)·∫cosec^(n-2)
+#:     ∫cot^n   = -cot^(n-1)/(n-1) - ∫cot^(n-2)
+#:
+#: The cotangent one is not the same shape as the other two, and pretending it
+#: was is what made sec^3 come out as sec·tan - ln|sec+tan| instead of
+#: sec·tan/2 + ln|sec+tan|/2 — an answer with the right pieces and the wrong
+#: coefficients, which is worse than no answer because it looks finished.
+def _potencia_propia(e: Expr, x: Sym) -> tuple[Expr, str, str] | None:
+    """``∫sec^n``, ``∫cosec^n`` and ``∫cot^n`` for n >= 3."""
+    if not isinstance(e, Pow) or not isinstance(e.base, Fn) or e.base.arg != x:
+        return None
+    n = exact_value(e.exponent)
+    if n is None or n < 3 or n.denominator != 1:
+        return None
+    n = int(n)
+    nombre = e.base.name
+    if nombre == "sec":
+        frente = Mul(_k(Fraction(1, n - 1)), Mul(Pow(Fn("sec", x), Num(Fraction(n - 2))), Fn("tan", x)))
+        factor = Fraction(n - 2, n - 1)
+    elif nombre == "csc":
+        frente = Mul(_k(Fraction(-1, n - 1)), Mul(Pow(Fn("csc", x), Num(Fraction(n - 2))), Fn("cot", x)))
+        factor = Fraction(n - 2, n - 1)
+    elif nombre == "cot":
+        frente = Mul(_k(Fraction(-1, n - 1)), Pow(Fn("cot", x), Num(Fraction(n - 1))))
+        factor = Fraction(-1)
+    else:
+        return None
+    etiqueta = f"tabla: ∫{nombre}(u)^{n} por reducción a {nombre}(u)^{n - 2}"
+    por_que = (f"{nombre}^n = {nombre}^(n-2)·{nombre}^2 y el cuadrado ya está en la tabla; la integral se cierra en dos pasos.")
+    resto = _menor_de(nombre, x, n - 2)
+    cuerpo = Add(frente, resto if factor == 1 else Mul(_k(factor), resto))
+    return cuerpo, etiqueta, por_que
+
+
+def _menor_de(nombre: str, x: Sym, n: int) -> Expr:
+    """``∫f^n`` for the exponent the recursion lands on.
+
+    It lands on the SQUARE most of the time, and the square is a table entry —
+    asking for it from the recursion, which only knows n >= 3, gave the n = 1
+    primitive instead and put a logarithm where a polynomial belongs.
+    """
+    if n <= 0:
+        return x
+    if n == 1:
+        return _PRIMAS[nombre](x)
+    if n == 2:
+        salida = _PROPIAS_POR_NOMBRE[nombre]
+        return salida(x)
+    propia = _potencia_propia(Pow(Fn(nombre, x), Num(Fraction(n))), x)
+    return propia[0] if propia is not None else _PRIMAS[nombre](x)
+
+
+#: the same squares, by name, for the recursion that lands on them
+_PROPIAS_POR_NOMBRE = {nombre: salida for nombre, salida, _e, _p in _PROPIAS}
+
+#: the n = 1 case of each of the three, which is what the recursion bottoms on.
+_PRIMAS = {
+    "sec": lambda x: Fn("log", Fn("abs", Add(Fn("sec", x), Fn("tan", x)))),
+    "csc": lambda x: Fn("log", Fn("abs", Fn("tan", Div(x, Num(Fraction(2)))))),
+    "cot": lambda x: Fn("log", Fn("abs", Fn("sin", x))),
+}
+
+#: the table lines that are neither a substitution nor a power rule. Each
+#: explanation is ONE physical line: in a CRLF file a string literal cannot
+#: cross the line break, because the carriage return is a terminator for the
+#: tokenizer, and three explanations that spanned two lines each were a
+#: SyntaxError that only appears when the file is read with its own endings.
+def _p_e_x_por_sen(x: Sym) -> Expr:
+    """``e^x(sen x - cos x)/2``, the primitive of ``e^x·sen x``."""
+    return Mul(_k(Fraction(1, 2)),
+               Mul(Fn("exp", x), Add(Fn("sin", x), Neg(Fn("cos", x)))))
+
+
+def _p_e_x_por_cos(x: Sym) -> Expr:
+    """``e^x(sen x + cos x)/2``, the primitive of ``e^x·cos x``."""
+    return Mul(_k(Fraction(1, 2)),
+               Mul(Fn("exp", x), Add(Fn("sin", x), Fn("cos", x))))
+
+
+def _p_senh_2(x: Sym) -> Expr:
+    """``senh(x)·cosh(x)/2 - x/2``."""
+    return Add(Mul(_k(Fraction(1, 2)), Mul(Fn("sinh", x), Fn("cosh", x))),
+               Mul(_k(Fraction(-1, 2)), x))
+
+
+def _p_cosh_2(x: Sym) -> Expr:
+    """``senh(x)·cosh(x)/2 + x/2``.
+
+    The same as :func:`_p_senh_2` with the linear term's sign flipped, and that
+    ONE character is the whole difference between the two. Differentiating is
+    what tells them apart; reading them is not.
+    """
+    return Add(Mul(_k(Fraction(1, 2)), Mul(Fn("sinh", x), Fn("cosh", x))),
+               Mul(_k(Fraction(1, 2)), x))
+
+
+#: the table lines that are neither a substitution nor a power rule.
+#: ``(clave, primitiva, etiqueta, por qué)``, and the key is read off the written
+#: integrand so that ``exp(x)·sen(x)`` and ``exp(x)·cos(x)`` are two entries and
+#: not one rule with a guess.
+#:
+#: Each explanation is ONE physical line. In a CRLF file a string literal cannot
+#: cross the line break, because the carriage return is a terminator for the
+#: tokenizer: three explanations that spanned two lines each were a SyntaxError
+#: that only appears when the file is read with its own endings.
+_TABLA_DIRECTA = {
+    "exp*sin": (
+        _p_e_x_por_sen,
+        "tabla: ∫e^x·sen(x) dx = e^x(sen x - cos x)/2",
+        "Inversa de d/dx de esa expresión, que es e^x·sen x. Es una entrada de tabla y no un cambio de variable: u = sen(x) no aplica, y las partes por dos veces vuelven a la integral de la que salieron.",
+    ),
+    "exp*cos": (
+        _p_e_x_por_cos,
+        "tabla: ∫e^x·cos(x) dx = e^x(sen x + cos x)/2",
+        "La pareja de la anterior y la misma razón para estar en la tabla: derivarla devuelve e^x·cos x, que es lo que la hace entrada y no truco.",
+    ),
+    "sinh^2": (
+        _p_senh_2,
+        "tabla: ∫senh(x)^2 dx = senh(x)·cosh(x)/2 - x/2",
+        "Por partes con v = x. El término lineal va con signo MENOS, del lado del ángulo doble de las hiperbólicas; comprobarlo derivando es lo que lo distingue del otro.",
+    ),
+    "cosh^2": (
+        _p_cosh_2,
+        "tabla: ∫cosh(x)^2 dx = senh(x)·cosh(x)/2 + x/2",
+        "Por partes con v = x, y el término lineal con signo MÁS: el opuesto que en senh^2, que es donde estos dos se confunden.",
+    ),
+}
+
+
+def _de_la_tabla_directa(e: Expr, x: Sym) -> tuple[Expr, str, str] | None:
+    """``e^x·sen(x)``, ``e^x·cos(x)``, ``senh(x)^2`` and ``cosh(x)^2``.
+
+    Table entries, and labelled as such. ``exp(x)·sen(x)`` has the closed form
+    above and NO substitution finds it: u = sen(x) does not apply, and
+    integration by parts returns to the integral it started from. Putting it
+    in the table with its inverse stated is more honest than a trick that
+    happens to work on one of the two products.
+
+    Two shapes reach here and they are not the same shape: a PRODUCT of two
+    functions, and a POWER of one. Reading them through one filter is what left
+    the hyperbolic squares refusing forever with a perfectly good entry in the
+    table three lines below them.
+    """
+    if isinstance(e, Mul):
+        piezas = _factors(e)
+        if len(piezas) != 2 or any(s < 0 for _f, s in piezas):
+            return None
+        if not all(isinstance(f, Fn) and f.arg == x for f, _s in piezas):
+            return None
+        nombres = sorted(f.name for f, _s in piezas)
+        clave = "exp*sin" if nombres == ["exp", "sin"] else (
+            "exp*cos" if nombres == ["cos", "exp"] else None)
+        if clave is None:
+            return None
+    elif isinstance(e, Pow) and isinstance(e.base, Fn) and e.base.arg == x:
+        clave = f"{e.base.name}^2"
+        if clave not in _TABLA_DIRECTA:
+            return None
+    else:
+        return None
+    salida, etiqueta, por_que = _TABLA_DIRECTA[clave]
+    return salida(x), etiqueta, por_que
 
 def _has_sqrt(e: Expr) -> bool:
     if isinstance(e, Fn):

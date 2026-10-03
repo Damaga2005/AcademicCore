@@ -244,6 +244,13 @@ class Intervalo:
         return None if a is None or b is None else b - a
 
     def texto(self) -> str:
+        # A degenerate closed interval is ONE point, and `[1/2·pi, 1/2·pi]` says
+        # something no one wrote on purpose: it reads as a tiny arc when it is a
+        # tangency. The set is the same; the answer reads like itself.
+        if (self.izq is not None and self.der is not None
+                and self.izq == self.der
+                and not self.abierto_izq and not self.abierto_der):
+            return self.izq.texto()
         izquierda = "-∞" if self.izq is None else self.izq.texto()
         derecha = "∞" if self.der is None else self.der.texto()
         return f"{'(' if self.abierto_izq else '['}{izquierda}, " \
@@ -565,12 +572,24 @@ def periodo_minimo(e: mx.Expr, var: str = "x") -> Fraction | None:
     candidato = periodo(e)
     if candidato is None:
         return None
-    while candidato / 2 > 0:
+    # Halved for as long as the halved version holds — but NOT for ever. A
+    # Fraction halves to a smaller positive Fraction and never reaches zero, so
+    # `while candidato / 2 > 0` never ends for a function that repeats after
+    # EVERY shift. `sen(x)^2 + cos(x)^2 - 1/2` is the constant 1/2 written
+    # longer, so it repeats after every shift, and the engine hung on it until
+    # the process was killed. The bound is the number of calls: each one can at
+    # most double the number of halvings that can pay off.
+    tope = len(_llamadas(e)) + 1
+    for _ in range(tope):
         mitad = candidato / 2
         if not _es_periodo(e, var, mitad):
-            break
+            return candidato
         candidato = mitad
-    return candidato
+    # Every halving held, which means no smallest period exists — and a period
+    # with no minimum is not a period the sign chart can use. `1 > 1/2` says
+    # exactly this; `sen(x)^2 + cos(x)^2 > 1/2` is the same number written
+    # longer, so it has to say the same thing.
+    return None
 
 
 def _es_periodo(e: mx.Expr, var: str, periodo_pi: Fraction) -> bool:

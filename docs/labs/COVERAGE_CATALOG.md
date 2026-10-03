@@ -87,7 +87,48 @@ Lo que queda, y por qué:
 - **T-19** con un término de más en el polinomio de Taylor de un monomio. Las derivadas se comprueban una a una y son correctas; el fallo está en cómo se arman los términos. Hay una prueba que lo documenta sin aprobarlo. T-23 lo esquivó: donde hay serie conocida usa `series.maclaurin`, que es correcta, y avisa de que si no la hay va por `taylor`.
 Lo que queda, y por qué:
 
-- **T-18** parcial en un caso concreto: `sen(x)^3·cos(x)^2`, un producto de dos potencias, no entra por la reducción —que es de UNA potencia— ni por el cambio de variable. `exp(x)·sen(x)` y `senh(x)^2` también se niegan, con el motivo escrito. `sec(x)^n` y `cot(x)^n` para n ≥ 3 siguen fuera: el cuadrado está en la tabla y el resto no.
+- **T-18 cerrado entero.** Los tres huecos que quedaban eran el mismo fallo de lectura —una regla que mira una cosa y no la otra— y los tres están resueltos:
+  - **Producto de dos potencias** (`sen(x)^3·cos(x)^2`): los tres casos clásicos lo convierten en una suma de potencias simples, y ninguna es nueva. Exponente impar en `sen`, impar en `cos`, y los dos pares por `sen^(2a)·cos^(2b) = 2^-(a+b)·(1-cos(2g))^a(1+cos(2g))^b`. Cada término es o `sen·cos^p` —que el cambio de variable siempre hizo— o `cos(2g)^k`, que es la reducción con factor de cadena.
+  - **`∫sec^n`, `∫cosec^n`, `∫cot^n` para n ≥ 3**: `f^n = f^(n-2)·f^2`, con el cuadrado en la tabla. La cotangente NO tiene la misma forma que las otras dos, y escribirle la misma fórmula hacía que `∫sec^3` saliera con las piezas correctas y los coeficientes equivocados.
+  - **`e^x·sen(x)`, `e^x·cos(x)`, `senh(x)^2`, `cosh(x)^2`**: entradas de tabla. La primera tiene forma cerrada y ningún cambio de variable la encuentra; las partes por dos veces vuelven a la integral de la que salieron.
+
+  Lo que queda es un **límite declarado, no un hueco**: `sen(x)^6·cos(x)^6` se integra bien (234 caracteres) y su derivada no cabe en los 480. El motor devuelve una respuesta correcta que no puede comprobar, y la prueba lo dice y lo verifica por diferencias finitas.
+
+**Auditoría de T-13, T-11, T-15 y T-16 cerrada: seis bugs de respuesta falsa.**
+Un barrido por las familias que la auditoría anterior no cubría, buscando
+respuestas **falsas** y no capacidades que faltaran. Los seis contestaban mal:
+
+- **T-13: `sen(x) >= 1` publicaba `∅`.** La carta de signos recorre huecos, y una
+  solución sin interior —el máximo es tangente, no un cambio de signo— no tiene
+  ninguno que quedarse. Se cumple en `pi/2` y en `3pi/2`. También `sen(x) <= -1`,
+  `cos(x) >= 1` y `cos(x) <= -1`. Un `∅` sobre una expresión llena de soluciones.
+- **T-13: `<=` y `<` publicaban lo mismo** en `tg(x)`, con `pi` dentro de `< 0`. El
+  extremo del periodo se decidía contra un conjunto de ceros ya doblado, sin doblar
+  el punto, y `tg(pi) = -1e-16` pasa cualquier `< 0`.
+- **T-13: `0·pi` y `periodo·pi` se contestaban distinto** siendo el mismo punto, en
+  las doce combinaciones de operador sobre seno, coseno y tangente. La respuesta
+  declara que se repite cada `P·pi`, así que no puede separarlos.
+- **T-11: las dos ramas de `acosh(cosh)` estaban cambiadas de sitio.** El motor
+  publicaba `x` en `(-inf, 0]` y `-x` en `[0, inf)`; `acosh(cosh(x)) = |x|` dice lo
+  contrario. Y la **nota** de cada fila describía el lado correcto, así que el motor
+  se contradecía a sí mismo y las dos frases decían la misma cosa falsa.
+- **T-15: `arg` mal en el segundo cuadrante.** Con parte real negativa hay dos
+  cuadrantes y se doblan en direcciones opuestas: `arg(-3 + 4i)` salía en -4.069 en
+  vez de +2.214, fuera del rango `(-pi, pi]` que el módulo declara.
+- **T-15: `principal=False` no era una vuelta más**, que es lo que su nombre
+  prometía: devolvía el `atan(y/x)` sin doblar, que con parte real negativa no es un
+  argumento del número.
+
+Y un **bucle sin suelo**, preexistente: `periodo_minimo` partía el candidato por la
+mitad con la condición `candidato / 2 > 0`, y un `Fraction` positivo partido por dos
+nunca llega a cero. `sen(x)^2 + cos(x)^2 - 1/2` es la constante 1/2 escrita más
+larga, repite tras cualquier desplazamiento, y **`sen(x)^2 + cos(x)^2 > 1/2`
+colgaba el motor**. Ahora se niega con el motivo que ya daba `1 > 1/2`: no hay
+periodo mínimo, y un periodo sin mínimo no lo usa una carta de signos.
+
+Lo que salió limpio: T-16 entero, las otras cinco familias de ramas de T-11, y el
+periodo, la frecuencia, la amplitud y los ceros de T-23. 159 comprobaciones nuevas
+en `tests/test_mathlab_auditoria.py`, que pasa de 326 a 485.
 
 **T-20 cerrado.** `trig.OBJETIVOS` declara los doce objetivos en un solo registro, con dos clases que no son la misma cosa:
 

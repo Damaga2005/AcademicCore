@@ -89,9 +89,23 @@ class Solucion:
         return not self.puntos and self.conjunto.vacio
 
     def contiene(self, coeficiente_pi: Fraction) -> bool:
-        """Whether ``coeficiente_pi * pi`` is in the solution, inside one period."""
+        """Whether ``coeficiente_pi * pi`` is in the solution, inside one period.
+
+        Reduced modulo the period, because the answer SAYS it repeats every
+        ``periodo·pi``: ``0·pi`` and ``periodo·pi`` are the same point, and a set
+        that puts one inside and the other outside is not a solution of anything.
+        The chart works on ``[0, periodo]``, so the closure of the right end is
+        read as well — one point, two spellings, one answer.
+        """
         punto = D.punto_pi(coeficiente_pi)
-        return punto in self.puntos or self.conjunto.contiene(punto)
+        if self.periodo is not None and self.periodo != 0:
+            punto = D.punto_pi(punto.coeficiente % self.periodo)
+        if punto in self.puntos or self.conjunto.contiene(punto):
+            return True
+        if punto.coeficiente == 0 and self.periodo is not None and self.periodo != 0:
+            cierre = D.punto_pi(self.periodo)
+            return cierre in self.puntos or self.conjunto.contiene(cierre)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +507,28 @@ def _carta_de_signos(f: mx.Expr, var: str, periodo: Fraction,
                                          ceros_p, polos_p, operador)
         piezas.append(D.Intervalo(_punto(izquierda), _punto(derecha),
                                   abierta_izq, abierta_der))
+    # A solution can have no interior at all, and a chart of GAPS never sees it:
+    # `sen(x) >= 1` holds only at the two tangencies, no gap has positive sign,
+    # and the answer came out empty — a false «no hay soluciones» over an
+    # expression full of them. The isolated critical points that satisfy the
+    # inequality are added here, and skipped when a kept interval covers them.
+    for punto in sorted(ceros_p, key=lambda q: q.coeficiente % period_pi):
+        c = punto.coeficiente % period_pi
+        if D.punto_pi(c) in _modulo(polos_p, period_pi):
+            continue
+        if not _extremo_entra(f, var, c, periodo, ceros_p, polos_p, operador):
+            continue
+        singleton = _punto(c)
+        if any(pieza.contiene(singleton) for pieza in piezas):
+            continue
+        # 0 and the end of the period are the same point, so a tangent there is
+        # already written down as the closing bracket at the other end. Listing
+        # both would make the answer say `[0, 0]` next to `[pi, 2·pi]` and read as
+        # two facts where there is one.
+        if c == 0 and any(pieza.contiene(D.punto_pi(period_pi))
+                          for pieza in piezas):
+            continue
+        piezas.append(D.Intervalo(singleton, singleton, False, False))
     return D.desde_intervalos(piezas, mergir_tocados=False)
 
 
@@ -522,7 +558,11 @@ def _extremo_entra(f: mx.Expr, var: str, coeficiente: Fraction, periodo: Fractio
                    ceros_p: set[D.Punto], polos_p: set[D.Punto],
                    operador: str) -> bool:
     """Whether the endpoint at ``coeficiente * pi`` belongs to the solution."""
-    punto = D.punto_pi(coeficiente)
+    # The endpoint folds BEFORE the comparison. `_modulo` already folded the sets,
+    # so comparing an unfolded endpoint against them misses the zero at the end of
+    # the period — and then the value decides, and at `pi` tan(x) is 1e-16, which
+    # passes `< 0`. That is how `tg(x) < 0` came out with `pi` inside it.
+    punto = D.punto_pi(coeficiente % periodo)
     if punto in _modulo(polos_p, periodo):
         return False            # a pole is never in the solution set
     if punto in _modulo(ceros_p, periodo):

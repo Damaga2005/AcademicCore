@@ -212,8 +212,15 @@ class Complejo:
             return mx.PI if _es_negativo(self.real) else mx.ZERO
         angulo = mx.Call("atan", (mx.Div(self.imag, self.real),))
         if principal:
-            angulo = _principal(angulo, self)
-        return angulo
+            return _principal(angulo, self)
+        # NOT principal means «the same angle named with a whole turn more», which
+        # is what the name has always promised. Returning the unfolded atan(y/x)
+        # is not that: with a negative real part it is not an argument of this z at
+        # all — its cosine has the wrong sign — so it was neither principal nor a
+        # turn away, just wrong.
+        vuelta = mx.Add(_principal(angulo, self), mx.Mul(mx.Num(Fraction(2)), mx.PI))
+        return vuelta if _es_negativo(_principal(angulo, self)) else \
+            mx.Sub(_principal(angulo, self), mx.Mul(mx.Num(Fraction(2)), mx.PI))
 
     def texto(self) -> str:
         if _es_cero(self.imag):
@@ -275,10 +282,21 @@ def _partes(cuerpo: str) -> tuple[mx.Expr, mx.Expr]:
 
 
 def _principal(angulo: mx.Expr, z: "Complejo") -> mx.Expr:
-    """Fold an ``atan`` into ``(-pi, pi]`` knowing which quadrant ``z`` is in."""
+    """Fold an ``atan`` into ``(-pi, pi]`` knowing which quadrant ``z`` is in.
+
+    There are TWO quadrants with a negative real part, and they fold in opposite
+    directions. The comment that used to sit here said «atan(y/x) is in
+    (pi/2, pi) here», and that is only true in the THIRD quadrant: there y/x is
+    positive. In the SECOND one y/x is negative, atan lands in (-pi/2, 0), and
+    the principal argument is that PLUS pi, not minus. Folding both the same way
+    put ``arg(-3 + 4i)`` at -4.069 instead of +2.214 — outside the principal
+    range and a whole turn from the truth, which is exactly the failure this
+    module's own docstring warns about.
+    """
     if _es_negativo(z.real):
-        # atan(y/x) is in (pi/2, pi) here; the principal argument is that minus pi
-        return mx.Sub(angulo, mx.PI)
+        if _es_negativo(z.imag):        # third quadrant: y/x > 0, fold down
+            return mx.Sub(angulo, mx.PI)
+        return mx.Add(angulo, mx.PI)    # second quadrant: y/x < 0, fold up
     return angulo
 
 

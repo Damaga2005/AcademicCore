@@ -202,12 +202,19 @@ def ramas(nombre: str, var: str = "x") -> tuple[Rama, ...]:
         return (Rama(x, D.Intervalo(None, None),
                       "la hipérbole es inyectiva: una sola rama, sin condición"),)
     if nombre == "acosh(cosh)":
+        # acosh(cosh(x)) = |x|, y |x| es -x a la IZQUIERDA y x a la DERECHA.
+        # Estas dos filas estuvieron cambiadas de sitio entre si: la nota de cada
+        # una describia el lado correcto y la expresion no, asi que el motor se
+        # contradecía a si mismo y las dos frases —la rama y su justificacion—
+        # decian la misma cosa falsa. Sin ninguna prueba que lo notase, porque
+        # el arccosh de un coseno es siempre no negativo y las dos filas lo eran.
         return (
-            Rama(x, D.Intervalo(None, D.punto_pi(Fraction(0)), True, False),
-                 "el rango del arccosh es [0, ∞): por eso solo se deshace a la "
-                 "derecha"),
-            Rama(mx.Neg(x), D.Intervalo(D.punto_pi(Fraction(0)), None, False, True),
-                 "a la izquierda del eje el coseno crece en sentido contrario"),
+            Rama(mx.Neg(x), D.Intervalo(None, D.punto_pi(Fraction(0)), True, False),
+                 "a la izquierda del eje el coseno crece en sentido contrario: "
+                 "acosh(cosh(x)) vale -x, que es lo que lo hace no negativo"),
+            Rama(x, D.Intervalo(D.punto_pi(Fraction(0)), None, False, True),
+                 "el rango del arccosh es [0, ∞): por eso a la derecha se "
+                 "deshace sin más"),
         )
     if nombre == "atanh(tanh)":
         return (Rama(x, D.Intervalo(None, None),
@@ -247,9 +254,21 @@ def evidencia_global(nombre: str) -> str:
         if nombre in INYECTIVAS:
             return (f"{nombre} = x en toda la recta: la función es inyectiva, así "
                     "que no hay ninguna rama que elegir")
-        return (f"{nombre} = x en {principal.intervalo.texto()}, que llega hasta "
-                "el infinito por la izquierda: más allá hay que elegir rama. "
-                "Por eso el motor no lo reescribe por su cuenta")
+        # The side comes from the interval, not from the sentence: it used to say
+        # «por la izquierda» for every family, and `acosh(cosh)` is unbounded on
+        # the RIGHT. A justification that describes a different branch than the
+        # one it explains reads right and argues wrong, which is the worst kind.
+        izq, der = principal.intervalo.izq, principal.intervalo.der
+        if izq is None and der is None:
+            alcance = "en toda la recta"
+        elif izq is None:
+            alcance = "que llega hasta el infinito por la izquierda"
+        elif der is None:
+            alcance = "que llega hasta el infinito por la derecha"
+        else:
+            alcance = "acotada por los dos lados"
+        return (f"{nombre} = x en {principal.intervalo.texto()}, {alcance}: más allá "
+                "hay que elegir rama. Por eso el motor no lo reescribe por su cuenta")
     expresion = _compone(mx.Sym("x"), nombre)
     pruebas = []
     for punto in fuera:

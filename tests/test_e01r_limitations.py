@@ -76,7 +76,7 @@ def errors(trace):
 
 @pytest.mark.parametrize("source,result,rule", [
     ("2^x", "2^x/log(2) + C", "tabla: ∫a^x dx = a^x/log(a)"),
-    ("1/cos(x)^2", "tan(x) + C", "tabla: ∫1/cos(u)^2 du = tan(u)"),
+    ("1/cos(x)^2", "tan(x) + C", "tabla: ∫1/cos(u)^2 du = tg(u)"),
     ("1/sqrt(x)", "2*x^(1/2) + C", "reescribir la raíz como potencia"),
     ("x*sqrt(x)", "2*x^(5/2)/5 + C", "reescribir la raíz como potencia"),
     ("x*sqrt(x^2+1)", "(x^2 + 1)^(3/2)/3 + C", "cambio de variable (general): elegir u"),

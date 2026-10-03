@@ -106,16 +106,18 @@ def test_el_control_negativo_una_integrable_mala_no_pasa():
     assert not ok, "el verificador tiene que ser capaz de decir que no"
 
 
-def test_lo_que_sigue_sin_resolver_se_niega_y_no_se_inventa():
-    """``exp(x)·sen(x)`` has a closed form and this engine does not find it.
+def test_una_prueba_que_documentaba_un_hueco_falla_al_cerrarlo():
+    """``exp(x)·sen(x)``, ``senh(x)^2`` and ``sec(x)^3`` were on the refused list.
 
-    Refusing is the correct answer here; the incorrect one is returning a
-    plausible-looking expression that is not a primitive.
+    This test USED to assert the refusal. That was the mechanism, not a wish: the
+    three had a closed form and no rule, so the file said so and the suite stayed
+    green. Closing the hole made this test fail, which is the only signal that says
+    a list of gaps has gone stale. It now checks that the three integrate, and the
+    refusal of the ones that still have to be refused moved down one test.
     """
     for integrando in ("exp(x)*sin(x)", "sinh(x)^2", "sec(x)^3"):
-        with pytest.raises(Exception) as exc:
-            integra(integrando)
-        assert "no hay regla" in str(exc.value) or "NO_RULE" in str(exc.value)
+        ok, detalle = verifica_por_derivacion(integrando)
+        assert ok, f"∫{integrando}: {detalle}\n  da {mx.text(integra(integrando))}"
 
 
 def test_la_tabla_propia_no_pisa_a_la_reduccion():
@@ -126,3 +128,110 @@ def test_la_tabla_propia_no_pisa_a_la_reduccion():
     """
     assert mx.text(integra("sec(x)^2")) == mx.text(integra("1/cos(x)^2"))
     assert mx.text(integra("sin(x)^2")) != mx.text(integra("cos(x)^2"))
+
+
+#: every one of these was refused before: the reduction only ever read ONE power
+PRODUCTOS = [
+    "sin(x)^3*cos(x)^2", "sin(x)^2*cos(x)^3", "sin(x)^2*cos(x)^2",
+    "sin(x)^4*cos(x)^4", "sin(x)^3*cos(x)^4", "sin(x)^4*cos(x)^3",
+    "sin(x)^3*cos(x)^3", "sin(x)^6*cos(x)^2", "sin(x)^2*cos(x)^6",
+    "sin(x)^2*cos(x)^4", "cos(x)^2*sin(x)^2", "2*sin(x)^3*cos(x)^2",
+    "sin(2*x)^3*cos(2*x)^2", "sin(3*x)^2*cos(3*x)^4",
+]
+
+#: above the square, each reciprocal lowers its own powers
+RECURSION = [
+    "sec(x)^3", "sec(x)^4", "sec(x)^5", "sec(x)^6",
+    "csc(x)^3", "csc(x)^4", "csc(x)^5", "cot(x)^3", "cot(x)^4", "cot(x)^5",
+]
+
+#: table entries that are neither a substitution nor a power rule
+TABLA = [
+    "exp(x)*sin(x)", "exp(x)*cos(x)", "sinh(x)^2", "cosh(x)^2",
+]
+
+
+@pytest.mark.parametrize("integrando", PRODUCTOS)
+def test_el_producto_de_dos_potencias_se_desdobla(integrando):
+    """``∫sen(x)^3·cos(x)^2 dx`` was refused by a rule that read only one power.
+
+    Not because it is hard. The three classical cases turn the product into a sum
+    of single powers, and every one of those already had a rule.
+    """
+    ok, detalle = verifica_por_derivacion(integrando)
+    assert ok, f"∫{integrando}: {detalle}\n  da {mx.text(integra(integrando))}"
+
+
+@pytest.mark.parametrize("integrando", RECURSION)
+def test_las_potencias_altas_de_la_familia_se_reducen(integrando):
+    """``∫sec^n`` for n >= 3: ``sec^n = sec^(n-2)·sec^2`` and the square is known."""
+    ok, detalle = verifica_por_derivacion(integrando)
+    assert ok, f"∫{integrando}: {detalle}\n  da {mx.text(integra(integrando))}"
+
+
+@pytest.mark.parametrize("integrando", TABLA)
+def test_las_entradas_de_tabla_que_no_son_cambio_de_variable(integrando):
+    """``e^x·sen(x)`` has a closed form and no substitution finds it.
+
+    ``u = sen(x)`` does not apply, and integration by parts returns to the
+    integral it started from. Refusing was the honest answer; the table is the
+    better one, and it has to be checked the same way as everything else.
+    """
+    ok, detalle = verifica_por_derivacion(integrando)
+    assert ok, f"∫{integrando}: {detalle}\n  da {mx.text(integra(integrando))}"
+
+
+def test_el_desdoblar_no_confunde_los_dos_sentidos():
+    """``∫sen^2·cos^3`` and ``∫sen^3·cos^2`` differ by more than an exchange.
+
+    The two odd cases share the binomial expansion and differ only in its sign,
+    and one missing ``(-1)**j`` makes both verify: the second one differentiating
+    to ``sen^2·cos(1 + sen^2)``, which is a real expression and the wrong one.
+    So the two primitives must come out different, and the sums must be the ones
+    with the signs the binomial gives.
+    """
+    a = integra("sin(x)^2*cos(x)^3")
+    b = integra("sin(x)^3*cos(x)^2")
+    assert mx.text(a) != mx.text(b)
+    assert "+ (-1)*sin(x)^5/5" in mx.text(a)
+    assert "-1)*cos(x)^5/5" in mx.text(b)
+
+
+def test_el_caso_par_par_lleva_el_doble_del_argumento():
+    """``sen²·cos²`` only integrates through ``cos(2x)``, and that shows.
+
+    If the double angle were written ``cos(x)`` the answer would still be a
+    plausible sum — verified against nothing, because the chain factor would be
+    missing on both terms and they would cancel into a wrong constant.
+    """
+    texto = mx.text(integra("sin(x)^2*cos(x)^2"))
+    assert "cos(2*x)" in texto, texto
+    assert "sin(2*x)" in texto, texto
+
+
+def test_una_primitiva_correcta_que_nadie_puede_verificar():
+    """``sen^6·cos^6`` integrates, and its derivative does not fit in 480 chars.
+
+    This is a different failure from a refused integral and worth naming: the
+    primitive is RIGHT — 234 characters, well inside the budget — and the tree
+    that differentiating it produces is not. So the engine hands back an answer
+    it cannot check, which is exactly the situation the budget exists to make
+    visible instead of hiding.
+
+    So this test does the one check still available: finite differences on the
+    primitive against the integrand. If that agrees, the answer is right and the
+    gap is in the verifier, not in the answer.
+    """
+    integrando = "sin(x)^6*cos(x)^6"
+    primitiva = integra(integrando)
+    with pytest.raises(Exception) as exc:
+        derive_mv.differentiate(primitiva, "x")
+    assert "EXPRESSION_LIMIT" in str(exc.value)
+
+    for punto in (0.31, 0.77, 1.19, 1.63):
+        antes = mx.evaluate(primitiva, {"x": punto - 1e-6})
+        despues = mx.evaluate(primitiva, {"x": punto + 1e-6})
+        objetivo = mx.evaluate(mx.parse(integrando), {"x": punto})
+        assert antes is not None and despues is not None and objetivo is not None
+        derivada = (despues - antes) / 2e-6
+        assert abs(derivada - objetivo) < 1e-6 * max(1.0, abs(objetivo))

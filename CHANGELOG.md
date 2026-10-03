@@ -252,6 +252,170 @@ T-23 ya lo dice en vez de fingir que lo comprueba.
 1863 pasan y 8 se saltan en los quince ficheros `test_mathlab_*.py`.
 
 
+## Unreleased — MathLab: T-18 cerrada entera, y una rama muerta que una prueba sostenía
+
+Los tres huecos que quedaban de T-18 eran el **mismo fallo de lectura**: una regla
+que mira una cosa y no la otra. Los tres están cerrados.
+
+- **El producto de dos potencias.** `∫sen(x)^3·cos(x)^2` se rechazaba porque la
+  reducción es de UNA potencia y el cambio de variable no ve el factor que sobra.
+  No es difícil: los tres casos clásicos lo convierten en una **suma de potencias
+  simples**, y ninguna de ellas es nueva. Exponente impar en `sen`, impar en `cos`,
+  y los dos pares por
+  `sen^(2a)·cos^(2b) = 2^-(a+b)·(1-cos(2g))^a·(1+cos(2g))^b`. Cada término es o
+  `sen·cos^p` —que el cambio de variable siempre hizo— o `cos(2g)^k`, que es la
+  reducción con factor de cadena. La regla nueva no añade ninguna primitiva: solo
+  lee el integrando para encontrar las que ya existían.
+
+- **`∫sec^n`, `∫cosec^n` y `∫cot^n` para n ≥ 3.** `f^n = f^(n-2)·f^2`, y el
+  cuadrado ya estaba en la tabla. **La cotangente no tiene la misma forma que las
+  otras dos**, y escribirle la misma fórmula es lo que hacía que `∫sec^3` saliera
+  como `sec·tg - ln|sec+tg|`: las piezas correctas con los coeficientes
+  equivocados, que es peor que no responder porque parece terminado. La correcta
+  lleva `(n-2)/(n-1)` positivo delante de la integral anterior, y la de `cot` es
+  `-cot^(n-1)/(n-1) - ∫cot^(n-2)`, de otra forma.
+
+- **`e^x·sen(x)`, `e^x·cos(x)`, `senh(x)^2`, `cosh(x)^2`.** Entradas de tabla. La
+  primera tiene forma cerrada y **ningún cambio de variable la encuentra**: `u =
+  sen(x)` no aplica y las partes por dos veces vuelven a la integral de la que
+  salieron. `senh^2` y `cosh^2` se diferencian en el **signo del término lineal**, y
+  comprobarlo derivando es lo único que las distingue.
+
+**Dos bugs de los mí mismos, de la familia de siempre: la forma correcta con el
+número equivocado.**
+
+- El denominador del caso par-par era `4^(a+b)` en vez de `2^(a+b)`, así que
+  `∫sen^2·cos^2` salía cuatro veces pequeña. Ni la forma ni el signo delatan nada.
+- Al caso con exponente impar en `cos` le faltaba el `(-1)^j` del binomio, que es
+  **todo** lo que separa las dos ramas: `∫sen^2·cos^3` daba una derivada
+  `sen^2·cos(1 + sen^2)` —una expresión real y la primitiva equivocada—.
+
+**Una prueba que sostenía una rama muerta.** `test_e01r_limitations.py` fallaba
+en `main` desde antes de este bloque y por una razón que no era del motor:
+`∫1/cos(u)^2` tenía **dos** ramas con la misma integral y etiquetas distintas
+—`tg(u)` y `tan(u)`—, la segunda inalcanzable porque `_PROPIAS` cubre las dos
+escrituras del integrando y sale antes. La prueba clavaba la etiqueta de la rama
+muerta. Eso es lo que hace un bug de código muerto: no se manifiesta como
+respuesta falsa, sino como una afirmación sobre el motor que dejó de ser cierta
+y nadie revisó. Rama eliminada, etiqueta fijada a la que sale de verdad —que es la
+de su hermana, `∫1/sen(u)^2 = -cotg(u)`— y verde.
+
+**Y una convención que era lo contrario de una convención.** `symbolic/integrate.py`
+y `symbolic/derive.py` estaban en CRLF mientras el `.gitattributes` del repo fija
+`* text=auto eol=lf`. Con eso, **un literal de cadena no puede cruzar el salto de
+línea** —el `\r` cuenta como terminador para el tokenizador—, y tres
+explicaciones escritas en dos líneas cada una eran un `SyntaxError` que solo
+aparecía al leer el fichero con sus propios finales. Ambos normalizados a LF: el
+repo ya lo pedía y el bug era una consecuencia directa de no hacerlo.
+
+**Un límite declarado, no un hueco.** `sen(x)^6·cos(x)^6` se integra bien —234
+caracteres, dentro del presupuesto— y **su derivada no cabe en los 480**. El
+motor devuelve una respuesta correcta que no puede comprobar. La prueba lo nombra y
+lo verifica por diferencias finitas, porque ahí ya no queda la verificación
+simbólica: es exactamente lo que el presupuesto existe para hacer visible en vez
+de esconder.
+
+**Pruebas**: 31 nuevas en `tests/test_mathlab_integrales.py` —14 productos de dos
+potencias, 10 potencias altas de la familia, 4 entradas de tabla—, más la que
+**documentaba el hueco y ahora afirma lo contrario**: `e^x·sen(x)`, `senh(x)^2` y
+`sec(x)^3` estaban en una prueba que comprobaba la negativa. Cerrar el hueco la
+hizo fallar, y ese es el mecanismo entero —una lista de huecos que nadie relee
+sigue verde—, así que ahora comprueba que se integran y su nombre y su docstring
+dicen de dónde viene. Dos más que apuntan a las trampas concretas: que los dos
+sentidos del desdoblar no se confundan (el signo del binomio es lo único que los
+distingue, y sin él ambos verifican) y que el doble ángulo aparezca de verdad en
+`∫sen^2·cos^2`. Con la de `test_e01r_limitations.py` que fijaba la etiqueta de la
+rama muerta. 1894 pasan y 8 se saltan en los dieciséis ficheros
+`test_mathlab_*.py`, más los cuatro de la familia E0/E01 que tocan el
+integrador.
+
+## Unreleased — MathLab: la auditoría de T-13, T-11, T-15 y un bucle sin suelo
+
+Un barrido por las familias que la auditoría permanente **no** cubría —T-13, T-11,
+T-15, T-16 y la fase y amplitud de T-23— buscando respuestas falsas. Encontró
+**seis bugs reales en tres familias**, ninguno de ellos una capacidad que faltara:
+todos contestaban mal.
+
+- **T-13, y el más grave de todos: un «no hay soluciones» FALSO.** La carta de
+  signos recorre **huecos** y se queda con los que cumplen. Una solución sin
+  interior no tiene ningún hueco que quedarse —el máximo es tangente, no un cambio
+  de signo— así que `sen(x) >= 1` publicaba `∅` con el motivo de que no hay
+  soluciones. Lo cumple en `pi/2` y en `3pi/2`. Igual `sen(x) <= -1`,
+  `cos(x) >= 1` y `cos(x) <= -1`. Y lo escondía el caso vecino: `sen(x) <= 1` sí
+  salía bien, porque todos los huecos cumplen y no hay nada que buscar. Un
+  `∅` sobre una expresión llena de soluciones es la peor respuesta posible.
+
+- **T-13: `<=` y `<` publicaban el mismo conjunto.** `tg(x) <= 0` y `tg(x) < 0`
+  publicaban las dos `(pi/2, pi]`, con `pi` dentro. La causa: el extremo del periodo
+  se decidía comparando el punto **sin doblar** contra un conjunto de ceros **ya
+  doblado**, así que el cero del final de periodo no se reconocía como cero y se
+  decidía por el valor numérico. Ahi `tg(pi)` vale `-1e-16`, que pasa cualquier
+  `< 0`.
+
+- **T-13: el mismo punto se contestaba de dos formas.** La respuesta **declara**
+  «se repite cada P·pi», así que `0·pi` y `P·pi` son el mismo punto — y
+  `contiene(0)` decía falso mientras `contiene(P)` decía verdadero para
+  `tg(x) <= 0`. Un conjunto que pone un punto dentro y el mismo punto fuera no es la
+  solución de nada. Afectaba a las doce combinaciones de operador sobre seno,
+  coseno y tangente.
+
+- **T-11: las dos ramas de `acosh(cosh)` estaban cambiadas de sitio.**
+  `acosh(cosh(x)) = |x|`, y `|x|` es `-x` a la izquierda. El motor publicaba `x`
+  en `(-inf, 0]` y `-x` en `[0, inf)`, justo al revés. Y lo publicaba dos veces
+  igual, porque **la nota de cada fila describía el lado correcto y la expresión
+  no**: el motor se contradecía a sí mismo y las dos frases —la rama y su
+  justificación— decían la misma cosa falsa. Sin ninguna prueba que lo notase: el
+  `arccosh` de un coseno es siempre no negativo, y las dos filas lo eran.
+
+- **T-15: `arg` mal en el SEGUNDO cuadrante.** `_principal` doblaba el `atan` hacia
+  el mismo lado siempre que la parte real fuera negativa, y eso solo es correcto en
+  el **tercer** cuadrante, donde `y/x` es positivo. En el segundo `y/x` es
+  negativo y hay que **sumar** `pi`: `arg(-3 + 4i)` salía en -4.069 en vez de
+  +2.214 — fuera del rango `(-pi, pi]` que el propio módulo declara, y una vuelta
+  entera de la verdad, que es justo lo que el docstring de `argumento` advertía.
+
+- **T-15: `principal=False` no era «una vuelta más», que es lo que su nombre
+  prometía.** Devolvía el `atan(y/x)` sin doblar, que con parte real negativa no es
+  un argumento del número: el coseno sale con el signo equivocado. O sea, ni
+  principal ni una vuelta de diferencia, solo equivocado.
+
+- **Un bucle sin suelo, preexistente y de los graves.** `periodo_minimo` partía el
+  candidato por la mitad mientras la mitad siguiera valiendo, con la condición
+  `candidato / 2 > 0`. Un `Fraction` positivo partido por dos es otro `Fraction`
+  positivo: **nunca** llega a cero. Para una función que repite tras **cualquier**
+  desplazamiento el bucle no terminaba, y `sen(x)^2 + cos(x)^2 - 1/2` es la
+  constante 1/2 escrita más larga. `sen(x)^2 + cos(x)^2 > 1/2` **colgaba el motor**
+  hasta que lo mataban. La respuesta correcta no es un periodo más pequeño, es que
+  no hay periodo mínimo — y un periodo sin mínimo no es un periodo que una carta de
+  signos pueda usar—, que es exactamente lo que ya decía `1 > 1/2`.
+
+**Lo que salió limpio**, y conviene decirlo porque es la mitad del resultado: T-16
+los cuatro cuadrantes, la suma de fasores de la misma frecuencia, el rechazo de
+frecuencias distintas y el contrato; T-11 las otras cinco familias de ramas, con
+control negativo; T-23 el periodo, la frecuencia, la amplitud (que es la mitad del
+recorrido, medida aquí y no por el motor) y los ceros declarados, comprobados
+anulando la función.
+
+**Una prueba que comprobaba lo contrario de su nombre.**
+`test_argumento_no_principal_gana_una_vuelta_entera` afirmaba que las dos vías dan
+lo mismo, sobre `3+4i` —primer cuadrante, donde el `atan` sin doblar ya es
+principal y la opción no cambia nada—, así que pasaba con una implementación que
+ignorara la opción y no podía cazar el segundo cuadrante. Ahora hace lo que su
+nombre dice, sobre seis números de los cuatro cuadrantes.
+
+**Pruebas**: 159 nuevas en `tests/test_mathlab_auditoria.py` —que pasa de 326 a
+485 comprobaciones—, con control negativo en las tres familias y en el módulo de
+ramas. Los controles negativos importan: sin ellos, «la rama vale en su intervalo»
+pasaría igual si todas las ramas fueran `x`, y «el argumento principal coincide
+con `atan2`» pasaría si las dos vías dieran lo mismo. La comprobación de
+inequaciones además **cuenta como polos los puntos que son polos**, porque un polo
+visto por punto flotante es un número grande y no un `None`: sin eso marcaría como
+error una respuesta que es correcta.
+
+2064 pasan y 8 se saltan, de 2072 recogidas, en los dieciséis ficheros
+`test_mathlab_*.py`, más los cuatro de la familia E0/E01 que tocan el integrador.
+
+
 ## Unreleased — Windows Product 1.0 (productización)
 - Producto/UX post-roadmap (sin fase nueva): menú Go agrupado sobre los 13 tabs intactos; índice de módulos reales; Virtual Lab/Simulation en secciones Experiment/Inputs/Execution/Results sin renombrar widgets; vista orbital F16 con números reales; dashboard editorial con recents reales; motion 150 ms sin bounce.
 - Validación: exe/installer reconstruidos del árbol final, smoke verde, regresión verde; Start Menu/uninstall-ejecutado/clean-machine/DPI sistemático NOT VERIFIED (sin admin ni 2ª máquina).
