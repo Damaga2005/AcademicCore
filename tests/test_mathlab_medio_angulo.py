@@ -185,3 +185,52 @@ def test_las_cuatro_caras_no_van_en_simplify_porque_cuestan_mas():
         antes = T._coste(mx.parse(expresion))
         despues = T._coste(T.medio_angulo_racional(mx.parse(expresion)).expresion)
         assert despues > antes, (expresion, antes, despues)
+
+
+# ---------------------------------------------------------------------------
+# el reductor de radicales
+
+
+@pytest.mark.parametrize("antes,despues", [
+    ("sqrt(8)", "2*sqrt(2)"),
+    ("sqrt(1/8)", "1/4*sqrt(2)"),
+    ("sqrt(4)", "2"),
+    ("sqrt(1/2)", "1/2*sqrt(2)"),
+    ("(0 + sqrt(8))/2", "sqrt(2)"),
+    ("0 - sqrt(2)", "-sqrt(2)"),
+    ("(2*sqrt(2))/2", "sqrt(2)"),
+    ("(1 - sqrt(5))/2", "1/2 - sqrt(5)/2"),
+    ("sqrt(19/1728)", "1/72*sqrt(57)"),
+    ("-0", "0"),
+])
+def test_el_radical_se_reduce_y_cambia_de_forma_sin_cambiar_de_valor(
+        antes, despues):
+    """Readable is not the same as correct, and this only claims readable.
+
+    Every radical the engine publishes comes out of a quadratic or a cubic formula in
+    the shape ``(-0 - sqrt(8))/2``, which is exactly ``-sqrt(2)``. Both are exact; one
+    of them can be read. The reducer is a DISPLAY step and it is checked as one: the
+    text has to come out as written, and the value has to be identical.
+
+    It is an objective apart because it usually makes the expression LONGER —
+    ``sqrt(8)`` is five characters and ``2*sqrt(2)`` is eight — while making it
+    shorter to read. ``simplificar`` is not allowed to do that: its rules may only be
+    strictly cheaper or strictly dearer (§5.5b).
+    """
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    original = mx.parse(antes)
+    resultado = T.reducir_radicales(original).expresion
+    assert mx.text(resultado) == despues, (mx.text(resultado), despues)
+    valor_antes = mx.valor_real(original, {})
+    valor_despues = mx.valor_real(resultado, {})
+    if valor_antes is not None:
+        assert abs(valor_antes - valor_despues) < 1e-12 * max(1.0, abs(valor_antes))
+
+
+@pytest.mark.parametrize("intacta", ["sqrt(x)", "x/2", "sin(x)", "1/(1 + cos(x))"])
+def test_lo_que_no_es_un_radical_racional_no_se_toca(intacta):
+    """A radical of a variable is not a number and is left exactly as it was."""
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    assert mx.text(T.reducir_radicales(mx.parse(intacta)).expresion) == intacta

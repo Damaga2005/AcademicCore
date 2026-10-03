@@ -1,5 +1,56 @@
 # Changelog
 
+## 2026-10-04 — un reductor de radicales, que hace legible lo que ya era exacto
+
+Sin ecuaciones nuevas: esto es **legibilidad**, y es una falta distinta de las de las
+tandas anteriores.
+
+### El problema
+
+Toda raíz que el motor publica sale de una fórmula cuadrática o cúbica en la forma
+`(-0 - sqrt(8))/2`, que es exactamente `-sqrt(2)`. Las dos cosas son exactas y una
+solo se puede leer. Y el detalle pequeño que más llama la atención: el `-0` no es un
+número, es un coeficiente de fórmula que ha salido cero, y la fórmula cuadrática
+fabrica uno cada vez que el coeficiente central es 0.
+
+### Qué hace
+
+`trig.reducir_radicales`, un objetivo propio:
+
+| antes | después |
+|---|---|
+| `sqrt(8)` | `2*sqrt(2)` |
+| `sqrt(1/8)` | `1/4*sqrt(2)` |
+| `sqrt(19/1728)` | `1/72*sqrt(57)` |
+| `(-0 - sqrt(8))/2` | `-sqrt(2)` |
+| `(-2 + sqrt(12))/4` | `-1/2 + 1/2*sqrt(3)` |
+| `-0` | `0` |
+
+Y con ello la respuesta de Cardano queda legible de verdad:
+
+```
+x = arccos(raiz(1/8 + 1/72·√57, 3) + raiz(1/8 - 1/72·√57, 3)) + 2·π·k
+```
+
+### Por qué es un objetivo aparte, y no una regla más
+
+Porque **alarga la expresión**: `sqrt(8)` son cinco caracteres y `2*sqrt(2)` son ocho.
+Las reglas de `_REGLAS` solo pueden hacer la expresión estrictamente más barata o
+más cara (§5.5b), y «más corta» no es la misma pregunta que «más legible». Así que es
+un objetivo por sí mismo, lo llama el solucionador de camino a publicar una raíz, y
+`simplificar` no lo llama nunca.
+
+Nada de esto es aritmética de verdad: toda la numeración es con `Fraction`, y las
+pruebas comprueban las dos cosas por separado — que el texto salga como está escrito y
+que **el valor no haya cambiado**. Un reductor de radicales que cambiara el número
+sería el peor de los bugs posibles aquí, porque las respuestas seguirían pareciendo
+iguales.
+
+Lo que **no** hace, y queda dicho: no combina `sqrt(2) + sqrt(8)` en `3*sqrt(2)`, ni
+simplifica un cociente raíz (`sqrt(2)/sqrt(3)`), ni baja un factor común. Reducir
+cada radical por separado es un objetivo legible y acotado; la simplificación de
+radicales en serio es otro.
+
 ## 2026-10-04 — Cardano, y lo que «irreducible» no significa
 
 De 3 rechazos a 2, y de 18 a 2 en cuatro tandas. `cos(3x) + cos(x) = 1`.

@@ -1715,6 +1715,11 @@ def _limpias(raices: list[mx.Expr]) -> list[mx.Expr]:
             raiz = mx.Num(valor)
             clave = f"r:{valor}"
         else:
+            # The quadratic and cubic formulas hand back `(-0 - sqrt(8))/2` where
+            # the answer is `-sqrt(2)`, and `sqrt(19/1728)` where it is
+            # `sqrt(57)/72`. Exact either way, and unreadable, which is a different
+            # thing from wrong — but the student is owed the readable one.
+            raiz = trig.reducir_radicales(raiz).expresion
             clave = "t:" + mx.text(raiz)
         vistos.setdefault(clave, raiz)
     return list(vistos.values())

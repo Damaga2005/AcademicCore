@@ -1706,6 +1706,173 @@ _REGLAS_SUSTITUCION: tuple[tuple[str, str, object], ...] = (
 #: ``_REGLAS``: these identities do not hold on the whole domain of the expression
 #: they rewrite, and the default simplification is read by the solvers, which then
 #: solve a different problem from the one that was asked.
+def _raiz_cuadrada_racional(e: mx.Expr):
+    """``sqrt(r)`` for a positive rational ``r``, as ``(coefficient, squarefree)``.
+
+    ``sqrt(8)`` is ``2*sqrt(2)`` and ``sqrt(1/8)`` is ``sqrt(2)/4``. Every radical the
+    engine publishes comes out of a quadratic or a cubic formula in that shape, and
+    the shape is unreadable: ``(-0 - sqrt(8))/2`` is ``-sqrt(2)``, which is the
+    difference between a student recognising the value and not.
+
+    ``r = c² * d`` with ``d`` squarefree, computed with ``Fraction`` throughout, so
+    nothing here is a decimal in disguise (§5.4). ``None`` when the radicand is not
+    a positive rational — an irrational or a variable stays as it was.
+    """
+    if not isinstance(e, mx.Root) or e.degree != 2:
+        return None
+    radicando = mx.exact_value(e.radicand)
+    if radicando is None or radicando <= 0:
+        return None
+    p, q = radicando.numerator, radicando.denominator
+    # sqrt(p/q) = sqrt(p*q)/q, and p*q is a square times a squarefree number
+    producto = p * q
+    cuadrado, libre = 1, 1
+    primo = 2
+    while primo * primo <= producto:
+        while producto % (primo * primo) == 0:
+            producto //= primo * primo
+            cuadrado *= primo
+        while producto % primo == 0:
+            producto //= primo
+            libre *= primo
+        primo += 1
+    if producto > 1:
+        libre *= producto
+    return mx.Num(Fraction(cuadrado, q)), mx.Num(libre)
+
+
+def _r_reducir_radicales(e: mx.Expr) -> mx.Expr | None:
+    """Every ``sqrt(rational)`` reduced, with its coefficient pulled out in front.
+
+    NOT part of ``_REGLAS``, and that is the point. Those rules may only make an
+    expression strictly cheaper or strictly dearer, and this one usually makes it
+    LONGER character by character — ``sqrt(8)`` is five characters and ``2*sqrt(2)`` is
+    eight — while making it shorter to read. «Strictly cheaper» is not the same
+    question as «clearer», so this is an objective of its own (§5.5b), and the only
+    thing that calls it is the solver on its way to publishing a root.
+    """
+    reducido = e
+    for _ in range(3):
+        siguiente = _visita_radicales(reducido)
+        if siguiente == reducido:
+            break
+        reducido = siguiente
+    return None if reducido == e else reducido
+
+
+def _visita_radicales(e: mx.Expr) -> mx.Expr:
+    """Rebuild ``e`` with each ``sqrt(rational)`` reduced and its coefficient out."""
+    if isinstance(e, mx.Neg):
+        # `-0` is not a number, it is a coefficient formula that came out zero, and
+        # the quadratic formula builds one every time the middle coefficient is 0.
+        # It prints as `-0` and the student reads it as a sign that means something.
+        if isinstance(e.arg, mx.Num):
+            return mx.Num(-e.arg.value)
+        return mx.Neg(_visita_radicales(e.arg))
+    if isinstance(e, mx.Add):
+        izquierda, derecha = _visita_radicales(e.left), _visita_radicales(e.right)
+        if izquierda == mx.Num(0):
+            return derecha
+        if derecha == mx.Num(0):
+            return izquierda
+        return mx.Add(izquierda, derecha)
+    if isinstance(e, mx.Sub):
+        izquierda, derecha = _visita_radicales(e.left), _visita_radicales(e.right)
+        if izquierda == mx.Num(0):
+            return mx.Neg(derecha)
+        # `u - b/(3a)` is written with `b = 0` and prints `- 0`; the sign is part of
+        # the formula and the zero is not part of the answer.
+        if derecha == mx.Num(0):
+            return izquierda
+        return mx.Sub(izquierda, derecha)
+    if isinstance(e, mx.Root):
+        encontrado = _raiz_cuadrada_racional(e)
+        if encontrado is None:
+            return e
+        coeficiente, libre = encontrado
+        if libre == mx.Num(1):
+            return coeficiente                    # it was a perfect square
+        if coeficiente == mx.Num(1):
+            return mx.Root(2, libre)
+        return mx.Mul(coeficiente, mx.Root(2, libre))
+    if isinstance(e, mx.Call):
+        args = tuple(_visita_radicales(a) for a in e.args)
+        return e if args == e.args else mx.Call(e.name, args)
+    if isinstance(e, mx.Neg):
+        if isinstance(e.arg, mx.Num):
+            return mx.Num(-e.arg.value)
+        return mx.Neg(_visita_radicales(e.arg))
+    if isinstance(e, mx.Pow):
+        base = _visita_radicales(e.base)
+        return e if base == e.base else mx.Pow(base, e.exponent)
+    if isinstance(e, mx.Add):
+        izquierda, derecha = _visita_radicales(e.left), _visita_radicales(e.right)
+        return mx.Add(izquierda, derecha)
+    if isinstance(e, mx.Sub):
+        izquierda, derecha = _visita_radicales(e.left), _visita_radicales(e.right)
+        return mx.Sub(izquierda, derecha)
+    if isinstance(e, mx.Div):
+        izquierda, derecha = _visita_radicales(e.left), _visita_radicales(e.right)
+        # Dividing by a NUMBER is distributing, and distributing is what turns
+        # `(-0 - 2*sqrt(2))/2` into `-sqrt(2)`: the 2 cancels against the 2 the
+        # radical brought out, and then nothing is left in front of it. Exact
+        # throughout — `a/b` on Fractions is exact, and never a decimal (§5.4).
+        if isinstance(derecha, mx.Num):
+            if isinstance(izquierda, mx.Num):
+                return mx.Num(izquierda.value / derecha.value)
+            if isinstance(izquierda, mx.Mul):
+                # Only a NUMERIC factor moves, and whichever child it is: dividing
+                # `sqrt(2)*2/2` by moving the left child would put the radicand in
+                # the denominator, which is a different number.
+                if isinstance(izquierda.left, mx.Num):
+                    return mx.Mul(mx.Div(izquierda.left, derecha),
+                                  izquierda.right)
+                if isinstance(izquierda.right, mx.Num):
+                    return mx.Mul(izquierda.left, mx.Div(izquierda.right, derecha))
+            if isinstance(izquierda, mx.Add):
+                return mx.Add(mx.Div(izquierda.left, derecha),
+                              mx.Div(izquierda.right, derecha))
+            if isinstance(izquierda, mx.Sub):
+                return mx.Sub(mx.Div(izquierda.left, derecha),
+                              mx.Div(izquierda.right, derecha))
+        return mx.Div(izquierda, derecha)
+    if isinstance(e, mx.Mul):
+        # `a * b` with both sides reduced: the two numbers multiply into one, which
+        # is what turns `(2*sqrt(2))/2` into `sqrt(2)`, and a unit factor disappears.
+        izquierda, derecha = _visita_radicales(e.left), _visita_radicales(e.right)
+        if isinstance(izquierda, mx.Num) and isinstance(derecha, mx.Num):
+            return mx.Num(izquierda.value * derecha.value)
+        if izquierda == mx.Num(1):
+            return derecha
+        if derecha == mx.Num(1):
+            return izquierda
+        return mx.Mul(izquierda, derecha)
+    return e
+
+
+_REGLAS_RADICALES: tuple[tuple[str, str, object], ...] = (
+    ("radical_reducido",
+     "sqrt(8) se escribe 2*sqrt(2) y (-0 - sqrt(8))/2 se escribe -sqrt(2): la "
+     "forma que sale de la f\u00f3rmula cuadr\u00e1tica o c\u00fabica es exacta pero ilegible, "
+     "y el coeficiente se folding en el mismo sitio donde est\u00e1 la ra\u00edz",
+     _r_reducir_radicales),
+)
+
+
+def reducir_radicales(expr: mx.Expr, *, max_passes: int = MAX_PASSES
+                      ) -> Simplificacion:
+    """Square roots of rationals reduced, and nothing else touched.
+
+    An objective apart because it makes the expression LONGER while making it
+    readable, and :func:`simplify` is not allowed to do that — its rules may only be
+    strictly cheaper or strictly dearer (§5.5b). The solver calls this one, on the
+    way to publishing a root; ``simplificar`` never does.
+    """
+    resultado, pasos = _bucle(expr, _REGLAS_RADICALES, reducir=False,
+                             max_passes=max_passes)
+    return Simplificacion(resultado, tuple(dict.fromkeys(pasos)))
+
+
 _REGLAS_RAZONES: tuple[tuple[str, str, object], ...] = (
     ("razones_de_un_mismo_argumento",
      "sen/tg = cos, cos/sec = cos\u00b2, tg/sen = 1/cos, sec/cos = 1/cos\u00b2 y "
