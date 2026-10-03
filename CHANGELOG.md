@@ -1,5 +1,71 @@
 # Changelog
 
+## 2026-10-03 — el dominio era cierto en un solo periodo
+
+`dominio()` encontraba los huecos de **un** periodo, los quitaba de la recta
+entera y publicaba el resultado como si fuera todo. Para `1/sen(x)` imprimía
+`(-∞, 0) ∪ (0, π) ∪ (π, 2·π) ∪ (2·π, ∞)`, que excluye `0`, `π` y
+`2·π` y no dice nada de `3·π`. Preguntado por `3·π` el conjunto
+respondía que el punto existe y el evaluador respondía `None`. Diez de doce
+expresiones probadas estaban mal fuera del primer periodo; las dos únicas bien
+—las que no son periódicas—.
+
+Un conjunto cuyos huecos son infinitos tiene que **decir** que se repite. Ahora lo
+dice.
+
+### `Conjunto` declara su periodo
+
+Un campo `periodo`, en unidades de `π`, que por defecto es `None` y significa
+«lectura literal» — que es lo que quiere todo lo demás: la carta de signos
+construye un periodo **a propósito** y no puede que se le doble por debajo.
+`dominio()` lo fija con el de la propia expresión, que es el techo seguro y
+está demostrado: si `f(x + p) = f(x)` entonces `f` existe en `x + p` exactamente
+cuando existe en `x`.
+
+`texto()` añade `«y se repite cada 2·π», **salvo cuando el conjunto es `ℝ`**,
+que no necesita explicarse y a quien `ℝ  y se repite cada 2·π` solo le añade ruido.
+
+### Dos bugs decepción en el mismo sitio, y ambos hacia falsear el dominio
+
+**Uno: `periodo_minimo` no miraba dentro de los argumentos.** Decía que `arcsen`,
+`ln` y las hiperbólicas «no son periódicas» y paraba. Pero `f(g(x))` hereda el
+periodo de `g` sea cual sea `f`: si `g(x + p) = g(x)` entonces `f(g(x + p)) = f(g(x))`
+para cualquier `f`. `arcsen(2·sen(x))`, `ln(sen(x))`, `raiz(cos(x))` y
+`acosh(1+cos(x))` tienen todos periodo `2··pi` y los cuatro lo publicaban como
+si no tuvieran ninguno.
+
+**Dos: el chequeo de periodo pasaba en vacío.** `_es_periodo` se saltaba las
+muestras que no podía comparar y devolvía `True` si no le quedaba ninguna. `raiz(cos(x))`
+es el caso: la mitad de sus valores no son reales, casi todas las muestras caen ahí, y
+un periodo recortado que no lo es salía confirmado — así que `periodo_minimo`
+recortaba `2·π` hasta nada. Ahora menos de cuatro comparaciones es «no
+probado», y «no probado» es `False`, que es la respuesta que conserva el
+candidato mayor.
+
+Además `_muestras_para_periodo` solo miraba **medio** periodo: repetirse en
+`(0, p/2)` es otra afirmación que repetirse en `(p/2, p)`.
+
+Medido: 32 expresiones, tres periodos, rejilla `π/8`, con el evaluador como
+segunda autoridad. **31 correctas**; la que queda es otro bug (abajo).
+
+### BUG NUEVO, y es más grave que este: el solucionador de ecuaciones
+
+Al verificar el dominio de `1/(cos(x) + cos(2·x))` apareció esto:
+
+    ceros(cos x + cos 2x)  ->  ['1/2*pi', '3/2*pi']
+
+Esos puntos **no** son ceros: `cos(π/2) + cos(π) = 0 − 1 = −1`. Los ceros
+verdaderos son `±1·π/3` y `π`, y el dominio publicado excluía puntos donde
+la función existe y}daba por existentes puntos donde no.
+
+Y `sen(x) + sen(2·x) = 0` devuelve solo `{0, π}`: le falta la rama
+`cos(x) = −1/2`, que son `2·π/3` y `4·π/3`. Incompleto, no erróneo.
+
+Está en `ecuaciones.py`, no en el dominio, y es de la misma familia que los bugs
+queVINieron de la tanda pasada: un motor que contesta sin mentir del todo pero
+contesta mal. **Queda declarado y pendiente**, y es lo que yo atacaría a
+continuación.
+
 ## 2026-10-03 — la familia del medio ángulo, entera
 
 De las diez formas de la familia del medio ángulo, el motor reconocía **dos**:

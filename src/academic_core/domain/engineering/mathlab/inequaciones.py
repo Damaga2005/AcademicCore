@@ -1246,6 +1246,13 @@ def dominio(e: mx.Expr, var: str = "x") -> D.Conjunto:
     # real (`csc(x)` publishes fewer holes than `1/sin(x)` for one function) and
     # it stays declared rather than half-fixed.
     resultado = D.REALES
+    # El periodo del DOMINIO, que es el periodo de la expresion: si
+    # `f(x + p) = f(x)` entonces `f` existe en `x + p` exactamente cuando
+    # existe en `x`. Se declara para que `contiene` doble y `texto` lo diga,
+    # porque los huecos de mas abajo son los de UN periodo, y quitarlos de
+    # toda la recta solo es correcto si se le dice a la recta que se repite.
+    dominio_periodo = D.periodo_minimo(e, var)
+
 
     for denominador in D.denominadores(e):
         ceros_del = ceros(denominador, var)
@@ -1277,7 +1284,7 @@ def dominio(e: mx.Expr, var: str = "x") -> D.Conjunto:
                                           for r in puntos)]
             resultado = D.quita_puntos(resultado, tuple(puntos))
             if resultado.vacio:
-                return resultado
+                return D.Conjunto(resultado.intervalos, dominio_periodo)
 
     for llamada in _llamadas(e):
         nombre, argumentos = llamada.name, llamada.args
@@ -1293,8 +1300,8 @@ def dominio(e: mx.Expr, var: str = "x") -> D.Conjunto:
             resultado = _con_condicion(resultado, argumentos[0], operador, cota,
                                        var)
         if resultado.vacio:
-            return resultado
-    return resultado
+            return D.Conjunto(resultado.intervalos, dominio_periodo)
+    return D.Conjunto(resultado.intervalos, dominio_periodo)
 
 
 def _sin_polos(conjunto: D.Conjunto, funcion: mx.Expr, var: str) -> D.Conjunto:

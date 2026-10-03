@@ -213,36 +213,58 @@ def test_una_funcion_sin_polos_no_declara_ninguno():
 # ---------------------------------------------------------------------------
 
 
+#: What the engine publishes for each expression. The note at the end of a
+#: periodic set is the whole point of this list and it used not to be there:
+#: `dominio()` found the holes of ONE period, took them out of the whole line,
+#: and published `(-inf, 0) U (0, pi) U (pi, 2pi) U (2pi, inf)` for `1/sen(x)`
+#: as if `3*pi` were in the domain. It is not: asked about it, the set said yes
+#: and the evaluator said `None`. A set whose holes are infinite has to SAY it
+#: repeats, or the finite list of holes it prints lies about every point outside
+#: the first period. The intervals themselves did not change: what was wrong was
+#: the claim that a window onto one period was the whole line.
+#: What the engine publishes for each expression. The note at the end of a
+#: periodic set is the whole point of this list and it used not to be there:
+#: `dominio()` found the holes of ONE period, took them out of the whole line,
+#: and published `(-inf, 0) U (0, pi) U (pi, 2pi) U (2pi, inf)` for `1/sen(x)`
+#: as if `3*pi` were in the domain. It is not: asked about it, the set said yes
+#: and the evaluator said `None`. A set whose holes are infinite has to SAY it
+#: repeats, or the finite list of holes it prints lies about every point outside
+#: the first period.
+#:
+#: The intervals themselves did not change. What was wrong was the claim that a
+#: window onto one period was the whole line.
 DOMINIOS = [
-    ("sin(x)", "ℝ"),
-    ("cos(x)", "ℝ"),
-    ("tan(x)", "(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)"),
-    ("cot(x)", "(-∞, 0) ∪ (0, π) ∪ (π, ∞)"),
-    ("csc(x)", "(-∞, 0) ∪ (0, π) ∪ (π, ∞)"),
-    ("sec(x)", "(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)"),
-    ("1/sin(x)", "(-∞, 0) ∪ (0, π) ∪ (π, 2·π) ∪ (2·π, ∞)"),
-    ("1/cos(x)", "(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)"),
-    ("tan(x) + 1/cos(x)", "(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)"),
-    ("asin(sin(x))", "[0, 1/2·π] ∪ [1/2·π, 3/2·π] ∪ [3/2·π, 2·π]"),
-    ("asin(2*sin(x))", "[0, 1/6·π] ∪ [5/6·π, 7/6·π] ∪ [11/6·π, 2·π]"),
-    ("atanh(sin(x))", "[0, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, 2·π]"),
-    ("acosh(1+cos(x))", "[0, 1/2·π] ∪ [3/2·π, 2·π]"),
-    ("ln(sin(x))", "(0, π)"),
-    ("sqrt(sin(x))", "[0, π]"),
-    ("sqrt(cos(x))", "[0, 1/2·π] ∪ [3/2·π, 2·π]"),
-    ("asin(x)", "[-1, 1]"),
-    ("acos(x)", "[-1, 1]"),
-    ("atanh(x)", "(-1, 1)"),
-    ("acosh(x)", "[1, ∞)"),
-    ("ln(x)", "(0, ∞)"),
-    ("ln(-x)", "(-∞, 0)"),
-    ("ln(x^2-1)", "(-∞, -1) ∪ (1, ∞)"),
-    ("sqrt(x-1)", "[1, ∞)"),
-    ("asin(2*x-1)", "[0, 1]"),
-    ("1/(x^2-1)", "(-∞, -1) ∪ (-1, 1) ∪ (1, ∞)"),
-    ("asinh(x)", "ℝ"),
-    ("atan(x)", "ℝ"),
+    ("sin(x)", 'ℝ'),
+    ("cos(x)", 'ℝ'),
+    ("tan(x)", '(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)   y se repite cada π'),
+    ("cot(x)", '(-∞, 0) ∪ (0, π) ∪ (π, ∞)   y se repite cada π'),
+    ("csc(x)", '(-∞, 0) ∪ (0, π) ∪ (π, ∞)   y se repite cada 2·π'),
+    ("sec(x)", '(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)   y se repite cada 2·π'),
+    ("1/sin(x)", '(-∞, 0) ∪ (0, π) ∪ (π, 2·π) ∪ (2·π, ∞)   y se repite cada 2·π'),
+    ("1/cos(x)", '(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)   y se repite cada 2·π'),
+    ("tan(x) + 1/cos(x)", '(-∞, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, ∞)   y se repite cada 2·π'),
+    ("asin(sin(x))", '[0, 1/2·π] ∪ [1/2·π, 3/2·π] ∪ [3/2·π, 2·π]   y se repite cada 2·π'),
+    ("asin(2*sin(x))", '[0, 1/6·π] ∪ [5/6·π, 7/6·π] ∪ [11/6·π, 2·π]   y se repite cada 2·π'),
+    ("atanh(sin(x))", '[0, 1/2·π) ∪ (1/2·π, 3/2·π) ∪ (3/2·π, 2·π]   y se repite cada 2·π'),
+    ("acosh(1+cos(x))", '[0, 1/2·π] ∪ [3/2·π, 2·π]   y se repite cada 2·π'),
+    ("ln(sin(x))", '(0, π)   y se repite cada 2·π'),
+    ("sqrt(sin(x))", '[0, π]   y se repite cada 2·π'),
+    ("sqrt(cos(x))", '[0, 1/2·π] ∪ [3/2·π, 2·π]   y se repite cada 2·π'),
+    ("asin(x)", '[-1, 1]'),
+    ("acos(x)", '[-1, 1]'),
+    ("atanh(x)", '(-1, 1)'),
+    ("acosh(x)", '[1, ∞)'),
+    ("ln(x)", '(0, ∞)'),
+    ("ln(-x)", '(-∞, 0)'),
+    ("ln(x^2-1)", '(-∞, -1) ∪ (1, ∞)'),
+    ("sqrt(x-1)", '[1, ∞)'),
+    ("asin(2*x-1)", '[0, 1]'),
+    ("1/(x^2-1)", '(-∞, -1) ∪ (-1, 1) ∪ (1, ∞)'),
+    ("asinh(x)", 'ℝ'),
+    ("atan(x)", 'ℝ'),
 ]
+
+
 
 
 @pytest.mark.parametrize("caso,esperado", DOMINIOS)

@@ -324,16 +324,44 @@ def _valor(p: Punto | None) -> float | None:
 
 @dataclass(frozen=True)
 class Conjunto:
-    """A finite union of open intervals, sorted, disjoint and merged."""
+    """A finite union of open intervals, sorted, disjoint and merged.
+
+    ``periodo`` is the one thing here that is not literal, and it exists because a
+    set of holes can be INFINITE. ``1/sen(x)`` does not exist at ``0``, ``π``,
+    ``2·π`` and every other multiple; describing that as a finite list of holes
+    needs the list to be infinite, and a finite list of holes is what this used to
+    be. ``dominio()`` found the holes of ONE period —``0`` and ``π``— took them
+    out of the whole line, and published ``(-∞, 0) ∪ (0, π) ∪ (π, 2·π) ∪
+    (2·π, ∞)`` as if ``3·π`` were in the domain. It is not: asked
+    about it the set said yes and the evaluator said ``None``.
+
+    So the period is declared, and it is declared rather than assumed because it is
+    known and not chosen: if ``f(x + p) = f(x)`` then the domain of ``f`` is
+    ``p``-periodic, so ``periodo_minimo`` of the expression is a period of its
+    domain. ``None`` keeps the reading literal, which is what every other use of
+    :class:`Conjunto` wants: the sign chart builds one period on purpose and must
+    not have it folded underneath it.
+    """
 
     intervalos: tuple[Intervalo, ...] = ()
+    periodo: "Fraction | None" = None
 
     @property
     def vacio(self) -> bool:
         return not any(not i.vacio for i in self.intervalos)
 
     def contiene(self, p: Punto) -> bool:
+        """Whether the point is in the set, folding by the period when there is one.
+
+        Only a multiple of ``pi`` is folded. Every boundary of a periodic hole set
+        IS a multiple of ``pi``, so a point that is not one is never one of the
+        holes and reading it literally is both exact and the only thing that can
+        work — ``periodo`` is in units of ``pi``, and adding ``pi`` to ``3/2`` does
+        not give a point of the same lattice.
+        """
         _exige_punto(p)
+        if self.periodo is not None and p.expresion is None and p.es_pi:
+            p = punto_pi(p.coeficiente % self.periodo)
         return any(i.contiene(p) for i in self.intervalos)
 
     def texto(self) -> str:
@@ -345,7 +373,17 @@ class Conjunto:
                 partes.append("ℝ")
             else:
                 partes.append(i.texto())
-        return " ∪ ".join(partes)
+        salida = " ∪ ".join(partes)
+        # Only when there is something to repeat. `ℝ` already says everything, and
+        # `ℝ  y se repite cada 2·π` is noise on a set that needs no
+        # explaining — which is most of the sets that have a period, because most
+        # expressions with one exist everywhere.
+        if self.periodo is not None and not (len(self.intervalos) == 1
+                                            and self.intervalos[0].izq is None
+                                            and self.intervalos[0].der is None):
+            repetido = "π" if self.periodo == 1 else f"{self.periodo}·π"
+            salida += f"   y se repite cada {repetido}"
+        return salida
 
     def interseccion(self, otro: "Conjunto") -> "Conjunto":
         """The overlap, with the open/closed flags carried through.
@@ -582,11 +620,35 @@ def _periodo(e: mx.Expr, var: str):
 
 
 def _periodo_de_llamada(e: mx.Call, var: str):
-    if e.name in PERIODO_HIPERBOLICO:
+    """The period of ``f(g(x))``, which is the period of ``g``.
+
+    That sentence is the whole rule, and getting it wrong is what this used to do.
+    ``asin`` is not a periodic function, so the code answered «not periodic» and
+    stopped — for ``asin(2·sen(x))``, whose domain is exactly as periodic as its
+    argument and was published as if it were not. A composition takes the period of
+    its INSIDE whatever the outside does: if ``g(x + p) = g(x)`` then
+    ``f(g(x + p)) = f(g(x))`` for any ``f`` at all, including ``ln``, ``raiz``,
+    ``arcsen``, ``exp`` and the hyperbolic ones, none of which is periodic.
+
+    What is left is the trig case, where the period also depends on HOW the
+    argument scales: ``sen(2x)`` has period ``pi`` and ``sen(x)`` has ``2·pi``, both
+    from the same inside. So those still read the coefficient.
+    """
+    if not e.args:
         return None
+    # `PERIODO_HIPERBOLICO` no se consulta aquí: `senh(sen(x))` es periódica con
+    # periodo 2·pi aunque `senh` no lo sea, y `senh(x)` no lo es. La misma regla de
+    # la composición decide los dos, y decidir por el nombre de la función de
+    # fuera es lo que hacía que `senh(x)` saliera periódica.
     base = PERIODO_FUNCIÓN.get(e.name)
     if base is None or len(e.args) != 1:
-        return None                 # exp, ln, asin, ...: not periodic
+        # not a periodic function in itself, so the period is the argument's — and
+        # the extra arguments have to be constants for that to be the whole story
+        # (`ln(x, 10)` is `ln(x)` with a base)
+        for otro in e.args[1:]:
+            if mx.variables(otro, var):
+                return None
+        return _periodo(e.args[0], var)
     from academic_core.domain.engineering.mathlab.ecuaciones import _afine
 
     a, _b = _afine(e.args[0], var)
@@ -648,8 +710,27 @@ def periodo_minimo(e: mx.Expr, var: str = "x") -> Fraction | None:
 
 
 def _es_periodo(e: mx.Expr, var: str, periodo_pi: Fraction) -> bool:
-    """Whether ``e`` repeats after ``periodo_pi * pi``, checked where it exists."""
+    """Whether ``e`` repeats after ``periodo_pi * pi``, checked where it exists.
+
+    Two ways this used to say yes without knowing anything, and both of them
+    turned a real period into none.
+
+    **It passed in vacuo.** Every sample that could not be compared was skipped,
+    and a check that compared nothing returned ``True``. ``raiz(cos(x))`` is the
+    case: half of its values are not real, most samples land there, the ones that
+    survive compare fine, and a halved period that is really not one came back
+    confirmed — so ``periodo_minimo`` halved ``2·pi`` down to nothing and published
+    ``None`` for an expression whose period is ``2·pi``. Fewer than a handful of
+    comparisons now means «not proven», and «not proven» is ``False``: the answer
+    that keeps the larger candidate, which is still a valid period.
+
+    **It only looked at half a period.** ``_muestras_para_periodo`` returned points
+    in ``(0, paso/2)``. Repeating on the first half of a period does not make the
+    whole thing a period — the second half is a different claim — so the samples
+    now go across all of it.
+    """
     paso = float(periodo_pi) * 3.141592653589793
+    comparados = 0
     for x in _muestras_para_periodo(paso):
         valor = mx.evaluate(e, {var: x})
         if valor is None or abs(valor.imag) > 1e-9:
@@ -659,16 +740,23 @@ def _es_periodo(e: mx.Expr, var: str, periodo_pi: Fraction) -> bool:
         referencia = mx.evaluate(e, {var: x + paso})
         if referencia is None or abs(referencia.imag) > 1e-9:
             continue
+        comparados += 1
         escala = max(1.0, abs(valor.real))
         if abs(referencia.real - valor.real) > 1e-9 * escala:
             return False
-    return True
+    return comparados >= 4
 
 
 def _muestras_para_periodo(paso: float) -> list[float]:
-    """Points inside one period, away from its ends, deterministic."""
+    """Points inside one whole period, away from its ends, deterministic.
+
+    The whole period, not the first half: ``f(x + p) = f(x)`` on ``(0, p/2)`` is a
+    different claim from the same thing on ``(p/2, p)``, and only the second one
+    with the first is a period. Deterministic because a period check that samples
+    differently each run cannot fail the same way twice.
+    """
     cuantos = 24
-    ancho = paso / 2
+    ancho = paso
     return [ancho * (2 * i + 1) / (2 * cuantos) for i in range(cuantos)]
 
 
