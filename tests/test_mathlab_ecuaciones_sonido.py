@@ -21,7 +21,7 @@ Las dos formas de fallo son la misma: una sustitucion que no se comprueba donde 
 hace. Y el guardia que ya existia no las veia, porque al borrar ``2x`` no queda
 nada fuera de sitio.
 
-Este fichero mide las dos cosas que si se pueden medir sin，画面 del motor:
+Este fichero mide las dos cosas que sí se pueden medir sin la opinión del motor:
 
 - **sonido** — cada punto publicado tiene que anular la ecuacion;
 - **completitud** — cada raiz real tiene que estar cerca de un punto publicado,
@@ -146,24 +146,26 @@ RESPONDIDAS = [
     "sin(x)^3 - sin(x)/2 = 0", "cos(x)^3 - cos(x)/2 = 0",
     "sin(x) - sin(x)^3/2 = 0", "cos(x) - cos(x)^3 = 0",
     "1/cos(x)^5 = 32", "1/cos(x)^6 = 64",
+    # Eight that used to be refused because a MULTIPLE ANGLE sat next to another
+    # term: `cos(x) + cos(2x) = 0` is not a cosine equation and not a polynomial in
+    # one function, because the second term is a cosine of a DIFFERENT argument.
+    # Written in powers of the same function it is `cos x + 2cos²x - 1`, which is
+    # the shape that was already solved — `cos(x)² = 1/2` — and the root finder finishes
+    # the rest.
+    "cos(x) + cos(2*x) = 0", "cos(x) + cos(2*x) = 1",
+    "cos(x) - cos(2*x) = 0", "cos(2*x) - cos(x) = 0",
+    "2*cos(2*x) + 2*cos(x) = 0", "cos(2*x) + cos(x) - 1 = 0",
+    "cos(3*x) + cos(x) = 0", "sin(3*x) - sin(x) = 0",
 ]
 
 #: The two that used to be answered with a DIFFERENT equation's solutions. They
 #: are in the list because a refusal is now the right answer for them, and a
 #: refusal is a result that can be checked: no family may be published.
 NEGADAS_ANTES = [
-    "cos(x) + cos(2*x) = 0",
     "sin(x) + sin(2*x) = 0",
     "sin(x) - sin(2*x) = 0",
-    "cos(x) + cos(2*x) = 1",
     "sin(x) + sin(2*x) = 1",
     "cos(x) - sin(2*x) = 0",
-    "cos(x) - cos(2*x) = 0",
-    "cos(2*x) - cos(x) = 0",
-    "2*cos(2*x) + 2*cos(x) = 0",
-    "cos(2*x) + cos(x) - 1 = 0",
-    "cos(3*x) + cos(x) = 0",
-    "sin(3*x) - sin(x) = 0",
     "sin(2*x) - sin(x) = 0",
     "sin(2*x) + sin(x) = 1",
     "cos(3*x) + cos(x) = 1",

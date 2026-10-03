@@ -274,8 +274,18 @@ def resolver(ecuacion: str, var: str = "x") -> Resolucion:
         raise sin_refuso(
             f"la ecuación tiene más de una incógnita ({', '.join(otras)}): "
             f"ahora mismo solo se resuelve con una, la «{var}»")
-    diferencia = mx.Sub(a, b)
-    familias, hipotesis, espurias = _casos(diferencia, var)
+    original = mx.Sub(a, b)
+    familias, hipotesis, espurias = _casos(original, var)
+    if not familias:
+        # The expansion PRESERVES THE VALUE, so it cannot answer a different
+        # equation — and that is why the ORIGINAL goes first and its answer is the
+        # one published. `cos(2x) = 0` already had a clean answer of two families,
+        # and expanding first would replace it with four that describe the same set
+        # less clearly. The expansion is for the equations with no answer at all,
+        # which is where it was missing.
+        diferencia = _desarrolla_angulos_multiples(original, var)
+        if diferencia != original:
+            familias, hipotesis, espurias = _casos(diferencia, var)
     refusos = tuple(h for h in hipotesis if MOTIVO_SIN_CASO in h)
     return Resolucion(tuple(familias), hipotesis=tuple(h for h in hipotesis
                                                        if h not in refusos),
@@ -383,6 +393,77 @@ MOTIVO_SIN_CASO = (
 
 
 # --- case 1: sin(u) = c, cos(u) = c, tan(u) = c -----------------------------
+
+
+#: How far a multiple angle is developed. Two is the one that matters and three is
+#: free; past that the expression grows faster than the solving improves, which is
+#: the trade §5.5b asks to be judged rather than assumed.
+MAXIMO_ANGULO_MULTIPLE = 3
+
+
+def _reconstruir(reescribe, e: mx.Expr) -> mx.Expr:
+    """Rebuild ``e`` with the rewrite applied to its children."""
+    if isinstance(e, mx.Call):
+        args = tuple(reescribe(a) for a in e.args)
+        return e if args == e.args else mx.Call(e.name, args)
+    if isinstance(e, mx.Pow):
+        base = reescribe(e.base)
+        return e if base == e.base else mx.Pow(base, e.exponent)
+    if isinstance(e, mx.Neg):
+        return mx.Neg(reescribe(e.arg))
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        izquierda, derecha = reescribe(e.left), reescribe(e.right)
+        if (izquierda, derecha) == (e.left, e.right):
+            return e
+        if isinstance(e, mx.Add):
+            return mx.Add(izquierda, derecha)
+        if isinstance(e, mx.Sub):
+            return mx.Sub(izquierda, derecha)
+        if isinstance(e, mx.Mul):
+            return mx.Mul(izquierda, derecha)
+        return mx.Div(izquierda, derecha)
+    return e
+
+
+def _desarrolla_angulos_multiples(f: mx.Expr, var: str) -> mx.Expr:
+    """``cos(2x)`` written as ``2cos²(x) - 1``, so the cases below can see it.
+
+    A multiple angle NEXT TO another term is what no case could read. The analysis
+    is good at ``a·cos(u) + b = c`` and at polynomials in ONE function, and
+    ``cos(x) + cos(2x) = 0`` has neither shape: the second term is a cosine of a
+    different argument, and no case was willing to call both of them ``cos``.
+
+    Writing the multiple angle in powers of the same function costs nothing and is
+    exact — ``cos(2x) = 2cos²(x) - 1``, ``sen(3x) = -4sen³(x) + 3sen(x)`` — and from
+    there the path that already solved ``cos(x)² = 1/2`` solves these. The root
+    finder then divides out the rational roots and closes the leftover quadratic,
+    which is what turns ``-4u³ + 2u`` into ``0`` and ``±1/√2`` instead of ``0`` alone.
+
+    Only the ARGUMENT of a sine or a cosine with slope ``>= 2`` is touched, and a
+    slope of 1 is left alone: that case already worked, and rewriting it would be
+    churn with a blast radius. A shift is left alone too, because ``cos(2x + 1)``
+    has no such expansion.
+
+    The expansion PRESERVES THE VALUE, so this can never answer a different
+    equation. What it can do is answer it in a less clear form, which is why the
+    original goes first and this only runs when the original produced nothing.
+    """
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    def reescribe(e: mx.Expr) -> mx.Expr:
+        if isinstance(e, mx.Call) and e.name in ("sin", "cos") and len(e.args) == 1:
+            a, b = _afine(e.args[0], var)
+            if a is None or abs(a) < 2 or abs(a) > MAXIMO_ANGULO_MULTIPLE \
+                    or b != mx.ZERO:
+                return _reconstruir(reescribe, e)
+            try:
+                developed = T.multiple_angle(e.name, mx.Sym(var), int(abs(a)))
+            except Exception:              # noqa: BLE001 — sin desarrollar, mejor
+                return _reconstruir(reescribe, e)
+            return mx.Neg(developed) if a < 0 else developed
+        return _reconstruir(reescribe, e)
+
+    return reescribe(f)
 
 
 def _caso_directo(f: mx.Expr, var: str):
@@ -1198,7 +1279,8 @@ def _raices_reales(polinomio: P.Polynomial, sub: mx.Expr,
                 mx.Div(mx.Sub(mx.Neg(mx.Num(c1)), raiz), mx.Num(2 * c2))])
         return _limpias(raices), ""
     return _limpias(raices), (
-        f"el polinomio es de grado {grado}; se han dividido sus factores lineales y "
+        f"el polinomio es de grado {grado}; se han divididos sus factores lineales "
+        "y "
         f"queda uno de grado {grado_resto}, que este motor no resuelve. Las raíces "
         "racionales que se han encontrado están todas; de las demás **no puede "
         "afirmar** que sean reales, y eso no es lo mismo que decir que no lo sean "

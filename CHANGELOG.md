@@ -1,5 +1,67 @@
 # Changelog
 
+## 2026-10-04 — el ángulo múltiple, desarrollado, y ocho ecuaciones más
+
+Cierra el punto 1 de la lista. Y cierra también un agujero de documentación que
+llevaba dos commits abierto: el `CHANGELOG` de la tanda `9a3e8e4` afirmaba que
+existía una función que escribía los ángulos múltiples en potencias de la misma
+función, y esa función **nunca se commiteó**: se perdió al pegar un bloque por
+índice de línea y la afirmación se quedó. Esto la vuelve a poner, y esta vez está en
+el código y en las pruebas.
+
+### Qué hace
+
+Un ángulo múltiple **junto a otro término** es lo que ningún caso sabía leer. El
+análisis es bueno en `a·cos(u) + b = c` y en polinomios de **una** función, y
+`cos(x) + cos(2x) = 0` no tiene ninguna de las dos formas: el segundo término es un
+coseno de **otro** argumento, y ningún caso estaba dispuesto a llamar a los dos
+`cos`.
+
+Escrito en potencias de la misma función no cuesta nada y es exacto —
+`cos(2x) = 2cos²(x) - 1`, `sen(3x) = -4sen³(x) + 3sen(x)` — y de ahí lo resuelve el
+camino que ya resolvía `cos(x)² = 1/2`. El solucionador de raíces divide luego las
+racionales y cierra la cuadrática que queda, que es lo que convierte `4c³ − 2c − 1`
+en algo con sus tres raíces y no en un rechazo.
+
+Ocho ecuaciones, de negadas a respondidas:
+
+| | antes | después |
+|---|---|---|
+| `cos(x) + cos(2x) = 0` | se negaba | `{1/3·pi, pi, -1/3·pi}` |
+| `cos(x) - cos(2x) = 0` | se negaba | `{2/3·pi, 0, -2/3·pi}` |
+| `cos(3x) + cos(x) = 0` | se negaba | seis familias |
+| `sen(3x) - sen(x) = 0` | se negaba | seis familias |
+
+**39 de 49 respondidas con datos, 9 negadas, 0 inventadas, 0 incompletas.** Antes de
+esta tanda eran 31 respondidas. La batería mide 49 ecuaciones, cada una por los dos
+lados.
+
+### Dos decisiones que hay que explicar
+
+**El original va primero.** La expansión conserva el valor —eso es lo que la hace
+segura— así que nunca puede contestar otra ecuación, pero sí puede contestar la misma
+de forma menos clara. `cos(2x) = 0` ya tenía una respuesta limpia de dos familias, y
+desarrollarla primero la habría sustituido por cuatro que dicen lo mismo peor. La
+expansión es para las ecuaciones sin respuesta, que es donde faltaba.
+
+**Un intento que se revirtió.** Marcar una declinación como rechazo
+(`MOTIVO_DECLINA`) arreglaba un agujero real de clasificación: `cos(3x) + cos(x) = 1`
+publica cero familias y no declara rechazo, así que quien pregunte «¿se negó?» no lo
+ve. Pero rompía `cos(x)³ > 2`, que **hoy acierta**: `|cos| ≤ 1` así que no hay
+soluciones. Lo acertaba por el motivo equivocado —«no ha publicado nada» leído como
+«no hay soluciones»—, pero lo acierta, y un refinamiento de clasificación no puede
+costar una respuesta correcta. Se queda el agujero, y se dice.
+
+### Lo que queda
+
+De los nueve rechazos, **seis son el mismo mecanismo**: dos términos trigonométricos
+con argumentos distintos. `sen(x) + sen(2x) = 0` es `sen x·(1 + 2cos x) = 0`, que
+factoriza, pero hace falta factorizar y factorizar es la sustitución universal. Los
+otros tres: `cos(3x) + cos(x) = 1` es una cúbica irreducible (`4u³ − 2u − 1`), sin
+raíces racionales ni fórmula; y `tan(x)·sen(x) = 0` y `sen(x)·cos(x)·tan(x) = 0` se
+niegan **correctamente**, porque el producto tiene agujeros y una familia
+`base + paso·k` no los puede expresar.
+
 ## 2026-10-04 — la carta de signos ya coloca los puntos que son expresiones
 
 Cierra el punto 2 de la lista. `Punto` tenía desde el principio una tercera forma
