@@ -325,6 +325,10 @@ def _casos(f: mx.Expr, var: str):
         _desarrolla_angulos_multiples(f, var), var)
     if universal is not None:
         return universal
+    cuadrado = _cuadrado_elimina_una_funcion(
+        _desarrolla_angulos_multiples(f, var), var)
+    if cuadrado is not None:
+        return cuadrado
     # No case matched. That is *not* the same as «there is no solution»: it is
     # «this engine does not solve this», and the difference is the whole point of
     # §5.4. Saying «no solutions» here would be a false answer presented with
@@ -1479,6 +1483,136 @@ def _a_racional_en_u(e: mx.Expr, var: str):
         return None
     return ratio
 
+
+def _cuadrado_elimina_una_funcion(f: mx.Expr, var: str):
+    """``sen(x) + sen(2x) = 1`` as a CUBIC, by squaring once.
+
+    The universal substitution makes this equation a quintic in ``t = tg(x/2)``, and a
+    quintic has no solution by radicals. **That is an artefact of the SUBSTITUTION,
+    not of the equation**: ``t = tg(x/2)`` sends a point to infinity and the degree
+    that comes with it is not the equation's degree.
+
+    The other way round it is a cubic. ``sen x + 2sen x cos x = 1`` is
+    ``sen x (1 + 2cos x) = 1``, so ``sen x = 1/(1 + 2cos x)``, and squaring once with
+    ``sen²x = 1 - cos²x`` gives
+
+    ``1 = (1 - c²)(1 + 2c)²``  ->  ``c * (4c³ + 4c² - 3c - 4) = 0``
+
+    a cubic, which Cardano closes. So the equation that looked unsolvable is
+    solvable, and the way to see it is that the quintic was never the problem.
+
+    **Squaring ADDS solutions**, and that is not a detail: every root of the squared
+    equation is a candidate and only some of them satisfy the original. So each one
+    is checked against ``f`` at the angles that give that cosine, and only the ones
+    that annul it are published. The check is numerical on purpose — it answers «does
+    this candidate actually work?», which is not another piece of algebra.
+    """
+    polinomio = P.as_poly(f)
+    if not polinomio:
+        return None
+    from academic_core.domain.engineering.mathlab import mvexpr as M
+    texto_sen = M.text(M.Call("sin", (M.Sym(var),)))
+    texto_cos = M.text(M.Call("cos", (M.Sym(var),)))
+    # `atoms_of` gives the atom NAMES \u2014 with the `@` prefix the monomial keys carry \u2014
+    # so both are read from there rather than rebuilt, and rebuilding them is how the
+    # comparison below failed on the first try with an empty set.
+    nombres = P.atoms_of(polinomio)
+    if len(nombres) != 2:
+        return None
+    texto_sen = next((a for a in nombres if a.endswith("sin(x)")), None)
+    texto_cos = next((a for a in nombres if a.endswith("cos(x)")), None)
+    if texto_sen is None or texto_cos is None:
+        return None                    # not one sine and one cosine of the unknown
+    # `atoms_of` gives the names WITHOUT the `@` that the monomial keys carry, so the
+    # two have to be in the same shape before anything is compared. Rebuilding the
+    # names from scratch failed on the first try for exactly that reason: an empty
+    # match reads exactly like a refusal.
+    if not texto_sen.startswith("@"):
+        texto_sen = "@" + texto_sen
+    if not texto_cos.startswith("@"):
+        texto_cos = "@" + texto_cos
+
+    def desglose(monomio):
+        """``(exponent of sen, [exponents of cos])``, or ``None`` for a third atom."""
+        exponente_sen, del_cos = 0, []
+        for nombre_atomo, exponente in monomio:
+            if nombre_atomo == texto_sen:
+                exponente_sen += exponente
+            elif nombre_atomo == texto_cos:
+                del_cos.append(exponente)
+            else:
+                return None
+        return exponente_sen, del_cos
+
+    def en_c(del_cos: list[int]):
+        producto = M.Num(1)
+        for exponente in del_cos:
+            producto = M.Mul(producto, M.Pow(M.Sym("c"), M.Num(exponente)))
+        return producto
+
+    coeficiente_sen, coeficiente_resto = M.Num(0), M.Num(0)
+    for monomio, coeficiente in polinomio.items():
+        partes = desglose(monomio)
+        if partes is None:
+            return None
+        exponente_sen, del_cos = partes
+        if exponente_sen > 1:
+            return None                # `sen` is not linear: it cannot be isolated
+        # A term with no `cos` factor contributes its coefficient ALONE, and that is
+        # an ADD and not a multiplication: `1*sen` is the `1` of `(1 + 2cos u)`.
+        # Losing it dropped `(1 + 2c)²` out of the square, and what came out was a
+        # quartic with no real roots where a cubic with one was sitting all along.
+        if exponente_sen == 1 and not del_cos:
+            termino = M.Num(coeficiente)
+        else:
+            termino = M.Mul(M.Num(coeficiente), en_c(del_cos))
+        if exponente_sen == 1:
+            coeficiente_sen = M.Add(coeficiente_sen, termino)
+        else:
+            coeficiente_resto = M.Add(coeficiente_resto, termino)
+    if mx.text(coeficiente_sen) == "0":
+        return None                    # there is no `sen` term to isolate
+
+    c = M.Sym("c")
+    uno_menos_c2 = M.Sub(M.Num(1), M.Pow(c, M.Num(2)))
+    cuadrado_sen = P.as_poly(M.Pow(coeficiente_sen, M.Num(2)))
+    cuadrado_resto = P.as_poly(M.Pow(coeficiente_resto, M.Num(2)))
+    final = P.add(P.mul(cuadrado_sen, P.as_poly(uno_menos_c2)),
+                  cuadrado_resto, -1)
+    if not final:
+        return None
+    raices, _motivo = _raices_reales(final, c)
+    if not raices:
+        return None
+
+    hipotesis = [
+        "se despeja el seno, se eleva al cuadrado y se usa sen²u + cos²u = 1: en "
+        "vez de un grado alto en t = tg(x/2) queda un polinomio en cos(u). Elevar "
+        "al cuadrado AÑADE soluciones, así que cada candidata se comprueba contra la "
+        "ecuación original y solo se publica la que la anula"]
+    paso = mx.Mul(mx.Num(2), mx.PI)
+    validas: list[Familia] = []
+    for raiz in raices:
+        coseno = mx.valor_real(trig.reducir_radicales(raiz).expresion, {})
+        if coseno is None or abs(coseno) > 1.0 + 1e-12:
+            continue                    # no cosine is out there
+        # The angle carries the EXACT root, not a decimal of it. The first version
+        # published `arccos(193072653/205929908)` — a rational approximation of a
+        # cubic root, off in the tenth decimal — and a solution that is off in the
+        # tenth decimal is not a solution, it is a plausible-looking lie (§5.4).
+        angulo, _multiplo = _arccoseno_exacto(raiz)
+        if mx.valor_real(angulo, {}) is None:
+            continue                    # the angle is exact but not numeric
+        for signo in (1, -1):
+            base = mx.Neg(angulo) if signo < 0 else angulo
+            valor_f = _evaluar(mx.substitute(f, var, base))
+            if valor_f is not None and abs(valor_f) < 1e-9:
+                validas.append(Familia(
+                    base, paso, "cos(u) = la raíz del polinomio al cuadrado"))
+    if not validas:
+        return None
+    espurias = _comprobar(validas, f, var)
+    return _deduplica(validas), hipotesis, espurias
 
 def _caso_sustitucion_universal(f: mx.Expr, var: str):
     """``t = tg(x/2)``: every trigonometric expression becomes rational.

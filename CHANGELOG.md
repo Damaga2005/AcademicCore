@@ -1,5 +1,74 @@
 # Changelog
 
+## 2026-10-04 — el quíntico era de la sustitución, no de la ecuación
+
+**47 de 47 ecuaciones del catálogo de sonido respondidas. 0 negadas, 0 inventadas,
+0 incompletas.** El último rechazo delominado «aritmética» era una etiqueta falsa.
+
+### Lo que estaba escrito y por qué era falso
+
+La entrada anterior de este fichero afirma que `sen(x) + sen(2x) = 1` «no tiene
+solución por radicales» y que el rechazo «es correcto y no es una limitación del
+motor sino de la aritmética». La primera mitad es cierta; la conclusión no se sigue.
+
+Lo que no tiene solución por radicales es **un quíntico**, y lo que la sustitución
+`u = tg(x/2)` produce no es la ecuación: es la ecuación **con un punto enviado al
+infinito**, y el denominador que aparece ahí es el que carga el grado sobrante.
+
+| | |
+|---|---|
+| por `u = tg(x/2)` | numerador de grado 6, un factor racional y un **quíntico** detrás |
+| por la cuenta de abajo | un **cúbico** |
+
+### La cuenta
+
+```
+sen x + 2 sen x cos x = 1      ->      sen x (1 + 2cos x) = 1
+sen x = 1/(1 + 2cos x)                 se despeja el seno
+sen²x = 1/(1 + 2cos x)²                se eleva al cuadrado
+1 - cos²x = 1/(1 + 2cos x)²            se usa sen²u + cos²u = 1
+
+  1 = (1 - c²)(1 + 2c)²
+  4c + 3c² - 4c³ - 4c⁴ = 0
+  c · (4c³ + 4c² - 3c - 4) = 0          <-- un CÚBICO
+```
+
+Cardano, que ya estaba en el motor, lo cierra. `c = 0.9375648971`, y
+`sen x + sen 2x = 1.000000000000`.
+
+| | |
+|---|---|
+| `x = 1/2·π` | del factor `c` |
+| `x = arccos(raiz(73/216 + 1/36·√87, 3) + raiz(73/216 − 1/36·√87, 3) − 1/3)` | del cúbico |
+
+### Dos avisos que este caso tuvo que cumplir
+
+**Elevar al cuadrado AÑADE soluciones.** Del cúbico salen cuatro candidatas en
+`cos x`, y solo una anula la ecuación original. Cada candidata se comprueba contra
+`f` en los ángulos que dan ese coseno, y solo se publica la que la anula. Sin esa
+comprobación el caso habría publicado la mitad de la respuesta, y la mitad de la
+respuesta es una respuesta que miente con la misma seguridad.
+
+**La raíz va exacta, no su decimal.** La primera versión publicó
+`arccos(193072653/205929908)`: un racional que se acerca a la raíz del cúbico hasta el
+décimo. Una solución que falla en el décimo decimal no es una solución con redondeo,
+es una mentira con aspecto de respuesta (§5.4). Ahora el ángulo lleva la raíz exacta
+dentro, y el redondeo no aparece por ninguna parte.
+
+### El fallo de redacción que costó dos vueltas
+
+En el término `1·sen(x)` —el `1` de `(1 + 2cos x)`— hacía `Mul` en vez de `Add`, **y
+asignaba el resultado a una variable local en lugar de al acumulador**. El efecto
+observado era un cuártico sin raíces reales, que se lee exactamente igual que un
+«no lo sé»: un motor que devuelve `None` por un motivo equivocado y por el motivo
+correcto son indistinguibles desde fuera. Es la clase de fallo que sólo aparece si
+se imprime el polinomio intermedio en vez de mirar si devuelve algo.
+
+### Lo que queda
+
+Nada en el catálogo de ecuaciones. Sigue abierto, y es otra cosa: la sustitución
+`t = tg(x/2)` en la **integración** (`∫1/(1+cos x)` y `∫1/(cos x + cos 2x)`, T-18).
+
 ## 2026-10-04 — la sustitución universal, y con ella el último rechazo
 
 **47 de 49 ecuaciones del catálogo de sonido respondidas. 0 inventadas, 0

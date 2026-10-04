@@ -196,18 +196,31 @@ RESPONDIDAS = [
     # a cubic always has a real root, and refusing this one was refusing arithmetic
     # rather than the engine. `cos(3x) + cos(x) = 1` develops to `4c^3 - 2c - 1`.
     "cos(3*x) + cos(x) = 1",
-]
-
-#: The two that used to be answered with a DIFFERENT equation's solutions. They
-#: are in the list because a refusal is now the right answer for them, and a
-#: refusal is a result that can be checked: no family may be published.
-NEGADAS_ANTES = [
+    # Squaring once, with the sine isolated first. `sen(x) + sen(2x) = 1` is
+    # `sen(x)(1 + 2cos(x)) = 1`, so `sen(x) = 1/(1 + 2cos(x))`, and with
+    # `sen²x = 1 - cos²x` that is a CUBIC in `cos(x)` and not the quintic that
+    # `t = tg(x/2)` produces. The two spellings are the same equation and both are
+    # listed: a battery that only asked one spelling would not have measured
+    # whether the case reaches a rearranged equation at all.
     "sin(x) + sin(2*x) = 1",
     "sin(2*x) + sin(x) = 1",
+]
+
+#: The ones that used to be answered with a DIFFERENT equation's solutions. They are
+#: in the list because a refusal is now the right answer for them, and a refusal is a
+#: result that can be checked: no family may be published.
+NEGADAS_ANTES = [
     # Two products whose factors do NOT share a domain. `tg(x)` does not exist at
     # pi/2 and `sen(x)` does, so `A·B = 0` is not `A = 0` or `B = 0` there: at
     # `x = pi/2` the product is `0·0·undefined` and the equation is not even
     # posed. A family cannot be published with holes, so the whole thing refuses.
+    #
+    # `sen(x) + sen(2*x) = 1` used to sit here too, on the grounds that the universal
+    # substitution makes it a quintic in `t = tg(x/2)` and quintics have no solution
+    # by radicals. **That was the substitution's degree, not the equation's**:
+    # `t = tg(x/2)` sends a point to infinity, and the denominator there is what
+    # carries the extra degree. Isolating the sine and squaring once gives a CUBIC in
+    # `cos(x)`, which Cardano closes. See `_cuadrado_elimina_una_funcion`.
 ]
 
 
