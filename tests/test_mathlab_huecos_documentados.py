@@ -6,10 +6,12 @@ existía, y se contradecían con su propio fichero: `T-18` figuraba como cerrado
 cuatro líneas después de la línea que lo declaraba parcial. Corregidas el
 2026-10-04 contra el motor, no contra la memoria.
 
-Lo que queda es poco y está aquí: dos integrales hiperbólicas y la sustitución
-``t = tg(x/2)`` en la integración. Estas pruebas existen para que, el día que se
-cierren, **fallen**. Un hueco documentado que nadie puede ver cerrarse es un hueco
-que acaba mintiendo solo otra vez, y esta vez por escrito y con la fecha al lado.
+Lo que queda es poco y está aquí: dos integrales hiperbólicas, la sustitución
+``t = tg(x/2)`` en la integración, y los dos puntos donde la descomposición en
+fracciones parciales se topa con algo que no es una división. Estas pruebas existen
+para que, el día que se cierren, **fallen**. Un hueco documentado que nadie puede
+ver cerrarse es un hueco que acaba mintiendo solo otra vez, y esta vez por escrito
+y con la fecha al lado.
 """
 
 from __future__ import annotations
@@ -73,11 +75,95 @@ def test_de_T14_no_falta_ninguna_integral():
     """
     assert HIPERBOLICAS_FALTAN == [], HIPERBOLICAS_FALTAN
 
-#: T-18, el único punto abierto de la lista: la sustitución del ángulo medio
-MEDIO_ANGULO_FALTA = [
+#: T-18. La sustitución del ángulo medio, cerrada el 2026-10-04. Antes era lo único
+#: que quedaba abierto de la lista y el rechazo era honesto; estas dos se integraban
+#: ya por la tabla o por partes, y ninguna de las dos por lo que las integraba.
+MEDIO_ANGULO_CERRADAS = [
     "1/(1+cos(x))",
     "1/(cos(x)+cos(2*x))",
 ]
+
+#: Lo que la descomposición en fracciones parciales NO alcanza todavía. No son huecos
+#: de este commit: son los dos sitios donde la cuenta deja de ser una división, y
+#: ambos son la razón por la que la etiqueta de T-18 dice PARCIAL y no COMPLETADA.
+#:
+#: |hueco|por qué|
+#: |---|---|
+#: |`∫du/(u²+1)`|la cuadrática irreducible sale con discriminante NEGATIVO, y su primitiva es `arctg(u)` — que la capa `symbolic` no tiene: no está en la lista de funciones del parser, ni en la tabla de derivadas, ni en el evaluador. mathlab sí lo deriva y sí lo evalúa, así que un `Fn('atan', u)` se IMPRIMIRÍA y no se podría VOLVER A LEER. Una traza que el lector no puede teclear no es una traza |
+#: |`∫du/(u⁴+1)`|el denominador no tiene raíz racional, así que lo que queda tras dividir es un grado 4 irreductible. Partirlo en dos cuadráticas sobre Q es un sistema que hay que resolver, y hacerlo a medias —tratar las cuadráticas que salgan y tirar el resto— es como un integrador racional empieza a responder «a veces»|
+TAN_DENOMINADOR_IRREDUCIBLE = [
+    "1/(1+u^2)",
+    "1/(2+cos(x))",
+    "(2*u+1)/(u^2+1)",
+    "1/(4*u^2+4*u+2)",
+    "1/(u^2+u+1)",
+    "sin(x)^2/(1+cos(x))",
+]
+
+CUARTICO_SIN_FACTOR_RACIONAL = [
+    "1/(u^4+1)",
+    "1/(u^4+u^2+1)",
+    "(u+1)/(u^2+1)^2",
+    "1/(cos(x)*cos(2*x))",
+]
+
+
+@pytest.mark.parametrize("integrando", MEDIO_ANGULO_CERRADAS)
+def test_la_sustitucion_del_angulo_medio_ya_integra(integrando):
+    """Cerradas, y cerradas por la única comprobación que decide: derivar.
+
+    `∫1/(1+cos x) dx = tg(x/2)`: con `u = tg(x/2)`, `1 + cos x` es `2/(1+u²)` y el
+    jacobiano `2du/(1+u²)` cancela exactamente lo que sobra, y queda `∫du`. Es la
+    misma cuenta que en el solucionador de ecuaciones, y por el mismo motivo: es la
+    sustitución que no necesita una idea nueva por ecuación.
+
+    La primitiva no se comprueba como texto, porque un texto puede tener todos los
+    términos bien escritos y el signo de todos invertido.
+    """
+    from academic_core.domain.engineering.symbolic import expr as SE
+    from academic_core.domain.engineering.symbolic.integrate import StepLog
+
+    primitiva, _paso = I.integrate(SE.parse(integrando), "x", StepLog())
+    diferencia = derive_mv.differentiate(mx.from_symbolic(primitiva), "x")
+    for j in range(-30, 31):
+        x = j * 0.21
+        valor_derivada = mx.valor_real(diferencia, {"x": x})
+        valor_integrando = mx.valor_real(mx.parse(integrando), {"x": x})
+        if valor_derivada is None or valor_integrando is None:
+            continue
+        escala = max(1.0, abs(valor_integrando))
+        assert abs(valor_derivada - valor_integrando) < 1e-8 * escala, (
+            integrando, x, valor_derivada, valor_integrando)
+
+
+@pytest.mark.parametrize("integrando", TAN_DENOMINADOR_IRREDUCIBLE)
+def test_la_cuadratica_de_discriminante_negativo_sigue_sin_arctg(integrando):
+    """Si esto falla, `atan` entró en el lenguaje: actualiza la etiqueta de T-18.
+
+    El rechazo es el correcto y no es una carencia del método: la descomposición en
+    fracciones parciales funciona, y lo que sale necesita una función que la capa
+    `symbolic` no tiene.
+    """
+    from academic_core.domain.engineering.symbolic import expr as SE
+
+    with pytest.raises(Exception):
+        I.integrate(SE.parse(integrando), "u" if "u" in integrando else "x",
+                    I.StepLog())
+
+
+@pytest.mark.parametrize("integrando", CUARTICO_SIN_FACTOR_RACIONAL)
+def test_un_cuadratico_sin_raiz_racional_no_se_factorea_solo(integrando):
+    """Si esto falla, el denominador de grado 4 se sabe partir en dos cuadráticas.
+
+    La frontera está donde la aritmética deja de ser una división, y se dibuja
+    antes de cruzarla.
+    """
+    from academic_core.domain.engineering.symbolic import expr as SE
+
+    with pytest.raises(Exception):
+        I.integrate(SE.parse(integrando), "u" if "u" in integrando else "x",
+                    I.StepLog())
+
 
 #: Inecuaciones cuyos puntos críticos NO son racionales. Antes eran un rechazo, y el
 #: rechazo era porque la carta solo sabía colocar un punto crítico en la rejilla de
@@ -145,18 +231,6 @@ def test_la_carta_no_inventa_ni_omite_un_punto(inequidad):
             falsos.append(round(x, 3))
     assert not falsos, f"{inequidad}: publica {falsos[:4]}, que no la cumplen"
     assert not omitidos, f"{inequidad}: no publica {omitidos[:4]}"
-
-
-@pytest.mark.parametrize("integrando", MEDIO_ANGULO_FALTA)
-def test_la_sustitucion_del_angulo_medio_sigue_sin_integrar(integrando):
-    """Si esto falla, `t = tg(x/2)` se integra: actualiza la etiqueta de T-18.
-
-    Es lo último que quedaba abierto de T-18. Todo lo demás de esa familia
-    responde: reducción de potencias de seno, coseno y tangente, partes
-    encadenadas para logaritmos, y las recíprocas.
-    """
-    with pytest.raises(Exception):
-        integra(integrando)
 
 
 @pytest.mark.parametrize("expresion,derivada", [

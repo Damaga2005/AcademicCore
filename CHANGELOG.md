@@ -1,5 +1,87 @@
 # Changelog
 
+## 2026-10-04 — `t = tg(x/2)` en la integración, y lo que hacía falta debajo
+
+**T-18 cerrado en su último punto abierto**, por la vía larga: un integrador de
+funciones racionales por descomposición en fracciones parciales sobre ℚ. Ninguna de
+las dos integrales que faltaban se negaba por falta de una fórmula: se negaba porque
+**no había ninguna pieza de ellas escrita**.
+
+| | antes | ahora |
+|---|---|---|
+| `∫dx/(1+cos x)` | se negaba | `tg(x/2)` |
+| `∫dx/(cos x + cos 2x)` | se negaba | `-tg(x/2)/3 - 2/(3√3)·ln|(u-1/√3)/(u+1/√3)|`, `u = tg(x/2)` |
+| `∫du/(1-3u²)` | se negaba | log, cerrada |
+| `∫du/(u²-1)` | se negaba | `½ ln|u-1| - ½ ln|u+1|` |
+| `∫du/(u²-1)²` | se negaba | `-u/(2(u²-1)) - ¼ ln|(u-1)/(u+1)|` |
+
+Verificado **derivando** en 41 puntos de la recta, no leyendo el texto: el error
+máximo en `∫dx/(cos x + cos 2x)` es 3.6·10⁻¹³.
+
+### Lo que faltaba no era difícil, era un método
+
+El motor leía `1/(au+b)` y `u/(1+u²)` — el denominador cuya derivada está en el
+numerador — y se negaba en todo lo demás. Lo que no tenía era lo que convierte la
+integración racional en **método** y no en lista: **factorizar el denominador sobre
+ℚ y repartir**. `∫du/(1+u²)` no se negaba por difícil; se negaba porque no había
+nadie escrito ninguna parte suya.
+
+Cinco pasos, todos exactos: división entera, factorización sobre ℚ, el sistema por
+igualación de coeficientes (hay tantas incógnitas como el grado del denominador, así
+que es cuadrado), **Gauss-Jordan sobre `Fraction`** y la primitiva de cada trozo.
+
+### Tres decisiones que parecían detalles y no lo eran
+
+**Aritmética exacta, nunca un redondeo.** Un coeficiente que es 1e-18 en vez de 0 es
+una respuesta equivocada tres pasos más allá, donde nada apunta de vuelta a aquí.
+
+**El `abs` del logaritmo es de la respuesta, no del método.** Y `log|x|` se imprime
+así porque es lo que se lee; el motor no tiene una entrada «log de un cociente».
+
+**Un resto no es un factor, y el cociente no es el resto.** Los dos saltos de la
+factorización están comentados en el sitio donde importan.
+
+### Y el `arctg` que no se emite, que es la decisión de este commit
+
+`∫du/(u²+1) = arctg(u)`. mathlab **deriva y evalúa** `arctg` sin problema, así que un
+`Fn("arctg", u)` se habría **impreso** — y no se podría **volver a leer**, porque
+`arctg` no está en la lista de funciones del parser de `symbolic`, ni en su tabla de
+derivadas, ni en su evaluador numérico. Una traza que el lector no puede teclear no
+es una traza, y una respuesta que no se puede volver a meter en el motor no es
+comprobable por el mismo camino que las demás. **Se emite negación, no `arctg`.**
+
+Es un límite, no un hueco del método: la descomposición funciona y lo que sale
+necesita una función que la capa no tiene. Las dos listas de negaciones están
+separadas en `tests/test_mathlab_integral_racional.py` **a propósito**, porque dos
+negaciones distintas en una sola lista parecen un solo hueco.
+
+### El otro límite, que es aritmética
+
+Un denominador sin raíz racional de grado 4 —`u⁴+1`, o lo que deja
+`∫dx/(cos x·cos 2x)`— no se sabe partir en dos cuadráticas sobre ℚ. Eso es un sistema
+que hay que resolver, y hacerlo a medias —tratar las cuadráticas que salgan y tirar
+el resto— es exactamente cómo un integrador racional empieza a responder «a veces».
+
+### Tres fallos míos, de los que dos se leían como un rechazo honesto
+
+| | |
+|---|---|
+| `{}` significaba dos cosas | el polinomio **cero** y el denominador **uno**. Multiplicar dos denominadores `{}` daba `{}`, la reducción veía un denominador nulo y se negaba, y **`u²` —que la regla de la potencia ya respondía— dejó de responder** |
+| `{}` en el monomio | el **cero**, cuando ahí era `u⁰`. Todas las filas del sistema de fracciones parciales salieron a 0, el sistema fue singular, y `∫du/(u²-1)` se negó **con el mismo mensaje** que `∫du/(1+u²)` |
+| el signo del factor lineal | `u - r` se guardaba como `u + c`, y la base salía `x - c` en vez de `x + c`: `u-1` integrándose como `+½ ln|u+1|`, con el signo de **todos** los términos invertido |
+
+Los tres se leen igual desde fuera: un motor que devuelve «no lo sé» por el motivo
+equivocado y por el correcto es indistinguible del que no lo sabe. Se encontraron
+imprimiendo el polinomio intermedio, no mirando si devolvía algo.
+
+### Lo que queda
+
+Nada en T-14 ni en el catálogo de ecuaciones. En T-18 quedan **dos límites
+declarados**, que son lo único que impide decir COMPLETADA: la cuadrática irreducible
+de discriminante negativo (falta `arctg` en el lenguaje) y el cuártico sin raíz
+racional. Los dos están en `tests/test_mathlab_huecos_documentados.py`, en listas que
+**fallan** el día que se cierren.
+
 ## 2026-10-04 — el quíntico era de la sustitución, no de la ecuación
 
 **47 de 47 ecuaciones del catálogo de sonido respondidas. 0 negadas, 0 inventadas,

@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from fractions import Fraction
-from math import comb
+from math import comb, gcd, isqrt
 
 from academic_core.domain.engineering.symbolic.derive import derivative
 from academic_core.domain.engineering.symbolic.expr import (
@@ -506,6 +506,700 @@ def _attempt(log: StepLog, fn) -> tuple[Expr, int] | None:
     return got[0], got[1] + offset
 
 
+# ---------------------------------------------------------------------------
+# T-18: an integrand that is a RATIONAL FUNCTION, and the half-angle
+# substitution that turns every trigonometric integrand into one.
+# ---------------------------------------------------------------------------
+# What was missing is not a difficult integral. What was missing is the part
+# that makes rational integration a METHOD instead of a list: FACTOR THE
+# DENOMINATOR over Q and split the integrand into pieces already known. The
+# engine could read `1/(au+b)` and `u/(1+u^2)` — the denominator whose
+# derivative happens to be in the numerator — and `int 1/(1+u^2)` was refused.
+# It was not refused because it is hard. It was refused because nobody had
+# written down any piece of it.
+
+#: how far the multiple angles go before this refuses. Chebyshev coefficients
+#: grow like 4^n / sqrt(n), so a cap is a real boundary and not a formality.
+_MAX_ANGULO = 16
+
+
+def _p_limpia(p: dict[int, Fraction]) -> dict[int, Fraction]:
+    """A polynomial without zero coefficients. The empty dict is ZERO."""
+    return {g: c for g, c in p.items() if c}
+
+
+def _p_suma(a: dict[int, Fraction], b: dict[int, Fraction],
+            signo: int = 1) -> dict[int, Fraction]:
+    salida = dict(a)
+    for g, c in b.items():
+        salida[g] = salida.get(g, Fraction(0)) + signo * c
+    return _p_limpia(salida)
+
+
+def _p_producto(a: dict[int, Fraction], b: dict[int, Fraction]) -> dict[int, Fraction]:
+    salida: dict[int, Fraction] = {}
+    for g1, c1 in a.items():
+        for g2, c2 in b.items():
+            salida[g1 + g2] = salida.get(g1 + g2, Fraction(0)) + c1 * c2
+    return _p_limpia(salida)
+
+
+def _p_grado(p: dict[int, Fraction]) -> int:
+    """-1 for the zero polynomial, which is what makes `while p and ...` work."""
+    return max(p) if p else -1
+
+
+def _p_derivada(p: dict[int, Fraction]) -> dict[int, Fraction]:
+    return _p_limpia({g - 1: c * g for g, c in p.items() if g})
+
+
+def _p_potencia(p: dict[int, Fraction], n: int) -> dict[int, Fraction]:
+    salida: dict[int, Fraction] = {0: Fraction(1)}
+    for _ in range(max(0, n)):
+        salida = _p_producto(salida, p)
+    return salida
+
+
+def _p_eval(p: dict[int, Fraction], x: Fraction) -> Fraction:
+    total = Fraction(0)
+    for g, c in p.items():
+        total += c * x ** g
+    return total
+
+
+def _p_mcd(a: Fraction, b: Fraction) -> Fraction:
+    if a == 0:
+        return abs(b)
+    if b == 0:
+        return abs(a)
+    num = gcd(abs(a.numerator), abs(b.numerator))
+    den = a.denominator * b.denominator // gcd(a.denominator, b.denominator)
+    return Fraction(num, den)
+
+
+def _p_parte_entera(a: dict[int, Fraction],
+                    b: dict[int, Fraction]) -> tuple[dict[int, Fraction], dict[int, Fraction]]:
+    """``(quotient, remainder)`` by exact division over Q."""
+    cociente: dict[int, Fraction] = {}
+    resto = dict(a)
+    grado_b = _p_grado(b)
+    while resto and _p_grado(resto) >= grado_b:
+        g = _p_grado(resto) - grado_b
+        c = resto[_p_grado(resto)] / b[grado_b]
+        cociente[g] = cociente.get(g, Fraction(0)) + c
+        for gb, cb in b.items():
+            k = gb + g
+            resto[k] = resto.get(k, Fraction(0)) - c * cb
+        resto = _p_limpia(resto)
+    return _p_limpia(cociente), resto
+
+
+def _p_expresion(base: Expr, p: dict[int, Fraction]) -> Expr:
+    """A polynomial in ``base``, written from the highest power down."""
+    if not p:
+        return Num(Fraction(0))
+    partes = []
+    for g in sorted(p, reverse=True):
+        c = p[g]
+        if g == 0:
+            partes.append(Num(c))
+            continue
+        potencia = base if g == 1 else Pow(base, Num(Fraction(g)))
+        partes.append(potencia if c == 1 else Mul(Num(c), potencia))
+    salida = partes[0]
+    for parte in partes[1:]:
+        salida = Add(salida, parte)
+    return salida
+
+
+def _p_mcd_polinomios(a: dict[int, Fraction], b: dict[int, Fraction]) -> dict[int, Fraction]:
+    """The polynomial gcd over Q by Euclid, monic. ``{0: 1}`` when coprime.
+
+    The CONTENT is already out by the time this is called, so what is left to find
+    is a genuine common polynomial factor — and it matters more than it looks. The
+    substitution writes `1/(cos(x) + cos(2x))` without ever cancelling anything, so
+    the denominator arrives carrying `(1+u²)³`: a factor with a negative
+    discriminant that nothing can divide and that refuses the whole integral. With
+    the common factor out, the integrand is `(1+u²)/(1-3u²)`, whose denominator has
+    a positive discriminant and closes.
+
+    It is returned MONIC, and that is not cosmetic. Normalising to the leading
+    *coefficient* instead returned the constant `16/9` where the polynomial `u²+1`
+    belonged, the degree test then said «no common factor», and nothing was ever
+    cancelled.
+    """
+    while b:
+        _q, r = _p_parte_entera(a, b)
+        a, b = b, r
+    if _p_grado(a) > 0:
+        principal = a[_p_grado(a)]
+        return {g: c / principal for g, c in a.items()}
+    return {0: Fraction(1)}
+
+
+def _p_reduce(n: dict[int, Fraction], d: dict[int, Fraction]):
+    """Content and common polynomial factor out of the pair; leading sign fixed."""
+    if not d:
+        return None                      # dividing by zero
+    comun = Fraction(0)
+    for c in d.values():
+        comun = _p_mcd(comun, c)
+    if comun != 1:
+        n = {g: c / comun for g, c in n.items()}
+        d = {g: c / comun for g, c in d.items()}
+    if d[_p_grado(d)] < 0:
+        n = {g: -c for g, c in n.items()}
+        d = {g: -c for g, c in d.items()}
+    factor = _p_mcd_polinomios(n, d)
+    if _p_grado(factor) > 0:
+        n, _r = _p_parte_entera(n, factor)
+        d, _r2 = _p_parte_entera(d, factor)
+    return _p_limpia(n), d
+
+
+def _como_racional(e: Expr, var: str):
+    """``(numerator, denominator)`` as polynomials in ``var``, or ``None``.
+
+    Only the four rational operations and INTEGER powers are allowed, and a
+    negative power moves to the denominator instead of being an error: ``1/u^3``
+    is a rational function whose denominator is ``u^3``, not something exotic.
+    A half-power does not move — ``sqrt(u)`` is not rational in ``u`` — and
+    neither does anything whose value is not a rational number, which is how
+    ``sqrt(2)/(u-1)`` stays out.
+    """
+    x = Sym(var)
+
+    # The denominator is the polynomial ONE and never the empty dict. Those are the
+    # same thing written twice, and they are not the same thing: `{}` is the ZERO
+    # polynomial here, so a product of two denominators `{}` came out as `{}`, the
+    # reduction saw a zero denominator and refused, and `u^2` — which the power rule
+    # had already answered — stopped answering. The empty denominator is written as
+    # `{0: 1}` everywhere so that multiplying it does what multiplying by one does.
+    UNO = {0: Fraction(1)}
+
+    def rec(g: Expr):
+        if isinstance(g, Num):
+            v = exact_value(g)
+            return ({0: Fraction(v)}, UNO) if v is not None else None
+        if isinstance(g, Sym):
+            return ({1: Fraction(1)}, UNO) if g.name == var else None
+        if isinstance(g, Neg):
+            got = rec(g.arg)
+            if got is None:
+                return None
+            return ({k: -c for k, c in got[0].items()}, got[1])
+        if isinstance(g, (Add, Sub)):
+            a, b = rec(g.left), rec(g.right)
+            if a is None or b is None:
+                return None
+            n = _p_suma(_p_producto(a[0], b[1]), _p_producto(b[0], a[1]),
+                        1 if isinstance(g, Add) else -1)
+            return _p_reduce(n, _p_producto(a[1], b[1]))
+        if isinstance(g, Mul):
+            a, b = rec(g.left), rec(g.right)
+            if a is None or b is None:
+                return None
+            return _p_reduce(_p_producto(a[0], b[0]), _p_producto(a[1], b[1]))
+        if isinstance(g, Div):
+            a, b = rec(g.left), rec(g.right)
+            if a is None or b is None:
+                return None
+            nuevo = _p_producto(a[1], b[0])
+            if not nuevo:
+                return None              # division by zero
+            return _p_reduce(_p_producto(a[0], b[1]), nuevo)
+        if isinstance(g, Pow):
+            v = exact_value(g.exponent)
+            if v is None:
+                return None              # u^u and anything not a rational power
+            n = int(v)
+            if n != v or abs(n) > 64:
+                return None              # sqrt(u) is not rational in u
+            base = rec(g.base)
+            if base is None:
+                return None
+            if n >= 0:
+                return _p_reduce(_p_potencia(base[0], n), _p_potencia(base[1], n))
+            return _p_reduce(_p_potencia(base[1], -n), _p_potencia(base[0], -n))
+        return None                      # a function: sin, cos, log, abs...
+
+    return rec(e)
+
+
+def _divisores(n: int) -> list[int]:
+    salida, d = [], 1
+    while d * d <= n:
+        if n % d == 0:
+            salida.append(d)
+            if d != n // d:
+                salida.append(n // d)
+        d += 1
+    return sorted(salida)
+
+
+def _candidatos_racionales(p: dict[int, Fraction]) -> list[Fraction]:
+    """Every root the rational root theorem allows: ±p/q.
+
+    Capped, because the theorem is quadratic in the constant term and an
+    unbounded list is a quadratic blow-up on a polynomial nobody wrote by hand.
+    """
+    grado = _p_grado(p)
+    if grado < 1:
+        return []
+    principal = p[grado]
+    constante = p.get(0, Fraction(0))
+    if constante == 0:
+        return [Fraction(0)]
+    salida = []
+    for num in _divisores(abs(constante.numerator)):
+        for den in _divisores(principal.denominator):
+            for signo in (1, -1):
+                salida.append(Fraction(signo * num, den))
+                if len(salida) > 400:
+                    return salida
+    return salida
+
+
+def _primera_raiz_racional(p: dict[int, Fraction]) -> Fraction | None:
+    for c in _candidatos_racionales(p):
+        if _p_eval(p, c) == 0:
+            return c
+    return None
+
+
+def _factores(d: dict[int, Fraction]):
+    """``[(factor, multiplicity)]`` with every factor of degree 1 or 2, or None.
+
+    **It refuses a squarefree remainder of degree above 2.** Splitting a quartic
+    into two quadratics is a system to solve, and doing it half way — handling
+    whatever quadratics fall out and silently dropping the rest — is exactly how
+    a rational integrator starts answering sometimes. So the boundary is drawn
+    where the arithmetic stops being a division.
+    """
+    if _p_grado(d) < 1:
+        return None
+    resto = dict(d)
+    salida = []
+    for _ in range(_p_grado(d) + 1):
+        raiz = _primera_raiz_racional(resto)
+        if raiz is None:
+            break
+        factor = {1: Fraction(1), 0: -raiz}
+        multiplicidad = 0
+        # The division has to be EXACT, and what is left to factor is the QUOTIENT.
+        # Asking only whether something changed made `u² - 1` come out as `(u-1)²`
+        # with a remainder of 2; keeping the remainder instead of the quotient threw
+        # `u+1` away, because the remainder of an exact division is nothing at all.
+        while resto:
+            cociente, nuevo = _p_parte_entera(resto, factor)
+            if nuevo:
+                break                    # this root's multiplicity ended here
+            resto = cociente
+            multiplicidad += 1
+        salida.append((factor, multiplicidad))
+    # `not resto` and not `_p_grado(resto) == 0`: the zero polynomial has degree -1
+    # here, so testing for degree zero missed "factored all the way down" and
+    # `u² - 1` came back as no factors at all.
+    if not resto or _p_grado(resto) == 0:
+        return salida
+    if _p_grado(resto) == 2:
+        return salida + [(resto, 1)]   # no rational root: irreducible over Q
+    return None
+
+
+def _gauss(sistema: list[list[Fraction]], n: int) -> list[Fraction] | None:
+    """Gauss-Jordan over Fractions. ``None`` when the system does not solve.
+
+    Exact arithmetic on purpose: a coefficient that is 1e-18 instead of 0 is a
+    coefficient that will be a wrong answer ten steps later, where nobody can
+    see that it was this one.
+    """
+    m = [list(fila) + [sistema[i][-1]] for i, fila in enumerate(sistema)]
+    for col in range(n):
+        pivote = next((r for r in range(col, n) if m[r][col] != 0), None)
+        if pivote is None:
+            return None
+        m[col], m[pivote] = m[pivote], m[col]
+        v = m[col][col]
+        m[col] = [c / v for c in m[col]]
+        for r in range(n):
+            if r != col and m[r][col] != 0:
+                f = m[r][col]
+                m[r] = [a - f * bb for a, bb in zip(m[r], m[col])]
+    return [m[i][n] for i in range(n)]
+
+
+def _p_por_monomio(p: dict[int, Fraction], monomio: dict[int, Fraction]) -> dict[int, Fraction]:
+    """``p·u^m``, where the EMPTY monomial is ``u⁰`` and not the zero.
+
+    Everywhere else in this block ``{}`` is the zero polynomial, and multiplying by
+    it gave ``{}``. So every coefficient of the partial fractions system came out as
+    0, the system was singular, and `∫du/(u²-1)` was refused with the same message
+    as `∫du/(1+u²)`. Two different reasons, one indistinguishable refusal.
+    """
+    return p if not monomio else _p_producto(p, monomio)
+
+
+def _fracciones_parciales(resto: dict[int, Fraction], den: dict[int, Fraction],
+                          factores):
+    """``[((a, b), factor, power)]`` with ``R/D`` rebuilt out of them.
+
+    The unknowns are the coefficients of every piece the factorisation allows:
+    ``c_j/(u-r)^j`` for a linear factor of multiplicity ``m``, and
+    ``(a_j u + b_j)/Q^j`` for a quadratic of multiplicity ``m``. That is as many
+    unknowns as ``deg D``, so the system is square. It is built by multiplying
+    each piece by ``D`` and equating coefficients — the textbook construction,
+    and not a guess.
+    """
+    grado_den = _p_grado(den)
+    incognitas: list[tuple[dict[int, Fraction], dict[int, Fraction]]] = []
+    for factor, multiplicidad in factores:
+        for j in range(1, multiplicidad + 1):
+            comultiplo, _r = _p_parte_entera(den, _p_potencia(factor, j))
+            if _p_grado(factor) == 1:
+                incognitas.append((comultiplo, {}))
+            else:
+                incognitas.append((comultiplo, {1: Fraction(1)}))
+                incognitas.append((comultiplo, {}))
+    n = len(incognitas)
+    if n != grado_den:
+        return None                      # cannot happen; checked rather than trusted
+    filas = []
+    for g in range(grado_den):
+        fila = [_p_por_monomio(comultiplo, monomio).get(g, Fraction(0))
+                for comultiplo, monomio in incognitas]
+        fila.append(resto.get(g, Fraction(0)))
+        filas.append(fila)
+    solucion = _gauss(filas, n)
+    if solucion is None:
+        return None
+    piezas, i = [], 0
+    for factor, multiplicidad in factores:
+        for j in range(1, multiplicidad + 1):
+            if _p_grado(factor) == 1:
+                a, b = solucion[i], Fraction(0)
+                i += 1
+            else:
+                a, b = solucion[i], solucion[i + 1]
+                i += 2
+            if a == 0 and b == 0:
+                continue                  # a piece with no coefficient is not a piece
+            piezas.append(((a, b), factor, j))
+    return piezas
+
+
+def _raiz(v: Fraction) -> Expr:
+    """√v for a positive rational: exact when it is one, ``Pow(1/2)`` otherwise."""
+    n, d = isqrt(v.numerator), isqrt(v.denominator)
+    if n * n == v.numerator and d * d == v.denominator:
+        return Num(Fraction(n, d))
+    return Pow(Num(v), Num(Fraction(1, 2)))
+
+
+def _integral_Q1(p: Fraction, q: Fraction, delta: Fraction, x: Sym):
+    """``∫du/(u² + pu + q)`` for a MONIC quadratic of discriminant ``delta``.
+
+    Three cases, and one of them is a refusal that is not a shrug:
+
+    - ``delta > 0``: two real roots, and the answer is a logarithm of a ratio.
+      This is the one T-18 needs — ``∫1/(cos(x) + cos(2x))`` lands here.
+    - ``delta = 0``: a perfect square, so the answer is rational. It should
+      never arrive, since a squarefree denominator with no rational root is not
+      one, but the branch is here rather than a division by zero later.
+    - ``delta < 0``: an inverse tangent. **Refused**, and the reason is in the
+      docstring of ``_integral_racional``.
+    """
+    v = x if p == 0 else Add(x, Num(p / 2))
+    if delta == 0:
+        return Div(Num(Fraction(-1)), v)
+    if delta < 0:
+        return None
+    raiz = _raiz(delta)
+    medio = Mul(Num(Fraction(1, 2)), raiz)
+    return Div(Fn("log", Fn("abs", Div(Sub(v, medio), Add(v, medio)))), raiz)
+
+
+def _integral_Q(factor: dict[int, Fraction], j: int, x: Sym):
+    """``∫du/Q(u)^j`` for Q of degree 2, by the recurrence on ``j``.
+
+    ``J_j = 2(3-2j)/((j-1)Δ)·J_{j-1} - (2u + p)/((j-1)Δ·Q^(j-1))`` for a monic
+    Q, with ``I_j = J_j/q2^j``. It comes from differentiating ``(2u + p)/Q^(j-1)``
+    once and using ``(2u + p)² = 4Q + Δ``; checked against ``∫du/(u²-1)²``, whose
+    derivative is exactly the integrand.
+    """
+    q2 = factor[2]
+    p = factor.get(1, Fraction(0)) / q2
+    q = factor.get(0, Fraction(0)) / q2
+    delta = p * p - 4 * q
+    cuerpo = _integral_Q1(p, q, delta, x)
+    if cuerpo is None:
+        return None
+    monica = {2: Fraction(1), 1: p, 0: q}
+    for nivel in range(2, j + 1):
+        cociente = Fraction(2 * (3 - 2 * nivel), (nivel - 1)) / delta
+        segundo = Div(Add(Mul(Num(Fraction(2)), x), Num(p)),
+                      Mul(Num(Fraction(nivel - 1) * delta),
+                          _p_expresion(x, _p_potencia(monica, nivel - 1))))
+        cuerpo = Add(Mul(Num(cociente), cuerpo), Neg(segundo))
+    return Div(cuerpo, Num(Fraction(q2) ** j))
+
+
+def _integral_pieza(coefs: tuple[Fraction, Fraction],
+                    factor: dict[int, Fraction], j: int, x: Sym):
+    """``∫(a·u + b)/(u - r)^j du`` or ``∫(a·u + b)/Q(u)^j du``, whichever."""
+    a, b = coefs
+    if _p_grado(factor) == 1:
+        # `factor` IS `u - r`, and it is stored as `u + factor[0]`. So the base is
+        # `x + factor[0]` and not `x - factor[0]`, which had `u-1` integrating to
+        # `+1/2 log|u+1|` and the whole answer with the sign of every term inverted.
+        base = Add(x, Num(factor.get(0, Fraction(0))))
+        if j == 1:
+            return Mul(Num(a), Fn("log", Fn("abs", base)))
+        return Mul(Num(Fraction(a, 1 - j)), Pow(base, Num(Fraction(1 - j))))
+    q2 = factor[2]
+    dq1 = factor.get(1, Fraction(0))
+    lam = Fraction(a) / (2 * q2)
+    mu = Fraction(b) - lam * dq1
+    partes = []
+    if lam:
+        # the part of the numerator that IS the derivative of the denominator
+        if j == 1:
+            partes.append(Mul(Num(lam), Fn("log", Fn("abs", _p_expresion(x, factor)))))
+        else:
+            partes.append(Mul(Num(lam / (1 - j)),
+                              _p_expresion(x, _p_potencia(factor, 1 - j))))
+    if mu:
+        resto = _integral_Q(factor, j, x)
+        if resto is None:
+            return None
+        partes.append(Mul(Num(mu), resto))
+    if not partes:
+        return Num(Fraction(0))
+    salida = partes[0]
+    for parte in partes[1:]:
+        salida = Add(salida, parte)
+    return salida
+
+
+def _integral_polinio(q: dict[int, Fraction], x: Sym) -> Expr:
+    return _p_expresion(x, _p_limpia({g + 1: c / (g + 1) for g, c in q.items()}))
+
+
+def _integral_racional(e: Expr, var: str, log: StepLog, depth: int):
+    """A rational function of the unknown, by partial fractions over Q.
+
+    Five steps, every one of them exact:
+
+    1. ``N/D`` with ``deg N ≥ deg D`` is divided, and the polynomial part goes to
+       the power rule.
+    2. ``D`` is factored over Q. Every rational root comes out with its
+       multiplicity; what is left with no rational root is irreducible, and a
+       squarefree remainder of degree 2 is taken as an irreducible quadratic.
+    3. ``R/D`` is written as ``Σ c_j/(u-r)^j + Σ (a_j u + b_j)/Q^j`` by equating
+       coefficients after multiplying each piece by ``D``.
+    4. The system is solved by Gauss-Jordan over ``Fraction`` — never by a
+       floating-point guess, because a coefficient that is 1e-18 instead of 0 is
+       a wrong answer several steps downstream, where nothing points back here.
+    5. Each piece is integrated: a logarithm for a first power, a power for the
+       rest, and for a quadratic the derivative part gives a log while the
+       remaining constant gives a log of a ratio.
+
+    **The boundary is the negative discriminant.** ``∫du/(u²+1)`` is ``atan(u)``,
+    and the symbolic language has no inverse tangent: it is not in the parser's
+    list of functions, and neither the derivative table nor the numeric
+    evaluator knows the name. mathlab differentiates and evaluates it without
+    trouble, so an ``Fn('atan', x)`` would PRINT and could not be PARSED back —
+    and a step trace the reader cannot retype is not a step trace. So that case
+    refuses, and this is what it refuses on.
+    """
+    if depth > MAX_DEPTH:
+        return None
+    descompuesto = _como_racional(e, var)
+    if descompuesto is None:
+        return None
+    num, den = descompuesto
+    if _p_grado(den) < 1:
+        return None                      # a polynomial: the power rule has it
+    factores = _factores(den)
+    if factores is None:
+        return None
+    cociente, resto = _p_parte_entera(num, den)
+    piezas = _fracciones_parciales(resto, den, factores)
+    if piezas is None:
+        return None
+    x = Sym(var)
+    terminos = []
+    if cociente:
+        terminos.append(_integral_polinio(cociente, x))
+    for coefs, factor, j in piezas:
+        trozo = _integral_pieza(coefs, factor, j, x)
+        if trozo is None:
+            return None                  # the negative discriminant
+        terminos.append(trozo)
+    if not terminos:
+        return None
+    salida = terminos[0]
+    for t in terminos[1:]:
+        # `tan(x/2) + 0` is an answer with a piece of nothing in it, and a zero
+        # that got there is a sign that something was counted twice.
+        if isinstance(t, Num) and exact_value(t) == 0:
+            continue
+        salida = Add(salida, t)
+    factored = " · ".join(
+        f"{text(_p_expresion(x, factor))}^{m}" for factor, m in factores)
+    return salida, log.add(
+        OP, "descomposición en fracciones parciales", _integral(e, var), text(salida),
+        substitution=f"el denominador se factoriza sobre Q: {factored}",
+        explanation=("Se divide el cociente entero, se factoriza el denominador "
+                     "sobre Q y el integrando se escribe como suma de fracciones "
+                     "parciales, cada una con primitiva elemental."))
+
+
+def _chebyshev(n: int) -> tuple[list, list]:
+    """``(T, U)`` with ``cos(k·x) = T_k(cos x)`` and ``sen(k·x) = sen x · U_{k-1}``."""
+    T = [{0: Fraction(1)}, {1: Fraction(1)}]
+    U = [{0: Fraction(1)}, {1: Fraction(2)}]
+    for _ in range(2, n + 1):
+        T.append(_p_suma(_p_producto({1: Fraction(2)}, T[-1]), T[-2], -1))
+        U.append(_p_suma(_p_producto({1: Fraction(2)}, U[-1]), U[-2], -1))
+    return T, U
+
+
+def _multiplo_de(arg: Expr, x: Sym) -> int | None:
+    """``k`` when ``arg`` is exactly ``k·x``, and ``None`` when it is not.
+
+    Exactly. ``sen(x²)`` is not a multiple of anything this substitution knows,
+    and reading its exponent as a coefficient would substitute a DIFFERENT
+    equation — which is the same mistake as reading ``sen(2x)`` as ``sen(u)``.
+    """
+    if arg == x:
+        return 1
+    if isinstance(arg, Neg):
+        k = _multiplo_de(arg.arg, x)
+        return None if k is None else -k
+    if isinstance(arg, Mul):
+        for lado, otro in ((arg.left, arg.right), (arg.right, arg.left)):
+            if lado == x:
+                n = exact_value(otro)
+                if n is not None and int(n) == n:
+                    return int(n)
+    return None
+
+
+def _medio_angulo(e: Expr, var: str, log: StepLog, depth: int):
+    """``u = tg(x/2)``: the integrand becomes rational, and then it is read.
+
+    The universal substitution, which is the same one the equation solver uses
+    for the same reason — it is the substitution that needs no new idea per
+    equation:
+
+    ``sen → 2u/(1+u²)``, ``cos → (1-u²)/(1+u²)``, ``tg → 2u/(1-u²)``, and
+    ``dx → 2du/(1+u²)``.
+
+    Multiple angles go through Chebyshev FIRST, so ``cos(2x)`` is ``2c²-1`` with
+    ``c = cos x`` and never a square root. Going the other way round — writing
+    ``cos(2x)`` from ``tg(2x) = 2v/(1-v²)`` — lands on ``1/sqrt(1+v²)``, which
+    is not rational, and the substitution that cannot express what it has to
+    substitute is not a substitution.
+
+    ``∫1/(1+cos x)`` comes out as ``u`` and comes back as ``tg(x/2)``.
+    """
+    if depth > MAX_DEPTH:
+        return None
+    x = Sym(var)
+    t = _fresh(e, "t")
+    u = Sym(t)
+    uno_mas = Add(ONE, Pow(u, Num(Fraction(2))))
+    uno_menos = Sub(ONE, Pow(u, Num(Fraction(2))))
+    coco = Div(uno_menos, uno_mas)
+    seno = Div(Mul(Num(Fraction(2)), u), uno_mas)
+    #: what it actually rewrote. A substitution that rewrote nothing is not a
+    #: substitution: without this, `∫(u²+1)/(u(u²-1)) du` came back as
+    #: `-2 log|tg(u/2)| + ...`, because the half-angle was substituted back into an
+    #: integrand that had never been in `u` and the Jacobian was applied to nothing.
+    trigonometricas: list[str] = []
+
+    def en_u(g: Expr):
+        """The same integrand written in ``u``, or ``None`` if it cannot be."""
+        if isinstance(g, Num):
+            return g if exact_value(g) is not None else None
+        if isinstance(g, Sym):
+            return u if g.name == var else None
+        if isinstance(g, Neg):
+            a = en_u(g.arg)
+            return None if a is None else Neg(a)
+        if isinstance(g, (Add, Sub)):
+            a, b = en_u(g.left), en_u(g.right)
+            if a is None or b is None:
+                return None
+            return Add(a, b) if isinstance(g, Add) else Sub(a, b)
+        if isinstance(g, Mul):
+            a, b = en_u(g.left), en_u(g.right)
+            return None if a is None or b is None else Mul(a, b)
+        if isinstance(g, Div):
+            a, b = en_u(g.left), en_u(g.right)
+            return None if a is None or b is None else Div(a, b)
+        if isinstance(g, Pow):
+            v = exact_value(g.exponent)
+            a = en_u(g.base)
+            if a is None or v is None or int(v) != v or not (-64 <= int(v) <= 64):
+                return None
+            return Pow(a, Num(Fraction(int(v))))
+        if isinstance(g, Fn):
+            trigonometricas.append(g.name)
+            k = _multiplo_de(g.arg, x)
+            if k is None or abs(k) > _MAX_ANGULO:
+                return None
+            if g.name == "abs":          # abs(u) is not rational in u
+                return None
+            if k == 1 and g.name in ("sin", "cos", "tan", "sec", "csc"):
+                if g.name == "sin":
+                    return seno
+                if g.name == "cos":
+                    return coco
+                if g.name == "tan":
+                    return Div(Mul(Num(Fraction(2)), u), uno_menos)
+                if g.name == "sec":
+                    return Div(uno_mas, uno_menos)
+                return Div(uno_mas, Mul(Num(Fraction(2)), u))
+            if g.name not in ("sin", "cos", "tan"):
+                return None
+            n = abs(k)
+            T, U = _chebyshev(n)
+            if g.name == "cos":
+                return _p_expresion(coco, T[n])
+            polinomio = Mul(seno, _p_expresion(coco, U[n - 1]))
+            if g.name == "sin":
+                return polinomio if k > 0 else Neg(polinomio)
+            return Div(polinomio, _p_expresion(coco, T[n]))
+        return None
+
+    racional = en_u(e)
+    if racional is None or not trigonometricas:
+        return None
+    total = Mul(racional, Div(Num(Fraction(2)), uno_mas))   # and dx = 2du/(1+u²)
+    # Now that the Jacobian is in, cancel. Built as expressions the two carry
+    # uncancelled factors — `1/(cos(x) + cos(2x))` arrives with `(1+u²)³` on top —
+    # and an irreducible quadratic with a negative discriminant that nothing can
+    # divide refuses the whole integral for a reason that has nothing to do with it.
+    reducido = _como_racional(total, t)
+    if reducido is not None:
+        total = Div(_p_expresion(u, reducido[0]), _p_expresion(u, reducido[1]))
+    s0 = log.add(
+        OP, "sustitución del ángulo medio: u = tg(x/2)", text(e),
+        text(Div(Num(Fraction(2)), uno_mas)) + " · " + text(racional),
+        substitution="sen(x) = 2u/(1+u²), cos(x) = (1-u²)/(1+u²), dx = 2du/(1+u²)",
+        explanation=("El ángulo medio vuelve racional cualquier expresión "
+                     "trigonométrica; los ángulos múltiples pasan antes por "
+                     "Chebyshev para no introducir raíces."))
+    primitiva, paso = integrate(total, t, log, depth + 1)
+    vuelta = Fn("tan", Div(x, Num(Fraction(2))))
+    salida = substitute(primitiva, t, vuelta)
+    return salida, log.add(OP, "volver a x: u = tg(x/2)", text(primitiva), text(salida),
+                           substitution=f"u = {text(vuelta)}",
+                           explanation="Se sustituye el valor de la variable auxiliar.",
+                           uses=(s0, paso))
+
 def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool = False) -> tuple[Expr, int]:
     """Return (antiderivative without constant, index of the step that produced it)."""
     if depth > MAX_DEPTH:
@@ -625,7 +1319,7 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
         return salida, log.add(OP, etiqueta, _integral(e, var), text(salida),
                                 explanation=por_que)
     for strategy in (_potencia_producto, _potencia_trig, _potencia_tabulada,
-                   _substitution, _by_parts):
+                   _substitution, _by_parts, _medio_angulo, _integral_racional):
         got = _attempt(log, lambda scratch, st=strategy: st(e, var, scratch, depth))
         if got is not None:
             return got

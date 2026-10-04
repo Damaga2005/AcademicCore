@@ -1666,7 +1666,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - órdenes superiores.
 - verificación independiente.
 
-### T-18. Integración trigonométrica — PARCIAL (básicas, potencias, **reducción de potencias de seno, coseno y tangente**, partes encadenadas y recíprocas e hiperbólicas; falta la sustitución `t = tg(x/2)`, que es el único punto abierto de la lista: `∫1/(1+cos x)` y `∫1/(cos x + cos 2x)` se niegan. Etiqueta revisada el 2026-10-04: aquí decía que faltaban la reducción de potencias y las partes para logaritmos, y ambas existen desde hace tiempo)
+### T-18. Integración trigonométrica — PARCIAL (básicas, potencias, **reducción de potencias de seno, coseno y tangente**, partes encadenadas y recíprocas e hiperbólicas, y la sustitución `t = tg(x/2)`, cerrada el 2026-10-04 con un integrador racional por fracciones parciales sobre ℚ: `∫1/(1+cos x) dx = tg(x/2)` y `∫dx/(cos x + cos 2x)` cierran. Sigue parcial por **dos límites declarados**, no por huecos del método: (1) una cuadrática irreducible de **discriminante negativo** sale con `arctg`, y la capa `symbolic` no tiene inversa trigonométrica —no está en el parser, ni en la tabla de derivadas, ni en el evaluador—, así que `∫dx/(1+u²)` y `∫dx/(2+cos x)` se niegan; (2) un denominador **sin raíz racional** de grado 4 no se sabe partir en dos cuadráticas, y `∫dx/(1+u⁴)` se niega. Etiqueta revisada dos veces el 2026-10-04: aquí decía que faltaban la reducción de potencias y las partes para logaritmos, y ambas existían desde hace tiempo)
 - integrales básicas.
 - potencias y productos.
 - sustituciones.
