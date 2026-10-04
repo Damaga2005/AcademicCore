@@ -1617,7 +1617,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - discontinuidades y dominios.
 - evitar identidades globales falsas.
 
-### T-12. Ecuaciones trigonométricas — COMPLETADA (elementales, con fase, polinómicas y racionales; «sin(x)*cos(x) = 0» no entra en los casos y se rechaza)
+### T-12. Ecuaciones trigonométricas — COMPLETADA (elementales, con fase, polinómicas y racionales, **productos** y **el cuadrado que elimina una función**: `sen(x)*cos(x) = 0` da cuatro familias —`0`, `π`, `±π/2`— y `sen(x)*cos(x)*tg(x) = 0` da dos, `0` y `π`. La etiqueta decía que el primero «no entra en los casos y se rechaza», y era falso: el rechazo era correcto, la razón no. Etiqueta revisada el 2026-10-04 contra el motor)
 - ecuaciones elementales.
 - ecuaciones transformadas por identidades.
 - polinomios en sin/cos.
@@ -1730,7 +1730,7 @@ Dos decisiones que conviene que queden escritas, porque son cosas que el motor *
 - El medio ángulo sin elevar al cuadrado no se simplifica nunca. `√((1−cos x)/2) = sin(x/2)` vale en `[0, 2π]` y es falsa fuera, así que el motor se niega y `half_angle_forms` devuelve cada forma con su intervalo (§5.7).
 - La sustitución `t = tan(x/2)` es un cambio de variable (§5.6), no una identidad, y por eso vive en su propio objetivo. Mezclarla con las identidades no era una cuestión de gusto: la sustitución *crea* `tan(x/2)` y la regla del medio ángulo *consume* `tan(x/2)²`, así que en un mismo bucle se alimentan y la expresión crece hasta reventar el límite de texto.
 
-**T-14 (hiperbólica)** comparte motor con las circulares porque son las mismas fórmulas con un signo cambiado, y por eso viven en familias aparte para que la traza diga cuál ha actuado. Cubierto: `cosh²−sinh²=1`, `1−tanh²=sech²`, `cosh²−1=sinh²`, `coth²−1=csch²`, `1−coth²=−csch²`, los cocientes y recíprocas, la paridad de las seis, `sinh(asinh(x))=x` y sus dos hermanas, el valor en el origen, las sumas y diferencias, el ángulo doble en ambos sentidos y la conexión exponencial en objetivo aparte. Faltan las derivadas y las integrales, que son de T-17 y T-18.
+**T-14 (hiperbólica)** comparte motor con las circulares porque son las mismas fórmulas con un signo cambiado, y por eso viven en familias aparte para que la traza diga cuál ha actuado. Cubierto: `cosh²−sinh²=1`, `1−tanh²=sech²`, `cosh²−1=sinh²`, `coth²−1=csch²`, `1−coth²=−csch²`, los cocientes y recíprocas, la paridad de las seis, `sinh(asinh(x))=x` y sus dos hermanas, el valor en el origen, las sumas y diferencias, el ángulo doble en ambos sentidos y la conexión exponencial en objetivo aparte. Las seis derivadas y las seis integrales no viven aquí sino en T-17 y T-18, y **existen las doce**: lo que se leía como una ausencia era una referencia cruzada.
 
 Dos identidades hiperbólcas **no** existen y el motor se niega a aplicarlas, con pruebas que lo fijan: `1+coth²(x)` y `sinh²(x)−1`. SeColaron en una primera versión y las rejectedó la comprobación numérica, no la lectura: `coth² = 1 + csch²` va en el otro sentido, y lo mismo con `cosh² = 1 + sinh²`.
 
@@ -1863,11 +1863,19 @@ faltaba; arreglarlo destapó que `0·pi` y `0` eran dos puntos distintos para el
 motor, que la regla de fusión de intervalos estaba al revés y que un extremo
 infinito no ganaba nunca en una fusión.
 
-**COMPLETADAS:** T-01 a T-24 (salvo las partes señaladas).
+**COMPLETADAS:** T-01 a T-24 (salvo las partes señaladas). **T-18 es la única que sigue
+PARCIAL**, por dos límites declarados y no por huecos del método: la cuadrática
+irreducible de discriminante negativo —que sale con `arctg`, y la capa `symbolic` no
+tiene inversa trigonométrica— y el denominador sin raíz racional de grado 4. La
+etiqueta decía «T-18 cerrada entera» y era un exceso de confianza, no un dato.
 
-**T-14, T-18 y T-19 cerradas.** `∫sen^n`, `∫cos^n` y `∫tg^n` por la fórmula de reducción, `∫ln^n` por partes tabulares, y las primitivas propias de la familia —`cot`, `sec^2`, `cosec^2`, `cot^2`, `coth`, `sech^2`— en tabla. El polinomio de Taylor de un monomio ya coincide con el monomio.
+**T-14, T-18 y T-19 cerradas** en todo lo que no es uno de esos dos límites.
+`∫sen^n`, `∫cos^n` y `∫tg^n` por la fórmula de reducción, `∫ln^n` por partes
+tabulares, y las primitivas propias de la familia —`cot`, `sec^2`, `cosec^2`, `cot^2`,
+`coth`, `sech^2`, `sech`, `csch`— en tabla. El polinomio de Taylor de un monomio ya
+coincide con el monomio.
 
-**T-18 cerrada entera.** Los tres huecos que quedaban están resueltos, y los tres
+**T-18: los tres huecos que quedaban están resueltos, y los tres
 eran el mismo fallo de lectura: una regla que miraba una cosa y no la otra.
 
 - **El producto de dos potencias.** `sen(x)^3·cos(x)^2` no entraba porque la

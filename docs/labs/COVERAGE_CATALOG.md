@@ -87,14 +87,25 @@ abajo, donde T-18 ya figuraba cerrado:
 - ~~**T-14** sin derivadas ni integrales propias~~. **FALSO.** Las seis derivadas
   existen (`d/dx senh = cosh`, `d/dx tanh = 1/cosh²`, `d/dx sech = -sech·tanh`, …) y
   cuatro de las seis integrales (`senh`, `cosh`, `tanh` → `ln(cosh)`, `coth` →
-  `ln|sinh|`). **Lo que sí falta:** las integrales de `sech(x)` y `csch(x)`, que se
-  niegan.
+  `ln|sinh|`). **Lo que decía que faltaba también es FALSO:** las integrales de
+  `sech(x)` y `csch(x)` se cerraron el 2026-10-04 y ahora son las SEIS. La
+  etiqueta de este mismo fichero lo reconocía en otro sitio, así que se
+  contradecía sola.
 - ~~**T-18** sin reducción de potencias ni partes encadenadas, y `sen(x)^2` se
   rechaza~~. **FALSO.** `∫sen³`, `∫sen⁴`, `∫sen⁵`, `∫sen⁷` y sus cuatro hermanas de
   coseno, `∫tg³`, `∫cot³`, `∫sec²`, `∫cosec²`, `∫cot²`, `∫x·ln x`, `∫ln²x` y
-  `∫x³eˣ` responden, y `sen(x)^2` ya no se rechaza. **Lo que sí falta:** la
-  sustitución `t = tg(x/2)` en la integración — `∫1/(1+cos x)` y
-  `∫1/(cos x + cos 2x)` se niegan.
+  `∫x³eˣ` responden, y `sen(x)^2` ya no se rechaza. **Lo que decía que faltaba
+  también es FALSO:** la sustitución `t = tg(x/2)` en la integración se cerró
+  el 2026-10-04 con un integrador racional por fracciones parciales sobre ℚ, y
+  tanto `∫1/(1+cos x)` como `∫1/(cos x + cos 2x)` responden. Lo que queda son
+  **dos límites declarados**: la cuadrática irreducible de discriminante
+  negativo —falta `arctg` en el lenguaje— y el denominador sin raíz racional
+  de grado 4.
+  2026-10-04 con un integrador racional por fracciones parciales sobre ℚ, y
+  tanto `∫1/(1+cos x)` como `∫1/(cos x + cos 2x)` responden. Lo que queda son
+  **dos límites declarados**: la cuadrática irreducible de discriminante
+  negativo —falta `arctg` en el lenguaje— y el denominador sin raíz racional
+  de grado 4.
 - ~~**T-19** con un término de más en el polinomio de Taylor de un monomio~~.
   **FALSO, y medido:** 168 combinaciones de coeficiente, grado y orden, **0
   distintas de lo esperado**. El polinomio de `x⁷` al orden 4 es `0`, que es lo
@@ -102,7 +113,9 @@ abajo, donde T-18 ya figuraba cerrado:
 
 Lo que queda, y por qué:
 
-- **T-18 cerrado entero.** Los tres huecos que quedaban eran el mismo fallo de lectura —una regla que mira una cosa y no la otra— y los tres están resueltos:
+- **T-18, en todo lo que no es uno de sus dos límites.** «Cerrado entero» era un
+  exceso de confianza. Los tres huecos que quedaban eran el mismo fallo de lectura
+  —una regla que mira una cosa y no la otra— y los tres están resueltos:
   - **Producto de dos potencias** (`sen(x)^3·cos(x)^2`): los tres casos clásicos lo convierten en una suma de potencias simples, y ninguna es nueva. Exponente impar en `sen`, impar en `cos`, y los dos pares por `sen^(2a)·cos^(2b) = 2^-(a+b)·(1-cos(2g))^a(1+cos(2g))^b`. Cada término es o `sen·cos^p` —que el cambio de variable siempre hizo— o `cos(2g)^k`, que es la reducción con factor de cadena.
   - **`∫sec^n`, `∫cosec^n`, `∫cot^n` para n ≥ 3**: `f^n = f^(n-2)·f^2`, con el cuadrado en la tabla. La cotangente NO tiene la misma forma que las otras dos, y escribirle la misma fórmula hacía que `∫sec^3` saliera con las piezas correctas y los coeficientes equivocados.
   - **`e^x·sen(x)`, `e^x·cos(x)`, `senh(x)^2`, `cosh(x)^2`**: entradas de tabla. La primera tiene forma cerrada y ningún cambio de variable la encuentra; las partes por dos veces vuelven a la integral de la que salieron.

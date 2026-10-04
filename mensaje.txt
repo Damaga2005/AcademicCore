@@ -1,61 +1,33 @@
-t = tg(x/2) en la integracion, y lo que hacia falta debajo
+Cuatro etiquetas falsas en los docs, medidas contra el motor
 
-T-18 cierra su ultimo punto abierto por la via larga: un integrador de funciones
-racionales por descomposicion en fracciones parciales sobre Q. Ninguna de las dos
-integrales que faltaban se negaba por falta de una formula; se negaba porque no
-habia ninguna pieza de ellas escrita.
+Un commit de codigo deja las etiquetas viejo. Estas cuatro afirmaciones ya no
+describeian el motor, y ademas se contradecian dentro del mismo fichero.
 
-    int dx/(1+cos x)          ->  tg(x/2)
-    int dx/(cos x + cos 2x)   ->  -u/3 - 2/(3*sqrt(3))*ln|(u-1/sqrt(3))/(u+1/sqrt(3))|,
-                                  con u = tg(x/2)
-    int du/(u^2-1)           ->  1/2*ln|u-1| - 1/2*ln|u+1|
-    int du/(u^2-1)^2         ->  -u/(2*(u^2-1)) - 1/4*ln|(u-1)/(u+1)|
+**T-12: "sen(x)*cos(x) = 0 no entra en los casos y se rechaza".** FALSO: da cuatro
+familias, `0`, `pi`, `+-pi/2`. Y el hermano mayor tampoco: `sen(x)*cos(x)*tg(x) = 0`
+da dos, `0` y `pi`, no un rechazo. El rechazo era correcto; la razon no.
 
-Verificado DERIVANDO en 41 puntos de la recta, no leyendo el texto: el error
-maximo en int dx/(cos x + cos 2x) es 3.6e-13.
+**T-14: "Faltan las derivadas y las integrales, que son de T-17 y T-18".** No era una
+ausencia: era una referencia cruzada leida como hueco. Las doce existen.
 
-Lo que faltaba no era dificil, era un metodo. El motor leia 1/(au+b) y u/(1+u^2) -
-el denominador cuya derivada esta en el numerador - y se negaba en todo lo demas.
-Lo que no tenia era lo que convierte la integracion racional en metodo y no en
-lista: FACTORIZAR EL DENOMINADOR sobre Q y repartir. int du/(1+u^2) no se negaba
-por dificil; se negaba porque no habia nadie escrito ninguna parte suya.
+**COVERAGE_CATALOG, T-14: "Lo que si falta: las integrales de sech y csch, que se
+niegan".** FALSO, y el propio fichero lo reconocia en otro sitio: se cerraron el
+2026-10-04 y ahora son las seis.
 
-Cinco pasos, todos exactos: division entera, factorizacion sobre Q, el sistema por
-igualacion de coeficientes (tantas incognitas como el grado del denominador, asi que
-es cuadrado), Gauss-Jordan sobre Fraction, y la primitiva de cada trozo.
+**COVERAGE_CATALOG, T-18: "Lo que si falta: la sustitucion t = tg(x/2) en la
+integracion, int 1/(1+cos x) y int 1/(cos x + cos 2x) se niegan".** FALSO: se cerro
+en el commit anterior. Lo que queda son dos limites declarados, y ahora estan
+nombrados: la cuadratica irreducible de discriminante negativo y el denominador sin
+raiz racional de grado 4.
 
-La decision de este commit es el arctg que NO se emite. int du/(u^2+1) = arctg(u),
-y mathlab deriva y evalua arctg sin problema, asi que un Fn("arctg", u) se habria
-IMPRESO y no se podria VOLVER A LEER: arctg no esta en la lista de funciones del
-parser de symbolic, ni en su tabla de derivadas, ni en su evaluador numerico. Una
-traza que el lector no puede teclear no es una traza. Se emite negacion.
+De paso, "T-18 cerrada entera" era un exceso de confianza: decir COMPLETADA con un
+limite declarado dos lineas mas abajo. Y la cabecera "COMPLETADAS: T-01 a T-24"
+ahora nombra a T-18 como la unica que sigue parcial, en vez de dejar que se lea del
+cuerpo.
 
-Es un limite y no un hueco del metodo, y por eso las dos listas de negaciones estan
-separadas en el fichero de pruebas a proposito: dos negaciones distintas en una
-sola lista parecen un solo hueco.
+La regla es la de siempre: una etiqueta no se puede comprobar cuando cambia el
+codigo; una afirmacion sobre el motor si. Las cuatro se han medido contra el motor
+antes de reescribirlas, no de memoria.
 
-El otro limite es aritmetica. Un denominador sin raiz racional de grado 4 -u^4+1, o
-lo que deja int dx/(cos x*cos 2x)- no se sabe partir en dos cuadraticas sobre Q. Eso
-es un sistema que hay que resolver, y hacerlo a medias es exactamente como un
-integrador racional empieza a responder «a veces».
-
-Tres fallos mios, de los que dos se leian como un rechazo honesto:
-
-- `{}` significaba dos cosas: el polinomio CERO y el denominador UNO. Multiplicar
-  dos denominadores `{}` daba `{}`, la reduccion veía un denominador nulo y se
-  negaba, y u^2 - que la regla de la potencia ya respondia - dejo de responder.
-- `{}` en el monomio era el cero cuando ahi era u^0. Todas las filas del sistema de
-  fracciones parciales salieron a 0, el sistema fue singular, y int du/(u^2-1) se
-  nego con el MISMO mensaje que int du/(1+u^2).
-- El factor lineal `u - r` se guardaba como `u + c` y la base salia `x - c` en vez
-  de `x + c`: `u-1` integrandose como `+1/2*ln|u+1|`, con el signo de todos los
-  terminos invertido.
-
-Los tres se leen igual desde fuera: un motor que devuelve «no lo sé» por el motivo
-equivocado y por el correcto es indistinguible del que no lo sabe. Se encontraron
-imprimiendo el polinomio intermedio, no mirando si devolvia algo.
-
-Etiqueta de T-18 revisada: pasa a PARCIAL con los dos limites declarados dentro, que
-es lo unico que impide decir COMPLETADA. Las dos alarmas de
-`test_mathlab_huecos_documentados.py` que decian «esto sigue sin integrar» fallan
-al cerrarse, que es para lo que estan.
+Tambien sale del repo `mensaje.txt`, que se colo en el commit anterior: `git add -A`
+lo metio antes de que lo borrara el disco.
