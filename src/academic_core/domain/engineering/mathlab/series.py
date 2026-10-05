@@ -564,6 +564,10 @@ def taylor(expresion: mx.Expr, centro, orden: int, var: str = "x") -> Serie:
     if conocida is not None:
         return conocida
 
+    formal = _serie_formal(expresion, orden, centro, var)
+    if formal is not None:
+        return formal
+
     piezas: list[mx.Expr] = []
     derivada = expresion
     factorial = 1
@@ -609,6 +613,94 @@ def taylor(expresion: mx.Expr, centro, orden: int, var: str = "x") -> Serie:
     ]
     return Serie(polinomio, orden, residuo, None, centro,
                  "polinomio de Taylor por derivadas sucesivas", tuple(hipotesis))
+
+
+def _serie_formal(expresion: mx.Expr, orden: int, centro: mx.Expr,
+                  var: str) -> Serie | None:
+    """Coefficients by arithmetic on truncated series (``serie_formal``), or ``None``.
+
+    ``None`` only when the expression contains something that module cannot compose;
+    the derivative route is then tried. Where the expansion does not exist (a pole,
+    ``ln`` of 0, ``sqrt`` at 0) the refusal comes from here and is final.
+
+    This replaced the derivative route as the default because the derivative route
+    failed on correct inputs: ``1/(1-x)`` at order 5 and ``sqrt(x)`` about 1 hit the
+    expression-size limit, and ``exp(x)`` about 2 was refused as having «no Taylor
+    expansion» when its coefficients are ``e²/k!``.
+    """
+    from academic_core.domain.engineering.mathlab import serie_formal as F
+
+    try:
+        coeficientes = F.coeficientes(expresion, var, centro, orden + 2)
+    except F.NoFormal:
+        return None
+    u = mx.Sub(mx.Sym(var), centro) if mx.exact_value(centro) != 0 else mx.Sym(var)
+    piezas = [mx.Mul(c, mx.Pow(u, mx.Num(Fraction(k))))
+              for k, c in enumerate(coeficientes[:orden + 1])
+              if mx.exact_value(c) != 0]
+    polinomio = _suma(piezas)
+    siguiente = coeficientes[orden + 1]
+    if mx.exact_value(siguiente) == 0:
+        residuo = mx.ZERO
+    else:
+        residuo = _suma([mx.Mul(siguiente, mx.Pow(u, mx.Num(Fraction(orden + 1))))])
+    hipotesis = [
+        "el polinomio es exacto: cada coeficiente sale de operar con series "
+        "truncadas (suma, producto de Cauchy, división de series y composición con "
+        "las series conocidas), sin derivar ni redondear",
+    ]
+    cota = _cota_de_lagrange(expresion, orden, centro, var)
+    if cota is None:
+        hipotesis.append(
+            "NO se declara cota de error: haría falta una cota de la derivada "
+            "omitida en el intervalo, y este motor no la tiene para una expresión "
+            "arbitraria. Un polinomio sin precisión declarada no es una "
+            "aproximación (§5.4)")
+    else:
+        hipotesis.append(
+            "cota de error: para todo x real, por el resto de Lagrange "
+            f"|f^({orden + 1})(ξ)|·|x - a|^{orden + 1}/{orden + 1}! con la derivada "
+            "acotada en todo el intervalo entre a y x")
+    for parte in (polinomio, residuo):
+        try:
+            mx.text(parte)
+        except Exception as exc:  # noqa: BLE001 - the printer's own size cap
+            # Said HERE, at construction, and not later by whoever prints the
+            # answer: a Serie that cannot be written down is not an answer.
+            raise mx.invalid(
+                "EXPRESSION_LIMIT",
+                f"los coeficientes exactos de orden {orden} no caben en "
+                f"{mx.MAX_TEXT} caracteres (cada uno es exacto, con constantes como "
+                f"{mx.text(coeficientes[1])[:40]}…, y crecen con el orden); pide un "
+                "orden menor") from exc
+    return Serie(polinomio, orden, residuo, cota, centro,
+                 "serie formal: aritmética exacta de series truncadas",
+                 tuple(hipotesis))
+
+
+def _cota_de_lagrange(expresion: mx.Expr, orden: int, centro: mx.Expr,
+                      var: str) -> mx.Expr | None:
+    """A Lagrange remainder bound for a bare known function about any centre.
+
+    Only where every derivative has a bound that holds on the whole line:
+
+    * ``sin``, ``cos``: every derivative is ``±sin`` or ``±cos``, so ``|f^(m)| ≤ 1``;
+    * ``exp``: ``f^(m)(ξ) = e^ξ ≤ e^a·e^|x-a|`` because ``ξ`` lies between ``a`` and ``x``;
+    * ``sinh``, ``cosh``: ``|f^(m)(ξ)| ≤ cosh ξ ≤ e^|ξ| ≤ e^|a|·e^|x-a|``.
+
+    ``tan`` and ``ln`` have derivatives that blow up near their singularities, so
+    no single number works and none is claimed.
+    """
+    nombre = _nombre_conocido(expresion, var)
+    if nombre not in ("sin", "cos", "exp", "sinh", "cosh"):
+        return None
+    m = orden + 1
+    distancia = mx.Call("abs", (mx.Sub(mx.Sym(var), centro),))
+    base = mx.Div(mx.Pow(distancia, mx.Num(Fraction(m))), mx.Num(Fraction(_factorial_entero(m))))
+    if nombre in ("sin", "cos"):
+        return base
+    a = centro if nombre == "exp" else mx.Call("abs", (centro,))
+    return mx.Mul(mx.Mul(mx.Call("exp", (a,)), mx.Call("exp", (distancia,))), base)
 
 
 def _nombre_conocido(expresion: mx.Expr, var: str) -> str | None:

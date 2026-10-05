@@ -431,14 +431,17 @@ def test_la_serie_desplazada_coincide_con_la_cota_desplazada():
 
 
 def test_la_ruta_de_derivadas_no_declara_cota_para_nada():
-    """It is now structurally true, and it is pinned so it cannot drift back.
+    """Who declares a bound, after the formal route (2026-10-05).
 
-    A known function never reaches the derivative route any more: the six at the
-    origin and ``ln`` about 1 are all answered by ``_serie_por_nombre``, and every
-    other centre of a transcendental refuses before a coefficient is written,
-    because ``sin(1)`` is not a number this engine can hold. So the route that
-    remains has no bound to give, and the only honest thing it can do is declare
-    none.
+    Until then every centre of a transcendental other than its known one refused,
+    «because sin(1) is not a number this engine can hold». That was the engine's
+    limit, not the function's: the formal route now writes ``sin(1)``, ``e²``… as
+    exact constants. So the rule this test pins is the honest one:
+
+    * ``sin``, ``cos``, ``exp``, ``sinh``, ``cosh`` about any centre carry a bound
+      (the known series at the origin, a Lagrange remainder elsewhere);
+    * ``tan`` and ``ln`` away from their known centre carry none, and say so;
+    * an arbitrary expression carries none, and says so.
     """
     for nombre in ("sin", "cos", "tan", "exp", "sinh", "cosh", "ln"):
         nodo = mx.Call(nombre, (mx.Sym("x"),))
@@ -447,10 +450,13 @@ def test_la_ruta_de_derivadas_no_declara_cota_para_nada():
                 serie = S.taylor(nodo, centro, 4, "x")
             except UnsupportedError:
                 continue
-            # it survived, so it went through the known path and carries a bound
-            assert S._serie_por_nombre(nodo, 4, mx.Num(centro), "x") is not None, (nombre, centro)
-            assert serie.cota is not None, (nombre, centro)
-    # what is left on the derivative route declares no bound, and says why
+            conocida = S._serie_por_nombre(nodo, 4, mx.Num(centro), "x") is not None
+            if conocida or nombre in ("sin", "cos", "exp", "sinh", "cosh"):
+                assert serie.cota is not None, (nombre, centro)
+            else:
+                assert serie.cota is None, (nombre, centro)
+                assert any("NO se declara cota de error" in h
+                           for h in serie.hipotesis), (nombre, centro)
     serie = S.taylor(mx.parse("x^2*exp(x)"), 0, 4, "x")
     assert serie.cota is None
     assert any("NO se declara cota de error" in h for h in serie.hipotesis)
