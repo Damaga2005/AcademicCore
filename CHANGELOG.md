@@ -1,5 +1,363 @@
 # Changelog
 
+## 2026-10-05 — `taylor` era la puerta más débil a una serie que el módulo ya sabía
+
+**Cerrar la cota de T-19 dejó a la vista algo peor que la cota.** La misma función
+tenía dos entradas al mismo polinomio y sólo una funcionaba: `taylor(tan(x), 0, 4)`
+moría con `EXPRESSION_LIMIT` mientras `maclaurin("tan", 4)` devolvía la serie, y
+`ln` alrededor de 1 topaba en el orden 4 de 40.
+
+| | antes | ahora |
+|---|---|---|
+| `taylor(tan(x), 0, n)` | orden 3 | orden 40 |
+| `taylor(ln(x), 1, n)` | orden 4 | orden 40 |
+
+No era una limitación del método sino de la puerta. `tan' = 1/cos²` y
+`ln^(k) = (k-1)!/x^k`: derivar cualquiera de las dos expande un producto de
+potencias en cada paso, el registro guarda todos los intermedios, y el campo de 2000
+caracteres se agota antes de que la matemática llegue a nada interesante. Escribir
+los números tangentes o los términos de Mercator no tiene ese problema. Ahora una
+función conocida se **escribe** en `taylor` en lugar de derivarse, y donde ambas
+puertas podían calcularse coinciden exactamente — 48 combinaciones de polinomio,
+residuo y cota sobre seis funciones, **0 diferencias**.
+
+**La trampa que cruzó la delegación, y la alarma que la vigila.** Delegar en el
+origen hacía que `taylor(ln(x), 0, n)` contestara `x − x²/2 + x³/3 − …` a una
+pregunta sobre `ln`: la serie era correcta, de `ln(1+x)`. `maclaurin("ln", n)` es la
+de Mercator, una rareza deliberada de ese nombre; `taylor(ln(x), 0, n)` promete el
+polinomio de Taylor de `ln` en 0, y ahí no existe. Antes se negaba con «`ln(0)` no es
+un número» y esa negativa era la respuesta correcta. Sigue negándose.
+
+**Otra mentira que salió en el paseo.** La hipótesis anunciaba «radio de
+convergencia 1» para `tan` y para `ln`, cuando el de `tan` es π/2. Tres líneas más
+abajo, una tabla del mismo módulo decía π/2 correctamente: las dos afirmaciones
+coexistieron sin que nadie las leyera una contra otra. Era falso en la dirección que
+prohíbe una serie que converge — entre 1 y 1,57 la serie de `tan` suma bien, y el
+motor lo negaba.
+
+**La misma puerta, un orden menos.** `maclaurin('exp', -1)` siempre se negó con «el
+orden tiene que ser 0 o mayor»; `taylor(exp(x), 0, -1)` contestaba un polinomio de
+`0` con residuo `1`, que como aritmética se sostiene y como respuesta no sirve. Dos
+respuestas a la misma pregunta. Ahora las dos puertas usan el mismo juicio y las
+mismas palabras.
+
+## 2026-10-05 — Las dos de las tres cotas que el motor declaraba no eran cotas
+
+**T-19 queda COMPLETADA.** Su límite era uno solo: la cota de error cuando no hay
+cota sobre la derivada omitida. Al cerrarlo resultó que la regla que llenaba ese
+hueco —«el primer término omitido es la cota», con `None` para las cuatro series
+restantes— no era ni muy cierta ni muy honesta.
+
+**Las siete series ahora llevan cota, por un mecanismo y no siete.** La cola de la
+serie se mayeriza término a término con una progresión geométrica construida de sus
+propios coeficientes. Si `m` es la primera potencia no escrita:
+
+| serie | razón | válida para |
+|---|---|---|
+| `sin`, `cos`, `sinh`, `cosh` | `\|x\|²/((m+1)(m+2))` | `\|x\| < √((m+1)(m+2))` |
+| `exp` | `\|x\|/(m+1)` | `\|x\| < m+1` |
+| `tan` | `\|x\|²/2` | `\|x\| < √2`, dentro del radio π/2 |
+| `ln` | `\|x\|` | `\|x\| < 1`, su radio de convergencia |
+
+Cada cota viaja con su dominio y con el argumento que la sostiene, leído en
+`serie.hipotesis`: una cota sin dominio es un número, y un número sin dominio es
+una promesa que nadie puede comprobar. La razón de `tan` es sound porque
+`RAZON_TANGENTES = 1/2` **se comprobó** en aritmética racional exacta para todos los
+coeficientes que el módulo puede escribir, no porque `4/π²` se parezca a un medio.
+
+**Los dos fallos, y dónde estaban.** Los dos en el semiplano negativo y en el
+argumento grande, que es donde nadie muestreaba:
+
+- `sin` y `cos`: la estimación alternante exige que los términos **decrezcan**, y
+  `x⁹/9!` deja de decrecer pasado `x ≈ 8`. Para un argumento grande la cota
+  declarada era menor que el error real y se imprimía como cota superior.
+- `ln`: la serie de Mercator alterna **sólo para `x > 0`**. En `x < 0` todos los
+  términos son negativos, la cola es monótona, y el primer término omitido es cota
+  **inferior**. En `x = -0,9` con cinco términos el motor declaraba `0,0886` para un
+  error de `0,4725`. La prueba anterior sólo miraba `x > 0`, que es donde no falla.
+
+**Lo que se niega sigue negándose, por una razón medida.** `taylor` de una
+expresión que no reconoce no declara cota. El atajo —ver `exp` dentro de `x²·exp(x)`
+y reusar su cota— está disponible y es falso: el error real sale **20 a 26 veces
+mayor** que la cota que ese reuso adjuntaría. Lo que cambió es que `taylor` de una
+de las siete funciones conocidas **sí** acota, y lo hacía por una razón que ya no
+existe: `taylor(exp(x), 0, 6)` llevaba `cota = None` mientras el módulo acotaba esa
+misma cola por `maclaurin`.
+
+**La alarma cambió de pregunta.** `test_las_series_no_alternantes_no_declaran_cota_inventada`
+comprobaba que cuatro funciones no declararan cota. Comprobar que un número existe
+es más débil que medir si acota, y no habría visto ninguno de los dos fallos de
+arriba —los habría dejado pasar. La sustituta mide `|exacta − polinomio| ≤ cota` en
+546 puntos, con los negativos incluidos, y además comprueba que la cota no sea vacía.
+
+**Un borde encontrado de paso:** `mx.text` imprimía un `Fraction` desnudo pero no un
+`int`, así que `taylor(poli, 0, 9)` —tal como lo escribe una persona— moría con «no
+se sabe imprimir int» desde cuatro marcos de `as_poly` más abajo. Se acepta el `int`
+en `_print`/`_prec` y `taylor` normaliza el centro en la frontera. Un primer intento
+añadió un guardia que **rechazaba** los números en `text`; rompió nueve pruebas y
+era lo contrario de lo cierto: `exact_value` devuelve un `Fraction`, y el contrato de
+`text` es imprimirlo.
+
+## 2026-10-04 — `u⁴+1` era un biquadrático, y el tercer límite de T-18 era una clase
+
+**T-18 queda COMPLETADA.** Los tres límites que le quedaban se cerraron, y ninguno de
+los tres era una función que faltara: eran tres clases que el motor no reconocía.
+
+El último era el que la documentación llevaba años diciendo: «un denominador de
+grado 4 sin raíz racional no se sabe partir en dos cuadráticas sobre ℚ». Eso es
+cierto —y es también la razón por la que el motor no lo intentaba— pero la frase
+escribe mal el motivo. `∫du/(u⁴+1)` se negaba porque `_factores` **solo miraba
+raíces racionales**, y un biquadrático no tiene ninguna que encontrar. Se parte:
+
+    u⁴ + a·u² + c  =  (u² + p·u + q)(u² - p·u + q)    con  q = √c  y  p² = 2q - a
+
+| | antes | ahora |
+|---|---|---|
+| `∫du/(u⁴+1)` | se negaba | `√8/8·log\|(u²+√8·u+1)/(u²-√8·u+1)\|` |
+| `∫du/(u⁴+u²+1)` | se negaba | cerrada, con factores racionales |
+| `∫du/(u⁴-6u²+1)` | se negaba | cerrada, con `m<0` y por tanto logaritmos |
+| `∫dx/(cos x·cos 2x)` | se negaba | cerrada vía `(u²-1)(u⁴-6u²+1)` |
+
+Verificado **derivando** en 81 puntos por caso: error máximo 1,2·10⁻²⁶.
+
+### Por qué no hizo falta aritmética de cuerpos
+
+Esto es lo que parecía el obstáculo y no lo era. Con un numerador `(Au²+C)` sobre
+el cuartico, el reparto en dos cuadráticas da `α = (C/q - A)/(2p)` y
+`β = C/(2q)`, y al integrar los términos se agrupan como
+
+    (α/2)·log\|Q₊/Q₋\|  +  (β - α·p/2)·(I₊ + I₋)
+
+y **`β - α·p/2` se simplifica a `(A + C/q)/4`, que es racional**. De los dos
+coeficientes, uno es racional y el otro es un racional partido por `√(p²)`. Con
+`q = √c` exigido racional queda un solo radical, y `√(p²)·t` es un producto, no un
+tipo nuevo. La condición no es estética: con `√c` irracional harían falta dos
+radicales y el reparto ya no cabría en una expresión.
+
+### Cuatro bugs propios, y los cuatro eran silenciosos
+
+**El cover-up con numerador 1.** `∫dx/(cos x·cos 2x)` llega aquí con numerador
+`-2(u²+1)²`, y la primera versión usaba `1` en dos sitios: `c = 1/[(den/(u-r))(r)]`
+en vez de `num(r)/[…]`, y `1 - Σc·M` en vez de `num - Σc·M`. Es el caso de
+manual, así que falló como una respuesta plausible y no como un rechazo.
+
+**El cover-up sobre el resto en curso.** Se dividía el *resto* por `(u+1)` después
+de haber sacado `(u-1)`, y eso da el cuartico donde cover-up quiere `den/(u+1)`. El
+coeficiente salía `-1/4` donde era `+1/8`, y la división final no cerraba —por lo que
+el caso se negaba por un motivo que no tenía nada que ver con su motivo real.
+
+**El término de coeficiente cero.** La primera respuesta correcta del caso de
+`cos` medía **318 caracteres**, y `expr.parse` corta en 256: correcta y no
+relegible. La mitad del texto era un `0/4·(…)` que multiplicaba cero. Una respuesta
+que el lector no puede teclear no es una respuesta, por muy exacta que sea; quitando
+el término vanishes son 156.
+
+**`Mul(Num(1), None)`.** La rama nueva multiplicaba el resultado interior sin
+comprobar que no fuera `None`, y el agujero salió tres frames más tarde como
+`'NoneType' object has no attribute 'left'` — un crash donde tocaba un rechazo.
+
+## 2026-10-04 — Tres afirmaciones que mentían, y una invitación a no intentarlo
+
+Tres líneas de `MATH_LAB.md` y `COVERAGE_CATALOG.md` decían cosas que el motor ya
+no hacía. Dos eran **afirmaciones de capacidad** —«no hay motor de límites» y «el
+polinomio de Taylor de un monomio lleva un término de más»— y una capacidad que no
+se anuncia es una invitación a no intentarla: alguien lee que el motor no puede
+hacer algo, no lo intenta, y la línea sigue ahí diciendo la verdad sobre nada.
+
+| afirmación | realidad |
+|---|---|
+| «Asíntotas horizontales y oblicuas. **No hay motor de límites.**» | `mathlab/limites.py` existe. `asintotas_de_horizonte_y_oblicua` da `y = 1` para `(x²−1)/(x²+1)`, `y = 0` para `1/(x²+1)` y para `x/(x²+1)`, y **nada** para `(x²+1)`, que sí tiene |
+| «el polinomio de Taylor de un monomio lleva un término de más, documentado en `test_mathlab_series`» | 8 monomios con orden por encima del grado: polinomio exacto y residuo exactamente 0. El propio `COVERAGE_CATALOG.md` ya lo decía — 168 combinaciones, 0 distintas de lo esperado— desde hacía tiempo. **`graficas.py` era el único sitio que aún lo afirmaba** |
+| T-20: cuatro objetivos con «su porqué y **cero reglas**» | No tienen familias de reescritura porque **no reescriben nada**: devuelven una derivada, una primitiva, un complejo o un fasor. Lo que deben es un `porque` y un `verifica`, y los cuatro tienen ambos |
+
+La primera es la que más cuesta. No es solo que la frase fuera falsa: es que
+**usaba como excusa el mismo razonamiento que el módulo cumple**. Decía «muestrear
+en un `x` grande no es un límite: un senoide da diez límites distintos en diez `x`
+grandes», y `orden_en_infinito()` saca el orden de crecimiento **por grado
+dominante, nunca por muestreo**. Alguien escribió ese argumento y luego no lo
+conectó con el módulo que lo cumple.
+
+### Cómo se evita la recaída
+
+`tests/test_mathlab_docs_contra_motor.py` no comprueba el texto: **comprueba el
+motor y lo compara con lo que la documentación afirma de él**. Si el motor cambia
+y la frase no, la prueba falla y obliga a decidir cuál de las dos estaba
+equivocada, que es la decisión que no se puede tomar por omisión.
+
+Una sutileza que costó un test: la etiqueta corregida de T-20 **cita** «cero
+reglas» para explicar que era otra cosa. Buscar la frase en crudo confundiría
+«afirmar esto» con «explicar por qué se dejó de afirmar», que es exactamente la
+diferencia entre una mentira y su corrección. Las comprobaciones ignoran lo que
+va entre comillas angulares.
+
+La guarda se comprobó a sí misma: reintroducir la mentira en `graficas.py` hace
+fallar el test, y revertirla lo hace pasar.
+
+## 2026-10-04 — `(u²+1)²` era una cuadrática, y el motor la tenía por un cuartico
+
+**El último límite de T-18 que no era un límite.** De los tres que quedaban, dos
+no eran fronteras del método sino un agujero en una función, y este era el más
+interesante porque llevaba dos años diciendo una cosa y siendo otra.
+
+`∫du/(u²+1)²` se negaba. El motivo que se registraba era «cuartico sin raíz
+racional», y el motivo real era que `_factores` solo miraba raíces racionales.
+`_como_racional` escribe `(u²+1)²` como `u⁴ + 2u² + 1`, y eso es un grado 4 sin
+raíz racional; el motor lo veía, y un grado 4 sin raíz racional es la parte sin
+resolver de este módulo. **El polinomio que llegaba nunca fue un cuartico**: era
+una cuadrática escrita dos veces, y nadie había mirado a ver si lo era.
+
+La respuesta a por qué no se miraba es la misma de siempre, y no es pereza: mirar
+exige una descomposición squarefree, y eso es otro algoritmo.
+
+| | antes | ahora |
+|---|---|---|
+| `∫du/(u²+1)²` | se negaba | `arctg(u)/2 + u/(2(u²+1))` |
+| `∫(u+1)/(u²+1)²` | se negaba | `-1/(2(u²+1)) + arctg(u)/2 + u/(2(u²+1))` |
+| `∫du/(u²+1)³` | se negaba | cerrada |
+| `∫du/(u²+1)⁴` | se negaba | cerrada |
+| `∫sen²x/(1+cos x) dx` | se negaba | cerrada |
+
+`∫sen²x/(1+cos x) dx` no se arregló por separado: se negaba por lo mismo, porque
+con `u = tg(x/2)` se convierte en `4u²/(1+u²)²`. Llegó al mismo sitio por otro camino.
+
+Verificado **derivando** en 81 puntos por caso: error máximo 1,2·10⁻²⁷.
+
+### La frontera no se movió, y eso es lo que hay que comprobar
+
+`∫du/(u⁴+1)` se sigue negando. Ahora `∫du/(u⁴+1)²` también, pero **por el factor
+de dentro** y no por parecer un cuartico, y esas dos negaciones eran
+indistinguibles antes de este cambio. Un motor que empieza a responder «a veces»
+es peor que uno que se niega, así que la prueba de la frontera comprueba las dos
+mitades por separado.
+
+La descomposición es la de Musser, exacta sobre `Fraction`, apoyada en
+`_p_derivada` y `_p_mcd_polinomios`, que ya existían: faltaba un solo eslabón.
+Cada división se comprueba con su resto, porque una descomposición squarefree que
+no dividiera exactamente sería una respuesta equivocada sin camino de vuelta.
+
+### Dos bugs que aparecieron al hacerlo
+
+**`w = d` en vez de `w = d/c`.** Una inicialización de un carácter, y **no falla
+en voz alta**: `gcd(d, c)` devolvía el factor propio de `d` en vez de 1, el primer
+cociente salía con multiplicidad 1, y el resultado era `(u²+1)·(u²+1)²` — un
+denominador de grado 6 para un polinomio de grado 4, con todos los coeficientes
+del sistema de fracciones parciales equivocados a partir de ahí.
+
+**`_p_potencia(p, -1)` devolvía `1`.** Su bucle es `range(max(0, n))`, así que
+todo exponente negativo devolvía el producto vacío. La línea que lo invoca con
+exponente negativo —`Q^(1-j)` en `_integral_pieza`, con `j ≥ 2`— era **la única**
+así en todo el módulo, y era inalcanzable: solo se llega a ella con una cuadrática
+irreducible repetida, que es exactamente lo que este commit introduce. El síntoma
+era `∫(u+1)/(u²+1)² du` saliendo como `(-1/2)·1 + arctg(u)/2 + …`: un
+`-1/(2(u²+1))` que había perdido el denominador. No un signo mal: un término
+entero, y verificó bien durante las pruebas que no lo diferenciaron.
+
+Las dos se encontraron midiendo, no leyendo. Las alarmas saltaron —que es justo
+para lo que están— y las respuestas que quedaron mal se detectaron porque el
+comprobador de este repositorio deriva la primitiva y la compara con el integrando,
+no porque alguien las leyera.
+
+## 2026-10-04 — `arctg` entra en el lenguaje, y lo que ya estaba dentro
+
+**El cuarto límite de T-18 cerrado**, y no por añadir una función: por añadir un
+**nombre** que hacía meses que el motor sabia usar y no sabía escribir.
+
+La documentación de T-18 llevaba tiempo diciendo que a la capa `symbolic` le faltaba
+la inversa trigonométrica. Eso era la mitad de la verdad. `atan` estaba en la tabla de
+derivadas desde T-17 —el motor diferenciaba `arctg` sin dificultad—, y lo que no
+existía era su sitio en la gramática del parser ni en la del evaluador. El integrador
+llegaba hasta el final de la cuenta, escribía `Fn('atan', u)`, y se paraba ahí: una
+traza que el lector no puede teclear no es una traza.
+
+| | antes | ahora |
+|---|---|---|
+| `∫du/(u²+1)` | se negaba | `arctg u` |
+| `∫1/(2+cos x)` | se negaba | `2/√3 · arctg(tg(x/2)/√3)` |
+| `∫(2u+1)/(u²+1)` | se negaba | `ln(u²+1) + arctg u` |
+| `∫du/(4u²+4u+2)` | se negaba | `arctg(2u+1)` |
+| `∫du/(u²+u+1)` | se negaba | `2/√3 · arctg((2u+1)/√3)` |
+
+Verificado **derivando** en 81 puntos por cada una, no leyendo el texto: el error
+máximo es inferior a 1e-12. Un texto puede tener todos los términos bien escritos y el
+signo de todos invertido, y por eso no se comprueba como texto.
+
+### Tres listas escritas en tres sitios, cerradas a la vez
+
+La gramática del parser, la whitelist del evaluador certificado y la tabla de kernels
+son tres listas en tres ficheros distintos. Con una de ellas creciendo y las otras dos
+quietas, el motor vuelve a poder imprimir algo que no sabe leer —que es exactamente el
+fallo que esto vino a cerrar—, así que las tres se tocaron en el mismo commit:
+
+- **`symbolic/expr.py`**: `FUNCTIONS` pasa de 7 a 23 nombres. La regla que gobierna la
+  lista es ahora escrita: **todo lo que el motor imprime, el motor lo puede volver a
+  leer**.
+- **`math/trig.py`**: quince kernels nuevos, todos escritos como la identidad que los
+  define sobre `sen`, `cos`, `exp` y `ln`. No hay una segunda serie en ningún sitio.
+- **`engineering/equations.py`**: `ALLOWED_FUNCS` pasa de 8 a 23 y `ENGINE_VERSION` de
+  `engcalc/6.0` a **`engcalc/6.1`**. Es un motor certificado bajo gate, y cambiarle el
+  lenguaje se dice con un número de versión, no en la letra pequeña.
+
+`tests/test_math_trig_family.py` compara las tres listas y vigila que no se separen.
+
+### Dos opciones, y por qué se descarto la otra
+
+`atan` **no** se puede escribir con el vocabulario que el evaluador ya tenía
+(`sen cos tg exp log log10 abs`): no hay ninguna función inversa ahí, y `arctg` no es
+una combinación de las demás. La primera idea era reescribir el nombre en
+`numeric._evaluable`, que ya reescribe las potencias no enteras como `exp(r·log b)`, y
+por ahí no pasaba: no hay a qué reescribirlo.
+
+La descartada de verdad era la más rápida: ampliar `numeric.py` con una segunda
+aritmética. `numeric.py` dice en su docstring que no hay «un segundo motor
+aritmético», y razón tiene: un integrador que devuelve un número por un camino que
+nadie ha verificado no es un integrador verificado.
+
+### `getattr` en un módulo certificado
+
+El reparto de nombres a kernels se resolvió primero con
+`getattr(_trig, f"decimal_{nombre}")`, y el gate E0 lo rechazó:
+`test_e0_x01_no_dynamic_execution` prohíbe `getattr`/`setattr` en `equations.py`. El
+gate tenía razón y la tabla es ahora **literal** —quince entradas que se leen enteras—,
+con la comparación contra `ALLOWED_FUNCS` en el test. Una tabla que se puede leer de
+punta a punta es además la única forma de ver que todo nombre tiene kernel detrás: una
+búsqueda por nombre calculado falla en la primera errata y en ningún otro sitio.
+
+### Tres cosas que se encontraron por el camino
+
+**Un bug vivo, no hipotético.** La regla de reducción de potencias impares de `tg`
+emitía `Fn("ln", 1/cos(u))` mientras la tabla emitía `Fn("log", |cos u|)` para la primera
+potencia: dos grafías de la misma función dentro del mismo módulo. La tabla se podía
+leer y la reducción no. `∫tg³u du` imprimía una primitiva que no se podía teclear ni
+verificar. Ahora el nombre es `log` —el único que tiene el lenguaje— y hay una prueba
+que pasa por el texto y lo teclearía de vuelta, sobre las seis potencias.
+
+**Un mensaje de dominio que señalaba a la función equivocada.** `acos` se construye
+sobre `asin`, y el error de dominio nombraba a `asin`. Quien pedía `acos` recibía un
+mensaje sobre una función que nunca mencionó. Los kernels de `math/trig.py` escriben
+ahora la **condición** y nunca su propio nombre; el nombre lo compone el evaluador, que
+es quien sabe cuál se llamó.
+
+**Una prueba que se medía a sí misma.** Comparar un kernel contra `math` dio «errores»
+de 2,2·10⁻¹⁶ relativo en quince funciones: era el error de la referencia `float`, no
+del kernel. Peor: `acosh(1,0001)` salía con 5,5·10⁻¹⁴, unas 250 veces un ulp, porque
+`1/√(x²-1) ≈ 70` amplifica el error del argumento float. Los kernels se comprueban
+ahora contra literales exactos y contra identidades, y el invariante que decide es
+`cosh(acosh x) == x`, que se sostiene a 1e-43.
+
+### Lo que queda, que no es poco
+
+Tres límites, y se niegan por tres motivos distintos, que conviene no confundir:
+
+| hueco | por qué |
+|---|---|
+| `∫du/(u²+1)²` | `_como_racional` expande a grado 4 y `_factores` no reagrupa: falta la descomposición squarefree, que es otro algoritmo |
+| `∫du/(u⁴+1)` | sin raíz racional: partirlo en dos cuadráticas sobre ℚ es un sistema que hay que resolver entero, y hacerlo a medias es como un integrador empieza a responder «a veces» |
+| `∫sen²x/(1+cos x) dx` | el primero de los dos, alcanzado por `u = tg(x/2)`, que lo convierte en `4u²/(1+u²)²` |
+
+Ninguno es una carencia del método: es no haber escrito una pieza. Y los tres tienen
+su alarma, en `tests/test_mathlab_huecos_documentados.py`, en listas que **fallan** el
+día que se cierren.
+
 ## 2026-10-04 — `t = tg(x/2)` en la integración, y lo que hacía falta debajo
 
 **T-18 cerrado en su último punto abierto**, por la vía larga: un integrador de

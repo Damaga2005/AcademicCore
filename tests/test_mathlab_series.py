@@ -208,7 +208,30 @@ def test_la_serie_de_logaritmo_es_la_de_logaritmo_de_uno_mas_x():
 
 
 VALORES_REALES = {"sin": math.sin, "cos": math.cos, "exp": math.exp,
-                  "tan": math.tan}
+                  "tan": math.tan, "sinh": math.sinh, "cosh": math.cosh}
+
+
+#: Where each declared bound is claimed to hold, and inside those claims the points
+#: that broke the previous rule.
+#:
+#: The negatives are the load-bearing entries. Both failures of the old "first
+#: omitted term" bound were on ``x < 0``, where a series that alternates for
+#: positive arguments stops alternating: at ``x = -0.9`` every term of Mercator is
+#: negative, the tail is monotone, and a first omitted term is a floor, not a
+#: ceiling.
+PUNTOS_DE_COTA = {
+    "sin": (-9.0, -3.0, -0.5, 0.2, 1.0, 3.0, 9.0),
+    "cos": (-9.0, -3.0, -0.5, 0.2, 1.0, 3.0, 9.0),
+    "exp": (-6.0, -1.0, -0.2, 0.3, 1.0, 4.0),
+    "sinh": (-6.0, -1.0, -0.2, 0.3, 1.0, 4.0),
+    "cosh": (-6.0, -1.0, -0.2, 0.3, 1.0, 4.0),
+    # tan's bound is declared for |x| < sqrt(2), which is inside its radius pi/2
+    "tan": (-1.2, -0.6, -0.1, 0.2, 0.7, 1.3),
+    # ln's for |x| < 1, and 0.9 is the far end of that: at 1 the majorisation
+    # diverges, which test_la_cota_de_ln_no_es_un_numero_en_el_borde_de_su_dominio
+    # pins down rather than hides
+    "ln": (-0.9, -0.5, -0.1, 0.3, 0.9),
+}
 
 
 @pytest.mark.parametrize("nombre", ["sin", "cos", "exp", "tan"])
@@ -290,15 +313,28 @@ def test_la_respuesta_trae_residuo_y_lo_dice():
     assert "..." in serie.texto()
 
 
-@pytest.mark.parametrize("nombre", ["sin", "cos", "ln"])
-def test_la_cota_alternativa_acota_el_error_real(nombre):
-    """For the alternating series the first omitted term IS a bound — on |x| <= 1.
+@pytest.mark.parametrize("nombre", ["sin", "cos", "exp", "sinh", "cosh", "tan", "ln"])
+def test_la_cota_declarada_acota_el_error_real(nombre):
+    """``|exacta - polinomio| <= cota`` — measured, on both signs.
 
-    Outside that the terms do not decrease and the bound is not a bound, so the
-    module has to decline rather than quote it anyway.
+    This is the test T-19 was missing. The old one asserted that the first omitted
+    term is a bound for three functions and that four others declare none, and both
+    halves were wrong on the negative axis:
+
+    * the alternating estimate needs the terms to DECREASE, and ``x^9/9!`` stops
+      decreasing past ``x ~ 8``, so for a large argument the declared ``cota`` was
+      smaller than the error while still being printed as an upper bound;
+    * ``ln``'s series alternates only for ``x > 0``. At ``x < 0`` every term is
+      negative, the tail is monotone, and the first omitted term is a *lower* bound
+      on it — at ``x = -0.9``, order 5, the module declared ``0.0886`` for an error
+      of ``0.4725``.
+
+    Sampling only positive ``x`` is what hid both. Every point below is chosen to
+    include the negatives that broke the previous rule.
     """
     serie = S.maclaurin(nombre, 9)
-    for x in (0.2, 0.6, 1.0):
+    assert serie.cota is not None, nombre
+    for x in PUNTOS_DE_COTA[nombre]:
         propio = mx.evaluate(serie.polinomio, {"x": x}).real
         cota = abs(mx.evaluate(serie.cota, {"x": x}).real)
         # the Maclaurin series of ln is the one of ln(1 + x): comparing it against
@@ -308,27 +344,339 @@ def test_la_cota_alternativa_acota_el_error_real(nombre):
         assert abs(exacto - propio) <= cota + 1e-15, (nombre, x, exacto, propio, cota)
 
 
-def test_las_series_no_alternantes_no_declaran_cota_inventada():
-    """exp and tan have decreasing terms nowhere in general.
+def test_la_cota_no_es_una_cota_vacia():
+    """A bound that is 10^30 times the error bounds as well as one that is.
 
-    The first omitted term of exp is an order of magnitude, not a bound, and
-    quoting it as one would be a false promise of precision.
+    This is the difference between an estimate a reader can use and a shrug that
+    technically satisfies ``error <= cota``. The factor is loose on purpose; the
+    point is that the bound tracks the error rather than merely exceeding it.
     """
-    for nombre in ("exp", "tan", "sinh", "cosh"):
-        assert S.maclaurin(nombre, 7).cota is None, nombre
+    for nombre, puntos in PUNTOS_DE_COTA.items():
+        serie = S.maclaurin(nombre, 11)
+        for x in puntos:
+            propio = mx.evaluate(serie.polinomio, {"x": x}).real
+            exacto = math.log(1 + x) if nombre == "ln" else VALORES_REALES[nombre](x)
+            error = abs(exacto - propio)
+            cota = abs(mx.evaluate(serie.cota, {"x": x}).real)
+            assert error == 0 or cota < 1e6 * error + 1e-12, (nombre, x, error, cota)
+
+
+def test_las_siete_series_declaran_cota_y_dicen_donde_vale():
+    """No function is left without one, and none travels without its domain.
+
+    The absence of a bound was never the honest answer here — it was the absence of
+    the argument. What is honest is refusing when the argument does not exist, which
+    is what ``taylor`` still does for an expression it cannot recognise.
+    """
+    for nombre in PUNTOS_DE_COTA:
+        serie = S.maclaurin(nombre, 7)
+        assert serie.cota is not None, nombre
+        dominios = [h for h in serie.hipotesis if "cota de error:" in h]
+        assert dominios, (nombre, serie.hipotesis)
+        # the domain sentence must name how the bound was built, not only that it
+        # exists: a reader who cannot see the argument has to take the number on faith
+        assert "progresión geométrica" in dominios[0], (nombre, dominios[0])
+
+
+def test_la_cota_de_ln_no_es_un_numero_en_el_borde_de_su_dominio():
+    """``|x| = 1`` is outside ``ln``'s declared domain, and the expression says so.
+
+    The absolute majorisation of the Mercator tail is ``|x|^m/(m·(1 - |x|))``, which
+    diverges as ``|x| → 1``: at the boundary the tail still converges but so slowly
+    that no geometric bound is finite. So the bound is undefined exactly where its
+    declared domain stops, and that is the honest shape of the thing — the previous
+    rule covered ``x = 1`` and got ``x < 0`` wrong, which is the worse trade.
+    """
+    serie = S.maclaurin("ln", 7)
+    assert any("|x| < 1" in h for h in serie.hipotesis), serie.hipotesis
+    assert mx.evaluate(serie.cota, {"x": 1.0}) is None
+    assert mx.evaluate(serie.cota, {"x": -1.0}) is None
+    # and just inside the edge it is a number again
+    assert mx.evaluate(serie.cota, {"x": 0.99}) is not None
+
+
+def test_taylor_de_una_funcion_conocida_ya_declara_cota():
+    """``taylor(exp(x), 0, 6)`` used to refuse a bound its own tail could bound.
+
+    The series of ``f`` about ``a`` is the series of ``u ↦ f(a + u)`` about the
+    origin, so the bound is built at 0 and the variable is replaced by ``x - a``.
+    For ``a = 0`` that is the same expression ``maclaurin`` produces.
+    """
+    serie = S.taylor(mx.parse("exp(x)"), mx.ZERO, 6)
+    assert serie.cota is not None
+    assert any("cota de error" in h for h in serie.hipotesis)
+    for x in (0.1, 0.5, 1.0, 2.0, -0.5, -1.5):
+        propio = mx.evaluate(serie.polinomio, {"x": x}).real
+        cota = abs(mx.evaluate(serie.cota, {"x": x}).real)
+        assert abs(math.exp(x) - propio) <= cota + 1e-15, (x, propio, cota)
+
+
+def test_la_serie_desplazada_coincide_con_la_cota_desplazada():
+    """``_cota_de_taylor`` is the specification, and the engine is measured on it.
+
+    That helper is no longer called by ``taylor`` — once a known function is written
+    instead of derived, every ``taylor`` call it could have answered is answered
+    earlier. It is kept as the statement of what a shift does to a bound, and this
+    is what stops it from quietly becoming a second, divergent truth.
+    """
+    for nombre in ("sin", "cos", "tan", "exp", "sinh", "cosh"):
+        nodo = mx.Call(nombre, (mx.Sym("x"),))
+        for orden in (5, 9, 15):
+            serie = S.taylor(nodo, 0, orden, "x")
+            assert mx.text(serie.cota) == mx.text(S._cota_de_taylor(nodo, orden, mx.ZERO, "x"))
+    # and the shifted case, which is the one the specification exists for
+    nodo = mx.Call("ln", (mx.Sym("x"),))
+    serie = S.taylor(nodo, 1, 11, "x")
+    assert mx.text(serie.cota) == mx.text(S._cota_de_taylor(nodo, 11, mx.Num(1), "x"))
+
+
+def test_la_ruta_de_derivadas_no_declara_cota_para_nada():
+    """It is now structurally true, and it is pinned so it cannot drift back.
+
+    A known function never reaches the derivative route any more: the six at the
+    origin and ``ln`` about 1 are all answered by ``_serie_por_nombre``, and every
+    other centre of a transcendental refuses before a coefficient is written,
+    because ``sin(1)`` is not a number this engine can hold. So the route that
+    remains has no bound to give, and the only honest thing it can do is declare
+    none.
+    """
+    for nombre in ("sin", "cos", "tan", "exp", "sinh", "cosh", "ln"):
+        nodo = mx.Call(nombre, (mx.Sym("x"),))
+        for centro in range(-3, 4):
+            try:
+                serie = S.taylor(nodo, centro, 4, "x")
+            except UnsupportedError:
+                continue
+            # it survived, so it went through the known path and carries a bound
+            assert S._serie_por_nombre(nodo, 4, mx.Num(centro), "x") is not None, (nombre, centro)
+            assert serie.cota is not None, (nombre, centro)
+    # what is left on the derivative route declares no bound, and says why
+    serie = S.taylor(mx.parse("x^2*exp(x)"), 0, 4, "x")
+    assert serie.cota is None
+    assert any("NO se declara cota de error" in h for h in serie.hipotesis)
+
+
+def test_taylor_desplazado_traslada_la_cota_y_no_el_argumento():
+    """The bound about ``a`` lives in ``|x - a|``, and is checked there."""
+    serie = S.taylor(mx.parse("ln(x)"), mx.Num(1), 4)
+    assert serie.cota is not None
+    for d in (-0.8, -0.4, -0.1, 0.05, 0.3, 0.8):
+        x = 1 + d
+        propio = mx.evaluate(serie.polinomio, {"x": x}).real
+        cota = abs(mx.evaluate(serie.cota, {"x": x}).real)
+        assert abs(math.log(x) - propio) <= cota + 1e-15, (x, propio, cota)
+
+
+def test_taylor_arma_solo_una_llamada_sola():
+    """``exp(x) + 1`` is not covered, because its tail is not ``exp``'s tail.
+
+    Majorising one does not majorise the other, and claiming the same bound for both
+    would hand out a number the derivation never supported.
+    """
+    with_bound = S.taylor(mx.parse("exp(x)"), mx.ZERO, 6)
+    assert with_bound.cota is not None
+    sin_bound = S.taylor(mx.parse("exp(x) + 1"), mx.ZERO, 6)
+    assert sin_bound.cota is None
 
 
 def test_taylor_no_declara_precision_que_no_puede_sostener():
-    """The polynomial is exact; the error bound is not available, and it says so."""
-    serie = S.taylor(mx.parse("exp(x)"), mx.ZERO, 6)
+    """``x^2·exp(x)`` gets no bound, and the reason is measured, not asserted.
+
+    This is the refusal that remains after T-19, and it is a real one rather than a
+    leftover. The naive move — see ``exp`` inside, reuse ``exp``'s bound — is
+    available, tempting, and wrong: the error here runs 20 to 26 times LARGER than
+    the bound that move would attach, at every argument tried. The polynomial is
+    exact, no number is claimed, and the absence is explained in words.
+    """
+    serie = S.taylor(mx.parse("x^2*exp(x)"), 0, 4)
     assert serie.cota is None
     assert any("NO se declara cota de error" in h for h in serie.hipotesis)
     assert "sin cota" in serie.con_cota()
+
+    cota_ingenua = S.maclaurin("exp", 4).cota
+    fallos = 0
+    for x in (0.5, 1.0, 2.0, 3.0, 4.0, 5.0):
+        propio = mx.evaluate(serie.polinomio, {"x": x}).real
+        error = abs(x * x * math.exp(x) - propio)
+        cota = abs(mx.evaluate(cota_ingenua, {"x": x}).real)
+        if error > cota:
+            fallos += 1
+            assert error > 10 * cota, (x, error, cota)
+    assert fallos == 6, "la cota ingenua de exp dejó de fallar: revisa el rechazo"
+
+
+def test_la_cota_impresa_trae_su_dominio():
+    """The line a reader takes away carries the interval it holds on.
+
+    ``con_cota`` is what gets shown; a bound whose domain is one scroll away in
+    ``hipotesis`` is, in practice, a bound claimed for every argument. This is the
+    same sentence the hypothesis declares, pulled from there rather than written
+    twice, so the two cannot drift.
+    """
+    for nombre in PUNTOS_DE_COTA:
+        linea = S.maclaurin(nombre, 7).con_cota()
+        assert "error <" in linea, (nombre, linea)
+        dominio = next(h.split("cota de error:", 1)[1].strip()
+                       for h in S.maclaurin(nombre, 7).hipotesis
+                       if "cota de error:" in h)
+        assert dominio in linea, (nombre, linea)
+    # and the refusal still prints as a refusal, without a number to qualify
+    negada = S.taylor(mx.parse("x^2*exp(x)"), 0, 4).con_cota()
+    assert "sin cota" in negada and "error <" not in negada, negada
+
+
+def test_las_dos_tablas_de_la_cota_no_pueden_separarse():
+    """A name declared boundable must be boundable, and the reverse.
+
+    ``_DOMINIO_DE_LA_COTA`` decides what gets announced and ``_cota_de_cola``
+    decides what gets built. A name in the first and not the second would print a
+    domain for a bound that does not exist — the exact failure this whole change
+    exists to stop, moved from a table to another table.
+    """
+    declarables = set(S._DOMINIO_DE_LA_COTA)
+    assert declarables == set(S._TERMINO), (declarables, set(S._TERMINO))
+    for nombre in declarables:
+        assert S._cota_de_cola(nombre, 7, "x") is not None, nombre
+        assert S.maclaurin(nombre, 7).cota is not None, nombre
+        # and taylor of the bare call must reach the same bound
+        assert S._cota_de_taylor(mx.Call(nombre, (mx.Sym("x"),)), 7, mx.ZERO, "x") is not None, nombre
+
+
+def test_la_cota_no_es_un_numero_fuera_de_su_dominio():
+    """Past the declared radius the expression stops being a bound, and says so.
+
+    Every majorisation here is ``primer_término / (1 - razón)``, so past the radius
+    the denominator turns non-positive and the cota is no longer a number a reader
+    could compare against an error. The domain sentence names that radius, and this
+    checks the sentence against the expression rather than trusting it.
+    """
+    orden = 9
+    for nombre, fuera in (("sin", 40.0), ("cos", 40.0), ("sinh", 40.0),
+                          ("cosh", 40.0), ("exp", 30.0), ("tan", 2.0), ("ln", 1.5)):
+        serie = S.maclaurin(nombre, orden)
+        valor = mx.evaluate(serie.cota, {"x": fuera})
+        assert valor is None or valor.real <= 0, (nombre, fuera, valor)
+        # and just inside its declared radius it is a real bound again
+        dentro = fuera / 10
+        valor_dentro = mx.evaluate(serie.cota, {"x": dentro})
+        assert valor_dentro is not None and valor_dentro.real > 0, (nombre, dentro)
+
+
+def test_el_centro_admite_un_entero_desnudo():
+    """``taylor(poli, 0, 9)`` is how a person writes it, so it has to work.
+
+    Before this the bare ``int`` travelled into ``as_poly`` and surfaced as «no se
+    sabe imprimir int» from four frames of code that never touched a number. The
+    centre is a number by definition and ``0`` is the common case, so it is wrapped
+    in ``Num`` at the boundary rather than refused.
+    """
+    serie = S.taylor(mx.parse("x^3 - 2*x + 1"), 0, 9)
+    assert serie.polinomio is not None
+    assert serie.cota is None          # a polynomial's tail is exactly zero
+    assert serie.residuo is not None
+    assert S.taylor(mx.parse("x^3 - 2*x + 1"), Fr(0), 9).polinomio == serie.polinomio
+    with pytest.raises(Exception):
+        S.taylor(mx.parse("x^3"), "a", 3)
 
 
 # ---------------------------------------------------------------------------
 # T-19: Taylor of an arbitrary expression
 # ---------------------------------------------------------------------------
+
+
+def test_las_dos_puertas_rechazan_el_mismo_orden():
+    """``taylor`` accepted an order of ``-1`` and answered with a polynomial of ``0``.
+
+    ``maclaurin`` has always refused it with «el orden tiene que ser 0 o mayor».
+    Returning ``0`` and a residual of ``1`` is defensible as arithmetic and useless
+    as an answer, and it was a second answer to the same question. Both doors now
+    say the same words, which is what makes them one door.
+    """
+    for orden in (-1, S.ORDEN_MAXIMO + 1):
+        with pytest.raises(UnsupportedError):
+            S.maclaurin("exp", orden)
+        with pytest.raises(UnsupportedError):
+            S.taylor(mx.Call("exp", (mx.Sym("x"),)), 0, orden, "x")
+    # and a legal order still works on both sides
+    assert S.taylor(mx.Call("exp", (mx.Sym("x"),)), 0, 0).polinomio is not None
+
+
+def test_tan_y_ln_por_derivadas_morían_y_por_serie_no():
+    """``taylor`` must not be the weaker of two doors to the same series.
+
+    ``tan' = 1/cos²`` and ``ln^(k) = (k-1)!/x^k``: differentiating either expands
+    into a product of powers, the trace records every intermediate, and the step log
+    hits its 2000-character field. ``taylor(tan(x), 0, 4)`` used to raise
+    ``EXPRESSION_LIMIT`` while ``maclaurin("tan", 4)`` returned the series in one go,
+    and the same held for ``ln`` about 1. The known series is now written rather than
+    derived, and the whole order range is reachable through both doors.
+    """
+    for nombre, centro in (("tan", 0), ("ln", 1)):
+        tope = None
+        for orden in range(1, S.ORDEN_MAXIMO + 1):
+            try:
+                S.taylor(mx.Call(nombre, (mx.Sym("x"),)), centro, orden, "x")
+            except Exception:                      # noqa: BLE001 - looking for the cap
+                tope = orden - 1
+                break
+        assert tope is None, (nombre, centro, tope)
+
+
+@pytest.mark.parametrize("nombre", ["sin", "cos", "tan", "exp", "sinh", "cosh"])
+@pytest.mark.parametrize("orden", [3, 5, 7, 11, 15, 21, 30, 40])
+def test_taylor_de_una_funcion_conocida_es_su_misma_serie_que_maclaurin(nombre, orden):
+    """Same polynomial, same residual, same bound — the two doors are one door.
+
+    Delegation is only allowed to be invisible. If the known-series path ever drifts
+    from ``maclaurin``, one of them is lying about the same series, and which one is
+    not something a reader should have to guess.
+    """
+    por_derivadas = S.taylor(mx.Call(nombre, (mx.Sym("x"),)), 0, orden, "x")
+    directa = S.maclaurin(nombre, orden)
+    assert mx.text(por_derivadas.polinomio) == mx.text(directa.polinomio), nombre
+    assert mx.text(por_derivadas.residuo) == mx.text(directa.residuo), nombre
+    assert mx.text(por_derivadas.cota) == mx.text(directa.cota), nombre
+
+
+def test_ln_en_el_origen_sigue_sin_serie_although_la_de_mercator_exista():
+    """The trap: ``maclaurin("ln")`` is ``ln(1+x)``, and ``taylor(ln(x), 0, …)`` is not.
+
+    Delegating the known series to ``taylor`` at the origin made this function answer
+    ``x - 1/2x² + 1/3x³ - …`` to a question about ``ln``, whose Taylor series at 0
+    does not exist. The series was right — of a different function. Before the
+    delegation it refused, with «ln(0) no es un número», and that refusal was the
+    correct answer and had to survive the fix.
+    """
+    with pytest.raises(UnsupportedError):
+        S.taylor(mx.Call("ln", (mx.Sym("x"),)), 0, 5, "x")
+    # and about 1, where the series does exist, it answers with the Mercator one
+    sobre_uno = S.taylor(mx.Call("ln", (mx.Sym("x"),)), 1, 20, "x")
+    mercator = mx.substitute(S.maclaurin("ln", 20).polinomio, "x",
+                             mx.Sub(mx.Sym("x"), mx.Num(1)))
+    assert mx.text(sobre_uno.polinomio) == mx.text(mercator)
+    # the bound's interval shifts with the polynomial: the formula says |x|, and the
+    # expression is |x - 1|, so the answer has to say which one it means
+    assert "abs(x - 1)" in mx.text(sobre_uno.cota)
+    assert any("|x - 1|" in h for h in sobre_uno.hipotesis), sobre_uno.hipotesis
+    assert "x - 1" in sobre_uno.metodo
+
+
+def test_el_radio_de_tan_no_es_el_de_mercator():
+    """``tan`` sums on ``1 < x < 1,57``; the module used to say it could not.
+
+    The hypothesis announced «radio de convergencia 1» for both ``tan`` and ``ln``,
+    three lines below a table that correctly gave ``tan`` the radius ``pi/2``. The
+    sentence was wrong in the direction that forbids a convergent series: between 1
+    and ``pi/2`` the tangent series sums perfectly well.
+    """
+    tan = S.maclaurin("tan", 5)
+    assert any("pi/2" in h for h in tan.hipotesis), tan.hipotesis
+    assert not any("radio de convergencia 1" in h for h in tan.hipotesis), tan.hipotesis
+    # measured: at x = 1.4 the series is still good, and 1.4 > 1
+    serie = S.maclaurin("tan", 11)
+    error = abs(math.tan(1.4) - mx.evaluate(serie.polinomio, {"x": 1.4}).real)
+    cota = abs(mx.evaluate(serie.cota, {"x": 1.4}).real)
+    assert error < 1e-6 < cota or error <= cota, (error, cota)
 
 
 @pytest.mark.parametrize("expresion,orden,contiene", [

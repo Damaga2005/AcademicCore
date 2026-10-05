@@ -98,43 +98,37 @@ def test_la_sustitucion_del_angulo_medio_deriva_al_integrando(integrando):
     assert _deriva_y_comprueba(integrando, "x")
 
 
-#: What it must NOT answer. Two different reasons, two different lists, because a
-#: single list would make the two indistinguishable refusals look like one gap.
-NIEGA_ARCTAN = [
-    "1/(1+u^2)",                 # irreducible quadratic, NEGATIVE discriminant
-    "1/(4*u^2+4*u+2)",           # same
-    "1/(u^2+u+1)",               # same: 1 - 4 = -3
-    "(2*u+1)/(u^2+1)",           # same, with a numerator that is not the derivative
-    "1/(2+cos(x))",              # the substitution lands on `2/(3+u²)`: same
+#: What it must NOT answer, as of the third T-18 closure (2026-10-04).
+#:
+#: The negative-discriminant list and the repeated-quadratic list are both GONE,
+#: and so is the quartic one: `∫du/(u⁴+1)` and `∫du/(u⁴+u²+1)` now integrate by
+#: splitting the biquadratic into two quadratics over `Q(√(p²))`. What is left is
+#: a set of CLASSES, each with its own reason, and a refusal without a written
+#: reason is not a boundary — it is ignorance wearing one.
+#:
+#: |caso|por qué|
+#: |---|---|
+#: |`1/(u⁴+2)`|`√c` irracional: dos radiales en vez de uno, y el reparto de coeficientes ya no cabe en una expresión|
+#: |`1/(3*u⁴+2)`|no mónico: la fórmula lee `a` y `c` y supone coeficiente principal 1|
+#: |`1/(u⁴+1)²`|una potencia del biquadrático: es otro sistema, no este|
+#: |`u/(u⁴+1)`|numerador impar sobre denominador par: el argumento de simetría no aplica|
+NIEGA_FUERA_DE_CLASE = [
+    "1/(u^4+2)",
+    "1/(u^4-2)",        # c < 0: tiene raíces reales, y ese caso es de `_factores`
+    "1/(3*u^4+2)",
+    "1/(u^4+1)^2",
+    "u/(u^4+1)",
 ]
-NIEGA_CUARTICO = [
-    "1/(u^4+1)",                 # no rational root: a quartic left over
-    "1/(u^4+u^2+1)",             # same
-    "(u+1)/(u^2+1)^2",           # `(u²+1)²` is a quartic with no rational root
-    "1/(cos(x)*cos(2*x))",       # the substitution lands on a quartic
-]
 
 
-@pytest.mark.parametrize("integrando", NIEGA_ARCTAN)
-def test_una_cuadratica_irreducible_de_discriminante_negativo_no_se_integra(integrando):
-    """The refusal is a boundary, not a gap in the method.
+@pytest.mark.parametrize("integrando", NIEGA_FUERA_DE_CLASE)
+def test_un_cuadratico_fuera_de_clase_no_se_integra(integrando):
+    """Cada uno se niega por SU motivo, y por eso la lista los nombra.
 
-    `∫du/(u²+1)` is `arctg(u)`, and the symbolic language has no inverse tangent:
-    it is not in the parser's function list, nor in the derivative table, nor in the
-    numeric evaluator. mathlab differentiates and evaluates it without trouble, so
-    an `Fn('atan', u)` would PRINT and could not be PARSED back — and a step trace
-    the reader cannot retype is not a step trace.
+    El modo de fallar que este cambio tenía que evitar no es «integrar de más»
+    sino **integrar de más sin decirlo**: un integrador racional que empieza a
+    responder «a veces» es peor que uno que se niega.
     """
-    var = "u" if "u" in integrando else "x"
-    with pytest.raises(Exception):
-        I.integrate(SE.parse(integrando), var, I.StepLog())
-
-
-@pytest.mark.parametrize("integrando", NIEGA_CUARTICO)
-def test_un_denominador_sin_raiz_racional_no_se_factorea(integrando):
-    """Splitting a quartic into two quadratics is a system to solve, and this
-    engine does not solve it. Doing it half way is how a rational integrator
-    starts answering sometimes."""
     var = "u" if "u" in integrando else "x"
     with pytest.raises(Exception):
         I.integrate(SE.parse(integrando), var, I.StepLog())
@@ -151,12 +145,54 @@ def test_una_funcion_no_es_racional_y_no_se_declara_racional():
     assert "tan" not in _deriva_y_comprueba("(u^2+1)/(u*(u^2-1))", "u")
 
 
-def test_la_respuesta_se_puede_volver_a_leer():
+#: Every integrand whose primitive must be re-readable. Parametrised rather than
+#: looped inside one test so that a failure names the integrand that broke.
+IMPRIMIBLE_Y_RELEGIBLE = [
+    "1/(1+cos(x))",     # the substitution, unchanged
+    "1/(1+u^2)",        # closed 2026-10-04: comes out with atan
+    "sinh(u)",
+    "sech(u)",          # comes out with atan(sinh u)
+    "1/cos(u)",
+    "tan(u)^3",         # came out with a logarithm spelled `ln` until 2026-10-04
+    "csch(u)",
+    "1/(u^2+1)^2",      # the squarefree decomposition, and the shape that exposed a
+                        # silent `1` where a reciprocal belonged
+    "(u+1)/(u^2+1)^2",
+    "1/(u^4+1)",         # the biquadratic split; its first answer was CORRECT and
+                        # 318 characters long, which is not an answer
+    "1/(cos(x)*cos(2*x))",
+]
+
+
+@pytest.mark.parametrize("integrando", IMPRIMIBLE_Y_RELEGIBLE)
+def test_la_respuesta_se_puede_volver_a_leer(integrando):
     """What it prints, it can parse.
 
-    The reason `atan` is not emitted even though mathlab could carry it: a printed
-    answer the reader cannot type back is not an answer.
+    This is the reason the negative-discriminant cases used to refuse, stated as
+    the invariant it actually protects rather than as the hole it was: an answer
+    the reader cannot type back is not an answer. It runs over the whole family
+    now, because the failure it guards against was never specific to `atan` —
+    `∫tan³(u)du` was printing a logarithm spelled `ln`, a name this language has
+    never had, for as long as nobody wrote a test that typed the answer back in.
     """
-    primitiva, _paso = I.integrate(SE.parse("1/(1+cos(x))"), "x", I.StepLog())
+    var = "u" if "u" in integrando else "x"
+    primitiva, _paso = I.integrate(SE.parse(integrando), var, I.StepLog())
     texto = SE.text(primitiva)
-    assert SE.parse(texto) is not None, texto
+    assert SE.parse(texto) is not None, (integrando, texto)
+
+
+def test_el_nombre_del_logaritmo_es_uno_y_es_el_del_lenguaje():
+    """`log`, never `ln`.
+
+    A regression, not a style note. The reduction rule for odd powers of `tan`
+    emitted `Fn("ln", 1/cos(u))` while the table emitted `Fn("log", abs(cos(u)))`
+    for the first power — two spellings of one function inside one module, so the
+    table's answer could be read back and the reduction's could not. This asserts
+    the one invariant that catches it: everything this module prints parses.
+    """
+    for potencia in range(1, 7):
+        integrando = "tan(u)" if potencia == 1 else f"tan(u)^{potencia}"
+        primitiva, _paso = I.integrate(SE.parse(integrando), "u", I.StepLog())
+        texto = SE.text(primitiva)
+        assert "ln(" not in texto, (integrando, texto)
+        assert SE.parse(texto) is not None, (integrando, texto)

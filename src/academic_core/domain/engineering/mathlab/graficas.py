@@ -608,10 +608,19 @@ def _nombre_de_una_sola_llamada(expresion: mx.Expr, var: str) -> str | None:
 def _serie_de(expresion: mx.Expr, var: str, orden: int):
     """The known series when the expression is one, and Taylor otherwise.
 
-    Not a preference. ``maclaurin`` writes each series term by term and is right;
-    ``taylor`` differentiates and currently assembles a monomial's polynomial with
-    a term too many, which is documented in ``test_mathlab_series``. Using it for
-    «sen(x)» would put the coseno polynomial on the graph.
+    Not a preference, but the reason is no longer the one this function used to
+    give. It used to say that ``taylor`` «assembles a monomial's polynomial with
+    a term too many», and that was true for a while and then stopped being true
+    without the sentence noticing: ``COVERAGE_CATALOG.md`` had already recorded
+    the opposite — 168 combinations of coefficient, degree and order, 0 wrong —
+    and this docstring went on announcing the fixed bug to every reader.
+
+    The order of preference stands on its own: ``maclaurin`` writes each series
+    term by term and says so, which is the more informative answer for «sen(x)».
+    Since the fix in ``series.taylor`` both doors compute the same thing — a known
+    function is written, not differentiated, whichever one you come in by — so this
+    branch is now about the sentence that travels with the answer rather than about
+    the numbers.
     """
     nombre = _nombre_de_una_sola_llamada(expresion, var)
     if nombre is not None:
@@ -623,8 +632,7 @@ def _serie_de(expresion: mx.Expr, var: str, orden: int):
             pass
     return (S.taylor(expresion, mx.ZERO, orden, var),
             "la expresión no tiene serie conocida, así que el polinomio sale de "
-            "derivar. OJO: el polinomio de Taylor de un monomio lleva un término "
-            "de más, documentado en test_mathlab_series")
+            "derivar término a término")
 
 
 @dataclass(frozen=True)

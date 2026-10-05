@@ -420,7 +420,12 @@ def _reducir(nombre: str, arg: Expr, n: int, k: Fraction, var: str,
         if nombre == "tan":
             # ∫tg = -ln|cos| = +ln(1/cos). Con el signo al revés, tg^3 salía
             # con +ln(1/cos) y su derivada era tg·sec^2 + tg, que no es tg^3.
-            return Mul(_k(Fraction(1, k)), Fn("ln", Div(ONE, Fn("cos", arg))))
+            # The name is `log`, the one spelling this language has for a
+            # natural logarithm (expr.FUNCTIONS). It was `ln` here, which is
+            # correct English and inexpressible in this language: the answer
+            # printed an `ln(1/cos(x))` that parse() rejected, so a primitive
+            # the engine had computed could not be typed back in or verified.
+            return Mul(_k(Fraction(1, k)), Fn("log", Div(ONE, Fn("cos", arg))))
         base = Fn(derivada, arg)
         return (Mul(_k(Fraction(1, k)), base) if positiva
                 else Mul(_k(Fraction(-1, k)), base))
@@ -804,7 +809,318 @@ def _factores(d: dict[int, Fraction]):
         return salida
     if _p_grado(resto) == 2:
         return salida + [(resto, 1)]   # no rational root: irreducible over Q
-    return None
+    # `resto` has no rational root and is of degree above 2. Before refusing,
+    # ask whether it is a POWER of something smaller — `(u²+1)²` arrives here
+    # spelled `u⁴ + 2u² + 1` and is not a quartic. See
+    # `_p_potencia_de_menor_grado`, which is where the answer lives and which
+    # still refuses `u⁴+1` for the reason it always did.
+    piezas = _p_potencia_de_menor_grado(resto)
+    return salida + piezas if piezas is not None else None
+
+
+def _integral_bicuadratica(A: Fraction, C: Fraction, a: Fraction, c: Fraction,
+                           x: Sym):
+    """``∫ (A·u² + C) du / (u⁴ + a u² + c)``, the BIQUADRATIC case.
+
+    The last declared limit of T-18 was «a quartic with no rational root». That
+    names three different algebraic situations and not all of them are reachable
+    without a cubic root over ℚ, so this states which one it handles instead of
+    pretending to handle all of them.
+
+    **The factorisation.** A biquadratic splits as
+
+        ``u⁴ + a u² + c = (u² + p u + q)(u² - p u + q)``  with  ``q = √c``,
+        ``p² = 2q - a``
+
+    because ``(u²+q)² - p²u² = u⁴ + (2q - p²)u² + q²`` and ``q² = c``. For
+    ``u⁴+1`` that is ``q = 1``, ``p² = 2``, and the two factors carry ``√2``.
+
+    **Why no quadratic-field arithmetic.** ``q`` is required to be a RATIONAL
+    square, so the only irrational in play is ``p`` and ``p²`` is rational too.
+    One radical — and it turns out that only ONE coefficient of the answer needs
+    it. Writing
+
+        ``(A u² + C)/B = (α u + β)/Q₊ + (-α u + β)/Q₋``
+
+    and matching coefficients gives ``β = C/(2q)`` and ``α = (C/q - A)/(2p)``,
+    and the integral collects to
+
+        ``∫ = (α/2)·log|Q₊/Q₋| + (β - α·p/2)·(I₊ + I₋)``
+
+    The surprise is the second coefficient: ``β - α·p/2`` collapses to
+    ``(A + C/q)/4``, which is **rational**. So of the two coefficients one is
+    rational and the other is a rational over ``√(p²)``, and neither needs an
+    irrational carried through ``arctan`` or ``log``. That is the whole reason
+    this fits without a field: ``√(p²)·t`` is one product, not a new type.
+
+    Refuses — returns ``None`` — for a numerator with odd powers (a different
+    routine and a different system), when ``√c`` is irrational, when ``c ≤ 0``
+    (real roots: `_factores`' case), when ``2q - a ≤ 0`` (the factors carry
+    complex coefficients), or when ``m = q - p²/4 = 0`` (a repeated linear
+    factor). Every one of those is a refusal and not a partial answer.
+    """
+    if c <= 0:
+        return None            # real roots: `_factores` owns this, and `_raiz`
+                                # would raise on a negative argument
+    raiz_c = _raiz(c)
+    if not isinstance(raiz_c, Num):
+        return None            # √c irrational: two radicals, another class
+    q = raiz_c.value
+    p2 = 2 * q - a
+    if p2 <= 0:
+        return None            # p imaginary: the factors are not real quadratics
+    m = q - p2 / 4
+    if m == 0:
+        return None            # repeated linear factor, not this case
+    raiz_p = _raiz(p2)         # Num when p rational, else Pow(v, 1/2)
+    medio_p = Mul(Num(Fraction(1, 2)), raiz_p)
+
+    def completa(signo: int) -> Expr:
+        """``I± = ∫du/(u² ± p·u + q)``, by the shift that kills the linear term."""
+        v = Add(x, medio_p) if signo > 0 else Sub(x, medio_p)
+        if m > 0:
+            rm = _raiz(m)
+            return Mul(Div(ONE, rm), Fn("atan", Div(v, rm)))
+        rm = _raiz(-m)
+        # `1/2 · (1/rm)` printed as `1/2*1/1` when rm is exactly 1 is noise, and
+        # noise is what pushes an answer past the length a reader can type back.
+        medio = Num(Fraction(1, 2)) if (isinstance(rm, Num) and rm.value == 1) \
+            else Mul(Num(Fraction(1, 2)), Div(ONE, rm))
+        return Mul(medio, Fn("log", Fn("abs", Div(Sub(v, rm), Add(v, rm)))))
+
+    def cuadratica(signo: int) -> Expr:
+        return Add(Add(Pow(x, Num(Fraction(2))), Mul(raiz_p, x) if signo > 0
+                       else Neg(Mul(raiz_p, x))), Num(q))
+
+    # α/2 = (C/q - A)/(4p), and β - αp/2 = (A + C/q)/4 — the second rational.
+    #
+    # A piece whose coefficient is zero is DROPPED, not multiplied out. `0/4·(…)`
+    # is not a shorter way of writing nothing, it is a longer one: it showed up
+    # here for `∫dx/(cos x·cos 2x)`, whose leftover numerator is `(u²-5)/4`
+    # with `A + C/q = 0`, and printing the vanished term is what pushed that
+    # answer past `MAX_SOURCE`.
+    partes: list[Expr] = []
+    cociente_log = C / q - A
+    cociente_I = A + C / q
+    if cociente_log:
+        partes.append(Mul(Div(_k(cociente_log), Mul(Num(Fraction(4)), raiz_p)),
+                          Fn("log", Fn("abs", Div(cuadratica(1), cuadratica(-1))))))
+    if cociente_I:
+        partes.append(Mul(Div(_k(cociente_I), Num(Fraction(4))),
+                          Add(completa(1), completa(-1))))
+    if not partes:
+        return Num(Fraction(0))
+    return partes[0] if len(partes) == 1 else Add(partes[0], partes[1])
+
+
+def _integral_mezcla_racional(num: dict[int, Fraction], den: dict[int, Fraction],
+                              x: Sym):
+    """Denominator = rational LINEAR factors (multiplicity one) × one biquadratic.
+
+    This is the last of the three declared quartics: `∫dx/(cos x · cos 2x)`, whose
+    half-angle substitution leaves ``(u²-1)(u⁴-6u²+1)`` — a degree 6 with a
+    biquadratic inside it. `_factores` returns ``None`` for it, and for two
+    reasons that have nothing to do with each other: the linear part it DID find
+    gets thrown away with the ``None``, and the quartic needs the √ above.
+
+    **The decomposition.** Every simple root ``r`` of the denominator gets its
+    coefficient by cover-up, ``c = 1/[(den/(u-r))(r)]``, which is rational
+    because ``r`` is. Subtracting those leaves a remainder over the quartic
+    alone, and that remainder is what the biquadratic routine takes.
+
+    Refuses when a rational root repeats (``_integral_pieza`` owns repeated
+    linear factors, and mixing those with a √ quadratic is a third system), and
+    when the leftover numerator has odd powers.
+    """
+    if _p_grado(den) < 4:
+        return None
+    resto = dict(den)
+    raices: list[tuple[Fraction, dict[int, Fraction]]] = []
+    for _ in range(_p_grado(den) + 2):
+        raiz = _primera_raiz_racional(resto)
+        if raiz is None:
+            break
+        factor = {1: Fraction(1), 0: -raiz}
+        cociente, nuevo = _p_parte_entera(resto, factor)
+        if nuevo:
+            return None        # the root repeats: repeated linear × √ quadratic
+        raices.append((raiz, cociente))
+        resto = cociente
+    if not raices:
+        return None            # no rational factor: the pure branch owns it
+    if _p_grado(resto) != 4:
+        return None
+
+    # cover-up coefficients, and the polynomial pieces they contribute.
+    #
+    # `den / (u - r)` is divided from the ORIGINAL denominator every time, and
+    # not from the running remainder. That distinction is the whole correctness
+    # of the step: dividing the remainder by (u+1) after already having taken out
+    # (u-1) leaves the quartic, which evaluated at -1 gives -4 and a coefficient
+    # of -1/4 where cover-up says +1/8. The remainder's own quotient is right for
+    # its own step and wrong for this one, and it fails without saying so — the
+    # leftover division then does not close, and the case refuses for a reason
+    # that has nothing to do with why it should have worked.
+    # Cover-up for a NUMERATOR that is not 1.
+    #
+    # What each simple root contributes to the ANSWER is `c·log|u-r|`, and what
+    # it contributes to the ALGEBRA is `c·M` — the polynomial `den/(u-r)`,
+    # scaled. Those are different things and mixing them is silent: integrating
+    # the algebra polynomial gave a correct-looking degree-5 polynomial in place
+    # of two logarithms, wrong by a factor of the integrand and 300 characters
+    # longer than the answer that is right.
+    #
+    # `c = num(r) / [den/(u-r)](r)`, and `num - Σc·M`, NOT `1 - Σc·M`. Writing
+    # the `1` here — which is the textbook case and what the first version did —
+    # is wrong for every numerator but one, and it fails as a plausible-looking
+    # answer rather than as a refusal. `∫dx/(cos x·cos 2x)` arrives here with a
+    # numerator of `-2(u²+1)²`, and the `1` version was off by exactly it.
+    suma: dict[int, Fraction] = {}
+    logaritmos: list[Expr] = []
+    for raiz, _ in raices:
+        factor = {1: Fraction(1), 0: -raiz}
+        cociente, nuevo = _p_parte_entera(den, factor)
+        if nuevo:
+            return None        # not exact: `raiz` is not a root of `den`
+        valor = _p_eval(cociente, raiz)
+        if valor == 0:
+            return None
+        c = _p_eval(num, raiz) / valor
+        if c:
+            # a zero cover-up coefficient is a piece that is not there; printing
+            # `0*log(…)` adds characters and subtracts nothing
+            logaritmos.append(Mul(Num(c), Fn("log", Fn("abs", Sub(x, Num(raiz))))))
+        for g, coef in cociente.items():
+            suma[g] = suma.get(g, Fraction(0)) + c * coef
+
+    # what is left over the quartic: (num - Σ c·den/(u-r)) / Π(u-r)
+    menos: dict[int, Fraction] = dict(num)
+    for g, coef in suma.items():
+        menos[g] = menos.get(g, Fraction(0)) - coef
+    menos = _p_limpia(menos)
+
+    # what is left over the quartic: (num - Σ c·den/(u-r)) / Π(u-r)
+    producto: dict[int, Fraction] = {0: Fraction(1)}
+    for raiz, _ in raices:
+        producto = _p_producto(producto, {1: Fraction(1), 0: -raiz})
+    Q, remanente = _p_parte_entera(menos, producto)
+    if remanente or not Q:
+        return None            # the algebra did not close: a refusal, not a guess
+    if _p_grado(Q) >= 4:
+        return None
+
+    resto_final = _integral_bicuadratica_de(Q, resto, x)
+    if resto_final is None:
+        return None
+    if not logaritmos:
+        return resto_final
+    lineales = logaritmos[0] if len(logaritmos) == 1 \
+        else Add(logaritmos[0], logaritmos[1])
+    return Add(lineales, resto_final)
+
+
+def _integral_bicuadratica_de(num: dict[int, Fraction],
+                              den: dict[int, Fraction], x: Sym):
+    """``_integral_bicuadratica`` reached from the rational path, or ``None``.
+
+    The numerator must be ``A·u² + C``: a constant is ``A = 0`` and a
+    non-constant or odd numerator is a different routine with a different system,
+    and answering one of the two while claiming the other is how an integrator
+    starts answering «sometimes».
+
+    The inner call's ``None`` is checked rather than multiplied through:
+    ``Mul(Num(1), None)`` builds an expression tree with a hole in it, and the
+    hole surfaces frames later as ``'NoneType' object has no attribute 'left'`` —
+    a crash where the case called for a refusal.
+    """
+    if _p_grado(den) != 4 or 3 in den or 1 in den:
+        return None            # not degree 4, or not biquadratic
+    if den.get(4) != 1:
+        # MONIC, and this is a correctness condition and not a stylistic one. The
+        # formula reads `a` and `c` straight out of the denominator and assumes
+        # the leading coefficient is 1. For `3u⁴ + 2` it would read `a = 0, c = 2`,
+        # decide the class from THOSE, and if the class had matched, answer for
+        # `u⁴ + 2` — a correct-looking answer to a different integral.
+        return None
+    if any(g % 2 for g in num):
+        return None            # an odd power in the numerator: another case
+    cuerpo = _integral_bicuadratica(num.get(2, Fraction(0)),
+                                    num.get(0, Fraction(0)),
+                                    den.get(2, Fraction(0)),
+                                    den.get(0, Fraction(0)), x)
+    if cuerpo is None:
+        return None            # outside the supported class: a refusal, not a crash
+    return cuerpo
+
+
+def _p_potencia_de_menor_grado(d: dict[int, Fraction]):
+    """``d`` has NO rational root and degree above 2: is it a POWER of something
+    smaller? Musser's squarefree decomposition, exact over ``Fraction``.
+
+    This exists because ``(u²+1)²`` used to be refused, and the reason it was
+    refused was not visible from the answer. ``_como_racional`` writes that
+    denominator as ``u⁴ + 2u² + 1``, a degree 4 with no rational root, and
+    ``_factores`` looks at rational roots only — so it saw a quartic, and a
+    quartic with no rational root is the unsolved half of this module. But the
+    polynomial that arrived was never a quartic: it was a quadratic written out
+    twice, and nothing had looked to see that.
+
+    ``∫du/(u²+1)²`` and ``∫sen²x/(1+cos x) dx`` — the latter because
+    ``u = tg(x/2)`` turns it into ``4u²/(1+u²)²`` — were both refused here, and
+    for two years the refusal said «cuartic», which was true of the expansion
+    and false of the expression.
+
+    The boundary does NOT move. A piece that comes out of this decomposition
+    squarefree and of degree above 2 is still the quartic-splitting problem, and
+    this returns ``None`` for it: ``u⁴+1`` and ``u⁴+u²+1`` refuse exactly as
+    before. What changes is only that ``(u⁴+1)²`` now refuses for the same
+    reason ``u⁴+1`` does — because the factor inside it does — instead of
+    arriving here indistinguishable from a genuinely irreducible quartic.
+
+    Exact throughout, and verified rather than assumed: every division here is
+    checked for a zero remainder, and a squarefree decomposition that did not
+    divide exactly would be a wrong answer with no way back to this line.
+    """
+    c = _p_mcd_polinomios(d, _p_derivada(d))
+    if _p_grado(c) <= 0:
+        return None            # squarefree: there is no repeated factor to find
+    # `w` starts at d/c, NOT at d. Starting it at d is the one-character mistake
+    # this function is easy to make, and it does not fail loudly: gcd(d, c) is
+    # then d's own factor rather than 1, the first quotient comes out as the
+    # factor at multiplicity 1, and the answer becomes `(u²+1)·(u²+1)²` — a
+    # denominator of degree 6 handed to a partial-fraction system for a degree-4
+    # polynomial, with every downstream coefficient wrong.
+    w, remanente = _p_parte_entera(d, c)
+    if remanente:
+        return None            # c divides d exactly; anything else is a defect
+    salida, i = [], 1
+    # `w` strictly decreases every pass (it becomes gcd(w, c), a proper divisor
+    # once the constant factors run out), so this terminates; the bound is a
+    # tripwire against a future edit, not a budget.
+    for _ in range(_p_grado(d) + 2):
+        if _p_grado(w) <= 0:
+            break
+        y = _p_mcd_polinomios(w, c)
+        z, resto = _p_parte_entera(w, y)
+        if resto:
+            return None        # an inexact division is a wrong answer, not a None
+        if _p_grado(z) > 0:
+            # z is squarefree by construction, so this is `_factores` on a
+            # polynomial with no repeated factor: it either comes apart into
+            # rational roots plus one quadratic, or it does not come apart.
+            piezas = _factores(z)
+            if piezas is None:
+                return None
+            salida.extend((f, m * i) for f, m in piezas)
+        w = y
+        c, _r = _p_parte_entera(c, y)
+        i += 1
+    if _p_grado(c) > 0:
+        piezas = _factores(c)
+        if piezas is None:
+            return None
+        salida.extend((f, m * i) for f, m in piezas)
+    return salida or None
 
 
 def _gauss(sistema: list[list[Fraction]], n: int) -> list[Fraction] | None:
@@ -899,21 +1215,36 @@ def _raiz(v: Fraction) -> Expr:
 def _integral_Q1(p: Fraction, q: Fraction, delta: Fraction, x: Sym):
     """``∫du/(u² + pu + q)`` for a MONIC quadratic of discriminant ``delta``.
 
-    Three cases, and one of them is a refusal that is not a shrug:
+    Three cases, all three of them answered:
 
     - ``delta > 0``: two real roots, and the answer is a logarithm of a ratio.
-      This is the one T-18 needs — ``∫1/(cos(x) + cos(2x))`` lands here.
+      This is the one T-18 needed first — ``∫1/(cos(x) + cos(2x))`` lands here.
     - ``delta = 0``: a perfect square, so the answer is rational. It should
       never arrive, since a squarefree denominator with no rational root is not
       one, but the branch is here rather than a division by zero later.
-    - ``delta < 0``: an inverse tangent. **Refused**, and the reason is in the
-      docstring of ``_integral_racional``.
+    - ``delta < 0``: an inverse tangent. It arrives as ``∫du/(u²+1)`` and was
+      REFUSED until 6.1, on the grounds that this language had no ``atan``: not
+      in the parser, and not in the evaluator, so the engine could print one
+      and never read it back. That reason has expired — ``atan`` is in
+      ``expr.FUNCTIONS`` and in the certified evaluator — and this branch is
+      the whole of what T-18 was still PARTIAL for.
+
+      With ``beta = -delta > 0`` the quadratic completes the square to
+      ``(u + p/2)² + beta/4``, and ``∫dv/(v² + a²) = arctan(v/a)/a`` with
+      ``a = √beta/2`` gives ``2/√beta · arctan((2u + p)/√beta)``. For ``p = 0,
+      q = 1`` that is exactly ``arctan(u)``, which is the check that this is
+      the identity and not merely a plausible-looking expression.
     """
     v = x if p == 0 else Add(x, Num(p / 2))
     if delta == 0:
         return Div(Num(Fraction(-1)), v)
     if delta < 0:
-        return None
+        raiz = _raiz(-delta)
+        # The numerator is `2u + p`, written as `2u - (-p)` so it comes out in
+        # ONE shape whether or not p is zero, instead of two answers to the
+        # same integral differing only in how the terms were arranged.
+        dos_u_mas_p = Sub(Mul(Num(Fraction(2)), x), Num(-p))
+        return Mul(Div(Num(Fraction(2)), raiz), Fn("atan", Div(dos_u_mas_p, raiz)))
     raiz = _raiz(delta)
     medio = Mul(Num(Fraction(1, 2)), raiz)
     return Div(Fn("log", Fn("abs", Div(Sub(v, medio), Add(v, medio)))), raiz)
@@ -966,8 +1297,19 @@ def _integral_pieza(coefs: tuple[Fraction, Fraction],
         if j == 1:
             partes.append(Mul(Num(lam), Fn("log", Fn("abs", _p_expresion(x, factor)))))
         else:
+            # `Q^(1-j)` written as `1/Q^(j-1)` and NOT as a negative power of
+            # the polynomial. `_p_potencia` cannot do it: its loop is
+            # `range(max(0, n))`, so every negative exponent returns the empty
+            # product, which is 1 — and `∫(u+1)/(u²+1)² du` came out as
+            # `(-1/2)·1 + arctan(u)/2 + …`, a `-1/(2(u²+1))` that had lost its
+            # denominator. A wrong answer, not a wrong sign, and it verified as
+            # long as nobody differentiated it.
+            #
+            # This is the only call site in the module that can pass a negative
+            # exponent, so nothing else changes: the others are `n >= 0` by
+            # construction.
             partes.append(Mul(Num(lam / (1 - j)),
-                              _p_expresion(x, _p_potencia(factor, 1 - j))))
+                              Div(ONE, _p_expresion(x, _p_potencia(factor, j - 1)))))
     if mu:
         resto = _integral_Q(factor, j, x)
         if resto is None:
@@ -1004,13 +1346,17 @@ def _integral_racional(e: Expr, var: str, log: StepLog, depth: int):
        rest, and for a quadratic the derivative part gives a log while the
        remaining constant gives a log of a ratio.
 
-    **The boundary is the negative discriminant.** ``∫du/(u²+1)`` is ``atan(u)``,
-    and the symbolic language has no inverse tangent: it is not in the parser's
-    list of functions, and neither the derivative table nor the numeric
-    evaluator knows the name. mathlab differentiates and evaluates it without
-    trouble, so an ``Fn('atan', x)`` would PRINT and could not be PARSED back —
-    and a step trace the reader cannot retype is not a step trace. So that case
-    refuses, and this is what it refuses on.
+    **The boundary was the negative discriminant, and it is gone.** ``∫du/(u²+1)``
+    is ``arctg(u)``, and until 6.1 this language had no inverse tangent: it was
+    not in the parser's list of functions, and neither the derivative table nor
+    the numeric evaluator knew the name. mathlab differentiated and evaluated
+    it without trouble, so an ``Fn('atan', x)`` PRINTED and could not be PARSED
+    back — and a step trace the reader cannot retype is not a step trace. So
+    that case refused, and this was what it refused on. ``atan`` is now in the
+    language, so this no longer refuses. What remains declared is higher up and
+    for other reasons: the denominator of degree 4 with no rational root, and the
+    irreducible quadratic SQUARED, which `_como_racional` expands to a degree 4
+    that `_factores` cannot reassemble.
     """
     if depth > MAX_DEPTH:
         return None
@@ -1022,7 +1368,26 @@ def _integral_racional(e: Expr, var: str, log: StepLog, depth: int):
         return None                      # a polynomial: the power rule has it
     factores = _factores(den)
     if factores is None:
-        return None
+        # The quartic that has no rational root. Before this refused
+        # unconditionally, which is why `∫du/(u⁴+1)` was declared a limit: the
+        # polynomial has no linear factor to find, but a BIQUADRATIC one still
+        # splits into two quadratics over Q(√(p²)) — see `_integral_bicuadratica`
+        # for why that needs no field arithmetic. Anything outside that class
+        # still returns None, and still says so.
+        cociente, resto = _p_parte_entera(num, den)
+        bicuadratica = None if cociente else _integral_bicuadratica_de(resto, den, Sym(var))
+        if bicuadratica is None and not cociente:
+            bicuadratica = _integral_mezcla_racional(resto, den, Sym(var))
+        if bicuadratica is None:
+            return None
+        return bicuadratica, log.add(
+            OP, "cuártico biquadrático", text(e),
+            text(bicuadratica),
+            explanation=("el denominador no tiene raíz racional, pero es "
+                         "biquadrático: se parte en dos cuadráticas sobre "
+                         "Q(√(p²)), y cada una se integra completando el "
+                         "cuadrado"),
+            uses=())
     cociente, resto = _p_parte_entera(num, den)
     piezas = _fracciones_parciales(resto, den, factores)
     if piezas is None:
@@ -1034,7 +1399,7 @@ def _integral_racional(e: Expr, var: str, log: StepLog, depth: int):
     for coefs, factor, j in piezas:
         trozo = _integral_pieza(coefs, factor, j, x)
         if trozo is None:
-            return None                  # the negative discriminant
+            return None                  # the degree-4 remainder, not the discriminant
         terminos.append(trozo)
     if not terminos:
         return None

@@ -15,14 +15,21 @@ So every answer here is three things, never one:
 3. a **declared error bound** on what comes after that.
 
 The bound is where a series engine is usually honest-looking and dishonest. Two
-bounds are implemented and they are *not* interchangeable:
+routes exist and they are *not* interchangeable:
 
-* for a whole function with a known series (the trigonometric and hyperbolic
-  ones) the error is the tail of that series, which is a bound on the alternating
-  or monotone remainder;
-* for a general function the bound comes from the order of the first omitted
-  derivative, which needs a bound on that derivative over the interval — and when
-  no such bound is available the module **says so** rather than inventing one.
+* **a function this module knows** — the seven whose series it writes term by term —
+  gets the tail of that series majorised by a geometric progression built from its
+  own coefficients, valid on a declared interval;
+* **an expression it does not recognise** gets no number at all, and the answer says
+  so in words. Reusing the bound of a function that happens to appear inside is not
+  available as a shortcut: for ``x²·exp(x)`` the real error runs 20 to 26 times
+  larger than ``exp``'s bound, and the test that says so measures it.
+
+The old rule was "the first omitted term, for the alternating series" — and that
+was false in both directions it could fail in, which is the subject of
+``_cota_de_cola``. What replaced it is checked against the measured error at every
+argument, negatives included, because an assertion that a bound is absent cannot see
+a bound that is present and wrong.
 
 Convergence, and refusing to fake it
 -----------------------------------
@@ -75,9 +82,21 @@ class Serie:
         return " ".join(partes)
 
     def con_cota(self) -> str:
+        """The polynomial, the bound, and where the bound holds.
+
+        The domain is printed with the number rather than left in ``hipotesis``,
+        because this line is what a reader takes away: a bound whose interval is one
+        scroll away is, in practice, a bound claimed for every argument. The
+        sentence is taken from the hypothesis that declares it, so the two cannot
+        drift apart.
+        """
         base = self.texto()
         if self.cota is None:
             return base + "   (sin cota de error declarada)"
+        dominio = next((h.split("cota de error:", 1)[1].strip()
+                        for h in self.hipotesis if "cota de error:" in h), None)
+        if dominio:
+            return base + f"   error < {mx.text(self.cota)}   ({dominio})"
         return base + f"   error < {mx.text(self.cota)}"
 
     @property
@@ -113,25 +132,76 @@ def maclaurin(nombre: str, orden: int, var: str = "x") -> Serie:
         raise sin_refuso(
             f"no se sabe la serie de «{nombre}» sobre la lista: "
             f"{', '.join(sorted(_TERMINO))}. Eso NO es «no converge» (§5.4)")
+    _exigir_orden(orden)
+    polinomio, residuo = _truncar(nombre, orden, var)
+    cota = _cota_de_cola(nombre, orden, var)
+    return Serie(polinomio, orden, residuo, cota, mx.ZERO,
+                 "serie de Maclaurin conocida, escrita término a término",
+                 _hipotesis_de_serie_conocida(nombre, var, None))
+
+
+def _exigir_orden(orden: int) -> None:
+    """Refuse an order outside the declared range, with the same words from both doors.
+
+    ``maclaurin`` has always said this; ``taylor`` did not, and answered an order of
+    ``-1`` with a polynomial of ``0`` and a residual of ``1`` — defensible as
+    arithmetic, useless as an answer, and a second answer to the same question.
+    """
     if orden < 0:
         raise sin_refuso(f"el orden tiene que ser 0 o mayor; llegó {orden}")
     if orden > ORDEN_MAXIMO:
         raise sin_refuso(
             f"el orden {orden} supera el máximo de {ORDEN_MAXIMO}. Un polinomio de "
             "ese grado es un número con demasiados dígitos, no una serie (§5.5)")
-    polinomio, residuo = _truncar(nombre, orden, var)
-    cota = _cota_de_cola(nombre, orden, var)
+
+
+#: The radius of convergence of each known series, as a sentence.
+#:
+#: ``tan`` and ``ln`` do NOT share one, and an earlier version of this module said
+#: they did — it announced «radio de convergencia 1» for both, three lines below a
+#: table that correctly says ``tan``'s is ``pi/2``. The mistake was visible in the
+#: file and survived because nobody read the two against each other.
+#:
+#: Mercator's radius is 1 because the nearest singularity is ``x = -1``. ``tan``'s is
+#: ``pi/2 ≈ 1.571`` because its nearest pole is there, so its series sums perfectly
+#: well on ``1.2 < x < 1.5`` — which the old sentence told the reader it could not.
+_RADIO = {
+    "tan": "el radio de convergencia es pi/2 ≈ 1,57, que es donde está el polo más "
+           "cercano: entre 1 y 1,57 la serie suma sin problema, y a partir de pi/2 "
+           "los términos ya no convergen. La divergencia no se detecta truncando "
+           "(§5.4)",
+    "ln": "esta serie tiene radio de convergencia 1, que es donde está la "
+          "singularidad más cercana: fuera de |x| < 1 los términos no suman un "
+          "número, y la divergencia no se detecta truncando (§5.4)",
+}
+
+
+def _hipotesis_de_serie_conocida(nombre: str, var: str,
+                                  desplazamiento: mx.Expr | None) -> tuple[str, ...]:
+    """The sentences that travel with a series written term by term.
+
+    Shared by :func:`maclaurin` and by the path inside :func:`taylor` that reuses
+    this module's known series, because two copies of the same claim are one copy
+    too many: they agree until the day one of them is edited.
+    """
     hipotesis = [
         f"la serie de {nombre} es exacta; el residuo es el primer término que no se "
-        f"escribe, y lo que sigue está acotado por él",
+        f"escribe, y la cola que viene detrás está acotada por una progresión "
+        f"geométrica construida con los propios términos de la serie",
     ]
-    if nombre in ("tan", "ln"):
+    if nombre in _DOMINIO_DE_LA_COTA:
+        hipotesis.append(f"cota de error: {_DOMINIO_DE_LA_COTA[nombre]}")
+    if nombre in _RADIO:
+        hipotesis.append(_RADIO[nombre])
+    if desplazamiento is not None:
         hipotesis.append(
-            "esta serie tiene radio de convergencia 1: fuera de |x| < 1 los términos "
-            "no suman un número, y la divergencia no se detecta truncando (§5.4)")
-    return Serie(polinomio, orden, residuo, cota, mx.ZERO,
-                 "serie de Maclaurin conocida, escrita término a término",
-                 tuple(hipotesis))
+            f"la serie se escribió sobre el origen y luego se sustituyó "
+            f"{var} → {mx.text(desplazamiento)}: el polinomio de {nombre} alrededor de "
+            f"un centro distinto del origen es la misma serie de "
+            f"u ↦ {nombre}({desplazamiento} + u), y no una serie nueva. El intervalo "
+            f"de la cota se desplaza con ella: donde la fórmula dice |{var}|, ahora "
+            f"dice |{mx.text(desplazamiento)}|")
+    return tuple(hipotesis)
 
 
 def _truncar(nombre: str, orden: int, var: str) -> tuple[mx.Expr, mx.Expr | None]:
@@ -173,6 +243,19 @@ _ESPECIE = {
 }
 
 
+def _primer_omitido(nombre: str, orden: int) -> int:
+    """The first power the truncation does **not** write at order ``orden``.
+
+    Shared by the polynomial and by the bound on its tail, because the two have to
+    agree about where the series stopped. When they disagreed the bound was
+    majorising the wrong tail — which is sound, just loose, and loose in a way
+    nobody could see from the printed expression.
+    """
+    entra, _ = _ESPECIE[nombre]
+    siguiente = orden + 1
+    return siguiente if entra(siguiente) else siguiente + 1
+
+
 def _potencias(nombre: str, orden: int, x: mx.Expr) -> tuple[mx.Expr, mx.Expr | None]:
     """The truncated series and the next term, for the four power-of-two kinds."""
     entra, alterna = _ESPECIE[nombre]
@@ -183,25 +266,24 @@ def _potencias(nombre: str, orden: int, x: mx.Expr) -> tuple[mx.Expr, mx.Expr | 
         signo = (-1 if (alterna and (k // 2) % 2) else 1)
         piezas.append(_signo(Fraction(signo, _factorial_entero(k)),
                              mx.Pow(x, mx.Num(Fraction(k)))))
-    siguiente = orden + 1
-    if not entra(siguiente):
-        siguiente += 1
+    siguiente = _primer_omitido(nombre, orden)
     signo = (-1 if (alterna and (siguiente // 2) % 2) else 1)
     residuo = _signo(Fraction(signo, _factorial_entero(siguiente)),
                      mx.Pow(x, mx.Num(Fraction(siguiente))))
     return (_suma(piezas) if piezas else mx.ZERO), residuo
 
 
-def _de_tan(x: mx.Expr, orden: int) -> tuple[mx.Expr, mx.Expr | None]:
-    """``x + x^3/3 + 2x^5/15 + 17x^7/315``: the tangent numbers, exactly.
+def _numeros_tangentes(orden: int) -> dict[int, Fraction]:
+    """The tangent numbers ``a_n`` of ``tan u = Σ a_n u^(2n+1)``, up to ``orden``.
 
-    From ``tan'(u) = 1 + tan(u)^2``. Writing ``tan u = sum a_n·u^(2n+1)``, that
-    says ``(2n+1)·a_n`` is the convolution of the previous coefficients at
-    ``n-1``. The coefficients are stored by **index**, not by power: two earlier
-    versions keyed them by power and shifted the convolution by one, which gave a
-    series of ``x + x^5/5 + 2x^9/45`` — the right shape, wrong coefficients, and an
-    error of 2.6e-3 at x = 0.2 with thirteen terms, which looks plausible until you
-    check it against tan.
+    From ``tan'(u) = 1 + tan(u)^2``: writing ``tan u = Σ a_n u^(2n+1)``, that says
+    ``(2n+1)·a_n`` is the convolution of the previous coefficients at ``n-1``.
+
+    The coefficients are stored by **index**, not by power: two earlier versions
+    keyed them by power and shifted the convolution by one, which gave a series of
+    ``x + x^5/5 + 2x^9/45`` — the right shape, wrong coefficients, and an error of
+    2.6e-3 at x = 0.2 with thirteen terms, which looks plausible until you check it
+    against tan.
     """
     a: dict[int, Fraction] = {0: Fraction(1)}
     n = 1
@@ -213,6 +295,26 @@ def _de_tan(x: mx.Expr, orden: int) -> tuple[mx.Expr, mx.Expr | None]:
                     total += ai * aj
         a[n] = total / Fraction(2 * n + 1)
         n += 1
+    return a
+
+
+#: A rational upper bound on ``a[n+1]/a[n]``, for every ``n`` this module writes.
+#:
+#: The ratio tends to ``4/pi^2 = 0.405284...``, and the supremum over the
+#: coefficients reachable inside ``ORDEN_MAXIMO`` is 0.405285 — checked in EXACT
+#: rational arithmetic by ``test_la_razon_de_los_numeros_tangentes_esta_acotada``,
+#: not estimated. One half is therefore a sound bound rather than a plausible one,
+#: and it is what makes the geometric tail of ``tan`` below a bound.
+#:
+#: It is a bound on the coefficients the module can reach, not on the whole
+#: sequence, and the module caps the order at ``ORDEN_MAXIMO`` precisely so that
+#: this claim is finite and checkable instead of an extrapolation.
+RAZON_TANGENTES = Fraction(1, 2)
+
+
+def _de_tan(x: mx.Expr, orden: int) -> tuple[mx.Expr, mx.Expr | None]:
+    """``x + x^3/3 + 2x^5/15 + 17x^7/315``, the tangent numbers, exactly."""
+    a = _numeros_tangentes(orden)
     dentro = {indice: c for indice, c in a.items() if 2 * indice + 1 <= orden}
     piezas = [_signo(dentro[indice], mx.Pow(x, mx.Num(Fraction(2 * indice + 1))))
               for indice in sorted(dentro)]
@@ -258,21 +360,144 @@ def _factorial(n: int) -> mx.Expr:
     return mx.Num(Fraction(1, _factorial_entero(n)))
 
 
-def _cota_de_cola(nombre: str, orden: int, var: str) -> mx.Expr | None:
-    """A declared bound on the tail, for the alternating series.
+def _cola_geometrica(primero: mx.Expr, razon: mx.Expr) -> mx.Expr:
+    """``primero · (1 + razon + razon² + …)``, with ``razon`` already in ``[0, 1)``.
 
-    The alternating-series bound — the first omitted term — is only valid when the
-    terms decrease, which for these series means ``|x| <= 1``. Outside that the
-    bound is a term, not a bound, and the module returns ``None`` rather than
-    quoting it anyway.
+    The one construction every declared bound here is built from: once the ratios
+    of successive terms are bounded by a constant below 1, the tail stops being a
+    sum with no name and becomes a geometric series with a value.
     """
-    if nombre not in ("sin", "cos", "ln"):
-        # exp, tan, sinh and cosh have no alternating signs and their terms do
-        # not decrease everywhere: the first omitted term there is an order of
-        # magnitude, not a bound, and quoting it as one would be a false promise
+    return mx.Div(primero, mx.Sub(mx.Num(Fraction(1)), razon))
+
+
+def _cota_de_cola(nombre: str, orden: int, var: str) -> mx.Expr | None:
+    """The declared bound on what comes after the written terms — this closes T-19.
+
+    **The tail of the series itself**, majorised term by term. Write ``m`` for the
+    first power the truncation does not write, and compare the real tail against a
+    geometric one:
+
+    =============  =========================  =========================================
+    family         terms after ``m``          the tail is at most
+    =============  =========================  =========================================
+    ``sin``…       ``±|x|^(m+2j)/(m+2j)!``   because every factor of a factorial
+    ``cos``,       step 2, signs irrelevant   grows: ``(m+2j)(m+2j-1) ≥ (m+1)(m+2)``
+    ``sinh``                                              → ratio ``|x|²/((m+1)(m+2))``
+    ``cosh``
+    ``exp``        ``|x|^(m+j)/(m+j)!``       step 1 → ratio ``|x|/(m+1)``
+    ``tan``        ``a[n]|x|^(2n+1)``         ratio ``|x|²·RAZON_TANGENTES``
+    ``ln``         ``|x|^(m+j)/(m+j)``        ``1/(m+j) ≤ 1/m`` → ratio ``|x|``
+    =============  =========================  =========================================
+
+    Why the majorisation is over the **absolute** values and not the signed ones:
+    that is what makes one bound work for every ``x``, including the negative ones,
+    and it is the point on which the bound this replaces was silently wrong.
+
+    **What the old code declared, and where it was false.** The rule was "first
+    omitted term for ``sin``/``cos``/``ln``, ``None`` for the rest". Two of those
+    three were not bounds, and neither failure was where the tests were looking:
+    one was on the negative axis, the other past a large argument.
+
+    * ``sin``/``cos``: the alternating estimate needs the terms to DECREASE, and
+      ``x^9/9!`` stops decreasing past ``x ≈ 8.5`` (the ratio ``(x^9/9!)/(x^7/7!)``
+      is ``x²/72``). Past that the declared ``cota`` was smaller than the error while
+      still being printed as an upper bound.
+    * ``ln``: the Mercator series alternates **only for ``x > 0``**. At ``x < 0``
+      every term is negative, the tail is monotone rather than alternating, and
+      the first omitted term is a *lower* bound on it. At ``x = -0.9`` with five
+      terms the engine declared ``0.0886`` for an error of ``0.4725`` — off by
+      more than five, in the direction that makes a bound look like a result.
+
+    The old alarm pinned that behaviour down by asserting ``cota is None`` for four
+    functions. Asserting the absence of a number cannot see either failure above, so
+    it is replaced by ``test_la_cota_declarada_acota_el_error_real``, which measures
+    the error against the bound at points chosen to include the negatives.
+    """
+    x = mx.Sym(var)
+    ax = mx.Call("abs", (x,))
+    if nombre in ("exp", "ln"):
+        m = orden + 1
+    elif nombre in _ESPECIE:
+        m = _primer_omitido(nombre, orden)
+    elif nombre == "tan":
+        return _cota_de_tan(x, orden)
+    else:
         return None
-    _, residuo = _truncar(nombre, orden, var)
-    return residuo
+
+    primero = _signo(Fraction(1, _factorial_entero(m)), mx.Pow(ax, mx.Num(Fraction(m))))
+    if nombre == "ln":
+        # the coefficients are 1/k, not 1/k!, so the factorial majorisation does
+        # not apply and 1/k ≤ 1/m is the whole of what is used
+        primero = _signo(Fraction(1, m), mx.Pow(ax, mx.Num(Fraction(m))))
+        razon = ax
+    elif nombre == "exp":
+        razon = mx.Div(ax, mx.Num(Fraction(m + 1)))
+    else:
+        razon = mx.Div(mx.Pow(ax, mx.Num(Fraction(2))), mx.Num(Fraction((m + 1) * (m + 2))))
+    return _cola_geometrica(primero, razon)
+
+
+def _cota_de_tan(x: mx.Expr, orden: int) -> mx.Expr | None:
+    """Geometric tail of ``tan``'s own series, and the domain it is valid on.
+
+    ``tan``'s Maclaurin coefficients are all POSITIVE, so there is no alternating
+    bound to fall back on: the first omitted term is a lower bound on the tail and
+    quoting it as an upper one is the mistake this replaces.
+
+    With ``a[n+1] ≤ RAZON_TANGENTES · a[n]`` (checked exactly, see the constant)
+    the tail is a geometric series::
+
+        Σ_{n>K} a[n]·|x|^(2n+1)  ≤  a[K+1]·|x|^(2K+3) / (1 - RAZON·|x|²)
+
+    which is positive only for ``|x|² < 1/RAZON = 2``. That is **inside** the
+    radius of convergence, ``π/2 ≈ 1.571``, and the sliver between ``√2`` and
+    ``π/2`` is declared rather than papered over: it is why ``_DOMINIO_DE_LA_COTA``
+    exists and why it is read before the bound is printed.
+    """
+    a = _numeros_tangentes(orden)
+    ultimo = max(a) - 1
+    if ultimo < 0:
+        return None
+    primero = _signo(a[ultimo + 1],
+                     mx.Pow(mx.Call("abs", (x,)), mx.Num(Fraction(2 * ultimo + 3))))
+    resta = mx.Sub(mx.Num(Fraction(1)),
+                   mx.Mul(mx.Num(RAZON_TANGENTES), mx.Pow(x, mx.Num(Fraction(2)))))
+    return mx.Div(primero, resta)
+
+
+#: Where each declared bound is valid, as a sentence the answer carries with it.
+#: Read before printing a bound: a bound without its domain is a number, and a
+#: number without its domain is a promise nobody can check.
+#:
+#: Every one of these says *how* the bound was obtained, not merely where it holds.
+#: A reader who cannot see the argument has to take the number on faith, which is
+#: the thing this module exists to avoid.
+_DOMINIO_DE_LA_COTA = {
+    "sin": "válida para |x| < √((m+1)·(m+2)), con m la primera potencia no "
+           "escrita: la cola de la serie está mayORIZada por una progresión "
+           "geométrica de razón |x|²/((m+1)(m+2)). Más allá el denominador deja "
+           "de ser positivo y la cota deja de ser un número",
+    "cos": "válida para |x| < √((m+1)·(m+2)), con m la primera potencia no "
+           "escrita: la cola de la serie está mayORIZada por una progresión "
+           "geométrica de razón |x|²/((m+1)(m+2)). Más allá el denominador deja "
+           "de ser positivo y la cota deja de ser un número",
+    "sinh": "válida para |x| < √((m+1)·(m+2)), con m la primera potencia no "
+            "escrita: la cola de la serie está mayORIZada por una progresión "
+            "geométrica de razón |x|²/((m+1)(m+2)). Más allá el denominador deja "
+            "de ser positivo y la cota deja de ser un número",
+    "cosh": "válida para |x| < √((m+1)·(m+2)), con m la primera potencia no "
+            "escrita: la cola de la serie está mayORIZada por una progresión "
+            "geométrica de razón |x|²/((m+1)(m+2)). Más allá el denominador deja "
+            "de ser positivo y la cota deja de ser un número",
+    "exp": "válida para |x| < m+1, con m la primera potencia no escrita: la cola "
+           "de la serie está mayORIZada por una progresión geométrica de razón "
+           "|x|/(m+1)",
+    "tan": "válida para |x| < √2, dentro del radio π/2: la cola de la serie está "
+           "mayorizada por una progresión geométrica de razón |x|²/2. Fuera de √2 el "
+           "denominador deja de ser positivo y la cota deja de ser un número",
+    "ln": "válida para |x| < 1, que es su radio de convergencia: la cola está "
+          "mayorizada por una progresión geométrica de razón |x|",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -281,17 +506,52 @@ def _cota_de_cola(nombre: str, orden: int, var: str) -> mx.Expr | None:
 
 
 def taylor(expresion: mx.Expr, centro, orden: int, var: str = "x") -> Serie:
-    """Maclaurin/Taylor of any expression, from its derivatives.
+    """Maclaurin/Taylor of any expression.
 
-    Exact as far as the derivatives go. The error bound needs a bound on the first
-    omitted derivative over the interval, and when none is available the answer
-    carries ``cota = None`` and says so — a polynomial without a stated accuracy
-    is not an approximation, it is a different expression.
+    **A known function does not go through derivatives here.** When the expression
+    is one of the seven whose series this module writes term by term, the series is
+    written, not derived — see ``_serie_por_nombre``. That is not an optimisation;
+    the derivative route simply *fails* on two of the seven:
+
+    =============  ==========================  ==========================
+    call           by derivatives                by the known series
+    =============  ==========================  ==========================
+    ``tan``        order 3, then it dies        order 40
+    ``ln`` @ 1     order 4, then it dies        order 40
+    =============  ==========================  ==========================
+
+    The reason is that ``tan' = 1/cos²`` and ``ln^(k) = (k-1)!/x^k``: every
+    differentiation of a quotient expands into a product of powers, the trace
+    records each intermediate, and the step log hits its 2000-character field
+    long before the mathematics goes anywhere interesting. Meanwhile ``maclaurin``
+    writes the tangent numbers and the Mercator terms directly and sails past both
+    limits. So the same function had two answers, and the weaker one was the one
+    this entry point reached — ``taylor(tan(x), 0, 7)`` raised while
+    ``maclaurin("tan", 7)`` returned the series. Where the two could both be
+    computed they agree exactly: 41 orders across six functions, no differences.
+
+    **Everything else still goes through derivatives.** The polynomial is exact as
+    far as the derivatives go. The error bound needs a bound on the first omitted
+    derivative; this module can build one when the expression is a known function
+    (``_cota_de_taylor``), and when it cannot the answer carries ``cota = None`` and
+    says so — a polynomial without a stated accuracy is not an approximation, it is
+    a different expression.
+
+    ``centro`` may be a plain ``int``/``Fraction``: it is a number by definition and
+    ``0`` is the overwhelmingly common one, so requiring ``mx.Num(0)`` at every call
+    site buys nothing and pushes the mistake deep into the evaluator, where it used
+    to surface as «no se sabe imprimir int» from inside ``as_poly``.
     """
-    if orden > ORDEN_MAXIMO:
-        raise sin_refuso(
-            f"el orden {orden} supera el máximo de {ORDEN_MAXIMO} (§5.5)")
+    _exigir_orden(orden)
     from academic_core.domain.engineering.mathlab import derive_mv as D
+
+    if not isinstance(centro, mx.Expr):
+        if isinstance(centro, (int, Fraction)):
+            centro = mx.Num(Fraction(centro))
+        else:
+            raise sin_refuso(
+                f"el centro debe ser un número o una expresión, y recibió "
+                f"{type(centro).__name__}; envuélvelo con Num(...)")
 
     if mx.variables(centro):
         raise sin_refuso(
@@ -299,6 +559,11 @@ def taylor(expresion: mx.Expr, centro, orden: int, var: str = "x") -> Serie:
             "derivada no se puede evaluar en él. El polinomio de Taylor "
             "exige un centro concreto; si lo que se quiere es el de la variable, "
             "el centro es 0 (§5.4)")
+
+    conocida = _serie_por_nombre(expresion, orden, centro, var)
+    if conocida is not None:
+        return conocida
+
     piezas: list[mx.Expr] = []
     derivada = expresion
     factorial = 1
@@ -338,11 +603,114 @@ def taylor(expresion: mx.Expr, centro, orden: int, var: str = "x") -> Serie:
         f"el polinomio es exacto: sale de derivar {orden + 1} veces y dividir entre "
         f"los factoriales",
         "NO se declara cota de error: haría falta una cota de la derivada "
-        f"omitida en el intervalo, y este motor no la tiene. Un polinomio sin "
-        "precisión declarada no es una aproximación (§5.4)",
+        "omitida en el intervalo, y este motor no la tiene para una expresión "
+        "arbitraria. Un polinomio sin precisión declarada no es una "
+        "aproximación (§5.4)",
     ]
     return Serie(polinomio, orden, residuo, None, centro,
                  "polinomio de Taylor por derivadas sucesivas", tuple(hipotesis))
+
+
+def _nombre_conocido(expresion: mx.Expr, var: str) -> str | None:
+    """The function name when ``expresion`` is exactly ``nombre(var)``, else ``None``.
+
+    Only the bare single-call shape counts. ``exp(x) + 1`` is not covered, because
+    the tail of its series is not the tail of ``exp``'s plus a constant: majorising
+    one does not majorise the other, and pretending otherwise would hand out a
+    bound the derivation never supported.
+    """
+    if (isinstance(expresion, mx.Call) and expresion.name in _DOMINIO_DE_LA_COTA
+            and len(expresion.args) == 1
+            and isinstance(expresion.args[0], mx.Sym)
+            and expresion.args[0].name == var):
+        return expresion.name
+    return None
+
+
+def _serie_por_nombre(expresion: mx.Expr, orden: int, centro: mx.Expr,
+                      var: str) -> Serie | None:
+    """The series of a known function, written instead of derived — or ``None``.
+
+    ``None`` means "not a bare known call about a centre this module can shift to the
+    origin", and the caller then falls back to derivatives. Three conditions, because
+    the third one is a trap this function fell into the first time it was written:
+
+    * the expression must be exactly ``nombre(var)`` — see ``_nombre_conocido``;
+    * the centre must be one this module can turn into the origin by substitution:
+      the origin itself, plus ``1`` for ``ln``, whose series is the one of
+      ``ln(1 + u)`` and so *is* the series about ``x = 1`` already;
+    * and ``ln`` is excluded from the origin. ``maclaurin("ln", n)`` is the series of
+      ``ln(1 + x)`` — a deliberate quirk of that name, documented in its hypotheses —
+      but ``taylor(ln(x), 0, n)`` promises the Taylor polynomial of ``ln`` about 0,
+      and that does not exist. Delegating there made the function answer ``x - 1/2x² +
+      …`` to a question about ``ln``, which has no expansion there at all. Before
+      this it refused, with «ln(0) no es un número», and the refusal was correct. The
+      derivative route is what produces it, so ``ln`` at the origin must fall
+      through instead of being answered from the Mercator series.
+
+    Every other centre keeps the derivative route too, and it refuses for a real
+    reason rather than a structural one: ``taylor(sin(x), 1, 6)`` dies because
+    ``sin(1)`` is not a number this engine can write, and no amount of rearrangement
+    changes that.
+    """
+    nombre = _nombre_conocido(expresion, var)
+    if nombre is None:
+        return None
+    if nombre == "ln":
+        en_el_origen = False
+        mercator = mx.exact_value(centro) == 1
+    else:
+        en_el_origen = mx.exact_value(centro) == 0
+        mercator = False
+    if not (en_el_origen or mercator):
+        return None
+    desplazamiento = None if en_el_origen else mx.Sub(mx.Sym(var), centro)
+    polinomio, residuo = _truncar(nombre, orden, var)
+    cota = _cota_de_cola(nombre, orden, var)
+    if desplazamiento is not None:
+        polinomio = mx.substitute(polinomio, var, desplazamiento)
+        if residuo is not None:
+            residuo = mx.substitute(residuo, var, desplazamiento)
+        if cota is not None:
+            cota = mx.substitute(cota, var, desplazamiento)
+    metodo = ("serie conocida, escrita término a término"
+              if en_el_origen else
+              "serie conocida de ln(1 + u) sobre el origen, con u = x - 1")
+    return Serie(polinomio, orden, residuo, cota, centro, metodo,
+                 _hipotesis_de_serie_conocida(nombre, var, desplazamiento))
+
+
+def _cota_de_taylor(expresion: mx.Expr, orden: int, centro: mx.Expr,
+                    var: str) -> mx.Expr | None:
+    """The bound for a Taylor series of a *known* function, or ``None``.
+
+    **Not called by :func:`taylor` any more, and that is the point of writing it
+    down here.** It used to be, on the derivative route. Once a known function is
+    written rather than derived, the seven cases that actually survive a ``taylor``
+    call — the six at the origin, and ``ln`` about 1 — are all answered earlier, by
+    ``_serie_por_nombre``. So this function became unreachable, and unreachable code
+    that claims to compute a bound is a second source of truth for the same number:
+    the day the two disagree, one of them is a lie and nothing says which.
+
+    It is kept because it is the *specification* of what the shift does to a bound,
+    and ``_serie_por_nombre`` is measured against it by
+    ``test_la_serie_desplazada_coincide_con_la_cota_desplazada``. If that test ever
+    stops holding, the answer to give is this function, not a third one.
+
+    The series of ``f`` about ``a`` is the series of ``u ↦ f(a + u)`` about ``0``,
+    and the bound has the same shape, so it is built at the origin and ``var`` is
+    replaced by ``var - centro`` — the argument is the shift, not a new computation,
+    and it is exact.
+    """
+    nombre = _nombre_conocido(expresion, var)
+    if nombre is None:
+        return None
+    cota = _cota_de_cola(nombre, orden, var)
+    if cota is None:
+        return None
+    if mx.exact_value(centro) == 0:
+        return cota
+    return mx.substitute(cota, var, mx.Sub(mx.Sym(var), centro))
 
 
 def _valor_en(derivada: mx.Expr, var: str, centro: mx.Expr) -> mx.Expr:

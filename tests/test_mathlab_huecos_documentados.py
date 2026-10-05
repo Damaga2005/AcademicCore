@@ -6,15 +6,22 @@ existía, y se contradecían con su propio fichero: `T-18` figuraba como cerrado
 cuatro líneas después de la línea que lo declaraba parcial. Corregidas el
 2026-10-04 contra el motor, no contra la memoria.
 
-Lo que queda es poco y está aquí: dos integrales hiperbólicas, la sustitución
-``t = tg(x/2)`` en la integración, y los dos puntos donde la descomposición en
-fracciones parciales se topa con algo que no es una división. Estas pruebas existen
-para que, el día que se cierren, **fallen**. Un hueco documentado que nadie puede
-ver cerrarse es un hueco que acaba mintiendo solo otra vez, y esta vez por escrito
-y con la fecha al lado.
+Lo que queda está aquí, y es poco: las integrales hiperbólicas de T-14, la
+sustitución ``t = tg(x/2)``, el discriminante negativo de T-18, y **un solo**
+punto donde la descomposición en fracciones parciales se topa con algo que no es
+una división —el cuartico sin raíz racional, que no se sabe partir en dos
+cuadráticas sobre ℚ.
+
+Estas pruebas existen para que, el día que se cierren, **fallen**. Un hueco
+documentado que nadie puede ver cerrarse es un hueco que acaba mintiendo solo otra
+vez, y esta vez por escrito y con la fecha al lado. Han saltado cuatro veces en un
+solo día, y en las cuatro la lista estaba diciendo la verdad mientras el motor ya
+había cambiado.
 """
 
 from __future__ import annotations
+
+from fractions import Fraction
 
 import pytest
 
@@ -83,28 +90,85 @@ MEDIO_ANGULO_CERRADAS = [
     "1/(cos(x)+cos(2*x))",
 ]
 
-#: Lo que la descomposición en fracciones parciales NO alcanza todavía. No son huecos
-#: de este commit: son los dos sitios donde la cuenta deja de ser una división, y
-#: ambos son la razón por la que la etiqueta de T-18 dice PARCIAL y no COMPLETADA.
+#: T-18, cierre del 2026-10-04. Antes eran un rechazo y el rechazo era honesto: la
+#: descomposición en fracciones parciales llegaba hasta el final y lo que salía era
+#: `arctg(u)`, una función que la capa `symbolic` no tenía —ni en el parser, ni en el
+#: evaluador—, así que el motor la IMPRIMÍA y no podía VOLVER A LEERLA.
 #:
-#: |hueco|por qué|
-#: |---|---|
-#: |`∫du/(u²+1)`|la cuadrática irreducible sale con discriminante NEGATIVO, y su primitiva es `arctg(u)` — que la capa `symbolic` no tiene: no está en la lista de funciones del parser, ni en la tabla de derivadas, ni en el evaluador. mathlab sí lo deriva y sí lo evalúa, así que un `Fn('atan', u)` se IMPRIMIRÍA y no se podría VOLVER A LEER. Una traza que el lector no puede teclear no es una traza |
-#: |`∫du/(u⁴+1)`|el denominador no tiene raíz racional, así que lo que queda tras dividir es un grado 4 irreductible. Partirlo en dos cuadráticas sobre Q es un sistema que hay que resolver, y hacerlo a medias —tratar las cuadráticas que salgan y tirar el resto— es como un integrador racional empieza a responder «a veces»|
-TAN_DENOMINADOR_IRREDUCIBLE = [
+#: Lo que se añadió no fue una función nueva sino un nombre que ya existía: `atan` (y
+#: las quince de su familia) estaban en la tabla de DERIVADAS desde T-17, de modo que
+#: el motor sabía derivar `arctg` que no sabía escribir. Cerrado, y cerrado por la
+#: única comprobación que decide: derivar la primitiva y compararla con el integrando.
+CUADRATICA_NEGATIVA_CERRADAS = [
     "1/(1+u^2)",
     "1/(2+cos(x))",
     "(2*u+1)/(u^2+1)",
     "1/(4*u^2+4*u+2)",
     "1/(u^2+u+1)",
-    "sin(x)^2/(1+cos(x))",
 ]
 
-CUARTICO_SIN_FACTOR_RACIONAL = [
+#: T-18, segundo cierre del 2026-10-04. La cuadrática irreducible **al cuadrado**
+#: se negaba porque `_como_racional` escribe `(u²+1)²` como `u⁴ + 2u² + 1`, un
+#: grado 4 sin raíz racional, y `_factores` solo miraba raíces racionales: veía un
+#: cuartico y el cuartico sin raíz racional es la parte sin resolver de este módulo.
+#: Pero el polinomio que llegaba nunca fue un cuartico, era una cuadrática escrita dos
+#: veces, y nadie miró a ver si lo era.
+#:
+#: Ahora `_factores` hace la descomposición squarefree (Musser) antes de negarse.
+CUADRATICA_AL_CUADRADO_CERRADAS = [
+    "1/(u^2+1)^2",
+    "(u+1)/(u^2+1)^2",
+    "(2*u+1)/(u^2+1)^2",
+    "u/(u^2+1)^2",
+    "1/(u^2+1)^3",
+    "1/(u^2+1)^4",
+    "sin(x)^2/(1+cos(x))",
+    "cos(x)^2/(1+sin(x))",
+]
+
+#: T-18, tercer cierre del 2026-10-04. El cuartico sin raíz racional, el último
+#: límite declarado de la lista.
+#:
+#: No era un problema de método sino de clase: `∫du/(u⁴+1)` se negaba porque el
+#: denominador no tiene raíz racional, y `_factores` solo miraba raíces racionales.
+#: La salida existe y es exacta —un biquadrático se parte como
+#: `(u²+pu+q)(u²-pu+q)` con `q = √c` y `p² = 2q-a`—, pero había que llevarla.
+#:
+#: El detalle que la hace posible sin aritmética de cuerpos: `q` se exige racional,
+#: así que el único irracional es `p`, y en la respuesta **solo un coeficiente lo
+#: necesita**. Con `(Au²+C)/B` salen `α = (C/q - A)/(2p)` y `β = C/(2q)`, y
+#: `β - α·p/2` se simplifica a `(A + C/q)/4`, que es **racional**. Un radical, y
+#: `√(p²)·t` es un producto, no un tipo nuevo.
+CUARTICO_BIQUADRATICO_CERRADAS = [
     "1/(u^4+1)",
     "1/(u^4+u^2+1)",
-    "(u+1)/(u^2+1)^2",
-    "1/(cos(x)*cos(2*x))",
+    "1/(u^4-6*u^2+1)",
+    "1/(u^4-u^2+1)",
+    "1/(u^4+4)",
+    "1/(u^4+u^2)",
+    "u^2/(u^4+1)",
+    "(u^2+1)/(u^4+1)",
+    "(3*u^2+2)/(u^4+1)",
+    "5/(u^4+1)",
+    "1/(cos(x)*cos(2*x))",   # con u = tg(x/2) llega a (u²-1)(u⁴-6u²+1)
+]
+
+#: Lo que NO se alcanza, y es una clase distinta, no un resto del mismo problema.
+#: Cada uno dice por qué, porque un rechazo sin motivo no es un límite: es un «no
+#: sé» disfrazado de frontera.
+#:
+#: |hueco|por qué|
+#: |---|---|
+#: |`√c` irracional|la clase necesita `q = √c` racional para que sobre un solo radical. Con `c = 2` hacen falta dos, y el reparto de coeficientes ya no cabe en una expresión|
+#: |denominador no mónico|la fórmula lee `a` y `c` del denominador y supone coeficiente principal 1. `3u⁴+2` no es `u⁴+2`, y contestaría por una integral distinta|
+#: |`(u²+1)²`|una potencia del biquadrático: no es el mismo reparto, es otro sistema|
+#: |numerador con potencias impares|un numerador impar sobre un denominador par no se reparte en dos cuadráticas con la misma simetría|
+CUARTICO_FUERA_DE_CLASE = [
+    "1/(u^4+2)",        # √2 irracional
+    "1/(u^4-2)",        # c < 0: tiene raíces reales y es caso de `_factores`
+    "1/(3*u^4+2)",      # no mónico
+    "1/(u^4+1)^2",     # potencia
+    "u/(u^4+1)",        # numerador impar
 ]
 
 
@@ -136,33 +200,148 @@ def test_la_sustitucion_del_angulo_medio_ya_integra(integrando):
             integrando, x, valor_derivada, valor_integrando)
 
 
-@pytest.mark.parametrize("integrando", TAN_DENOMINADOR_IRREDUCIBLE)
-def test_la_cuadratica_de_discriminante_negativo_sigue_sin_arctg(integrando):
-    """Si esto falla, `atan` entró en el lenguaje: actualiza la etiqueta de T-18.
+@pytest.mark.parametrize("integrando", CUADRATICA_NEGATIVA_CERRADAS)
+def test_la_cuadratica_de_discriminante_negativo_ya_integra(integrando):
+    """Cerradas el 2026-10-04, y cerradas por la única comprobación que decide: derivar.
 
-    El rechazo es el correcto y no es una carencia del método: la descomposición en
-    fracciones parciales funciona, y lo que sale necesita una función que la capa
-    `symbolic` no tiene.
+    `∫du/(u²+1)` es `arctg(u)`, y su dominio entero es una sola hoja: no hay
+    intervalos que repartir, ni rama que elegir, ni `k·pi` que añadir. Se comprueba
+    derivando en 81 puntos y comparando con el integrando, no comparando el texto,
+    porque un texto puede tener todos los términos bien escritos y el signo de todos
+    invertido.
+    """
+    from decimal import Decimal
+
+    from academic_core.domain.engineering.symbolic import derive as D
+    from academic_core.domain.engineering.symbolic import expr as SE
+    from academic_core.domain.engineering.symbolic import numeric
+
+    var = "u" if "u" in integrando else "x"
+    integrando_parsed = SE.parse(integrando)
+    primitiva, _paso = I.integrate(integrando_parsed, var, I.StepLog())
+    derivada, _s = D.differentiate(primitiva, var, I.StepLog())
+    for j in range(-40, 41):
+        punto = Decimal(j) * Decimal("0.17")
+        valor_derivada = numeric.value(derivada, {var: punto})
+        valor_integrando = numeric.value(integrando_parsed, {var: punto})
+        if valor_derivada is None or valor_integrando is None:
+            continue
+        escala = max(Decimal(1), abs(valor_integrando))
+        assert abs(valor_derivada - valor_integrando) < Decimal("1e-12") * escala, (
+            integrando, punto, valor_derivada, valor_integrando)
+
+
+@pytest.mark.parametrize("integrando", CUADRATICA_AL_CUADRADO_CERRADAS)
+def test_una_cuadratica_irreducible_al_cuadrado_ya_integra(integrando):
+    """Cerradas, y cerradas por la única comprobación que decide: derivar.
+
+    Los ocho van a parar al mismo denominador —`(u²+1)` repetido— y por eso se
+    comprueban juntos: la descomposición squarefree es lo que hay que medir, y
+    medirla en un solo caso sería medir un caso.
+    """
+    from decimal import Decimal
+
+    from academic_core.domain.engineering.symbolic import derive as D
+    from academic_core.domain.engineering.symbolic import expr as SE
+    from academic_core.domain.engineering.symbolic import numeric
+
+    var = "u" if "u" in integrando else "x"
+    integrando_parsed = SE.parse(integrando)
+    primitiva, _paso = I.integrate(integrando_parsed, var, I.StepLog())
+    derivada, _s = D.differentiate(primitiva, var, I.StepLog())
+    for j in range(-40, 41):
+        punto = Decimal(j) * Decimal("0.17")
+        valor_derivada = numeric.value(derivada, {var: punto})
+        valor_integrando = numeric.value(integrando_parsed, {var: punto})
+        if valor_derivada is None or valor_integrando is None:
+            continue
+        escala = max(Decimal(1), abs(valor_integrando))
+        assert abs(valor_derivada - valor_integrando) < Decimal("1e-12") * escala, (
+            integrando, punto, valor_derivada, valor_integrando)
+
+
+def test_la_frontera_que_queda_no_es_la_de_antes():
+    """La frontera se movió, y hay que decir a dónde en vez de repetirla.
+
+    Se comprueban las dos mitades por separado a propósito, porque la forma de
+    fallar de este cambio no sería «integrar de más» sino **integrar de más sin
+    decirlo**: un motor que empieza a responder «a veces» es peor que uno que se
+    niega. Lo que sigue negándose ya no es «el cuartico» sino clases concretas, y
+    cada una con su motivo.
+    """
+    from academic_core.domain.engineering.symbolic import expr as SE
+
+    # Los biquadráticos de la clase INTEGRAN, y quien se niega es el FACTORIZADOR.
+    #
+    # `_factores` sigue devolviendo None para un cuartico sin raíz racional,
+    # porque el reparto lo hace la rutina de integral y no la factorizadora. Es
+    # una distinción real y no un detalle: afirmar aquí que «se factoriza» sería
+    # una afirmación sobre el código que nadie comprobó.
+    for integrando in ("1/(u^4+1)", "1/(u^4+u^2+1)", "1/(u^4-6*u^2+1)"):
+        _num, den = I._como_racional(SE.parse(integrando), "u")
+        assert I._factores(den) is None, integrando
+        _num, resto = I._p_parte_entera(_num, den)
+        assert I._integral_bicuadratica_de(resto, den, SE.Sym("u")) is not None, integrando
+
+    # y la potencia de una cuadrática sigue reagrupándose
+    _num, den = I._como_racional(SE.parse("1/(u^2+1)^2"), "u")
+    factores = I._factores(den)
+    assert factores is not None and len(factores) == 1
+    factor, multiplicidad = factores[0]
+    assert multiplicidad == 2
+    assert factor == {2: Fraction(1), 0: Fraction(1)}
+
+    # lo que NO se alcanza es por CLASE, y cada clase se niega por su motivo
+    for fuera_de_clase in CUARTICO_FUERA_DE_CLASE:
+        with pytest.raises(Exception):
+            I.integrate(SE.parse(fuera_de_clase), "u", I.StepLog())
+
+
+@pytest.mark.parametrize("integrando", CUARTICO_BIQUADRATICO_CERRADAS)
+def test_el_cuadratico_sin_raiz_racional_ya_integra(integrando):
+    """Cerradas, y cerradas por la única comprobación que decide: derivar.
+
+    Y por una segunda, que este casoes propio: la respuesta tiene que PODER
+    RELEERSE. El primer intento daba una correcta de 318 caracteres, y
+    `expr.parse` corta en 256 — una respuesta que el lector no puede teclear no
+    es una respuesta, por muy exacta que sea. Se llega aquí quitando el término
+    de coeficiente cero, que no acortaba nada y costaba medio texto.
+    """
+    from decimal import Decimal
+
+    from academic_core.domain.engineering.symbolic import derive as D
+    from academic_core.domain.engineering.symbolic import expr as SE
+    from academic_core.domain.engineering.symbolic import numeric
+
+    var = "u" if "u" in integrando else "x"
+    integrando_parsed = SE.parse(integrando)
+    primitiva, _paso = I.integrate(integrando_parsed, var, I.StepLog())
+    derivada, _s = D.differentiate(primitiva, var, I.StepLog())
+    texto = SE.text(primitiva)
+    assert SE.parse(texto) is not None, (integrando, texto)
+    for j in range(-40, 41):
+        punto = Decimal(j) * Decimal("0.17")
+        valor_derivada = numeric.value(derivada, {var: punto})
+        valor_integrando = numeric.value(integrando_parsed, {var: punto})
+        if valor_derivada is None or valor_integrando is None:
+            continue
+        escala = max(Decimal(1), abs(valor_integrando))
+        assert abs(valor_derivada - valor_integrando) < Decimal("1e-12") * escala, (
+            integrando, punto, valor_derivada, valor_integrando)
+
+
+@pytest.mark.parametrize("integrando", CUARTICO_FUERA_DE_CLASE)
+def test_un_cuadratico_fuera_de_clase_sigue_sin_integrarse(integrando):
+    """Cada uno se niega por SU motivo, y por eso la lista lleva el motivo.
+
+    Un rechazo sin motivo escrito no es una frontera, es una ignorancia con
+    forma de límite. Y los motivos son distintos: uno es de clase, otro de forma
+    del denominador, otro de sistema.
     """
     from academic_core.domain.engineering.symbolic import expr as SE
 
     with pytest.raises(Exception):
-        I.integrate(SE.parse(integrando), "u" if "u" in integrando else "x",
-                    I.StepLog())
-
-
-@pytest.mark.parametrize("integrando", CUARTICO_SIN_FACTOR_RACIONAL)
-def test_un_cuadratico_sin_raiz_racional_no_se_factorea_solo(integrando):
-    """Si esto falla, el denominador de grado 4 se sabe partir en dos cuadráticas.
-
-    La frontera está donde la aritmética deja de ser una división, y se dibuja
-    antes de cruzarla.
-    """
-    from academic_core.domain.engineering.symbolic import expr as SE
-
-    with pytest.raises(Exception):
-        I.integrate(SE.parse(integrando), "u" if "u" in integrando else "x",
-                    I.StepLog())
+        I.integrate(SE.parse(integrando), "u", I.StepLog())
 
 
 #: Inecuaciones cuyos puntos críticos NO son racionales. Antes eran un rechazo, y el

@@ -24,9 +24,35 @@ from academic_core.domain.engineering.units import (
     DIMENSIONLESS, Quantity, UnitError, parse_quantity, parse_unit,
 )
 
-ENGINE_VERSION = "engcalc/6.0"
+ENGINE_VERSION = "engcalc/6.1"
 
-ALLOWED_FUNCS = ("sqrt", "exp", "log", "log10", "sin", "cos", "tan", "abs")
+#: Functions whose argument must be DIMENSIONLESS and whose result is a
+#: dimensionless number. Every one is a kernel in `math.trig` except `log10`,
+#: which lives in `math.logarithm`.
+#:
+#: `sqrt` and `abs` are whitelisted too but are deliberately NOT here, and the
+#: reason is not tidiness: `sqrt` keeps the dimension when it is a perfect
+#: square, and `abs` keeps whatever dimension it was handed. They are handled
+#: outside this group and they have to stay outside it.
+#:
+#: 6.1 added `sec csc cot` and the fifteen inverse/hyperbolic entries — the
+#: family the engine could already DERIVE (the derivative table has carried them
+#: since T-17) and PRINT, but could neither read back nor evaluate. The addition
+#: is strictly widening: no expression that parsed under 6.0 parses differently
+#: now. It is still a change to the language of a certified engine, so the
+#: version moves with it.
+TRANSCENDENTAL = (
+    "sin", "cos", "tan", "exp", "log", "log10",
+    "sec", "csc", "cot", "asin", "acos", "atan",
+    "sinh", "cosh", "tanh", "coth", "sech", "csch",
+    "asinh", "acosh", "atanh",
+)
+
+#: The whitelist as the parser and the evaluator see it, built from
+#: ``TRANSCENDENTAL`` rather than written out a second time. A second copy of
+#: the same fifteen names in the same module is a list that can disagree with
+#: itself, and `test_math_trig_family` asserts this identity.
+ALLOWED_FUNCS = ("sqrt", "abs") + TRANSCENDENTAL
 
 _TOKEN = re.compile(r"""
     (?P<num>[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)
@@ -298,6 +324,45 @@ class _Eval:
         raise EquationError(f"unexpected {val!r}")
 
 
+#: The 6.1 family, name to certified kernel, as a LITERAL table.
+#:
+#: Literal, and reached through `_family(name)` rather than through an attribute
+#: lookup by computed name: the E0 no-dynamic-execution gate bans that in this
+#: module, and it is right to. A dispatch table a reader can read end to end is
+#: also the only way to see that every whitelisted name has a kernel behind it —
+#: a computed lookup fails at the first typo and nowhere else. The keys are
+#: compared against ``ALLOWED_FUNCS`` by ``test_math_trig_family`` so the two
+#: lists cannot drift apart unnoticed.
+def _family_table() -> dict:
+    from academic_core.domain.engineering.math.trig import (
+        decimal_acos, decimal_acosh, decimal_asin, decimal_asinh,
+        decimal_atan, decimal_atanh, decimal_coth, decimal_csc,
+        decimal_csch, decimal_cot, decimal_cosh, decimal_sec,
+        decimal_sech, decimal_sinh, decimal_tanh,
+    )
+    return {
+        "sec": decimal_sec, "csc": decimal_csc, "cot": decimal_cot,
+        "asin": decimal_asin, "acos": decimal_acos, "atan": decimal_atan,
+        "sinh": decimal_sinh, "cosh": decimal_cosh, "tanh": decimal_tanh,
+        "coth": decimal_coth, "sech": decimal_sech, "csch": decimal_csch,
+        "asinh": decimal_asinh, "acosh": decimal_acosh, "atanh": decimal_atanh,
+    }
+
+
+_FAMILY: dict | None = None
+
+
+def _family(name: str):
+    """The kernel for ``name``. Built once and cached: the table is a literal
+    of fifteen names and rebuilding it per call would be pure ceremony, but it
+    is NOT built at import time because ``math.trig`` imports nothing from here
+    and this keeps the lazy-import discipline the sibling branches use."""
+    global _FAMILY
+    if _FAMILY is None:
+        _FAMILY = _family_table()
+    return _FAMILY[name]
+
+
 def _apply_func(name: str, arg: Quantity) -> Quantity:
     from academic_core.domain.engineering.units import Unit
     from academic_core.domain.engineering.math.trig import (
@@ -305,7 +370,7 @@ def _apply_func(name: str, arg: Quantity) -> Quantity:
     )
     from academic_core.domain.engineering.math.logarithm import decimal_log10
     one = Unit("1", "1", "", DIMENSIONLESS, Decimal(1))
-    if name in ("sin", "cos", "tan", "exp", "log", "log10"):
+    if name in TRANSCENDENTAL:
         if arg.dimension != DIMENSIONLESS:
             raise EquationError(f"{name} needs a dimensionless argument")
         x = arg.to_base()
@@ -336,14 +401,18 @@ def _apply_func(name: str, arg: Quantity) -> Quantity:
                 if x <= 0:
                     raise EquationError(f"log domain: {x}")
                 out = ctx.ln(x)
-            else:  # log10
+            elif name == "log10":
                 if x <= 0:
                     raise EquationError(f"log10 domain: {x}")
                 out = decimal_log10(x, ctx)
+            else:
+                out = _family(name)(x, ctx)
         except InvalidOperation as e:
             raise EquationError(f"{name} domain: {e}")
         except ArithmeticError as e:
             raise EquationError(f"{name}: {e}")
+        except ValueError as e:
+            raise EquationError(f"{name} domain: {e}")
         return Quantity(out, one)
     if name == "abs":
         # copy_abs() flips the sign bit only and performs no rounding; it

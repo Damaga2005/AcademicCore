@@ -74,7 +74,18 @@ Auditable facts (read from code/tests, not assumed from prose):
      F8-N: `lab/` orchestration, `Scalar/ComplexScalar/Waveform`, canonical digests
      `sha256(tag‖0x00‖canonical_json)`, budgets, no-solver rule (`GATE-F8N.md`, `GATE-F8N-DESIGN.md`).
    - F6: `Quantity/Unit/parse_unit`, safe `equations.py` (own recursive parser, **no eval/exec**,
-     `ALLOWED_FUNCS=(sqrt,exp,log,log10,sin,cos,tan,abs)`), deterministic digests (`GATE-F6.md`).
+     `ALLOWED_FUNCS=(sqrt,exp,log,log10,sin,cos,tan,abs,`
+     `sec,csc,cot,asin,acos,atan,sinh,cosh,tanh,coth,sech,csch,asinh,acosh,atanh)`),
+     deterministic digests (`GATE-F6.md`).
+     The whitelist grew from eight to twenty-three in `engcalc/6.1` (2026-10-04).
+     The growth is strictly widening: no expression that parsed under 6.0 parses
+     differently now. Each addition is the identity defining it over
+     `sin`/`cos`/`exp`/`log` rather than a second series, and the name-to-kernel
+     assignment is a LITERAL table —not an attribute lookup by computed name,
+     which this gate forbids— so that it can be read end to end and a name
+     without a kernel fails in one place instead of nowhere. The three lists that
+     must agree (whitelist, kernel table, `symbolic.expr` grammar) are compared in
+     `tests/test_math_trig_family.py`.
    - F7-B7: `gum.py` (1263 lines) certified PASS post-audit (evaluator bypass closed), 79/79 tests,
      full `test_f7b7_gum.py + test_architecture.py` green at audit time (exit 0). Single unit authority
      (`parse_unit`), PSD validation, numeric sensitivity unrounded, `explicit_k` validated (`GATE-F7B7.md`).

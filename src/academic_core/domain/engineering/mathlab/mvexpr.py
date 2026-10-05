@@ -1045,8 +1045,8 @@ _SUP = {"0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
 
 
 def _prec(e: Expr) -> int:
-    if isinstance(e, Fraction):
-        return 1 if e < 0 else (2 if e.denominator != 1 else 5)
+    if isinstance(e, (int, Fraction)):
+        return 1 if e < 0 else (2 if Fraction(e).denominator != 1 else 5)
     if isinstance(e, Num):
         return 1 if e.value < 0 else (2 if e.value.denominator != 1 else 5)
     if isinstance(e, (Sym, Const)):
@@ -1064,9 +1064,13 @@ def _print(e: Expr, power: str, style: str) -> str:
         p = _prec(child)
         return f"({s})" if p < need or (strict and p == need) else s
 
-    if isinstance(e, Fraction):
-        # exact_value() returns a bare Fraction; printing it must not raise
-        return _frac(e)
+    if isinstance(e, (int, Fraction)):
+        # exact_value() returns a bare Fraction; printing it must not raise. A bare
+        # int is accepted for the same reason and not for symmetry's sake: `text(2)`
+        # raising while `text(Fraction(2, 1))` returns "2" is the kind of asymmetry
+        # that turns a caller's ordinary `0` into «no se sabe imprimir int» from
+        # four frames away, which is exactly how a Taylor centre of 0 failed.
+        return _frac(Fraction(e))
     if isinstance(e, Num):
         return _frac(e.value)
     if isinstance(e, Sym):
@@ -1167,7 +1171,14 @@ def _print(e: Expr, power: str, style: str) -> str:
 
 
 def text(e: Expr) -> str:
-    """Canonical ASCII form. ``parse(text(e)) == e`` for every node type."""
+    """Canonical ASCII form. ``parse(text(e)) == e`` for every node type.
+
+    A bare ``int``/``Fraction`` is printed as well, and that is a contract rather
+    than an accident: ``exact_value`` returns a ``Fraction``, so printing the answer
+    of ``exact_value`` with ``text`` is a round trip the test suite performs on every
+    exact value the engine produces. Refusing it here would have been tidier and
+    wrong.
+    """
     out = _print(e, "^", "text")
     if len(out) > MAX_TEXT:
         raise invalid("EXPRESSION_LIMIT", f"la expresión crece a más de {MAX_TEXT} caracteres")

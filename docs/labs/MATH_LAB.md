@@ -1666,17 +1666,65 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - órdenes superiores.
 - verificación independiente.
 
-### T-18. Integración trigonométrica — PARCIAL (básicas, potencias, **reducción de potencias de seno, coseno y tangente**, partes encadenadas y recíprocas e hiperbólicas, y la sustitución `t = tg(x/2)`, cerrada el 2026-10-04 con un integrador racional por fracciones parciales sobre ℚ: `∫1/(1+cos x) dx = tg(x/2)` y `∫dx/(cos x + cos 2x)` cierran. Sigue parcial por **dos límites declarados**, no por huecos del método: (1) una cuadrática irreducible de **discriminante negativo** sale con `arctg`, y la capa `symbolic` no tiene inversa trigonométrica —no está en el parser, ni en la tabla de derivadas, ni en el evaluador—, así que `∫dx/(1+u²)` y `∫dx/(2+cos x)` se niegan; (2) un denominador **sin raíz racional** de grado 4 no se sabe partir en dos cuadráticas, y `∫dx/(1+u⁴)` se niega. Etiqueta revisada dos veces el 2026-10-04: aquí decía que faltaban la reducción de potencias y las partes para logaritmos, y ambas existían desde hace tiempo)
-- integrales básicas.
-- potencias y productos.
-- sustituciones.
-- integración por partes.
-- sustitución t=tan(x/2).
-- funciones inversas e hiperbólicas.
-- detección de primitivas no elementales.
-- verificación por derivación.
+### T-18. Integración trigonométrica — **COMPLETADA** (2026-10-04). Cierra sus tres límites declarados en un día, y ninguno de los tres era una función que faltara:
 
-### T-19. Series y aproximaciones — PARCIAL (series conocidas con residuo y cota alternativa, y Taylor por derivadas; **el polinomio de un monomio es correcto**: 168 combinaciones de coeficiente, grado y orden comprobadas el 2026-10-04, 0 distintas de lo esperado. Esta etiqueta decayse en lo único que queda, que es la cota de error cuando no hay cota sobre la derivada omitida: la serie entonces lleva `cota = None` y lo dice, porque un polinomio sin precisión declarada no es una aproximación, es otra expresión)
+1. **El discriminante negativo.** Decía que a la capa `symbolic` le faltaba `arctg`. No faltaba la función: faltaba el **nombre**, y en tres sitios a la vez —la tabla de derivadas de T-17 llevaba `atan` desde hacía meses—. La gramática del parser y la del evaluador certificado son dos listas distintas escritas en dos sitios distintos, así que se cerraron a la vez y `ENGINE_VERSION` pasó de `engcalc/6.0` a `engcalc/6.1`. Al evaluador se le añadieron quince funciones, cada una escrita como la identidad que la define sobre `sen`, `cos`, `exp` y `ln`, sin una segunda serie en ningún sitio.
+2. **La cuadrática irreducible al cuadrado.** `(u²+1)²` llegaba a `_factores` escrito como `u⁴ + 2u² + 1`, un cuartico sin raíz racional, y **el polinomio que llegaba nunca fue un cuartico**: era una cuadrática escrita dos veces y nadie miró a ver si lo era. Con la descomposición squarefree (Musser) cierran `∫du/(u²+1)²`, `∫(u+1)/(u²+1)²`, `∫du/(u²+1)³`, `∫du/(u²+1)⁴` y `∫sen²x/(1+cos x) dx`.
+3. **El cuartico sin raíz racional.** `∫du/(u⁴+1)` se negaba porque el denominador no tiene raíz racional y `_factores` solo miraba raíces racionales. Un biquadrático sí se parte: `u⁴ + a u² + c = (u² + pu + q)(u² - pu + q)` con `q = √c` y `p² = 2q - a`. No hizo falta aritmética de cuerpos: `q` se exige racional, de modo que solo un coeficiente de la respuesta lleva radical —`β - α·p/2` se simplifica a `(A + C/q)/4`, que es racional—, y `√(p²)·t` es un producto, no un tipo nuevo. Cierran `∫du/(u⁴+1)`, `∫du/(u⁴+u²+1)`, `∫du/(u⁴-6u²+1)` y `∫dx/(cos x·cos 2x)`.
+
+Verificadas **derivando** en 81 puntos por caso: error máximo 1,2·10⁻²⁶.
+
+Lo que sigue negándose no es un límite sino **clases**, y cada una con su motivo escrito, porque un rechazo sin motivo no es una frontera: es una ignorancia con forma de límite. `√c` irracional (`1/(u⁴+2)`, que necesita dos radiales), denominador no mónico (`1/(3u⁴+2)`), potencia del biquadrático (`1/(u⁴+1)²`) y numerador impar sobre denominador par (`∫u/(u⁴+1) du`). Las cuatro están en listas que **fallan** el día que se cierren.
+
+Etiqueta revisada cuatro veces el 2026-10-04. Las tres primeras contralistas dijeron cosas que ya eran falsas —que faltaban la reducción de potencias, que faltaban las partes para logaritmos, y que la etiqueta estaba «cerrada entera» siendo parcial— y se corrigieron contra el motor, no contra la memoria)
+
+### T-19. Series y aproximaciones — **COMPLETADA** (2026-10-05). El límite que la mantenía en PARCIAL era uno solo: la cota de error cuando no hay cota sobre la derivada omitida. Cerrado, y al cerrarlo Resultó que **dos de las tres cotas que el motor declaraba no eran cotas** — no estaban flojas, estaban al revés, en el semiplano negativo y en el argumento grande, que es donde nadie miraba. 546 puntos comprobados el 2026-10-05 entre `maclaurin` y `taylor`, 0 fallos de acotado:
+
+  **Lo que hay ahora.** Las siete series conocidas llevan cota, todas por el mismo mecanismo: la cola de la serie mayorizada término a término por una progresión geométrica construida con sus propios coeficientes. El primer término omitido se compara con `|x|^m/m!` y la razón entre términos sucesivos se acota por una constante por debajo de 1, así que la cola deja de ser una suma sin nombre y pasa a ser una serie geométrica con valor.
+
+  | serie | razón de la mayorización | válida para |
+  |---|---|---|
+  | `sin`, `cos`, `sinh`, `cosh` | `\|x\|²/((m+1)(m+2))` | `\|x\| < √((m+1)(m+2))` |
+  | `exp` | `\|x\|/(m+1)` | `\|x\| < m+1` |
+  | `tan` | `\|x\|²/2` | `\|x\| < √2`, dentro del radio π/2 |
+  | `ln` | `\|x\|` | `\|x\| < 1`, su radio de convergencia |
+
+  donde `m` es la primera potencia que la truncación no escribe. Cada cota viaja con **su dominio y con el argumento que la sostiene**, leídos en `serie.hipotesis`: una cota sin dominio es un número, y un número sin dominio es una promesa que nadie puede comprobar.
+
+  **Los dos fallos que encontró la verificación.** El motor declaraba el primer término omitido como cota de `sin`, `cos` y `ln`, y lo medido dice que sólo lo era en parte:
+  - `sin` y `cos`: la estimación alternante exige que los términos **decrezcan**, y `x^9/9!` deja de decrecer pasado `x ≈ 8,5` (el cociente `(x^9/9!)/(x^7/7!)` es `x²/72`). Para un argumento grande la cota declarada era menor que el error real y se imprimía como cota superior.
+  - `ln`: la serie de Mercator alterna **sólo para `x > 0`**. En `x < 0` todos los términos son negativos, la cola es monótona y el primer término omitido es cota **inferior**. En `x = -0,9` con cinco términos el motor declaraba `0,0886` para un error de `0,4725` — más de cinco veces corto, y en la dirección que hace que una cota parezca un resultado. La prueba anterior sólo muestreaba `x > 0`, que es donde no se rompe.
+
+  **Lo que se niega, y por qué.** `taylor` de una **expresión que no reconoce** sigue sin declarar cota, y dice que no la declara. No es un resto de trabajo: el movimiento fácil —ver `exp` dentro de `x²·exp(x)` y reusar la cota de `exp`— está disponible y es falso. Medido: el error real de `taylor(x²·exp(x), 0, 4)` es **20 a 26 veces mayor** que la cota que ese movimiento adjuntaría, en todos los argumentos probados. El polinomio es exacto, no se declara ningún número, y la ausencia se explica en palabras. Tampoco se acota la forma `exp(x) + 1`: su cola no es la cola de `exp` más una constante, y mayorizar una no mayoriza la otra.
+
+  `taylor` de una de las **siete funciones conocidas** ya no se niega — `taylor(exp(x), 0, 6)` llevaba `cota = None` mientras el módulo sabía acotar esa misma cola por `maclaurin`. La serie de `f` sobre `a` es la serie de `u ↦ f(a + u)` sobre el origen, así que la cota se construye en 0 y se sustituye `x → x − a`: para `taylor(ln(x), 1, 4)` la cota sale en `|x − 1|`, y está comprobada en esa variable.
+
+  **`taylor` deja de ser la puerta más débil a la misma serie.** Cerrar la cota dejó
+  a la vista algo peor: `taylor(tan(x), 0, 4)` moría con `EXPRESSION_LIMIT` mientras
+  `maclaurin("tan", 4)` devolvía la serie sin despeinarse, y lo mismo con `ln`
+  alrededor de 1. No era una limitación de orden sino de puerta — `tan' = 1/cos²` y
+  `ln^(k) = (k-1)!/x^k`, y derivar cualquiera de las dos expande un producto de
+  potencias que el registro de pasos no aguanta, mientras que escribir los números
+  tangentes o los términos de Mercator no tiene ese problema. Ahora una función
+  conocida se **escribe** en `taylor` en vez de derivarse, y los dos topes (3 y 4)
+  suben al orden máximo declarado, 40. Donde ambas puertas podían calcularse
+  coinciden exactamente: 48 combinaciones de polinomio, residuo y cota sobre seis
+  funciones, 0 diferencias.
+
+  Dos trampas que la delegación cruzó y que quedan vigiladas:
+
+  - **`ln` en el origen.** `maclaurin("ln", n)` es la serie de `ln(1+x)` —una
+    rareza deliberada de ese nombre, escrita en sus hipótesis—, pero
+    `taylor(ln(x), 0, n)` promete el polinomio de Taylor de `ln` en 0, y ahí no
+    existe. Delegando, `taylor` contestaba `x − x²/2 + x³/3 − …` a una pregunta sobre
+    `ln`: la serie era correcta, de **otra** función. Antes se negaba con «`ln(0)` no
+    es un número», y esa negativa era la respuesta correcta y tenía que sobrevivir al
+    arreglo. Sigue negándose, y hay una alarma que lo comprueba.
+  - **El radio de `tan` no es el de Mercator.** La hipótesis anunciaba «radio de
+    convergencia 1» para las dos, cuando el de `tan` es π/2. Era falso en la
+    dirección que prohíbe una serie que converge: entre 1 y 1,57 la serie de `tan`
+    suma sin problema, y el módulo lo negaba.
+
 - Taylor/Maclaurin.
 - orden solicitado.
 - término residual.
@@ -1684,7 +1732,7 @@ La trigonometría de MathLab se considera un submotor simbólico completo. Cada 
 - convergencia.
 - comparación exacta/aproximada.
 
-### T-20. Estrategia de transformación — PARCIAL (ocho objetivos con reglas —simplificar, expandir, producto_a_suma, suma_a_producto, potencias, sustitucion_universal, hiperbolicas, exponencial— y cuatro declarados **con su porqué y cero reglas**: derivar, integrar, complejos y fasores. Etiqueta revisada el 2026-10-04: era la única de estas cuatro cuya afirmación seguía siendo cierta, y ahora lo dice con la cuenta de reglas)
+### T-20. Estrategia de transformación — PARCIAL (ocho objetivos con reglas —simplificar, expandir, producto_a_suma, suma_a_producto, potencias, sustitucion_universal, hiperbolicas, exponencial— y cuatro **de transformación**: derivar, integrar, complejos y fasores. La etiqueta decía de estos cuatro que venían «con su porqué y cero reglas», y «cero reglas» era una cosa distinta de lo que pasa. No tienen familias de reescritura porque **no reescriben nada**: devuelven una derivada, una primitiva, un número complejo o un fasor, que es otra clase de cosa. Lo que deben en su lugar es un `porque` escrito y un `verifica` que nombre el segundo camino, y los cuatro tienen las dos cosas desde 2026-10-04. `trig.inventario()` los expone y la calculadora los escribe en la trayectoria de las cuatro operaciones, así que el alumno los lee. Etiqueta revisada el 2026-10-04: era la única de estas cuatro cuya afirmación seguía siendo cierta, y ahora lo dice con la cuenta de reglas; revisada otra vez el mismo día porque «cero reglas» se leía como «nada implementado», que es justo lo contrario de lo que ocurre)
 El motor debe seleccionar transformaciones según el objetivo: simplificar, demostrar, resolver, integrar, derivar, pasar a complejos o preparar señales/fasores. Debe evitar ciclos y explosión combinatoria mediante búsqueda acotada.
 
 ### T-21. Valores exactos y constantes — COMPLETADA
@@ -1863,17 +1911,34 @@ faltaba; arreglarlo destapó que `0·pi` y `0` eran dos puntos distintos para el
 motor, que la regla de fusión de intervalos estaba al revés y que un extremo
 infinito no ganaba nunca en una fusión.
 
-**COMPLETADAS:** T-01 a T-24 (salvo las partes señaladas). **T-18 es la única que sigue
-PARCIAL**, por dos límites declarados y no por huecos del método: la cuadrática
-irreducible de discriminante negativo —que sale con `arctg`, y la capa `symbolic` no
-tiene inversa trigonométrica— y el denominador sin raíz racional de grado 4. La
-etiqueta decía «T-18 cerrada entera» y era un exceso de confianza, no un dato.
+**COMPLETADAS:** T-01 a T-24, sin excepciones. **T-19 quedó COMPLETADA el 2026-10-05**,
+que era la única que seguía PARCIAL y no por huecos del método sino por un límite
+declarado: la cota de error cuando no hay cota sobre la derivada omitida. Al cerrarlo
+resultó que la regla anterior —«el primer término omitido es la cota» para `sin`, `cos`
+y `ln`, y ninguna cota para las otras cuatro— no era ni muy cierta ni muy honesta: dos
+de esas tres cotas no acotaban en el semiplano negativo, y `ln` fallaba por un factor de
+cinco en `x = -0,9`. Ahora las siete llevan cota mayorizada sobre su propia cola, cada
+una con su dominio declarado, y la que no se puede derivar se niega diciéndolo.
+Está vigilada por una alarma que falla el día que algo de esto se rompa, y la alarma
+mide contra el error real en vez de comprobar que un número existe.
 
-**T-14, T-18 y T-19 cerradas** en todo lo que no es uno de esos dos límites.
+**T-18 quedó COMPLETADA el 2026-10-04**, cerrando sus tres límites declarados en un
+solo día. Ninguno de los tres era una función que faltara, y esa es la parte que
+conviene recordar: el discriminante negativo era un **nombre** que la tabla de
+derivadas ya tenía desde T-17 y que la gramática no aceptaba; la cuadrática
+irreducible al cuadrado era una cuadrática escrita dos veces que nadie miró a ver
+si lo era; y el cuartico sin raíz racional era un biquadrático, que se parte sin
+aritmética de cuerpos porque solo un coeficiente de la respuesta necesita un
+radical. La etiqueta decía «T-18 cerrada entera» y era un exceso de confianza, no
+un dato —tres días antes seguía siendo parcial de verdad, por tres motivos
+distintos que la documentación mezclaba en uno solo.
+
+**T-14, T-18 y T-19 cerradas**, cada una con lo que le quedaba.
 `∫sen^n`, `∫cos^n` y `∫tg^n` por la fórmula de reducción, `∫ln^n` por partes
 tabulares, y las primitivas propias de la familia —`cot`, `sec^2`, `cosec^2`, `cot^2`,
 `coth`, `sech^2`, `sech`, `csch`— en tabla. El polinomio de Taylor de un monomio ya
-coincide con el monomio.
+coincide con el monomio, y las siete series conocidas llevan cota de error con su
+dominio declarado.
 
 **T-18: los tres huecos que quedaban están resueltos, y los tres
 eran el mismo fallo de lectura: una regla que miraba una cosa y no la otra.

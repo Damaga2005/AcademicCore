@@ -74,7 +74,9 @@ Una familia no puede declararse **CERTIFICADA** si falta cualquiera de los punto
 - dominio y restricciones.
 
 ## M-01 Funciones y trigonometría
-**Estado: PARCIAL. T-01 a T-23 COMPLETADAS.**
+**Estado: COMPLETADA. T-01 a T-24 COMPLETADAS, sin parciales.**
+
+Las dos parciales que quedaban están cerradas y las dos tenían la misma forma: un límite declarado, no un hueco del método. **T-18 cerró el 2026-10-04 sus tres límites declarados**: el discriminante negativo (faltaba el nombre `arctg`, no la función), la cuadrática irreducible al cuadrado (faltaba la descomposición squarefree) y el cuartico sin raíz racional (un biquadrático se parte sin aritmética de cuerpos). **T-19 cerró el 2026-10-05 el suyo**, que era la cota de error cuando no hay cota sobre la derivada omitida: las siete series conocidas llevan ahora cota, mayorizada sobre su propia cola por una progresión geométrica, y cada cota viaja con su dominio. Al cerrarlo se vio que la regla anterior —primer término omitido como cota— no acotaba en `x < 0` para `ln` ni para argumento grande en `sin`/`cos`, así que la alarma que vigilaba la ausencia de cota se reemplazó por otra que mide el error real contra la cota declarada. Una alarma que nadie puede ver cerrarse acaba mintiendo otra vez; una que sólo comprueba que un número existe no habría visto ninguna de las dos.
 
 Incluye funciones, inversas, identidades, periodicidad, ecuaciones, inecuaciones, hiperbólicas, complejos, fasores, derivadas, integrales, series, valores exactos, gráficas y verificación.
 
@@ -95,17 +97,26 @@ abajo, donde T-18 ya figuraba cerrado:
   rechaza~~. **FALSO.** `∫sen³`, `∫sen⁴`, `∫sen⁵`, `∫sen⁷` y sus cuatro hermanas de
   coseno, `∫tg³`, `∫cot³`, `∫sec²`, `∫cosec²`, `∫cot²`, `∫x·ln x`, `∫ln²x` y
   `∫x³eˣ` responden, y `sen(x)^2` ya no se rechaza. **Lo que decía que faltaba
-  también es FALSO:** la sustitución `t = tg(x/2)` en la integración se cerró
-  el 2026-10-04 con un integrador racional por fracciones parciales sobre ℚ, y
-  tanto `∫1/(1+cos x)` como `∫1/(cos x + cos 2x)` responden. Lo que queda son
-  **dos límites declarados**: la cuadrática irreducible de discriminante
-  negativo —falta `arctg` en el lenguaje— y el denominador sin raíz racional
-  de grado 4.
-  2026-10-04 con un integrador racional por fracciones parciales sobre ℚ, y
-  tanto `∫1/(1+cos x)` como `∫1/(cos x + cos 2x)` responden. Lo que queda son
-  **dos límites declarados**: la cuadrática irreducible de discriminante
-  negativo —falta `arctg` en el lenguaje— y el denominador sin raíz racional
-  de grado 4.
+  también es FALSO, dos veces:** la sustitución `t = tg(x/2)` se cerró el
+  2026-10-04 con un integrador racional por fracciones parciales sobre ℚ, y el
+  2026-10-04, por la tarde, se cerró también el **discriminante negativo** —
+  `∫du/(u²+1) = arctg u`, `∫1/(2+cos x)` y las cuatro hermanas del mismo
+  álgebra responden y se comprueban derivando. Este último era el que decía
+  «falta `arctg` en el lenguaje», y mentía sobre la mitad del problema: la
+  función estaba en la tabla de derivadas desde T-17 y lo que faltaba era su
+  nombre en la gramática del parser y en el evaluador.
+  Lo que queda es **un límite declarado**: el denominador de grado 4 sin raíz
+  racional, que no se sabe partir en dos cuadráticas sobre ℚ. Se cerró también
+  el 2026-10-04, y por la vía larga, la **cuadrática irreducible al cuadrado**:
+  `(u²+1)²` llegaba a `_factores` escrito como `u⁴ + 2u² + 1`, un cuartico sin
+  raíz racional, y el polinomio que llegaba nunca había sido un cuartico — era
+  una cuadrática escrita dos veces y nadie miró a ver si lo era. Con la
+  descomposición squarefree (Musser) cierran `∫du/(u²+1)²`, `∫(u+1)/(u²+1)²`,
+  `∫du/(u²+1)³`, `∫du/(u²+1)⁴` y `∫sen²x/(1+cos x) dx`, esta última porque con
+  `u = tg(x/2)` se convierte en `4u²/(1+u²)²`. La frontera no se movió:
+  `∫du/(1+u⁴)` se sigue negando, y ahora `∫du/(1+u⁴)²` también, pero **por el
+  factor de dentro** y no por parecer un cuartico. Antes esas dos negaciones eran
+  indistinguibles, que es como un motor empieza a responder «a veces».
 - ~~**T-19** con un término de más en el polinomio de Taylor de un monomio~~.
   **FALSO, y medido:** 168 combinaciones de coeficiente, grado y orden, **0
   distintas de lo esperado**. El polinomio de `x⁷` al orden 4 es `0`, que es lo
@@ -121,6 +132,34 @@ Lo que queda, y por qué:
   - **`e^x·sen(x)`, `e^x·cos(x)`, `senh(x)^2`, `cosh(x)^2`**: entradas de tabla. La primera tiene forma cerrada y ningún cambio de variable la encuentra; las partes por dos veces vuelven a la integral de la que salieron.
 
   Lo que queda es un **límite declarado, no un hueco**: `sen(x)^6·cos(x)^6` se integra bien (234 caracteres) y su derivada no cabe en los 480. El motor devuelve una respuesta correcta que no puede comprobar, y la prueba lo dice y lo verifica por diferencias finitas.
+
+- **T-19, en el único caso donde la cota no se puede derivar.** Las siete series
+  conocidas llevan cota con su dominio, y `taylor` de una de ellas también la lleva
+  —`taylor(exp(x), 0, 6)` se negaba mientras el módulo sabía acotar esa cola por
+  `maclaurin`—. Lo que se niega es `taylor` de una **expresión que no reconoce**,
+  y lo hace por una razón medida: reusar la cota de la función que aparece dentro es
+  falso, y para `x²·exp(x)` el error real sale 20 a 26 veces mayor que la cota que
+  ese reuso adjuntaría. También se niegan las formas `exp(x) + 1` y compañía, cuya
+  cola no es la cola de `exp` más una constante. El polinomio sale exacto, no se
+  declara ningún número y la ausencia se explica en palabras.
+
+  **`taylor` deja de ser la puerta más débil a la misma serie.** Al delegar, una
+  función conocida ya no se derivaba: se escribía término a término, como
+  `maclaurin`. Antes `taylor(tan(x), 0, 4)` moría con `EXPRESSION_LIMIT` mientras
+  `maclaurin("tan", 4)` devolvía la serie, y lo mismo con `ln` alrededor de 1 —
+  porque `tan' = 1/cos²` y `ln^(k) = (k-1)!/x^k`, y derivar cualquiera de las dos
+  expande un producto de potencias que el registro de pasos no aguanta. Los dos tops
+  (3 y 4) están ahora en el orden máximo declarado, 40. Donde ambas puertas podían
+  calcularse coinciden exactamente: 48 combinaciones de polinomio, residuo y cota
+  sobre seis funciones, 0 diferencias. Y `ln` **sigue sin serie en el origen**, que
+  es una trampa que la delegación cruzó y una alarma que la vigila: la serie de
+  Mercator de `ln` es la de `ln(1+x)`, así que delegar en 0 hacía que `taylor`
+  respondiera con la serie de otra función a una pregunta sobre `ln`.
+
+  Una mentira que salió en el mismo paseo: la hipótesis anunciaba «radio de
+  convergencia 1» para `tan` y para `ln`, cuando el de `tan` es π/2. Era falso en la
+  dirección que prohíbe una serie que converge — entre 1 y 1,57 la serie de `tan`
+  suma sin problema.
 
 **Auditoría de T-13, T-11, T-15 y T-16 cerrada: seis bugs de respuesta falsa.**
 Un barrido por las familias que la auditoría anterior no cubría, buscando
@@ -196,7 +235,17 @@ Los cuatro vivían en los módulos que los necesitan, así que el motor no podí
 
 Lo que T-23_NO hace, declarado:
 
-- **Asíntotas horizontales y oblicuas.** Necesitan el límite en el infinito y no hay motor de límites. Muestrear en un `x` grande no es un límite: un senoide da diez «límites» distintos en diez `x` grandes, y declarar `y = 0` porque uno de ellos salió pequeño sería inventar una recta a partir de una coincidencia.
+- ~~**Asíntotas horizontales y oblicuas.** Necesitan el límite en el infinito y no hay
+  motor de límites.~~ **FALSO, y era el más peligroso de los tres**: no es que
+  faltara el motor, es que **existe** (`mathlab/limites.py`) y lleva el
+  razonamiento que esta misma línea usaba como excusa. `orden_en_infinito()` saca
+  el orden de crecimiento **por aritmética y nunca por muestreo** — que es
+  exactamente la objeción que se planteará aquí: un senoide da diez «límites» distintos
+  en diez `x` grandes, y declarar `y = 0` porque uno salió pequeño sería inventar
+  una recta a partir de una coincidencia. El módulo dice eso y lo cumple.
+  `asintotas_de_horizonte_y_oblicua` responde `y = 1` para `(x²−1)/(x²+1)`, `y = 0`
+  para `1/(x²+1)` y para `x/(x²+1)`, y **nada** para `(x²+1)`, que sí tiene.
+  Corregido el 2026-10-04 contra el motor.
 - **Desplazamiento vertical `D`.** Una expresión de la forma `A·sen(Bx + C) + D` es un senoide y su amplitud es exacta, pero `D` no se reporta como parte de la forma canónica; sí aparece implícito en el desplazamiento de los ceros.
 - **`sen(x) + cos(x)`** es un senoide, pero solo tras un desplazamiento de fase que el módulo tendría que buscar. Se declina en vez de contestarse a medias.
 - **La existencia de un punto, comprobada por muestreo.** A `pi/2` el valor de `tan` es 6·10⁻¹⁷ y no cero, así que el muestreo no ve si una expresión existe ahí. La tabla simbólica es la autoridad, y el sello de T-23 lo dice en vez de fingir que lo comprobó.

@@ -321,20 +321,6 @@ def test_impedance_misuse_errors():
         operating_impedance(bad, "V1")
 
 
-def test_impedance_misuse_errors():
-    c = ckt("e", V_("V1", "10 V", "n", "0"), R_("R1", "1 kOhm", "n", "0"))
-    prob, sol = problem_and_solution(c, "1 kHz")
-    with pytest.raises(ImpedanceError):
-        branch_impedance(prob, sol, "R9")
-    bad = solve_ac(ckt("e2", V_("V1", "10 V", "n", "0"), V_("V2", "5 V", "n", "0")),
-                   "1 kHz")
-    assert bad.status.value == "inconsistent"
-    with pytest.raises(ImpedanceError):
-        branch_impedance(prob, bad, "R1")
-    with pytest.raises(ImpedanceError):
-        operating_impedance(bad, "V1")
-
-
 # -- D5-B ports ------------------------------------------------------------------------------------
 
 def _divider():

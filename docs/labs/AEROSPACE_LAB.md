@@ -222,7 +222,7 @@ Tests: `tests\test_f8p5_satcom.py` (652 líneas, **44** tests) + el test de capa
 
 | Destino | Usos | Lo que se importa |
 |---|---|---|
-| `engineering.math` | 7 + 1 (`math.logarithm`) | `make_context`, `decimal_pi`, `decimal_sqrt`, `decimal_ln10`, `decimal_log10`, `decimal_exp` |
+| `engineering.math` | 7 + 1 (`math.logarithm`) | `make_context`, `decimal_pi`, `decimal_sqrt`, `decimal_atan2`, más las quince de la familia 6.1 (`decimal_sec`, `decimal_csc`, `decimal_cot`, `decimal_atan`, `decimal_asin`, `decimal_acos`, `decimal_sinh`, `decimal_cosh`, `decimal_tanh`, `decimal_coth`, `decimal_sech`, `decimal_csch`, `decimal_asinh`, `decimal_acosh`, `decimal_atanh`), y en `math.logarithm` `decimal_ln10` y `decimal_log10` |
 | `engineering.control.errors` | 8 | `ControlError`, `ControlStatus` (**tipo de error compartido**: el motor aeroespacial no tiene error propio) |
 | `engineering.comms.metrics` | 5 | `to_db10`, `to_db20`, `from_db10`, `q_function`/BER/Shannon (`MetricResult`) |
 | `engineering.rf.margins` | 1 | `mismatch_loss_db` |

@@ -37,7 +37,35 @@ from fractions import Fraction
 
 from academic_core.errors import UnsupportedError, ValidationError
 
-FUNCTIONS = ("sin", "cos", "tan", "exp", "log", "sqrt", "abs")  # log = natural logarithm (engine semantics)
+#: The functions this language can hold, in three groups.
+#:
+#: The parser is the ONLY thing that decides which names may appear in an
+#: ``Fn``, so this tuple is simultaneously the language's grammar and the
+#: engine's promise: **anything the derivative table, the integration table or
+#: a partial-fraction answer can PRINT must be readable back here.** Before
+#: 6.1 the list held seven names while the tables already emitted fifteen more,
+#: and the difference was not cosmetic — ``∫du/(u²+1)`` could not be written
+#: down at all, and ``∫tan³(u)du`` was printed with a logarithm spelled ``ln``,
+#: which this parser rejected. A trace the reader cannot retype is not a trace.
+#:
+#: One name per function, and it is the name the DERIVATIVE table uses, so that
+#: ``text()`` output feeds straight back into ``parse()``. Note ``log`` and not
+#: ``ln``: this language's natural logarithm is ``log`` (see ``exact_value``'s
+#: note on engine semantics), and a second spelling for it would be a second
+#: answer to the same question.
+#: log = natural logarithm (engine semantics)
+FUNCTIONS = (
+    # circular and their reciprocals
+    "sin", "cos", "tan", "sec", "csc", "cot",
+    # inverse circular
+    "asin", "acos", "atan",
+    # hyperbolic and their reciprocals
+    "sinh", "cosh", "tanh", "coth", "sech", "csch",
+    # inverse hyperbolic
+    "asinh", "acosh", "atanh",
+    # the rest
+    "exp", "log", "sqrt", "abs",
+)
 MAX_SOURCE = 256
 MAX_DEPTH = 48
 # The printed length of an expression. This is a SAFETY limit, not a correctness
