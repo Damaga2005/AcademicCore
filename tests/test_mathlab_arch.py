@@ -186,7 +186,7 @@ def test_la_calculadora_se_puede_llamar_sin_interfaz():
     import academic_core.domain.engineering.mathlab as ML
 
     resultado = ML.calcular(ML.Peticion("derivar", "x^3+2x"))
-    assert resultado.exacto == "3·x² + 2·1"
+    assert resultado.exacto == "3·x² + 2"
     assert resultado.traza.steps
     assert resultado.sello.ok
 

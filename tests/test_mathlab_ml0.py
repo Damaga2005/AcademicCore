@@ -486,7 +486,7 @@ def test_el_contrato_esta_registrado_y_responde():
 
 
 @pytest.mark.parametrize("operacion,entrada,esperado", [
-    ("derivar", "x^3+2x", "3·x² + 2·1"),
+    ("derivar", "x^3+2x", "3·x² + 2"),
     ("derivar", "sin(x)", "cos(x)"),
     ("integrar", "x^3", "x⁴/4"),
     ("igualdad", {"a": "2x+2x", "b": "4x"}, True),
@@ -745,6 +745,6 @@ def test_el_contrato_no_necesita_interfaz_para_funcionar():
     # the calculation itself pulls in nothing graphical
     antes = set(sys.modules)
     r = ML.calcular(ML.Peticion("derivar", "x^2"))
-    assert r.exacto == "2·x¹"
+    assert r.exacto == "2·x"
     nuevos = set(sys.modules) - antes
     assert not [m for m in nuevos if m.startswith("PySide6")], nuevos

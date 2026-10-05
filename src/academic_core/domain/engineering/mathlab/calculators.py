@@ -180,9 +180,54 @@ def _derivar(peticion: C.Peticion) -> C.Resultado:
     derivada = D.differentiate(expr, variables, trace)
     sello = D.verify_derivative(expr, derivada, variables)
     _objetivo_declarado(trace, "derivar")
+    derivada = _presentable(derivada, trace)
     grafica = _grafica_derivada(expr, derivada, variables)
     return _finalizar(peticion, trace, derivada, aproximado=mx.evaluate(derivada),
                       sello=sello, grafica=grafica)
+
+
+def _presentable(e: mx.Expr, trace: Trace) -> mx.Expr:
+    """The result as a student should read it: ``2·x`` and not ``2·x¹``.
+
+    The rules write what they apply — ``cos(2x)·2·1`` is the chain rule with the
+    derivative of ``2x`` still visible — and that belongs in the steps, which keep
+    it. The ANSWER is folded to its exact normal form, and only if the folded one
+    agrees with the raw one at seeded points: a presentation step may never change
+    the value it presents.
+    """
+    from academic_core.domain.engineering.mathlab import poly as P
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    candidatas = []
+    try:
+        candidatas.append(T.simplify(P.to_expr(P.as_poly(T.simplify(e)))))
+    except Exception:  # noqa: BLE001 - the raw form is still the right answer
+        pass
+    variables = sorted(mx.variables(e))
+    if len(variables) == 1:
+        # a rational function reads best as ONE quotient: 2·x/(x² + 1), and not
+        # 2·1/(x² + 1)·x, which is the ring's polynomial-in-an-atom form
+        try:
+            razon = P.as_ratio(e, variables[0])
+            if razon is not None:
+                candidatas.append(mx.Div(P.to_expr(razon.numerator),
+                                         P.to_expr(razon.denominator))
+                                  if not razon.is_constant_ratio()
+                                  else P.to_expr(razon.numerator))
+        except Exception:  # noqa: BLE001
+            pass
+    validas = [c for c in candidatas if mx.text(c) != mx.text(e)
+               and V.numeric_agreement(c, e)[0]]
+    if not validas:
+        return e
+    plegada = min(validas, key=lambda c: len(mx.text(c)))
+    if len(mx.text(plegada)) > len(mx.text(e)):
+        return e
+    trace.cambio("presentacion.simplificada", "se presenta la forma simplificada",
+                 before=mx.text(e), after=mx.text(plegada),
+                 why=("los pasos conservan la forma en que la regla la escribe; el "
+                      "resultado se da plegado, comprobado igual en puntos sembrados"))
+    return plegada
 
 
 def _grafica_derivada(f: mx.Expr, df: mx.Expr, var: str) -> C.Graph:
@@ -238,6 +283,7 @@ def _gradiente(peticion: C.Peticion) -> C.Resultado:
             sellos[name] = D.verify_derivative(uno[0], uno[1], name)
         peor = max(sellos.values(),
                    key=lambda s: {"discrepa": 2, "solo_numerico": 1, "verificado": 0}[s.verdict])
+    grad = {k: _presentable(v, trace) for k, v in grad.items()}
     return _finalizar(peticion, trace, grad, sello=peor)
 
 
@@ -744,6 +790,22 @@ def _evaluar(peticion: C.Peticion) -> C.Resultado:
                           aproximado=complex(float(exacto.numerator) /
                                             float(exacto.denominator)),
                           sello=V.Seal(V.VERIFIED, "valor exacto", str(exacto)))
+    if not env and not mx.variables(expr):
+        exacta = _evaluacion_exacta(expr)
+        if exacta is not None:
+            trace.metodo(
+                "evaluar.exacto_simplificado",
+                "la expresión tiene un valor exacto que se obtiene simplificando",
+                why=("sen(π/6) es 1/2 y √8 es 2·√2: valores notables y radicales de "
+                     "racionales son exactos, y darlos como 0.49999999999999994 "
+                     "sería presentar el redondeo como resultado"),
+                before=mx.text(expr), after=mx.text(exacta),
+            )
+            racional = mx.exact_value(exacta)
+            return _finalizar(
+                peticion, trace, racional if racional is not None else exacta,
+                aproximado=mx.evaluate(exacta),
+                sello=V.Seal(V.VERIFIED, "valor exacto", mx.text(exacta)))
     valor = mx.evaluate(expr, env)
     if valor is None:
         trace.aviso("evaluar.sin_valor",
@@ -764,6 +826,157 @@ def _evaluar(peticion: C.Peticion) -> C.Resultado:
         sello=V.Seal(V.NUMERIC_ONLY, "evaluación numérica", "sin valor exacto"),
         avisos=(C.NO_EXACT,),
     )
+
+
+def _evaluacion_exacta(expr: mx.Expr) -> mx.Expr | None:
+    """An exact value for a closed expression, or ``None``.
+
+    A rational, or an algebraic number written with radicals of rationals only. It
+    is accepted only if it agrees numerically with the original: simplifying may
+    never change the value.
+    """
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    try:
+        simple = T.simplify(expr)
+    except Exception:  # noqa: BLE001
+        return None
+    candidato = None
+    if mx.exact_value(simple) is not None:
+        candidato = mx.Num(mx.exact_value(simple))
+    elif _solo_radicales(simple):
+        combinacion = _combinacion_de_raices(simple)
+        if combinacion is not None:
+            candidato = _escribe_combinacion(combinacion)
+        else:
+            try:
+                candidato = T.reducir_radicales(simple).expresion
+            except Exception:  # noqa: BLE001
+                candidato = simple
+    if candidato is None:
+        return None
+    a, b = mx.valor_real(candidato, {}), mx.valor_real(expr, {})
+    if a is None or b is None or abs(a - b) > 1e-12 * max(1.0, abs(b)):
+        return None
+    return candidato
+
+
+def _producto_de_raices(e: mx.Expr) -> tuple[Fraction, Fraction] | None:
+    """``(c, r)`` with ``e = c·sqrt(r)``, for products and quotients of square roots.
+
+    ``sqrt(a)·sqrt(b) = sqrt(a·b)`` for ``a, b >= 0``, so a product of square roots
+    of non-negative rationals collapses exactly; ``√2·√2`` is 2 and not «√2·√2».
+    """
+    if isinstance(e, mx.Num):
+        return Fraction(e.value), Fraction(1)
+    if isinstance(e, mx.Root) and e.degree == 2:
+        r = mx.exact_value(e.radicand)
+        return (Fraction(1), Fraction(r)) if r is not None and r >= 0 else None
+    if isinstance(e, mx.Neg):
+        p = _producto_de_raices(e.arg)
+        return None if p is None else (-p[0], p[1])
+    if isinstance(e, (mx.Mul, mx.Div)):
+        a, b = _producto_de_raices(e.left), _producto_de_raices(e.right)
+        if a is None or b is None:
+            return None
+        if isinstance(e, mx.Mul):
+            return a[0] * b[0], a[1] * b[1]
+        if b[0] == 0 or b[1] == 0:
+            return None
+        # c1·√r1 / (c2·√r2) = (c1/(c2·r2))·√(r1·r2)
+        return a[0] / (b[0] * b[1]), a[1] * b[1]
+    return None
+
+
+def _libre_de_cuadrados(c: Fraction, r: Fraction) -> tuple[Fraction, int]:
+    """``c·sqrt(r)`` as ``c'·sqrt(n)`` with ``n`` a square-free integer."""
+    n = r.numerator * r.denominator
+    c = c / r.denominator
+    fuera, d = 1, 2
+    while d * d <= n:
+        while n % (d * d) == 0:
+            n //= d * d
+            fuera *= d
+        d += 1
+    return c * fuera, n
+
+
+def _combinacion_de_raices(e: mx.Expr) -> dict[int, Fraction] | None:
+    """``{n: c}`` with ``e = Σ c·sqrt(n)``, ``n`` square-free; or ``None``.
+
+    Sums of like radicals combine (``√2 + 2·√2 = 3·√2``), and a product goes
+    through ``_producto_de_raices`` when both factors are single terms.
+    """
+    if isinstance(e, (mx.Add, mx.Sub)):
+        a, b = _combinacion_de_raices(e.left), _combinacion_de_raices(e.right)
+        if a is None or b is None:
+            return None
+        signo = 1 if isinstance(e, mx.Add) else -1
+        salida = dict(a)
+        for n, c in b.items():
+            salida[n] = salida.get(n, Fraction(0)) + signo * c
+        return {n: c for n, c in salida.items() if c != 0}
+    if isinstance(e, mx.Neg):
+        a = _combinacion_de_raices(e.arg)
+        return None if a is None else {n: -c for n, c in a.items()}
+    producto = _producto_de_raices(e)
+    if producto is None:
+        return None
+    c, n = _libre_de_cuadrados(*producto)
+    return {n: c} if c != 0 else {}
+
+
+def _escribe_combinacion(terminos: dict[int, Fraction]) -> mx.Expr:
+    if not terminos:
+        return mx.Num(Fraction(0))
+    total = None
+    for n in sorted(terminos):
+        termino = _c_raiz(terminos[n], Fraction(n))
+        if total is None:
+            total = termino
+        elif terminos[n] < 0:
+            total = mx.Sub(total, _c_raiz(-terminos[n], Fraction(n)))
+        else:
+            total = mx.Add(total, termino)
+    return total
+
+
+def _c_raiz(c: Fraction, r: Fraction) -> mx.Expr:
+    """``c·sqrt(r)`` with the squares taken out of ``r`` and ``r`` made an integer."""
+    if c == 0 or r == 0:
+        return mx.Num(Fraction(0))
+    n = r.numerator * r.denominator          # sqrt(p/q) = sqrt(p·q)/q
+    c = c / r.denominator
+    fuera, d = 1, 2
+    while d * d <= n:
+        while n % (d * d) == 0:
+            n //= d * d
+            fuera *= d
+        d += 1
+    c *= fuera
+    if n == 1:
+        return mx.Num(c)
+    raiz = mx.Root(2, mx.Num(Fraction(n)))
+    if c == 1:
+        return raiz
+    if c == -1:
+        return mx.Neg(raiz)
+    return mx.Mul(mx.Num(c), raiz)
+
+
+def _solo_radicales(e: mx.Expr) -> bool:
+    """Numbers, roots and arithmetic: nothing transcendental anywhere."""
+    if isinstance(e, mx.Num):
+        return True
+    if isinstance(e, mx.Root):
+        return _solo_radicales(e.radicand)
+    if isinstance(e, mx.Neg):
+        return _solo_radicales(e.arg)
+    if isinstance(e, mx.Pow):
+        return _solo_radicales(e.base) and mx.exact_value(e.exponent) is not None
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return _solo_radicales(e.left) and _solo_radicales(e.right)
+    return False
 
 
 # ---------------------------------------------------------------------------
