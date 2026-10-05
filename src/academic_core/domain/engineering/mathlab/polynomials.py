@@ -412,11 +412,11 @@ def raices_racionales(p: Polinomio, trace: Trace | None = None) -> list[Fraction
                      f"el teorema de la raíz racional daría demasiados candidatos "
                      f"({len(divisores_num) * len(divisores_den)})")
     trace.metodo(
-        "polinomio.raices.teo riaema".replace("teo riaema", "teorema"),
+        "polinomio.raices.teorema",
         "candidatos por el teorema de la raíz racional",
         why=(f"si p/q es raíz de un polinomio con coeficientes enteros, p divide al término "
-             f"independiente ({_frac(p[-1])}) y q divide al coeficiente principal "
-             f"({_frac(p[0])}); con eso el conjunto de candidatos es finito y se prueba "
+             f"independiente ({_frac(p[0])}) y q divide al coeficiente principal "
+             f"({_frac(p[-1])}); con eso el conjunto de candidatos es finito y se prueba "
              f"uno a uno: {len(divisores_num) * 2} × {len(divisores_den)} = "
              f"{len(divisores_num) * 2 * len(divisores_den)}"),
         before=representar(p), after=f"{len(divisores_num) * 2 * len(divisores_den)} "
@@ -492,7 +492,9 @@ def factorizar(p: Polinomio, var: str = "x", trace: Trace | None = None) -> list
         else:
             nombre = f"({var} - {_frac(r)})" if r > 0 else f"({var} + {_frac(-r)})"
         factores.append((nombre, multiplicidad))
-    if resto:
+    # the cofactor left after the roots: kept when it says something (the 2 of
+    # 2x^2 - 8, or an irreducible quadratic), dropped when it is the constant 1
+    if resto and not (len(resto) == 1 and resto[0] == 1):
         factores.append((representar(resto, var), 1))
     texto = " · ".join(f if e == 1 else f"{f}^{e}" for f, e in factores)
     trace.regla("polinomio.factorizar", "factorización",

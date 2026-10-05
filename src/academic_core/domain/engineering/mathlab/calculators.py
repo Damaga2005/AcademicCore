@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+from academic_core.domain.engineering.mathlab import continuidad as K
 from academic_core.domain.engineering.mathlab import contract as C
 from academic_core.domain.engineering.mathlab import derive_mv as D
 from academic_core.domain.engineering.mathlab import mvexpr as mx
@@ -915,6 +916,13 @@ def _primitiva(integrando: mx.Expr, var: str, trace: Trace,
                     uses=step.uses)
     primitiva = mx.from_symbolic(resultado)
     sello = V.verify_by_derivative(primitiva, integrando, var, D.differentiate)
+    if sello.verdict == V.DISCREPANT:
+        # Its derivative is not the integrand: it is not a primitive, and showing
+        # it as the exact answer with a «discrepa» seal next to it still shows it.
+        trace.aviso("integral.primitiva_rechazada",
+                    f"{C.NO_EXACT}: la expresión obtenida, {mx.text(primitiva)}, no "
+                    f"deriva en el integrando ({sello.detail}); se descarta")
+        return None, sello
     trace.verificacion(
         "integral.por_derivacion",
         "se verifica derivando la primitiva y comprobando que da el integrando",
@@ -959,6 +967,14 @@ def _integral_definida(integrando: mx.Expr, var: str, bounds, trace: Trace,
         ),
         before=f"∫[{mx.text(low)}, {mx.text(high)}] {mx.text(integrando)} d{var}",
     )
+    lim_a, lim_b = mx.evaluate(low), mx.evaluate(high)
+    if lim_a is None or lim_b is None or lim_a.imag or lim_b.imag:
+        return (None, None,
+                V.Seal(V.NUMERIC_ONLY, "límites no evaluables",
+                       "los límites de integración no son números reales"), None, None)
+    rechazo = _singularidad_en(integrando, var, lim_a.real, lim_b.real, trace)
+    if rechazo is not None:
+        return rechazo
     primitiva, sello = _primitiva(integrando, var, trace, peticion)
     if primitiva is None:
         return None, None, sello, None, None
@@ -975,15 +991,97 @@ def _integral_definida(integrando: mx.Expr, var: str, bounds, trace: Trace,
     valor_num = arriba.real - abajo.real
     error = abs(arriba.imag) + abs(abajo.imag) + _error_de_redondeo(arriba.real) \
         + _error_de_redondeo(abajo.real)
-    sello = V.Seal(
-        V.NUMERIC_ONLY,
-        "diferencia en los límites de una primitiva exacta, en aritmética decimal",
-        f"error de redondeo acumulado {error:.3g}",
-    )
+    valor_num, corregido, discrepa = _barrow_comprobado(
+        integrando, primitiva, var, lim_a.real, lim_b.real, valor_num, trace)
+    if discrepa is not None:
+        sello = discrepa
+    else:
+        sello = V.Seal(
+            V.NUMERIC_ONLY,
+            ("Barrow por tramos, descontando los saltos de la primitiva"
+             if corregido else
+             "diferencia en los límites de una primitiva exacta, en aritmética decimal"),
+            f"error de redondeo acumulado {error:.3g}; contrastado con cuadratura",
+        )
     trace.verificacion("integral.definida.verificacion", sello.method,
                        after=f"valor {valor_num:.12g}, error {error:.3g}")
     grafica = _grafica_area(integrando, var, low, high, valor_num, error)
     return None, complex(valor_num), sello, grafica, error
+
+
+def _singularidad_en(integrando: mx.Expr, var: str, a: float, b: float,
+                     trace: Trace):
+    """A refusal when the integrand is unbounded somewhere on ``[a, b]``, else None.
+
+    The old check probed 17 equally spaced points and missed every pole off that
+    grid: ``∫_0^1 dx/(x - 1/10)`` came out 2.197 and ``∫_0^2 tan x`` 0.877, both
+    divergent. The zeros of each denominator, of each ``cos`` inside a ``tan``, of
+    each argument of ``ln``… are located instead (``continuidad``).
+    """
+    lo, hi = min(a, b), max(a, b)
+    malos = K.puntos_singulares(integrando, var, lo, hi)
+    if not malos:
+        return None
+    punto = f"{malos[0]:.10g}"
+    mensaje = (f"el integrando no está acotado (o no está definido) en {var} ≈ {punto}, "
+               f"dentro de [{lo:.10g}, {hi:.10g}]: la integral es impropia y la regla "
+               "de Barrow no se aplica, porque exige un integrando continuo en todo "
+               "el intervalo")
+    trace.aviso("integral.dominio", mensaje)
+    return (None, None, V.Seal(V.NUMERIC_ONLY, "dominio", mensaje), None, None)
+
+
+def _barrow_comprobado(integrando: mx.Expr, primitiva: mx.Expr, var: str,
+                       a: float, b: float, valor: float, trace: Trace
+                       ) -> tuple[float, bool, V.Seal | None]:
+    """Barrow's value with the antiderivative's jumps removed, then checked.
+
+    Returns ``(valor, corregido, sello_si_discrepa)``. Two things are done that
+    Barrow's rule does not do by itself:
+
+    * **the jumps of F.** The universal substitution yields ``atan(tan(x/2))``,
+      an antiderivative on each interval between odd multiples of π and
+      discontinuous at them; ``∫_0^{2π} sin(x)·sin(x)`` came out 0 instead of π.
+      Each jump inside the interval is measured and subtracted.
+    * **an independent second path.** An adaptive Gauss–Kronrod quadrature, which
+      shares nothing with the symbolic route, has to agree; if it does not, the
+      value is not shown as a result.
+    """
+    lo, hi = min(a, b), max(a, b)
+    signo = 1.0 if b >= a else -1.0
+    saltos = K.saltos(primitiva, integrando, var, lo, hi)
+    corregido = bool(saltos)
+    if saltos:
+        total = sum(s.tamano for s in saltos)
+        valor = valor - signo * total
+        lista = ", ".join(f"{var} ≈ {s.punto:.10g} (salto {s.tamano:.10g})" for s in saltos)
+        trace.aviso(
+            "integral.saltos_de_la_primitiva",
+            f"la primitiva es discontinua dentro del intervalo, en {lista}: es una "
+            "primitiva en cada tramo, pero no en todo el intervalo, así que F(b) − F(a) "
+            "no es la integral. Se aplica Barrow por tramos, descontando cada salto")
+    cuadratura = K.cuadratura(integrando, var, lo, hi)
+    if cuadratura is None:
+        trace.aviso("integral.sin_contraste",
+                    "la cuadratura independiente no convergió; el valor de Barrow no "
+                    "se ha podido contrastar")
+        return valor, corregido, None
+    q, err = cuadratura
+    q *= signo
+    tolerancia = max(1e-8 * max(1.0, abs(q)), 100 * err)
+    if abs(valor - q) > tolerancia:
+        detalle = (f"Barrow da {valor:.12g} y la cuadratura de Gauss–Kronrod "
+                   f"{q:.12g} (error estimado {err:.2g}); no coinciden, así que no se "
+                   "da por bueno ninguno de los dos como resultado exacto")
+        trace.aviso("integral.discrepancia", detalle)
+        return q, corregido, V.Seal(V.DISCREPANT, "Barrow frente a cuadratura", detalle)
+    trace.verificacion(
+        "integral.cuadratura",
+        "contraste con una cuadratura adaptativa de Gauss–Kronrod",
+        before=f"Barrow: {valor:.12g}", after=f"cuadratura: {q:.12g} ± {err:.2g}",
+        why=("la cuadratura no usa la primitiva ni ninguna simplificación, así que "
+             "coincidir con ella no puede salir de un error compartido (§5.3)"))
+    return valor, corregido, None
 
 
 def _simpson(integrando: mx.Expr, var: str, a, b, trace: Trace,
@@ -1047,6 +1145,9 @@ def _barrow(integrando: mx.Expr, var: str, a, b, trace: Trace,
     arithmetic (``Fraction``), so the answer is exact and the seal can be
     ``verificado`` — no error bound is needed because there is none.
     """
+    rechazo = _singularidad_en(integrando, var, float(a), float(b), trace)
+    if rechazo is not None:
+        return rechazo
     log = _e01_steps.StepLog()
     try:
         _F, diferencia, _idx = _e01_integrate.definite(
@@ -1094,6 +1195,20 @@ def _barrow(integrando: mx.Expr, var: str, a, b, trace: Trace,
         why=("con límites racionales, F(b) y F(a) se evalúan sin aproximación y la "
              "resta es exacta; si algún valor no es racional, se dice y se acota el error"),
     )
+    comprobado, corregido, discrepa = _barrow_comprobado(
+        integrando, mx.from_symbolic(_F), var, float(a), float(b), float(diferencia),
+        trace)
+    if discrepa is not None:
+        grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b), comprobado, 0.0)
+        return None, complex(comprobado), discrepa, grafica, abs(comprobado) * 1e-9
+    if corregido:
+        # F jumped inside the interval: the exact F(b) - F(a) is NOT the integral,
+        # so it cannot be shown as an exact value; the corrected one is decimal
+        error = max(abs(comprobado) * 1e-9, 1e-12)
+        sello = V.Seal(V.NUMERIC_ONLY, "Barrow por tramos, descontando los saltos "
+                       "de la primitiva", f"{comprobado:.12g} con error {error:.3g}")
+        grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b), comprobado, error)
+        return None, complex(comprobado), sello, grafica, error
     sello = V.Seal(V.VERIFIED if isinstance(diferencia, Fraction) else V.NUMERIC_ONLY,
                    metodo, detalle)
     grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b),

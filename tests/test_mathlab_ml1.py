@@ -608,12 +608,15 @@ def test_el_teorema_de_la_raiz_racional_declara_su_candidato_finito():
     metodo = [s for s in traza.steps if s.kind == TR.METODO][0]
     assert "término independiente" in metodo.why
     assert "candidatos" in metodo.why
+    # 2x^2 - 8: the independent term is -8 and the leading coefficient 2, and the
+    # explanation printed them the other way round
+    assert "independiente (-8)" in metodo.why and "principal (2)" in metodo.why
 
 
 @pytest.mark.parametrize("texto,esperado", [
-    ("x^3-6x^2+11x-6", ["(x - 1)", "(x - 2)", "(x - 3)", "1"]),
+    ("x^3-6x^2+11x-6", ["(x - 1)", "(x - 2)", "(x - 3)"]),
     ("2x^2-8", ["(x + 2)", "(x - 2)", "2"]),
-    ("x^3+2x^2-5x-6", ["(x + 3)", "(x + 1)", "(x - 2)", "1"]),
+    ("x^3+2x^2-5x-6", ["(x + 3)", "(x + 1)", "(x - 2)"]),
     ("x^2+1", ["x^2 + 1"]),
 ])
 def test_factorizar_polinomios(texto, esperado):

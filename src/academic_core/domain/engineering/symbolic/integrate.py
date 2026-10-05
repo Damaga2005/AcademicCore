@@ -1489,7 +1489,11 @@ def _medio_angulo(e: Expr, var: str, log: StepLog, depth: int):
         if isinstance(g, Num):
             return g if exact_value(g) is not None else None
         if isinstance(g, Sym):
-            return u if g.name == var else None
+            # A bare x is NOT u: under u = tg(x/2) it is 2·arctg(u), which is not
+            # rational, so the substitution does not apply. Mapping it to u made
+            # ∫ sin(x)/x come back as 2·atan(tan(x/2)) + …, i.e. x + sin x, whose
+            # derivative is 1 + cos x (found 2026-10-05 against a quadrature).
+            return None
         if isinstance(g, Neg):
             a = en_u(g.arg)
             return None if a is None else Neg(a)

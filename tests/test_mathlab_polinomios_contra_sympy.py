@@ -44,9 +44,8 @@ def test_raices_racionales_coinciden_con_sympy_en_polinomios_aleatorios():
 
 
 def test_factorizar_saca_x_con_su_multiplicidad():
-    # el "1" final es el cociente constante que el módulo siempre ha devuelto
-    assert PL.factorizar(PL.normalizar([0, 0, 1]))[0] == ("x", 2)
-    assert PL.factorizar(PL.normalizar([1, -2, 1]))[0] == ("(x - 1)", 2)
+    assert PL.factorizar(PL.normalizar([0, 0, 1])) == [("x", 2)]
+    assert PL.factorizar(PL.normalizar([1, -2, 1])) == [("(x - 1)", 2)]
 
 
 def test_el_producto_de_los_factores_devueltos_es_el_polinomio():
