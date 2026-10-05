@@ -286,6 +286,28 @@ def resolver(ecuacion: str, var: str = "x") -> Resolucion:
         diferencia = _desarrolla_angulos_multiples(original, var)
         if diferencia != original:
             familias, hipotesis, espurias = _casos(diferencia, var)
+    # A family that fails the ORIGINAL equation is not a solution, whatever case
+    # produced it. Each case reported such families in `espurias` and published
+    # them anyway, so `cos(x - pi/4)**2 = 1` printed two families that do not
+    # satisfy it next to a note saying so. They are removed here, once, for every
+    # case — and if nothing is left the answer is «not solved», never «no
+    # solutions», because a wrong case is not evidence that there are none.
+    validas, descartadas = [], []
+    for familia in familias:
+        if _comprobar([familia], original, var):
+            descartadas.append(familia)
+        else:
+            validas.append(familia)
+    if descartadas:
+        espurias = list(espurias) + [
+            f"{familia.texto(var)} no satisface la ecuación original y se descarta"
+            for familia in descartadas]
+        hipotesis = list(hipotesis) + [
+            "se descartaron familias que no cumplen la ecuación original; las que "
+            "quedan sí la cumplen, pero la lista puede estar incompleta"]
+        if not validas:
+            hipotesis.append(MOTIVO_SIN_CASO)
+    familias = validas
     refusos = tuple(h for h in hipotesis if MOTIVO_SIN_CASO in h)
     return Resolucion(tuple(familias), hipotesis=tuple(h for h in hipotesis
                                                        if h not in refusos),
@@ -489,10 +511,10 @@ def _caso_directo(f: mx.Expr, var: str):
     if cte is None:
         cociente, cte = resto, _valor_exacto(cociente)
     if cte is None:
-        return None
+        return _caso_directo_escalado(f, var)
     nombre, u = _una_trig(cociente)
     if u is None:
-        return None
+        return _caso_directo_escalado(f, var)
     if nombre == "sin":
         familias, hipotesis = _soluciones_seno(cte, u, var)
     elif nombre == "cos":
@@ -503,6 +525,69 @@ def _caso_directo(f: mx.Expr, var: str):
         return None
     espurias = _comprobar(familias, f, var)
     return familias, hipotesis, espurias
+
+
+def _caso_directo_escalado(f: mx.Expr, var: str):
+    """``a·sin(u) + b = c`` with exact constants: the direct case after dividing.
+
+    ``2·cos(x) = -sqrt(3)`` was refused as «ningún caso encaja» while
+    ``cos(x) = -sqrt(3)/2`` was solved: the direct case only accepted the bare
+    function, and the polynomial case reads ``sqrt(3)`` as an atom it cannot hold.
+    (Found 2026-10-05 generating equations at random.) Only ONE term may contain
+    the variable, and it must be a constant times one ``sin``/``cos``/``tan`` —
+    anything else is a different case and goes to it.
+    """
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    con_variable, constantes = [], []
+    for signo, termino in _sumandos(f):
+        (con_variable if var in mx.variables(termino) else constantes).append(
+            (signo, termino))
+    if len(con_variable) != 1:
+        return None
+    signo, termino = con_variable[0]
+    factor: mx.Expr = mx.Num(signo)
+    while True:
+        if isinstance(termino, mx.Neg):
+            factor, termino = mx.Neg(factor), termino.arg
+        elif isinstance(termino, mx.Mul) and var not in mx.variables(termino.left):
+            factor, termino = mx.Mul(factor, termino.left), termino.right
+        elif isinstance(termino, mx.Mul) and var not in mx.variables(termino.right):
+            factor, termino = mx.Mul(factor, termino.right), termino.left
+        elif isinstance(termino, mx.Div) and var not in mx.variables(termino.right):
+            factor, termino = mx.Div(factor, termino.right), termino.left
+        else:
+            break
+    nombre, u = _una_trig(termino)
+    if u is None:
+        return None
+    suma = mx.ZERO
+    for s_, t_ in constantes:
+        suma = mx.Add(suma, t_) if s_ > 0 else mx.Sub(suma, t_)
+    if mx.valor_real(factor, {}) in (None, 0.0):
+        return None
+    despejada = mx.Div(mx.Neg(suma), factor)
+    try:
+        # the ring normal form folds «-(0 - sqrt(2)/2)/2» into «1/4*sqrt(2)», so
+        # the answer reads arccos(√2/4) and not arccos(-(0 - √2/2)/2)
+        despejada = P.to_expr(P.as_poly(despejada))
+    except Exception:  # noqa: BLE001 - the unfolded form is still exact
+        pass
+    cte = _valor_exacto(T.simplify(despejada))
+    if cte is None:
+        return None
+    if nombre == "sin":
+        familias, hipotesis = _soluciones_seno(cte, u, var)
+    elif nombre == "cos":
+        familias, hipotesis = _soluciones_coseno(cte, u, var)
+    else:
+        familias, hipotesis = _soluciones_tangente(cte, u, var)
+    hipotesis = [f"se despeja {nombre}({mx.text(u)}) dividiendo entre "
+                 f"{mx.text(T.simplify(factor))}"] + list(hipotesis)
+    if not familias:
+        # out of range is a real answer («no hay solución») and travels as one
+        return [], hipotesis, []
+    return familias, hipotesis, _comprobar(familias, f, var)
 
 
 def _valor_exacto(e: mx.Expr):
@@ -1274,7 +1359,14 @@ def _pitagoras_para(f: mx.Expr, nombre: str, var: str):
                 # `(1 - sen**2)**k`. Using the whole exponent gives `cos**4` the
                 # value of `cos**8`, and `cos(x)**2 = 1/2` came out with no
                 # solutions at all.
-                return _potencia_de_pitagoras(simbolo, int(exponente.value) // 2,
+                #
+                # And with the base's OWN argument. Writing `simbolo` here turned
+                # `cos(x - pi/4)**2` into `1 - sen(x)**2`, a different equation:
+                # `cos(x - pi/4)**2 = 1` published `x = 0 + 2k·pi` and `x = pi + 2k·pi`
+                # where the answer is `x = pi/4 + k·pi` (found 2026-10-05).
+                # `_como_polinomio` still demands ONE argument for every call, so
+                # mixing `sen(x)` with `cos(2x)**2` is refused, not merged.
+                return _potencia_de_pitagoras(base.args[0], int(exponente.value) // 2,
                                               nombre)
             return mx.Pow(base, exponente)
         if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
