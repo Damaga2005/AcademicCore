@@ -355,6 +355,7 @@ def _resolver(peticion: C.Peticion) -> C.Resultado:
     else:
         ecuacion, var = str(entrada), "x"
     trace = Trace()
+    _objetivo_declarado(trace, "resolver")
     trace.metodo(
         "resolver.estrategia",
         "se lleva la ecuación a una forma que uno de los casos de T-12 sepa resolver",
@@ -775,6 +776,7 @@ def _igualdad(peticion: C.Peticion) -> C.Resultado:
         raise C.error("BAD_INPUT", "se espera {'a': ..., 'b': ...}")
     a, b = _expr(entrada["a"]), _expr(entrada["b"])
     trace = Trace()
+    _objetivo_declarado(trace, "demostrar")
     iguales, metodo, detalle = V.check_equivalence(a, b)
     numerico = False
     if not iguales:

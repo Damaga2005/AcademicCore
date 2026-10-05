@@ -2546,6 +2546,16 @@ METODO_FASORES = (
     "contra el contrato de CIRCUITS_LAB, porque dos laboratorios que usan la "
     "misma palabra pueden no usar la misma convención")
 
+METODO_DEMOSTRAR = (
+    "una identidad se demuestra por forma normal exacta (texto, polinomio, función "
+    "racional) y, si eso no basta, se lleva AL MISMO objetivo cada miembro con "
+    "reescrituras acotadas. Los puntos numéricos nunca demuestran: sólo "
+    "refutan o dejan la igualdad como «sin prueba exacta»")
+METODO_RESOLVER = (
+    "una ecuación trigonométrica se reduce a la forma elemental que el resolvedor "
+    "de T-12 sabe invertir (seno, coseno o tangente de un argumento afín), y cada "
+    "solución se devuelve como familia con su periodo, no como una lista finita")
+
 VERIFICA_REESCRITURA = (
     "cada reescritura se vuelve a comprobar por camino numérico con puntos "
     "sembrados, más un control negativo: sin él la comprobación pasaría "
@@ -2567,6 +2577,14 @@ VERIFICA_COMPLEJOS = (
 VERIFICA_FASORES = (
     "el contrato de fase se comprueba contra el de CIRCUITS_LAB, y la suma de "
     "fasores contra la suma de las senoidales que los originaron")
+
+VERIFICA_DEMOSTRAR = (
+    "la demostración exacta se contrasta con un camino numérico independiente de "
+    "puntos sembrados, más un control negativo: una igualdad falsa tiene que ser "
+    "rechazada, o la comprobación no compara nada")
+VERIFICA_RESOLVER = (
+    "cada familia se sustituye en la ecuación original (no en la reducida), y las "
+    "soluciones espurias se descartan por esa sustitución")
 
 #: the three complex counterparts, which is what this objective actually maps.
 COMPLEJOS_POR_FUNCION = ("sin", "cos", "tan")
@@ -2615,6 +2633,32 @@ def _metodo_fasores(amplitud, fase=0, frecuencia=None):
     from academic_core.domain.engineering.mathlab import fasores as F
 
     return F.de_senoidal(amplitud, fase, frecuencia)
+
+
+def _metodo_demostrar(a: mx.Expr, b: mx.Expr):
+    """``(demostrada, método, detalle)`` for ``a = b``; ``demostrada`` only if exact.
+
+    Exact normal forms first; failing that, both sides go through the bounded
+    simplifier and the normal forms are compared again. A numeric agreement is
+    deliberately NOT a proof and is reported as such by the caller.
+    """
+    from academic_core.domain.engineering.mathlab import verify as V
+
+    igual, metodo, detalle = V.check_equivalence(a, b)
+    if igual:
+        return True, metodo, detalle
+    sa, sb = simplify(a), simplify(b)
+    igual, metodo, detalle = V.check_equivalence(sa, sb)
+    if igual:
+        return True, f"{metodo} tras simplificar", detalle
+    return False, "", "ninguna forma normal común, ni tras simplificar"
+
+
+def _metodo_resolver(ecuacion: str, var: str = "x"):
+    """The families of solutions; the solver itself lives in ``ecuaciones``."""
+    from academic_core.domain.engineering.mathlab import ecuaciones as E
+
+    return E.resolver(ecuacion, var)
 
 
 @dataclass(frozen=True)
@@ -2689,6 +2733,11 @@ OBJETIVOS: dict[str, Objetivo] = {
                           VERIFICA_COMPLEJOS, (), "mathlab/complejos.py"),
     "fasores": Objetivo("fasores", _metodo_fasores, METODO_FASORES,
                         VERIFICA_FASORES, (), "mathlab/fasores.py"),
+    # --- the two the spec names and the registry lacked (T-20) ---------------
+    "demostrar": Objetivo("demostrar", _metodo_demostrar, METODO_DEMOSTRAR,
+                          VERIFICA_DEMOSTRAR, (), "mathlab/verify.py"),
+    "resolver": Objetivo("resolver", _metodo_resolver, METODO_RESOLVER,
+                         VERIFICA_RESOLVER, (), "mathlab/ecuaciones.py"),
 }
 
 

@@ -22,6 +22,13 @@ TRANSFORMACION = {
     "fasores": "fasores.py",
 }
 
+#: named by the T-20 spec ("simplificar, demostrar, resolver, integrar, derivar,
+#: complejos, fasores") and missing from the registry until now
+ESPECIFICACION = {
+    "demostrar": "verify.py",
+    "resolver": "ecuaciones.py",
+}
+
 REESCRITURA = ("simplificar", "expandir", "producto_a_suma", "suma_a_producto",
                "potencias", "sustitucion_universal", "hiperbolicas", "exponencial")
 
@@ -31,8 +38,9 @@ REESCRITURA = ("simplificar", "expandir", "producto_a_suma", "suma_a_producto",
 # ---------------------------------------------------------------------------
 
 
-def test_los_doce_objetivos_estan_declarados_en_el_motor():
-    assert set(trig.OBJETIVOS) == set(REESCRITURA) | set(TRANSFORMACION)
+def test_los_catorce_objetivos_estan_declarados_en_el_motor():
+    assert set(trig.OBJETIVOS) == (set(REESCRITURA) | set(TRANSFORMACION)
+                                   | set(ESPECIFICACION))
 
 
 @pytest.mark.parametrize("nombre", sorted(TRANSFORMACION))
@@ -44,7 +52,8 @@ def test_cada_objetivo_de_transformacion_dice_de_donde_viene(nombre):
     assert callable(objetivo.metodo)
 
 
-@pytest.mark.parametrize("nombre", sorted(TRANSFORMACION) + sorted(REESCRITURA))
+@pytest.mark.parametrize("nombre", sorted(TRANSFORMACION) + sorted(REESCRITURA)
+                         + sorted(ESPECIFICACION))
 def test_todo_objetivo_declara_su_metodo_y_su_segundo_camino(nombre):
     """§5.5b writes the method down; T-22 names the path that checks it.
 
@@ -197,3 +206,71 @@ def test_el_inventario_es_lo_que_la_calculadora_dice():
                    if s.rule.startswith("objetivo.")}
     assert en_la_traza == {"integrar"}
     assert en_la_traza <= declarados
+
+
+# ---------------------------------------------------------------------------
+# demostrar / resolver: the two the T-20 spec names
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("nombre", sorted(ESPECIFICACION))
+def test_demostrar_y_resolver_dicen_de_donde_vienen(nombre):
+    objetivo = trig.objetivo(nombre)
+    assert objetivo.procede_de.endswith(ESPECIFICACION[nombre])
+    assert objetivo.familias == () and objetivo.es_reescritura is False
+
+
+def test_demostrar_acepta_una_identidad_exacta_y_rechaza_una_falsa():
+    metodo = trig.objetivo("demostrar").metodo
+    ok, _m, _d = metodo(mx.parse("2*x+2*x"), mx.parse("4*x"))
+    assert ok
+    # negative control: without it the check would pass if nothing were compared
+    ok, _m, _d = metodo(mx.parse("cos(x)"), mx.parse("sin(x)"))
+    assert not ok
+
+
+def test_resolver_devuelve_familias():
+    resolucion = trig.objetivo("resolver").metodo("sin(x) = 1/2")
+    assert len(resolucion.familias) == 2
+
+
+@pytest.mark.parametrize("operacion,entrada,objetivo", [
+    ("igualdad", {"a": "2*x+2*x", "b": "4*x"}, "demostrar"),
+    ("resolver", "sin(x) = 1/2", "resolver"),
+])
+def test_la_calculadora_escribe_demostrar_y_resolver_en_la_traza(
+        operacion, entrada, objetivo):
+    import academic_core.domain.engineering.mathlab as ML
+
+    resultado = ML.calcular(ML.Peticion(operacion, entrada))
+    reglas = [s.rule for s in resultado.traza]
+    assert f"objetivo.{objetivo}" in reglas, reglas
+    assert f"objetivo.{objetivo}.verifica" in reglas, reglas
+
+
+# ---------------------------------------------------------------------------
+# bounded search: every rewrite objective stops, and does not oscillate
+# ---------------------------------------------------------------------------
+
+CESTA = ["sin(x)^2+cos(x)^2", "sin(2*x)*cos(x)", "sin(x)*cos(3*x)",
+         "sin(x)+sin(3*x)", "cos(x)^4", "tan(x/2)", "sinh(x)^2-cosh(x)^2",
+         "sin(x+y)", "1/(1+cos(x))", "cos(5*x)", "sin(x)*cos(x)*tan(x)"]
+
+
+@pytest.mark.parametrize("nombre", sorted(REESCRITURA))
+def test_un_objetivo_de_reescritura_termina_y_no_oscila(nombre):
+    """T-20: «evitar ciclos y explosión combinatoria mediante búsqueda acotada».
+
+    Applying the objective to its own output must be a no-op or at least must not
+    make the expression bigger, otherwise two rules are undoing each other and the
+    pass limit is the only thing stopping them.
+    """
+    metodo = trig.objetivo(nombre).metodo
+    for texto in CESTA:
+        expresion = mx.parse(texto)
+        primera = metodo(expresion)
+        primera = getattr(primera, "expresion", primera)
+        segunda = metodo(primera)
+        segunda = getattr(segunda, "expresion", segunda)
+        assert len(mx.text(segunda)) <= len(mx.text(primera)) * 2 + 8, (
+            nombre, texto, mx.text(primera), mx.text(segunda))

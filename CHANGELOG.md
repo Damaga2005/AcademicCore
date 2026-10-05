@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-05 — T-20 cerrada: `demostrar` y `resolver` pasan a ser objetivos del motor
+
+La especificación de T-20 listaba siete objetivos y el registro declaraba cinco de
+ellos. `demostrar` (T-22) y `resolver` (T-12) existían como operaciones de la
+calculadora pero no como objetivos, así que `trig.inventario()` no podía
+enumerarlas ni la trayectoria del alumno decir qué método y qué segundo camino las
+respaldaban. Ahora son 14 objetivos (8 de reescritura, 6 de transformación), las
+dos operaciones escriben su objetivo en la traza, y una prueba nueva comprueba que
+ningún objetivo de reescritura agranda su propia salida (búsqueda acotada, sin
+ciclos). Con esto no queda ninguna familia trigonométrica en PARCIAL.
+
 ## 2026-10-05 — `taylor` era la puerta más débil a una serie que el módulo ya sabía
 
 **Cerrar la cota de T-19 dejó a la vista algo peor que la cota.** La misma función

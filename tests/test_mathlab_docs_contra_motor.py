@@ -152,7 +152,8 @@ def test_los_cuatro_de_transformacion_no_reeescriben_y_deben_otra_cosa():
     que no están vacíos.
     """
     cambios = [o for o in T.OBJETIVOS.values() if not o.es_reescritura]
-    assert {o.nombre for o in cambios} == {"derivar", "integrar", "complejos", "fasores"}
+    assert {o.nombre for o in cambios} == {"derivar", "integrar", "complejos", "fasores",
+                                           "demostrar", "resolver"}
     for o in cambios:
         assert o.porque and len(o.porque) > 40, o.nombre
         assert o.verifica and len(o.verifica) > 40, o.nombre
