@@ -1451,6 +1451,65 @@ def _multiplo_de(arg: Expr, x: Sym) -> int | None:
     return None
 
 
+def _producto_a_suma(e: Expr, var: str, log: StepLog, depth: int):
+    """``sen(mx)·cos(nx)`` and friends, through the product-to-sum identities.
+
+    Before this the product fell through to the universal substitution, which is
+    correct and unreadable: ``∫sen(x)·cos(3x)`` came back as a polynomial of degree 8
+    in ``1/(1 + tg(x/2)²)``, where the textbook answer is ``cos(2x)/4 − cos(4x)/8``.
+    It also gave ``atan(tan(x/2))`` for ``∫sen(x)·sen(x)``, which is discontinuous at
+    every odd multiple of π. The identities replace one product by two terms that
+    are each in the table:
+
+    * ``sen A·cos B = (sen(A+B) + sen(A−B))/2``
+    * ``cos A·cos B = (cos(A−B) + cos(A+B))/2``
+    * ``sen A·sen B = (cos(A−B) − cos(A+B))/2``
+    """
+    if depth > MAX_DEPTH or not isinstance(e, Mul):
+        return None
+    x = Sym(var)
+    a, b = e.left, e.right
+    if not (isinstance(a, Fn) and isinstance(b, Fn)
+            and a.name in ("sin", "cos") and b.name in ("sin", "cos")):
+        return None
+    m, n = _multiplo_de(a.arg, x), _multiplo_de(b.arg, x)
+    if m is None or n is None:
+        return None
+    if a.name == "cos" and b.name == "sin":
+        a, b, m, n = b, a, n, m
+
+    def angulo(k: int) -> Expr:
+        return x if k == 1 else Mul(Num(Fraction(k)), x)
+
+    def f(nombre: str, k: int) -> Expr:
+        if k == 0:
+            return ONE if nombre == "cos" else Num(Fraction(0))
+        if k < 0:
+            return Fn("cos", angulo(-k)) if nombre == "cos" else Neg(Fn("sin", angulo(-k)))
+        return Fn(nombre, angulo(k))
+
+    if a.name == "sin" and b.name == "cos":
+        suma = Add(f("sin", m + n), f("sin", m - n))
+        identidad = "sen A·cos B = (sen(A+B) + sen(A−B))/2"
+    elif a.name == "cos":
+        suma = Add(f("cos", m - n), f("cos", m + n))
+        identidad = "cos A·cos B = (cos(A−B) + cos(A+B))/2"
+    else:
+        suma = Sub(f("cos", m - n), f("cos", m + n))
+        identidad = "sen A·sen B = (cos(A−B) − cos(A+B))/2"
+    reescrito = Div(suma, Num(Fraction(2)))
+    s0 = log.add(OP, "producto a suma", text(e), text(reescrito),
+                 substitution=identidad,
+                 explanation=("Un producto de senos y cosenos de múltiplos de x se "
+                              "escribe como suma, y cada término es inmediato."))
+    primitiva, paso = integrate(reescrito, var, log, depth + 1)
+    # the two table entries arrive as «1/4*-cos(4x) + -1/2*-cos(2x)»; the exact
+    # normal form writes the same function the way the textbook does
+    plegada, _reglas = simplify(primitiva, var, expand=True)
+    return plegada, log.add(OP, "integrar la suma", _integral(reescrito, var),
+                            text(plegada), uses=(s0, paso))
+
+
 def _medio_angulo(e: Expr, var: str, log: StepLog, depth: int):
     """``u = tg(x/2)``: the integrand becomes rational, and then it is read.
 
@@ -1688,7 +1747,8 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
         return salida, log.add(OP, etiqueta, _integral(e, var), text(salida),
                                 explanation=por_que)
     for strategy in (_potencia_producto, _potencia_trig, _potencia_tabulada,
-                   _substitution, _by_parts, _medio_angulo, _integral_racional):
+                   _substitution, _by_parts, _producto_a_suma, _medio_angulo,
+                   _integral_racional):
         got = _attempt(log, lambda scratch, st=strategy: st(e, var, scratch, depth))
         if got is not None:
             return got

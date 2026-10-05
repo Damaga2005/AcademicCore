@@ -102,3 +102,14 @@ def test_lo_que_ya_estaba_bien_sigue_bien_y_ahora_esta_contrastado(texto, espera
 def test_la_cuadratura_independiente_es_exacta_a_doble_precision(texto, a, b, valor):
     q, err = K.cuadratura(mx.parse(texto), "x", a, b)
     assert abs(q - valor) < 1e-12 and err < 1e-9
+
+
+@pytest.mark.parametrize("integrando,esperada", [
+    ("sin(x)*cos(3*x)", "cos(2*x)/4 - cos(4*x)/8"),
+    ("cos(x)*cos(2*x)", "sin(3*x)/6 + sin(x)/2"),
+    ("sin(x)*sin(x)", "x/2 - sin(2*x)/4"),
+])
+def test_producto_a_suma_da_la_primitiva_de_los_libros(integrando, esperada):
+    """It used to be a degree-8 polynomial in 1/(1 + tg(x/2)²), or atan(tan(x/2))."""
+    primitiva, _ = I.integrate(mx.to_symbolic(mx.parse(integrando)), "x", I.StepLog())
+    assert mx.text(mx.from_symbolic(primitiva)) == esperada
