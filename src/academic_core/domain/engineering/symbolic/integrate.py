@@ -1823,9 +1823,16 @@ _PROPIAS = (
     ("cot", lambda x: Add(Neg(Fn("cot", x)), Neg(x)), "tabla: ∫cot(u)^2 du = -cot(u) - u",
      "Por partes con v = cot(u): cot^2 = cot·(cosec^2 - 1) y las dos piezas "
      "están en la tabla. Dominio: sen(u) ≠ 0."),
-    ("coth", lambda x: Neg(Fn("log", Div(ONE, Fn("sinh", x)))),
-     "tabla: ∫coth(u) du = -ln|sinh(u)|",
-     "Inversa de d/du ln|senh(u)| = cosh(u)/senh(u) = coth(u). Dominio: senh(u) ≠ 0."),
+    # This entry used to be ∫coth(u) = -ln|1/sinh(u)| filed under the SQUARE:
+    # ∫coth(x)^2 came back as ln|senh x|, which differentiates to coth and not
+    # coth^2. ∫coth itself is answered elsewhere; the square is u - coth(u).
+    ("coth", lambda x: Sub(x, Fn("coth", x)), "tabla: ∫coth(u)^2 du = u - coth(u)",
+     "coth^2 = 1 + csch^2 y d/du coth(u) = -csch(u)^2, así que las dos piezas "
+     "están en la tabla. Dominio: senh(u) ≠ 0."),
+    ("tanh", lambda x: Sub(x, Fn("tanh", x)), "tabla: ∫tanh(u)^2 du = u - tanh(u)",
+     "tanh^2 = 1 - sech^2 y d/du tanh(u) = sech(u)^2."),
+    ("csch", lambda x: Neg(Fn("coth", x)), "tabla: ∫csch(u)^2 du = -coth(u)",
+     "Inversa de d/du coth(u) = -csch(u)^2. Dominio: senh(u) ≠ 0."),
     ("sech", lambda x: Fn("tanh", x), "tabla: ∫sech(u)^2 du = tanh(u)",
      "Inversa de d/du tanh(u) = sech^2(u)."),
 )
@@ -1991,6 +1998,11 @@ def _de_la_tabla_directa(e: Expr, x: Sym) -> tuple[Expr, str, str] | None:
         if clave is None:
             return None
     elif isinstance(e, Pow) and isinstance(e.base, Fn) and e.base.arg == x:
+        # The EXPONENT must be 2. Reading only the base made ∫cosh(x)^5 come back
+        # as the primitive of cosh(x)^2 (found 2026-10-05 by differentiating it);
+        # the higher powers go through _senh_cosh_potencia instead.
+        if exact_value(e.exponent) != 2:
+            return _senh_cosh_potencia(e, x) or _hiperbolica_potencia(e, x)
         clave = f"{e.base.name}^2"
         if clave not in _TABLA_DIRECTA:
             return None
@@ -1998,6 +2010,78 @@ def _de_la_tabla_directa(e: Expr, x: Sym) -> tuple[Expr, str, str] | None:
         return None
     salida, etiqueta, por_que = _TABLA_DIRECTA[clave]
     return salida(x), etiqueta, por_que
+
+def _senh_cosh_potencia(e: Expr, x: Sym) -> tuple[Expr, str, str] | None:
+    """``∫senh(x)^n`` and ``∫cosh(x)^n`` for an integer ``n >= 3``, by reduction.
+
+    * ``∫senh^n = senh^(n-1)·cosh/n - (n-1)/n·∫senh^(n-2)``
+    * ``∫cosh^n = cosh^(n-1)·senh/n + (n-1)/n·∫cosh^(n-2)``
+
+    Both come from integrating by parts once with ``v' = senh`` (or ``cosh``) and
+    replacing ``cosh^2 = 1 + senh^2``; the sign is the only difference, and it is
+    the one that ``1 + senh^2`` against ``1 - sen^2`` puts there.
+    """
+    if not (isinstance(e, Pow) and isinstance(e.base, Fn)
+            and e.base.name in ("sinh", "cosh") and e.base.arg == x):
+        return None
+    n = exact_value(e.exponent)
+    if n is None or int(n) != n or not (3 <= int(n) <= 64):
+        return None
+    n = int(n)
+    nombre = e.base.name
+    otra = "cosh" if nombre == "sinh" else "sinh"
+    signo = Fraction(-1) if nombre == "sinh" else Fraction(1)
+    # F_0 = x, F_1 = the other function; then F_k from F_(k-2)
+    previas = {0: x, 1: Fn(otra, x)}
+    for k in range(2, n + 1):
+        termino = Mul(_k(Fraction(1, k)),
+                      Mul(Pow(Fn(nombre, x), Num(Fraction(k - 1))), Fn(otra, x)))
+        previas[k] = Add(termino, Mul(_k(signo * Fraction(k - 1, k)), previas[k - 2]))
+    simbolo = "-" if nombre == "sinh" else "+"
+    escrito = "senh" if nombre == "sinh" else "cosh"
+    return (previas[n],
+            f"reducción: ∫{escrito}^n = {escrito}^(n-1)·{'cosh' if nombre == 'sinh' else 'senh'}/n "
+            f"{simbolo} (n-1)/n·∫{escrito}^(n-2)",
+            "Por partes una vez y cosh^2 = 1 + senh^2; se aplica hasta llegar a la "
+            "potencia 0 o 1, que son inmediatas.")
+
+
+def _hiperbolica_potencia(e: Expr, x: Sym) -> tuple[Expr, str, str] | None:
+    """``∫tanh^n``, ``∫coth^n``, ``∫sech^n``, ``∫csch^n`` for ``n >= 3``, by reduction.
+
+    * ``∫tanh^n = -tanh^(n-1)/(n-1) + ∫tanh^(n-2)``      (tanh² = 1 - sech²)
+    * ``∫coth^n = -coth^(n-1)/(n-1) + ∫coth^(n-2)``      (coth² = 1 + csch²)
+    * ``∫sech^n = sech^(n-2)·tanh/(n-1) + (n-2)/(n-1)·∫sech^(n-2)``
+    * ``∫csch^n = -csch^(n-2)·coth/(n-1) - (n-2)/(n-1)·∫csch^(n-2)``
+
+    The powers 0 and 1 are the engine's own table entries, so the bottom of each
+    recursion is the same answer a student gets for ``∫sech(x)`` on its own.
+    """
+    if not (isinstance(e, Pow) and isinstance(e.base, Fn)
+            and e.base.name in ("tanh", "coth", "sech", "csch") and e.base.arg == x):
+        return None
+    n = exact_value(e.exponent)
+    if n is None or int(n) != n or not (3 <= int(n) <= 64):
+        return None
+    n, nombre = int(n), e.base.name
+    f = Fn(nombre, x)
+    uno, _ = integrate(f, x.name, StepLog())
+    dos, _ = integrate(Pow(f, Num(Fraction(2))), x.name, StepLog())
+    previas = {0: x, 1: uno, 2: dos}
+    for k in range(3, n + 1):
+        if nombre in ("tanh", "coth"):
+            termino = Mul(_k(Fraction(-1, k - 1)), Pow(f, Num(Fraction(k - 1))))
+            previas[k] = Add(termino, previas[k - 2])
+        else:
+            otra = Fn("tanh" if nombre == "sech" else "coth", x)
+            signo = Fraction(1) if nombre == "sech" else Fraction(-1)
+            termino = Mul(_k(signo * Fraction(1, k - 1)),
+                          Mul(Pow(f, Num(Fraction(k - 2))), otra))
+            previas[k] = Add(termino, Mul(_k(signo * Fraction(k - 2, k - 1)), previas[k - 2]))
+    return (previas[n], f"reducción de potencias: ∫{nombre}^n en función de ∫{nombre}^(n-2)",
+            "Por partes una vez y la identidad pitagórica hiperbólica; la recursión "
+            "baja de dos en dos hasta una entrada de la tabla.")
+
 
 def _has_sqrt(e: Expr) -> bool:
     if isinstance(e, Fn):

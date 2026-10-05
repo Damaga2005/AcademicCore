@@ -113,3 +113,19 @@ def test_producto_a_suma_da_la_primitiva_de_los_libros(integrando, esperada):
     """It used to be a degree-8 polynomial in 1/(1 + tg(x/2)²), or atan(tan(x/2))."""
     primitiva, _ = I.integrate(mx.to_symbolic(mx.parse(integrando)), "x", I.StepLog())
     assert mx.text(mx.from_symbolic(primitiva)) == esperada
+
+
+@pytest.mark.parametrize("nombre", ["sin", "cos", "tan", "sinh", "cosh", "tanh",
+                                    "sec", "csc", "cot", "coth", "csch", "sech"])
+@pytest.mark.parametrize("n", range(1, 9))
+def test_toda_potencia_de_una_trigonometrica_o_hiperbolica_deriva_en_si_misma(nombre, n):
+    """∫cosh(x)^5 used to return the primitive of cosh(x)^2 — the table read the
+    base and not the exponent — and ∫coth(x)^2 returned ∫coth. Each primitive
+    here is differentiated and compared with its integrand."""
+    from academic_core.domain.engineering.mathlab import derive_mv as D
+
+    texto = f"{nombre}(x)^{n}" if n > 1 else f"{nombre}(x)"
+    primitiva, _ = I.integrate(mx.to_symbolic(mx.parse(texto)), "x", I.StepLog())
+    derivada = D.differentiate(mx.from_symbolic(primitiva), "x")
+    ok, _m, detalle = V.numeric_agreement(derivada, mx.parse(texto), samples=16)
+    assert ok, (texto, mx.text(mx.from_symbolic(primitiva)), detalle)
