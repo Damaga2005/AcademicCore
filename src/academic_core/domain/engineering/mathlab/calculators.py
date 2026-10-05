@@ -1086,53 +1086,64 @@ def _barrow_comprobado(integrando: mx.Expr, primitiva: mx.Expr, var: str,
 
 def _simpson(integrando: mx.Expr, var: str, a, b, trace: Trace,
              panels: int = 64) -> tuple[float, float] | None:
-    """Composite Simpson with Richardson extrapolation, plus an error bound.
+    """The numeric value of a definite integral without an exact antiderivative.
 
-    The second independent path of §5.3 for a definite integral. Two runs at
-    ``n`` and ``2n`` panels give the standard estimate
-    ``|S(2n) − S(n)| / 15``; the ``(f⁗)`` form of the error term is the reason
-    the error is only valid for a sufficiently smooth integrand, which is
-    recorded as a hypothesis rather than assumed.
+    Named for what it replaced. Composite Simpson with a Richardson estimate used
+    to live here, and the «error acotado» it declared was an estimate that could
+    be smaller than the real error — measured 2026-10-05 against mpmath at 30
+    digits: ``∫_{-1}^{11} ln(3x²)`` declared 0.0046 for an error of 0.069, and
+    ``∫_3^{12} e^(x²-1/2)`` half the real error. A bound that is sometimes smaller
+    than the error is not a bound.
+
+    Now: adaptive Gauss–Kronrod (7-15), with the interval cut at every point where
+    a denominator, a logarithm's argument or a root's radicand vanishes — even an
+    integrable singularity is a place where a fixed grid loses digits — and the
+    declared error is the larger of the method's own estimate (×10) and the
+    difference between two runs at independent tolerances.
     """
     lo, hi = float(a), float(b)
     if hi == lo:
         return 0.0, 0.0
-
-    def suma(n: int) -> tuple[float, bool]:
-        h = (hi - lo) / n
-        total = 0.0
-        for k in range(n + 1):
-            x = lo + k * h
-            v = mx.evaluate(integrando, {var: x})
-            if v is None or v.imag != 0:
-                return 0.0, False
-            peso = 1 if k in (0, n) else (4 if k % 2 else 2)
-            total += peso * v.real
-        return total * h / 3, True
-
-    s1, ok1 = suma(panels)
-    s2, ok2 = suma(2 * panels)
-    if not ok1 or not ok2:
-        return None
-    error = abs(s2 - s1) / 15
+    signo = 1.0 if hi > lo else -1.0
+    lo, hi = min(lo, hi), max(lo, hi)
+    cortes = sorted({c for g in K.peligros(integrando, var)
+                     for c in K.ceros(g, var, lo, hi) if lo < c < hi})
+    puntos = [lo, *cortes, hi]
+    fina = gruesa = estimado = 0.0
+    for x0, x1 in zip(puntos, puntos[1:]):
+        uno = K.cuadratura(integrando, var, x0, x1, tolerancia=1e-13)
+        dos = K.cuadratura(integrando, var, x0, x1, tolerancia=1e-8)
+        if uno is None or dos is None:
+            return None
+        fina += uno[0]
+        gruesa += dos[0]
+        estimado += uno[1]
+    error = max(10 * estimado, abs(fina - gruesa)) + 4e-16 * abs(fina)
+    valor = signo * fina
     trace.metodo(
         "integral.simpson",
-        "sin primitiva exacta, la integral se calcula con Simpson extrapolado",
+        "sin primitiva exacta, la integral se calcula con cuadratura adaptativa "
+        "de Gauss–Kronrod",
         why=("no hay primitiva exacta que derivar, así que el teorema fundamental no "
-             "aplica; Simpson con extrapolación de Richardson da el valor y una "
-             "cota de error, que es lo que §5.4 pide en este caso"),
+             "aplica; la cuadratura adaptativa da el valor y una estimación de su "
+             "error, que es lo que §5.4 pide en este caso. El intervalo se corta en "
+             "cada punto donde se anula un denominador o el argumento de un "
+             "logaritmo, porque ahí una malla fija pierde cifras"),
         alternatives=(
-            ("suma de Riemann por la izquierda",
-             "converge demasiado despacio para dar una cota útil del error"),
-            ("trapecios", "el mismo error de orden, con más puntos para el mismo coste"),
+            ("Simpson compuesto con extrapolación de Richardson",
+             "su estimación de error resultó menor que el error real en integrandos "
+             "que crecen deprisa o tienen una singularidad integrable dentro"),
+            ("trapecios", "el mismo problema, con más puntos para el mismo coste"),
         ),
         before=f"∫[{lo}, {hi}] {mx.text(integrando)} d{var}",
-        after=f"{s2:.12g} con error {error:.3g}",
+        after=f"{valor:.12g} con error {error:.3g}",
     )
     trace.hipotesis("simpson.continuidad",
-                    "el integrando es continuo en el intervalo de integración",
-                    "se comprueba en cada nodo de la malla")
-    return s2, error
+                    "el integrando es continuo en el intervalo de integración, salvo "
+                    "singularidades integrables en los puntos de corte",
+                    "se comprueba antes buscando los ceros de cada denominador y "
+                    "argumento peligroso")
+    return valor, error
 
 
 def _barrow(integrando: mx.Expr, var: str, a, b, trace: Trace,
@@ -1161,7 +1172,7 @@ def _barrow(integrando: mx.Expr, var: str, a, b, trace: Trace,
             return (None, None, V.Seal(V.NUMERIC_ONLY, "sin valor", str(exc)),
                     None, None)
         valor, error = aproximacion
-        sello = V.Seal(V.NUMERIC_ONLY, "Simpson con error acotado",
+        sello = V.Seal(V.NUMERIC_ONLY, "cuadratura de Gauss–Kronrod con error estimado",
                        f"{valor:.12g} con error {error:.3g}")
         grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b), valor, error)
         return None, complex(valor), sello, grafica, error

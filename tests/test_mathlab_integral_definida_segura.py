@@ -129,3 +129,18 @@ def test_toda_potencia_de_una_trigonometrica_o_hiperbolica_deriva_en_si_misma(no
     derivada = D.differentiate(mx.from_symbolic(primitiva), "x")
     ok, _m, detalle = V.numeric_agreement(derivada, mx.parse(texto), samples=16)
     assert ok, (texto, mx.text(mx.from_symbolic(primitiva)), detalle)
+
+
+@pytest.mark.parametrize("texto,a,b,exacto", [
+    # values from the closed forms, not from another quadrature
+    ("ln(3*x^2)", "-1", "11",
+     (11 * math.log(363) - 22) - (-math.log(3) + 2)),
+    ("ln(x^2)", "-2", "1", -2 - (-2 * math.log(4) + 4)),
+    ("e^(x^2)", "0", "1", 1.4626517459071816),
+])
+def test_el_error_declarado_sin_primitiva_cubre_el_error_real(texto, a, b, exacto):
+    """The Simpson/Richardson estimate it replaced declared 0.0046 for an error
+    of 0.069 on the first one — an «error acotado» smaller than the error."""
+    r = _calcula(f"int({texto}, x, {a}, {b})")
+    assert abs(r.aproximado.real - exacto) <= r.error_acotado, (
+        texto, r.aproximado.real, exacto, r.error_acotado)
