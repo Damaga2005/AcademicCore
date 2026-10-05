@@ -988,6 +988,33 @@ def _resolver_por_fase(a: Fraction, b: Fraction, cte: Fraction, u: mx.Expr, var:
     return _trasladar(familias, u, var), hipotesis
 
 
+def _raiz_cuadratica(c2: Fraction, c1: Fraction, discriminante: Fraction,
+                     signo: int) -> mx.Expr:
+    """``(-c1 + signo·sqrt(D))/(2·c2)`` as ``A ± B·sqrt(r)``, ``r`` square-free.
+
+    ``sqrt(p/q) = sqrt(p·q)/q``, and the largest square ``s²`` dividing ``p·q``
+    comes out as ``s``. Exact in every step; only the form changes.
+    """
+    a = -c1 / (2 * c2)
+    if discriminante == 0:
+        return mx.Num(a)
+    producto = discriminante.numerator * discriminante.denominator
+    fuera, dentro, d = 1, producto, 2
+    while d * d <= dentro:
+        while dentro % (d * d) == 0:
+            dentro //= d * d
+            fuera *= d
+        d += 1
+    b = Fraction(signo * fuera, discriminante.denominator) / (2 * c2)
+    if dentro == 1 or b == 0:
+        return mx.Num(a + (b if dentro == 1 else 0))
+    radical = mx.Root(2, mx.Num(Fraction(dentro)))
+    termino = radical if abs(b) == 1 else mx.Mul(mx.Num(abs(b)), radical)
+    if a == 0:
+        return termino if b > 0 else mx.Neg(termino)
+    return mx.Add(mx.Num(a), termino) if b > 0 else mx.Sub(mx.Num(a), termino)
+
+
 def _raiz_exacta(valor: Fraction) -> mx.Expr:
     """``sqrt(valor)`` exactly: a rational root when there is one, else the root."""
     from academic_core.domain.engineering.mathlab.mvexpr import _exact_root
@@ -1984,9 +2011,10 @@ def _raices_reales(polinomio: P.Polynomial, sub: mx.Expr,
         if discriminante < 0:
             return [], (f"el discriminante es {discriminante} < 0: no hay raíces "
                         "reales, y por tanto no hay soluciones reales")
-        raiz = _raiz_exacta(discriminante)
-        return [mx.Div(mx.Add(mx.Neg(mx.Num(c1)), raiz), mx.Num(2 * c2)),
-                mx.Div(mx.Sub(mx.Neg(mx.Num(c1)), raiz), mx.Num(2 * c2))], ""
+        # written as A ± B·sqrt(r) with r square-free: the formula's own shape is
+        # «(-0 + sqrt(8/3))/4», and it reached the student as atan((-0 + …)/4)
+        return [_raiz_cuadratica(c2, c1, discriminante, 1),
+                _raiz_cuadratica(c2, c1, discriminante, -1)], ""
     # Degree three and up. The rational root theorem on its own gives a PARTIAL
     # set, and that partial set was published as if it were the answer:
     # `sen(x)**3 - sen(x)/2` is `-u**3 + u/2`, whose roots are `0`, `+/-1/√2`;
