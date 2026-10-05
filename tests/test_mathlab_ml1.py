@@ -585,7 +585,7 @@ def test_ruffini_explica_por_que_usa_la_tabla():
     ("x^2+1", []),
     ("x^2-2", []),
     ("2x^2-8", [Fraction(-2), Fraction(2)]),
-    ("x^3-x", [Fraction(-1), Fraction(1)]),
+    ("x^3-x", [Fraction(-1), Fraction(0), Fraction(1)]),
     ("x^2-2x+1", [Fraction(1)]),
     ("x^2-x-1", []),
     ("x^3+2x^2-5x-6", [Fraction(-3), Fraction(-1), Fraction(2)]),

@@ -386,12 +386,25 @@ def raices_racionales(p: Polinomio, trace: Trace | None = None) -> list[Fraction
                      why="una ecuación con polinomio constante solo tiene solución si vale 0",
                      before=representar(p), after="ninguna")
         return []
+    if p[0] == 0:
+        # The theorem needs a non-zero constant term: with p[0] == 0 the divisors
+        # of 0 are not a finite list, and the old fallback to 1 silently dropped
+        # the root 0. Strip x^k, report 0, and search the rest.
+        k = next(i for i, c in enumerate(p) if c != 0) if any(p) else len(p)
+        resto = list(p[k:])
+        trace.regla("polinomio.raices.cero", "x = 0 es raíz",
+                    before=representar(p), after="0",
+                    piece="raíz 0",
+                    why=("el término independiente es 0, así que P(0) = 0; se saca "
+                         f"el factor x^{k} y el teorema se aplica a lo que queda, "
+                         "que ya sí tiene término independiente distinto de 0"))
+        if len(resto) < 2:
+            return [Fraction(0)]
+        return sorted({Fraction(0), *raices_racionales(resto, trace)})
     # Ascending order: p[0] is the constant term and p[-1] the leading one, so the
     # rational root theorem takes p from the constant and q from the leading.
     numerador = abs(p[0])
     denominador = abs(p[-1])
-    if numerador == 0:
-        numerador = 1
     divisores_num = _divisores(numerador)
     divisores_den = _divisores(denominador)
     if len(divisores_num) * len(divisores_den) > MAX_DIVISORES_PRIMOS:
@@ -468,10 +481,17 @@ def factorizar(p: Polinomio, var: str = "x", trace: Trace | None = None) -> list
         return [(representar(resto, var), 1)] if resto else []
     factores: list[tuple[str, int]] = []
     for r in raices_racionales(resto, trace):
-        division = dividir_por_lineal(resto, r, var, trace)
-        resto = division.cociente
-        nombre = f"({var} - {_frac(r)})" if r > 0 else f"({var} + {_frac(-r)})"
-        factores.append((nombre, 1))
+        # a root of multiplicity m is divided out m times, so (x - 1)^2 is reported
+        # as one factor with exponent 2 and not as (x - 1) plus a leftover (x - 1)
+        multiplicidad = 0
+        while len(resto) > 1 and evaluar(resto, r) == 0:
+            resto = dividir_por_lineal(resto, r, var, trace).cociente
+            multiplicidad += 1
+        if r == 0:
+            nombre = var
+        else:
+            nombre = f"({var} - {_frac(r)})" if r > 0 else f"({var} + {_frac(-r)})"
+        factores.append((nombre, multiplicidad))
     if resto:
         factores.append((representar(resto, var), 1))
     texto = " · ".join(f if e == 1 else f"{f}^{e}" for f, e in factores)
