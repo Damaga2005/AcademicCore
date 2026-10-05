@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-10-05 — Auditoría de MathLab contra referencias externas: catorce defectos corregidos
+
+Cada módulo se contrastó con algo que no comparte código con él —SymPy, mpmath a
+30 dígitos, `cmath`, `ipaddress`, `fractions`, barridos numéricos— y con miles de
+entradas generadas al azar. Lo que salió, de más grave a menos:
+
+| Defecto | Antes | Ahora |
+|---|---|---|
+| Integral definida con un polo entre los 17 puntos de prueba | `∫₀¹ dx/(x−1/10)` = 2.197, `∫₀² tan x` = 0.877 (divergentes) | se niega: integral impropia |
+| Primitiva discontinua (`atan(tan(x/2))`) en Barrow | `∫₀^{2π} sen x·sen x` = 0, `∫₀^{2π} dx/(2+cos x)` = 0 | π y 2π/√3, por tramos |
+| Sustitución universal con una `x` suelta | primitiva de `sen(x)/x` = `x + sen x` | se niega; Gauss–Kronrod |
+| Potencias hiperbólicas | `∫cosh⁵` = primitiva de `cosh²`; `∫coth²` = `ln|senh|` | 96 potencias verificadas derivando |
+| Ecuaciones con `cos(u)²` desplazado | `cos(x−π/4)² = 1` → `x = 0, π` | `x = π/4 + kπ` |
+| Familias espurias publicadas | se anunciaban como espurias y se publicaban | se retiran |
+| Soluciones o ceros incompletos | se presentaban como completos | se avisa y se dan aproximados |
+| Error «acotado» sin primitiva (Simpson) | menor que el error real en 4 de 6 casos | Gauss–Kronrod, cota honesta |
+| `taylor` | moría en `1/(1−x)` orden 5 y `√x` en 1; decía que `exp` no tiene desarrollo en 2 | series formales exactas, cota de Lagrange |
+| Raíz 0 de un polinomio | `x³ − x` → `{−1, 1}` | `{−1, 0, 1}` |
+| Asíntota oblicua | `x³/(x²+x+1)` → `y = x` | `y = x − 1` |
+| Huecos evitables | `sen(x)/x` en 0 declarado polo; `(x²−1)/(x−1)` con límite 1 | hueco con límite 1; límite 2 |
+| Dominio con un radical constante | `3·cos x − √3/2` sin características | ℝ |
+| Presentación | `2·x¹`, `cos(2x)·2·1`, `sen(π/6) = 0.49999999999999994` | `2·x`, `2·cos(2x)`, `1/2` |
+
+Seis pruebas existentes fijaban alguno de esos defectos como comportamiento
+esperado (la raíz 0 que faltaba, `sen(x)/x` como polo, los textos `2·x¹`…) y se han
+corregido; cada cambio dice en su docstring qué afirmaba antes y por qué era falso.
+
 ## 2026-10-05 — T-20 cerrada: `demostrar` y `resolver` pasan a ser objetivos del motor
 
 La especificación de T-20 listaba siete objetivos y el registro declaraba cinco de
