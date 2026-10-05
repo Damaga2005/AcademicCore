@@ -111,3 +111,13 @@ def test_un_cociente_cuyo_dominio_no_se_sabe_no_impide_calcular_su_asintota():
         mx.parse("(x^2 - 1)/(x^2 + 1)"), "x") == ("y = 1",)
     with pytest.raises(Exception, match="denominador"):
         k("(x^2 - 1)/(x^2 + 1)")
+
+
+@pytest.mark.parametrize("texto,asintota", [
+    # the constant term of the division: it was taken as 0 (found 2026-10-05)
+    ("x^3/(x^2+x+1)", "y = x - 1"),
+    ("(x^2+3*x+5)/(x-2)", "y = x + 5"),
+    ("(2*x^2+1)/(x+1) - x", "y = x - 2"),
+])
+def test_la_oblicua_lleva_la_ordenada_de_la_division(texto, asintota):
+    assert L.asintotas_de_horizonte_y_oblicua(mx.parse(texto), "x") == (asintota,)

@@ -186,6 +186,46 @@ def _terminos(e: mx.Expr, signo: int = 1) -> list[tuple[int, mx.Expr]]:
     return [(signo, e)]
 
 
+def _parte_lineal(termino: mx.Expr, var: str) -> tuple[Fraction, Fraction] | None:
+    """``(a, b)`` with ``termino - (a·x + b) → 0`` at infinity, for a rational term.
+
+    The quotient of the polynomial division, when the degrees differ by one; the
+    remainder over the denominator vanishes. ``None`` when the term is not a
+    rational function of ``var`` with rational coefficients.
+    """
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    try:
+        razon = P.as_ratio(termino, var)
+    except Exception:  # noqa: BLE001 - not rational: unknown
+        return None
+    if razon is None:
+        return None
+
+    def coeficientes(q) -> dict[int, Fraction] | None:
+        salida: dict[int, Fraction] = {}
+        for monomio, c in q.items():
+            if any(nombre != var for nombre, _ in monomio):
+                return None
+            grado = sum(e for nombre, e in monomio if nombre == var)
+            salida[grado] = salida.get(grado, Fraction(0)) + Fraction(c)
+        return salida
+
+    num, den = coeficientes(razon.numerator), coeficientes(razon.denominator)
+    if not num or not den:
+        return None
+    gn, gd = max(num), max(den)
+    if gn - gd != 1:
+        return None
+    # two steps of long division give the linear quotient a·x + b
+    a = num[gn] / den[gd]
+    resto = dict(num)
+    for k, c in den.items():
+        resto[k + 1] = resto.get(k + 1, Fraction(0)) - a * c
+    b = resto.get(gd, Fraction(0)) / den[gd]
+    return a, b
+
+
 def _recta(pendiente: Fraction, ordenada: Fraction, var: str) -> str:
     """``y = 2·x + 3``, with the terms that are zero left out."""
     partes: list[str] = []
@@ -235,7 +275,17 @@ def asintotas_de_horizonte_y_oblicua(expresion: mx.Expr, var: str) -> tuple[str,
             # asking only about the term of order 1 gave `y = x` for both.
             return ()
         if o.grado == 1:
-            pendiente += signo * o.coeficiente
+            # The ORDER gives the slope and nothing else. `x^3/(x^2 + x + 1)` grows
+            # like `x` and its asymptote is `y = x - 1`: the -1 is the next term of
+            # the division, invisible to the order, and it was being taken as 0
+            # (found 2026-10-05 against SymPy). A rational term is divided exactly;
+            # any other term of order 1 that is not plainly `c·x` has an unknown
+            # constant part, and an unknown is not a 0 — no asymptote is claimed.
+            lineal = _parte_lineal(termino, var)
+            if lineal is None:
+                return ()
+            pendiente += signo * lineal[0]
+            ordenada += signo * lineal[1]
         elif o.grado == 0:
             # `x + sen(x)` grows like a line and never reaches one, which is not a
             # thing the ORDER can say and is the reason this loop exists
