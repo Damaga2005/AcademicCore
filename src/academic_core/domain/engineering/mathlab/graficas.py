@@ -47,6 +47,8 @@ the real value, and the measured error at each point.
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from fractions import Fraction
 from math import inf as math_inf
@@ -96,6 +98,14 @@ class Caracteristicas:
     #: of them is drawn as a break in the curve.
     huecos: tuple[tuple[D.Punto, float], ...] = ()
     hipotesis: tuple[str, ...] = ()
+    #: False when a numeric scan found zeros that ``ceros`` does not list, or when
+    #: the exact zeros could not be computed at all. An empty ``ceros`` used to
+    #: mean both «there are none» and «I do not know», and the student could not
+    #: tell which (found 2026-10-05: 27 of 112 random curves had unlisted zeros).
+    ceros_completos: bool = True
+    #: those unlisted zeros, approximately, inside ``intervalo_de_ceros``
+    ceros_aproximados: tuple[float, ...] = ()
+    intervalo_de_ceros: tuple[float, float] | None = None
 
     def texto(self) -> str:
         lineas = [f"y = {mx.pretty(self.expresion)}"]
@@ -110,16 +120,31 @@ class Caracteristicas:
             lineas.append("  amplitud: no declarada — el recorrido no está acotado")
         if self.fase is not None:
             lineas.append(f"  fase: {mx.text(self.fase)}")
+        repite = ("   (y se repiten cada " + (
+            "pi" if self.periodo == 1 else f"{self.periodo}·pi") + ")"
+            if self.periodo is not None else "")
         if self.ceros:
-            lineas.append("  ceros: " + ", ".join(p.texto() for p in self.ceros))
+            lineas.append("  ceros: " + ", ".join(p.texto() for p in self.ceros)
+                          + repite)
+        if not self.ceros_completos:
+            a, b = self.intervalo_de_ceros or (0.0, 0.0)
+            if self.ceros_aproximados:
+                lineas.append(
+                    "  ceros sin forma exacta (aproximados, en "
+                    f"[{a:.6g}, {b:.6g})): "
+                    + ", ".join(f"{v:.6g}" for v in self.ceros_aproximados))
+            else:
+                lineas.append("  ceros: no se han podido calcular exactamente")
         if self.discontinuidades:
             lineas.append("  discontinuidades: "
-                          + ", ".join(p.texto() for p in self.discontinuidades))
+                          + ", ".join(p.texto() for p in self.discontinuidades)
+                          + repite)
         for punto, valor in self.huecos:
             lineas.append(f"  hueco removible en {punto.texto()}: "
                           f"el límite es {valor:.6g}")
         for asintota in self.asintotas:
-            lineas.append(f"  asintota {asintota}")
+            vertical = asintota.startswith("x =")
+            lineas.append(f"  asintota {asintota}" + (repite if vertical else ""))
         return "\n".join(lineas)
 
 
@@ -132,10 +157,24 @@ def caracteristicas(expresion: mx.Expr, var: str = "x") -> Caracteristicas:
     """Describe the graph of ``expresion``, exactly where it can and not otherwise."""
     periodo = D.periodo_minimo(expresion, var)
     sinusoidal = _forma_sinusoidal(expresion, var)
-    ceros = _ceros(expresion, var)
+    ceros, ceros_conocidos = _ceros_y_si_se_saben(expresion, var)
     conjunto = I.dominio(expresion, var)
     discontinuidades = _discontinuidades(expresion, var)
     huecos = _huecos(expresion, var)
+    if periodo is not None:
+        # The domain is stored over a window that is not one period of the
+        # function, so its open ends came out as «1/4·pi, 7/4·pi» for tan(2x),
+        # whose poles are pi/4 + k·pi/2: one point and its copy two periods away.
+        # Every list is reduced to [0, T) and said to repeat with the period.
+        ceros = _a_un_periodo(ceros, periodo)
+        discontinuidades = _a_un_periodo(discontinuidades, periodo)
+        vistos, unicos = set(), []
+        for punto, valor in huecos:
+            reducido = _a_un_periodo((punto,), periodo)
+            if reducido and reducido[0].texto() not in vistos:
+                vistos.add(reducido[0].texto())
+                unicos.append((reducido[0], valor))
+        huecos = tuple(unicos)
     amplitud, exacta = _amplitud(expresion, sinusoidal, periodo, var)
     hipotesis: list[str] = []
 
@@ -168,9 +207,30 @@ def caracteristicas(expresion: mx.Expr, var: str = "x") -> Caracteristicas:
             "existe y su valor tiene límite. Se distinguen de los polos porque "
             "la forma simplificada SÍ está definida allí —es 1/tan(x) "
             "simplificando a cotg(x), que en π/2 vale 0— y porque el "
-            "límite existe. Un hueco que la simplificación no alcanza a "
-            "cancelar se declara polo: es el lado seguro, y sen(x)/x en 0 es de "
-            "esos aunque su límite sea 1")
+            "límite existe. Cuando la simplificación no cancela el punto —sen(x)/x "
+            "en 0—, se miden los dos límites laterales a distancias decrecientes: "
+            "es hueco solo si las dos sucesiones convergen al mismo número")
+    intervalo, aproximados = _ceros_no_listados(expresion, var, ceros, periodo,
+                                                discontinuidades)
+    nuevos = ceros_exactos_en_la_rejilla(expresion, var, aproximados)
+    if nuevos:
+        ceros = tuple(sorted({p.texto(): p for p in (*ceros, *nuevos)}.values(),
+                             key=lambda p: I._coordenada_de(p)))
+        aproximados = [r for r in aproximados
+                       if all(abs(r - I._coordenada_de(p)) > 1e-8 for p in nuevos)]
+    completos = (ceros_conocidos or bool(nuevos)) and not aproximados
+    if periodo is None and (nuevos or aproximados):
+        hipotesis.append(
+            f"la expresión no es periódica: los ceros se buscan en [{intervalo[0]:.6g}, "
+            f"{intervalo[1]:.6g}) y fuera de ese intervalo puede haber más")
+    if not completos:
+        hipotesis.append(
+            "la lista de ceros exactos NO está completa: "
+            + (f"un barrido numérico de [{intervalo[0]:.6g}, {intervalo[1]:.6g}) "
+               f"encuentra {len(aproximados)} cero(s) que no tienen forma exacta "
+               "aquí, y se dan aproximados" if aproximados else
+               "el motor no sabe escribir los ceros de esta expresión")
+            + (" (y se repiten con el periodo)" if periodo is not None else ""))
     hipotesis.append(
         "las asíntotas verticales son las de los polos. Las horizontales y "
         "oblicuas salen del orden de crecimiento en el infinito, que se calcula "
@@ -186,11 +246,14 @@ def caracteristicas(expresion: mx.Expr, var: str = "x") -> Caracteristicas:
         fase=sinusoidal[1] if sinusoidal else None,
         ceros=ceros,
         dominio=conjunto,
-        asintotas=_asintotas(expresion, var),
+        asintotas=_asintotas(expresion, var, discontinuidades),
         discontinuidades=discontinuidades,
         es_sinusoidal=sinusoidal is not None,
         huecos=huecos,
         hipotesis=tuple(hipotesis),
+        ceros_completos=completos,
+        ceros_aproximados=tuple(aproximados),
+        intervalo_de_ceros=intervalo,
     )
 
 
@@ -323,11 +386,103 @@ def _argumento_de(nombre: str, expresion: mx.Expr, var: str) -> mx.Expr:
 
 
 def _ceros(expresion: mx.Expr, var: str) -> tuple[D.Punto, ...]:
+    return _ceros_y_si_se_saben(expresion, var)[0]
+
+
+def _ceros_y_si_se_saben(expresion: mx.Expr, var: str
+                         ) -> tuple[tuple[D.Punto, ...], bool]:
+    """The exact zeros, and whether the engine could compute them at all."""
     c = I.ceros(expresion, var)
     if c is None:
-        return ()
+        return (), False
     puntos = [p for p in (I._a_punto(v) for v in c) if p is not None]
-    return tuple(sorted(set(puntos), key=lambda p: p.coeficiente))
+    return tuple(sorted(set(puntos), key=lambda p: p.coeficiente)), True
+
+
+def _ceros_no_listados(expresion: mx.Expr, var: str, ceros, periodo,
+                       inexistentes=()) -> tuple[tuple[float, float], list[float]]:
+    """Zeros a numeric scan finds that no exact zero accounts for.
+
+    One period when there is one, compared modulo the period; ``[-10, 10)``
+    otherwise, compared directly.
+    """
+    from academic_core.domain.engineering.mathlab import continuidad as K
+
+    if periodo is not None:
+        intervalo = (0.0, float(periodo) * math.pi)
+        paso = intervalo[1]
+    else:
+        intervalo, paso = (-10.0, 10.0), 0.0
+    exactos = [(I._coordenada_de(p), paso) for p in ceros]
+    try:
+        numericos = K.ceros_numericos(expresion, var, *intervalo)
+    except Exception:  # noqa: BLE001 - no scan, no claim
+        return intervalo, []
+    # a point outside the domain is not a zero, even where the float evaluation
+    # of the expression happens to give 6e-17 (1/tan(x) at pi/2)
+    fuera = [(I._coordenada_de(p), paso) for p in inexistentes]
+    numericos = [r for r in numericos if K.no_cubiertos([r], fuera, 1e-6)]
+    return intervalo, K.no_cubiertos(numericos, exactos)
+
+
+def ceros_exactos_en_la_rejilla(expresion: mx.Expr, var: str,
+                                aproximados: list[float]) -> list[D.Punto]:
+    """Approximate zeros that are EXACTLY ``k·pi/q``, proved by substitution.
+
+    A numeric zero near ``-pi`` is not called ``-pi`` because it is near: the
+    multiple is substituted exactly and the result has to simplify to 0. Only
+    then is it an exact zero; otherwise it stays an approximation.
+    """
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    salida = []
+    for r in aproximados:
+        for q in (1, 2, 3, 4, 6, 8, 12):
+            k = round(r * q / math.pi)
+            if abs(r - k * math.pi / q) > 1e-8:
+                continue
+            punto = D.punto_pi(Fraction(k, q))
+            try:
+                valor = T.simplify(mx.substitute(expresion, var, punto.expr()))
+            except Exception:  # noqa: BLE001 - no proof, no claim
+                continue
+            if _es_cero_exacto(valor):
+                salida.append(punto)
+            break
+    return salida
+
+
+def _es_cero_exacto(valor: mx.Expr) -> bool:
+    """0, or a quotient whose numerator is exactly 0 and whose denominator is not.
+
+    ``sin(-3pi)/(-3pi)`` simplifies to ``0/((-3)*pi)``, which has no rational
+    ``exact_value`` because of the pi, and is nevertheless exactly 0.
+    """
+    if mx.exact_value(valor) == 0:
+        return True
+    if isinstance(valor, mx.Neg):
+        return _es_cero_exacto(valor.arg)
+    if isinstance(valor, (mx.Div, mx.Mul)):
+        izquierda, derecha = valor.left, valor.right
+        if isinstance(valor, mx.Mul):
+            return _es_cero_exacto(izquierda) or _es_cero_exacto(derecha)
+        denominador = mx.valor_real(derecha, {})
+        return mx.exact_value(izquierda) == 0 and denominador not in (None, 0.0)
+    return False
+
+
+def _a_un_periodo(puntos, periodo) -> tuple[D.Punto, ...]:
+    """Each multiple of pi reduced into [0, periodo·pi), duplicates removed."""
+    vistos, salida = set(), []
+    for p in puntos:
+        if p.es_pi and not p.es_expresion:
+            p = D.punto_pi(p.coeficiente % periodo)
+        elif not p.es_expresion and p.coeficiente == 0:
+            p = D.punto_pi(Fraction(0))
+        if p.texto() not in vistos:
+            vistos.add(p.texto())
+            salida.append(p)
+    return tuple(sorted(salida, key=lambda p: I._coordenada_de(p)))
 
 
 def _huecos(expresion: mx.Expr, var: str) -> tuple[tuple[D.Punto, float], ...]:
@@ -350,7 +505,7 @@ def _discontinuidades(expresion: mx.Expr, var: str) -> tuple[D.Punto, ...]:
     return I.puntos_inexistentes(expresion, var)
 
 
-def _asintotas(expresion: mx.Expr, var: str) -> tuple[str, ...]:
+def _asintotas(expresion: mx.Expr, var: str, puntos=None) -> tuple[str, ...]:
     """Vertical, horizontal and oblique asymptotes.
 
     The vertical ones sit at the points where the function is not defined, and the
@@ -370,7 +525,7 @@ def _asintotas(expresion: mx.Expr, var: str) -> tuple[str, ...]:
     answer rather than a shrug.
     """
     vertical: list[str] = []
-    for punto in _discontinuidades(expresion, var):
+    for punto in (puntos if puntos is not None else _discontinuidades(expresion, var)):
         centro = _coordenada(punto)
         if _crece_cerca(expresion, var, centro):
             vertical.append(f"x = {punto.texto()}")

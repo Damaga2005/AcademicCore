@@ -183,6 +183,46 @@ def _unicos(xs: list[float], h: float) -> list[float]:
     return salida
 
 
+def ceros_numericos(f: mx.Expr, var: str, a: float, b: float) -> list[float]:
+    """Points of ``[a, b)`` where ``f`` is defined and vanishes, found numerically.
+
+    Not an answer to show as exact: a CHECK on an exact answer. A list of exact
+    solutions that misses one of these is incomplete, and has to say so.
+    """
+    escala = 1.0
+    salida = []
+    for c in ceros(f, var, a, b):
+        if not (a <= c < b):
+            continue
+        v = _valor(f, var, c)
+        if v is None:
+            continue
+        cerca = [_valor(f, var, c + d) for d in (-1e-4, 1e-4)]
+        escala = max([1.0] + [abs(y) for y in cerca if y is not None])
+        if abs(v) <= 1e-9 * escala:
+            salida.append(c)
+    return salida
+
+
+def no_cubiertos(raices: list[float], valores: list[tuple[float, float]],
+                 tolerancia: float = 1e-6) -> list[float]:
+    """The roots not of the form ``base + k·paso`` for any ``(base, paso)`` given."""
+    faltan = []
+    for r in raices:
+        cubierta = False
+        for base, paso in valores:
+            if paso:
+                k = (r - base) / paso
+                cubierta = abs(k - round(k)) * abs(paso) < tolerancia
+            else:
+                cubierta = abs(r - base) < tolerancia
+            if cubierta:
+                break
+        if not cubierta:
+            faltan.append(r)
+    return faltan
+
+
 # ---------------------------------------------------------------------------
 # the integrand: singular, removable, or fine
 # ---------------------------------------------------------------------------

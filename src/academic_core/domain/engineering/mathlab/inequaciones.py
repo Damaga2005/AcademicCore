@@ -335,13 +335,13 @@ def removibles(e: mx.Expr, var: str = "x") -> tuple[tuple[D.Punto, float], ...]:
     point stopped being singular in the simplification, so it was a hole. A pole
     stays singular there, because cancelling it is exactly what cannot be done.
 
-    It reads the simplified form and not the written one, so a hole the
-    simplifier does not recognise is reported as a pole. That is the safe
-    direction on purpose: a pole announced as a pole is right, and a hole
-    announced as a hole that is not one would be a limit invented out of a
-    simplification. ``sin(x)/x`` at 0 is such a case — its limit is 1 and no
-    rewrite here reaches it, so it stays a pole and this function says nothing
-    about it rather than guessing 1.
+    A hole the simplifier does not recognise used to be reported as a pole, on the
+    theory that it was «the safe direction». It is not: ``sin(x)/x`` at 0 has limit
+    1, and calling it a pole is as false as inventing a limit. So when the
+    structure says nothing, the TWO one-sided limits are measured at shrinking
+    distances; the point is a hole only when both sequences converge and agree.
+    An oscillating expression (``sin(1/x)`` at 0) converges to nothing and stays
+    out of this list, which then means «not established», not «pole».
 
     The value returned is the value of the CONTINUATION at the hole, which is
     what a limit is, computed in floating point and carrying its own residue:
@@ -359,17 +359,75 @@ def removibles(e: mx.Expr, var: str = "x") -> tuple[tuple[D.Punto, float], ...]:
     siguen_existiendo = {p.texto() for p in puntos_inexistentes(canonica, var)}
     salida: list[tuple[D.Punto, float]] = []
     for punto in holes:
+        centro = _coordenada_de(punto)
         if punto.texto() in siguen_existiendo:
-            continue                     # still singular: a pole, not a hole
-        valor = mx.evaluate(canonica, {var: _coordenada_de(punto)})
+            limite = _limite_bilateral(e, var, centro)
+            if limite is not None:
+                salida.append((punto, limite))
+            continue
+        valor = mx.evaluate(canonica, {var: centro})
         if valor is None or valor.imag != 0 or abs(valor.real) >= 1e12:
             continue
-        salida.append((punto, valor.real))
+        salida.append((punto, _sin_residuo(valor.real)))
     return tuple(salida)
 
 
+def _sin_residuo(v: float) -> float:
+    """6·10⁻¹⁷ is 0 and 0.9999999999999998 is 1: the residue of the float, removed."""
+    if abs(v) < 1e-12:
+        return 0.0
+    if abs(v - round(v)) < 1e-10:
+        return float(round(v))
+    return v
+
+
+def _limite_bilateral(e: mx.Expr, var: str, c: float) -> float | None:
+    """The common limit of ``e`` from both sides of ``c``, or ``None``.
+
+    Measured at distances 1e-1 … 1e-4 — not smaller, because ``(1 - cos x)/x²``
+    loses its digits to cancellation below that. Each one-sided sequence must
+    CONVERGE: every step at least halves the one before. Its last step then bounds
+    what is left, and that bound is the precision of the answer: a limit within it
+    of 0 or of an integer is that number (``x·sin(1/x)`` at 0 is 0, not 3·10⁻⁷).
+    Both sides must agree within the same bound; an oscillating expression
+    (``sin(1/x)``) fails the convergence and gets no claim at all.
+    """
+    lados, errores = [], []
+    for signo in (-1, 1):
+        valores = []
+        for k in range(1, 5):
+            v = mx.evaluate(e, {var: c + signo * 10.0 ** (-k)})
+            if v is None or abs(v.imag) > 1e-9 or not math.isfinite(v.real):
+                return None
+            valores.append(v.real)
+        pasos = [abs(b - a) for a, b in zip(valores, valores[1:])]
+        if any(b > 0.5 * a + 1e-13 for a, b in zip(pasos, pasos[1:])):
+            return None
+        lados.append(valores[-1])
+        errores.append(pasos[-1] + 1e-12 * max(1.0, abs(valores[-1])))
+    error = max(errores)
+    if abs(lados[0] - lados[1]) > 2 * error:
+        return None
+    limite = (lados[0] + lados[1]) / 2
+    if abs(limite) <= error:
+        return 0.0
+    if abs(limite - round(limite)) <= error:
+        return float(round(limite))
+    return limite
+
+
 def _coordenada_de(punto: D.Punto) -> float:
-    """The real number a ``Punto`` names: ``1/4·pi`` is stored as ``1/4``."""
+    """The real number a ``Punto`` names: ``1/4·pi`` is stored as ``1/4``.
+
+    A point can also BE an expression (``arcsen(1/3)``, or the ``1`` of
+    ``(x² - 1)/(x - 1)``), and then its coefficient is 0. Reading only the
+    coefficient evaluated that hole at x = 0 and reported the limit 1 where it is 2
+    (found 2026-10-05).
+    """
+    if punto.es_expresion:
+        valor = mx.valor_real(punto.expresion, {})
+        if valor is not None:
+            return valor
     return float(punto.coeficiente) * (math.pi if punto.es_pi else 1.0)
 
 
@@ -1327,6 +1385,21 @@ def _con_condicion(conjunto: D.Conjunto, argumento: mx.Expr, operador: str,
     """
     cota_texto = "0" if cota == 0 else str(cota)
     texto_condicion = f"{mx.text(argumento)} {operador} {cota_texto}"
+    if var not in mx.variables(argumento):
+        # A constant condition is true or false, not a set to solve for: sqrt(3)
+        # asks «3 >= 0», and sending that to the inequality solver made every
+        # expression with a constant radical refuse its domain (found 2026-10-05:
+        # «3*cos(x) - sqrt(3)/2» had no characteristics at all).
+        valor = mx.valor_real(argumento, {})
+        if valor is None:
+            raise sin_refuso(f"no se puede evaluar «{mx.text(argumento)}»")
+        limite = float(cota)
+        cumple = {">=": valor >= limite, ">": valor > limite,
+                  "<=": valor <= limite, "<": valor < limite,
+                  "!=": valor != limite}.get(operador)
+        if cumple is None:
+            raise sin_refuso(f"operador desconocido «{operador}»")
+        return conjunto if cumple else D.Conjunto((), conjunto.periodo)
     diferencia = mx.Sub(argumento, mx.Num(cota) if cota != 0 else mx.ZERO)
     # Which chart applies is decided by periodicity itself, not by whether the
     # zeros happen to be known: «no lo sé» is not «no es periódica», and reading

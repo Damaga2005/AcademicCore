@@ -145,14 +145,17 @@ def test_los_ceros_son_exactos_y_no_una_muestra(expresion, ceros):
 
 
 def test_las_discontinuidades_son_los_polos():
-    assert [p.texto() for p in k("tan(x)").discontinuidades] == \
-        ["1/2·π", "3/2·π"]
+    # one period, said to repeat (2026-10-05). The old window [0, 2pi) gave
+    # «1/4·pi, 7/4·pi» for tan(2x), whose poles in that window are FOUR.
+    assert [p.texto() for p in k("tan(x)").discontinuidades] == ["1/2·π"]
+    assert [p.texto() for p in k("tan(2*x)").discontinuidades] == ["1/4·π"]
+    assert "se repiten cada pi" in k("tan(x)").texto()
     # `1/sen(x)` has a hole at 0, at `pi` AND at `2pi`, because `2pi` is the
     # same point as 0 and `1/sen(0)` is `1/0`. It used to publish only the
     # first two, and the omission came from `ceros` answering with one
     # # period: the zero at the end of the period is the zero at its start.
-    assert [p.texto() for p in k("1/sin(x)").discontinuidades] == \
-        ["0", "π", "2·π"]
+    # with the repetition declared, 2pi is the point 0 of the next period
+    assert [p.texto() for p in k("1/sin(x)").discontinuidades] == ["0", "π"]
 
 
 def test_un_punto_del_borde_que_no_es_discontinuidad_no_se_declara():
@@ -357,7 +360,10 @@ def test_un_cero_inexistente_no_se_declara_cero():
     none while stopping 0 from being one of sen(x)/x's.
     """
     c = k("sin(x)/x")
-    assert [p.texto() for p in c.ceros] == ["\u03c0"]
+    # every k·pi with k != 0, inside the declared window [-10, 10); it used to say
+    # only «pi», which reads as the only zero
+    assert [p.texto() for p in c.ceros] == ["-3·π", "-2·π", "-π", "π", "2·π", "3·π"]
+    assert "0" not in [p.texto() for p in c.ceros]
     assert [p.texto() for p in c.discontinuidades] == ["0"]
 
 

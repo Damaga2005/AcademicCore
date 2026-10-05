@@ -333,8 +333,24 @@ def test_un_hueco_removible_se_distingue_de_un_polo():
 
 
 def test_un_polo_no_se_declara_hueco_removible():
-    for texto in ("tan(x)", "sin(x)/x", "1/sin(x)", "cos(x)/sin(x)"):
+    for texto in ("tan(x)", "1/sin(x)", "cos(x)/sin(x)", "1/x", "sin(1/x)"):
         assert I.removibles(mx.parse(texto), "x") == (), texto
+
+
+@pytest.mark.parametrize("texto,punto,limite", [
+    ("sin(x)/x", "0", 1.0),
+    ("(1-cos(x))/x^2", "0", 0.5),
+    ("1/(1/2*tan(x+pi/6))", "1/3\u00b7\u03c0", 0.0),
+    # a point stored as an expression: it used to be evaluated at x = 0, giving 1
+    ("(x^2-1)/(x-1)", "1", 2.0),
+])
+def test_un_hueco_que_la_simplificacion_no_ve_tampoco_es_un_polo(texto, punto, limite):
+    """sin(x)/x at 0 used to be listed here as a POLE, «the safe direction». It is
+    a hole with limit 1, and calling it a pole was as false as inventing a limit.
+    """
+    huecos = {p.texto(): v for p, v in I.removibles(mx.parse(texto), "x")}
+    assert punto in huecos, (texto, huecos)
+    assert abs(huecos[punto] - limite) < 1e-6, (texto, huecos)
 
 
 def test_una_expresion_sin_huecos_no_declara_ninguno():

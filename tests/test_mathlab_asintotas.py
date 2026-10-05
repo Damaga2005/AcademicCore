@@ -77,9 +77,10 @@ def test_el_orden_se_declara_y_no_se_muestrea():
 
 
 def test_la_vertical_y_la_horizontal_conviven():
-    """``1/tan(x)`` no tiene horizontal —es periodica— y si dos verticales."""
+    """``1/tan(x)`` no tiene horizontal —es periodica— y sí verticales, una por
+    periodo: x = 0, que se repite cada pi."""
     asintotas = k("1/tan(x)").asintotas
-    assert asintotas == ("x = 0", "x = \u03c0"), asintotas
+    assert asintotas == ("x = 0",), asintotas
     assert not any(a.startswith("y =") for a in asintotas), asintotas
 
 

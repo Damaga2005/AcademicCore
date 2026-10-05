@@ -250,6 +250,40 @@ def _pi() -> mx.Expr:
 # ---------------------------------------------------------------------------
 
 
+def _aviso_de_completitud(f: mx.Expr, familias, var: str) -> str | None:
+    """A sentence when the families miss a root that a numeric scan finds.
+
+    Each case answers the equations of its shape, and an equation of a mixed shape
+    can be answered only in part: ``cos(x)/2 + 2·tg(2x) = -1/2`` published
+    ``x = pi + 2k·pi`` alone and nothing said the list stopped there (found
+    2026-10-05). One period is scanned; every root found there must be a member of
+    some family, and the ones that are not are named with their approximate value,
+    because «faltan soluciones» without saying where is not much of an answer.
+    """
+    from academic_core.domain.engineering.mathlab import continuidad as K
+
+    periodo = D.periodo_minimo(f, var)
+    if periodo is None:
+        return None
+    longitud = float(periodo) * 3.141592653589793
+    raices = K.ceros_numericos(f, var, 0.0, longitud)
+    valores = []
+    for familia in familias:
+        base = mx.valor_real(familia.miembro(0, var), {})
+        siguiente = mx.valor_real(familia.miembro(1, var), {})
+        if base is None or siguiente is None:
+            return None        # a family that cannot be evaluated: no claim either way
+        valores.append((base, siguiente - base))
+    faltan = K.no_cubiertos(raices, valores)
+    if not faltan:
+        return None
+    lista = ", ".join(f"x ≈ {r:.6g}" for r in faltan[:8])
+    return ("la lista de soluciones está INCOMPLETA: en un periodo, [0, "
+            f"{longitud:.6g}), hay soluciones que ninguna familia exacta cubre "
+            f"({lista}); se dan como aproximaciones numéricas, y se repiten con el "
+            "periodo")
+
+
 def separar(ecuacion: str) -> tuple[str, str]:
     """``"sin(x) = 1/2"`` → ``("sin(x)", "1/2")``."""
     if "=" not in ecuacion:
@@ -308,6 +342,9 @@ def resolver(ecuacion: str, var: str = "x") -> Resolucion:
         if not validas:
             hipotesis.append(MOTIVO_SIN_CASO)
     familias = validas
+    aviso = _aviso_de_completitud(original, familias, var)
+    if aviso:
+        hipotesis = list(hipotesis) + [aviso]
     refusos = tuple(h for h in hipotesis if MOTIVO_SIN_CASO in h)
     return Resolucion(tuple(familias), hipotesis=tuple(h for h in hipotesis
                                                        if h not in refusos),
