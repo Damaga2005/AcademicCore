@@ -1268,6 +1268,41 @@ def _metodo_numerico(peticion: C.Peticion) -> C.Resultado:
     sello = V.Seal(V.NUMERIC_ONLY, f"método numérico ({r.metodo})", r.nota)
     return _finalizar(peticion, trace, r.texto(), aproximado=r.resultado, sello=sello)
 
+
+def _primitiva_por_metodo(f: mx.Expr, var: str, metodo: str, trace: Trace) -> mx.Expr:
+    from academic_core.domain.engineering.mathlab import poly as P
+    from academic_core.domain.engineering.mathlab import primitivas as PR
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    if metodo == "fracciones_simples":
+        razon = P.as_ratio(f, var)
+        N = RZ._polinomio_de(P.to_expr(razon.numerator), var) if razon else None
+        D = RZ._polinomio_de(P.to_expr(razon.denominator), var) if razon else None
+        if N is None or D is None or len(RZ._recorta(D)) < 2:
+            raise C.error("BAD_INPUT", "fracciones simples: hace falta un cociente de polinomios")
+        trace.metodo("primitiva.fracciones_simples", "descomposición en fracciones simples",
+                     why="un cociente de polinomios se integra descomponiéndolo en fracciones "
+                         "con primitiva de tabla")
+        return PR.fracciones_simples(N, D, var, trace).primitiva
+    if metodo == "sustitucion":
+        return PR.sustitucion_trigonometrica(f, var, trace)
+    raise C.error("BAD_INPUT", "metodo = fracciones_simples | sustitucion")
+
+
+def _primitiva_metodo_op(peticion: C.Peticion) -> C.Resultado:
+    """ML-2 (T8): ``{"expr": "(x+3)/(x^2-3*x+2)", "metodo": "fracciones_simples"|"sustitucion"}``."""
+    from academic_core.domain.engineering.mathlab import primitivas as PR
+
+    e = peticion.entrada
+    f = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or "x")
+    trace = Trace()
+    F = _primitiva_por_metodo(f, var, str(e.get("metodo", "fracciones_simples")), trace)
+    ok, detalle = PR.comprueba(F, f, var)
+    trace.verificacion("primitiva.derivada", detalle)
+    sello = V.Seal(V.VERIFIED if ok else V.DISCREPANT, "derivando la primitiva", detalle)
+    return _finalizar(peticion, trace, F, aproximado=None, sello=sello)
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2025,6 +2060,18 @@ def _integrar(peticion: C.Peticion) -> C.Resultado:
     bounds = (integral.lower, integral.upper)
     if bounds[0] is None and bounds[1] is None:
         exacto, verificado = _primitiva(integrando, var, trace, peticion)
+        if exacto is None:
+            # the general engine has no rule: √(quadratic) by a trigonometric or hyperbolic
+            # substitution, written and verified by differentiation
+            from academic_core.domain.engineering.mathlab import primitivas as PR
+
+            try:
+                exacto = _primitiva_por_metodo(integrando, var, "sustitucion", trace)
+                ok, detalle = PR.comprueba(exacto, integrando, var)
+                verificado = V.Seal(V.VERIFIED if ok else V.DISCREPANT,
+                                    "derivando la primitiva", detalle)
+            except Exception:  # noqa: BLE001 - keep the original refusal
+                exacto = None
         _objetivo_declarado(trace, "integrar")
         sello = verificado
         grafica = _grafica_primitiva(integrando, exacto, var) if exacto is not None else None
@@ -2809,6 +2856,7 @@ C.registrar("soluciones", _soluciones)
 C.registrar("impropia", _calc_impropia)
 C.registrar("serie", _serie)
 C.registrar("taylor", _taylor)
+C.registrar("primitiva", _primitiva_metodo_op)
 C.registrar("tfc", _tfc)
 C.registrar("inversa", _inversa)
 C.registrar("a_trozos", _a_trozos)
