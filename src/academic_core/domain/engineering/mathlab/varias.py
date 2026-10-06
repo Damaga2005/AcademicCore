@@ -172,10 +172,13 @@ def _lin(e: mx.Expr, incognitas: set[str]) -> tuple[dict[str, Fraction], Fractio
 
 @dataclass(frozen=True)
 class Direccionales:
-    existe: bool | None  # False probado; None = indicio a favor; True nunca por caminos
+    existe: bool | None  # False probado; None = indicio; True = probado (cota/composición)
     caminos: tuple[tuple[str, str], ...]
+    prueba: str = ""
 
     def texto(self) -> str:
+        if self.existe is True:
+            return f"límite = {self.caminos[0][1]} (existe: {self.prueba})"
         if self.existe is False:
             vals = "; ".join(f"{c}: {v}" for c, v in self.caminos)
             return f"no existe: {vals}"
@@ -191,7 +194,9 @@ class Direccionales:
 _CAMINOS = [("y = 0", "recta"), ("x = 0", "recta"),
             ("y = x", "recta"), ("y = -x", "recta"),
             ("y = 2*x", "recta"), ("y = x/2", "recta"),
-            ("y = x^2", "parábola"), ("y = -x^2", "parábola")]
+            ("y = x^2", "parábola"), ("y = -x^2", "parábola"),
+            ("x = y^2", "parábola"), ("x = -y^2", "parábola"),
+            ("y = x^3", "cúbica"), ("x = y^3", "cúbica")]
 
 
 def limites_direccionales(f: mx.Expr, vars: list[str], punto: dict,
@@ -230,7 +235,235 @@ def limites_direccionales(f: mx.Expr, vars: list[str], punto: dict,
         valores.setdefault(v, []).append(c)
     if len(valores) > 1:
         return Direccionales(False, tuple(resultados))
+    prueba = None
+    if resultados:
+        try:
+            prueba = _prueba_existencia(F, ux, uy, resultados[0][1], trace)
+        except Exception:  # noqa: BLE001 - sin prueba: queda como indicio
+            prueba = None
+    if prueba is not None:
+        return Direccionales(True, tuple(resultados), prueba)
     return Direccionales(None, tuple(resultados))
+
+
+def _prueba_existencia(F, ux, uy, valor_txt: str, trace) -> str | None:
+    """Existencia del límite en (0, 0) de F(u_x, u_y) = L, probada:
+    1) composición: F = g(w) con una sola subexpresión w(u) → 0, y lím g = L en 1V;
+    2) acotación en polares: |F − L| ≤ h(r) con h(r) → 0 (|cos t|, |sen t| ≤ 1)."""
+    from academic_core.domain.engineering.mathlab import limite as LM
+    from academic_core.domain.engineering.mathlab import multiple as MI
+    from academic_core.domain.engineering.mathlab import poly as Pm
+
+    if valor_txt in ("+∞", "−∞", "no existe"):
+        return None
+    L = MI.leer(valor_txt)
+    if mx.valor_real(L, {}) is None:
+        return None
+    # 1) composición
+    for w in _subexpresiones(F, {ux, uy}):
+        g = _reemplaza(F, w, mx.Sym("w__"))
+        if mx.depends(g, ux) or mx.depends(g, uy):
+            continue
+        w0 = mx.valor_real(mx.substitute(mx.substitute(w, ux, mx.Num(0)), uy, mx.Num(0)), {})
+        if w0 is None:
+            continue
+        w0q = Fraction(w0).limit_denominator(1000)
+        if abs(float(w0q) - w0) > 1e-14:
+            continue
+        wc = MI.compilar(w, [ux, uy])
+        lado = ""
+        try:
+            muestras = [wc([0.01 * math.cos(a / 7), 0.01 * math.sin(a / 7)]) - w0
+                        for a in range(44)]
+            if all(m_ >= 0 for m_ in muestras):
+                lado = "+"
+            elif all(m_ <= 0 for m_ in muestras):
+                lado = "-"
+        except Exception:  # noqa: BLE001
+            pass
+        r = LM.limite(g, "w__", str(w0q), lado)
+        if r.expr is not None and abs((mx.valor_real(r.expr, {}) or 0) -
+                                      mx.valor_real(L, {})) < 1e-12:
+            wt = MI._limpio(w)
+            texto = (f"f = g(w) con w = {mx.text(wt).replace('u_', '')} → {w0q}"
+                     f"{'⁺' if lado == '+' else '⁻' if lado == '-' else ''}, y lím g(w) = "
+                     f"{r.texto()} en "
+                     "una variable (composición con una función continua que tiende a "
+                     f"{w0q})")
+            trace.verificacion("mv.limite_composicion", texto,
+                               why="si w(x, y) → w₀ y g(w) → L cuando w → w₀ (w ≠ w₀ donde f "
+                                   "está definida), entonces f → L")
+            return texto
+    # 2) polares
+    texto = _cota_polar(mx.Sub(F, L), ux, uy, valor_txt, trace)
+    if texto is not None:
+        return texto
+    # 3) L = 0 y f = P/Q con Q suma de términos ≥ 0: Q ≥ cᵢmᵢ y Q ≥ 2√(cᵢmᵢ·cⱼmⱼ)
+    if mx.valor_real(L, {}) != 0:
+        return None
+    G = MI._racional(MI._limpio(F))
+    if not isinstance(G, mx.Div):
+        return None
+    try:
+        q = Pm.as_poly(G.right)
+    except Exception:  # noqa: BLE001
+        return None
+    terminos = list(q.items())
+    if len(terminos) < 2 or any(c <= 0 or any(e % 2 for _, e in m) for m, c in terminos):
+        return None
+    try:
+        pn = Pm.as_poly(G.left)
+    except Exception:  # noqa: BLE001
+        return None
+    variables = (ux, uy)
+
+    def exps(m):
+        return tuple(Pm.mono_exp(m, v) for v in variables)
+    cand = []
+    for i, (mi, ci) in enumerate(terminos):
+        cand.append((exps(mi), mx.Num(ci), f"Q ≥ {mx.text(Pm.to_expr({mi: ci}))}"))
+        for mj, cj in terminos[i + 1:]:
+            ei, ej = exps(mi), exps(mj)
+            medio = tuple((a + b) // 2 for a, b in zip(ei, ej))
+            if any((a + b) % 2 for a, b in zip(ei, ej)):
+                continue
+            cand.append((medio, MI._limpio(mx.Mul(mx.Num(2), mx.Root(2, mx.Num(ci * cj)))),
+                         f"Q ≥ 2√({mx.text(Pm.to_expr({mi: ci}))}·"
+                         f"{mx.text(Pm.to_expr({mj: cj}))}) (media aritmética ≥ geométrica)"))
+    for b, d, porque in cand:
+        grados = []
+        for m, c in pn.items():
+            a = exps(m)
+            if any(Pm.is_atom(n) or n not in variables for n, _ in m) or \
+                    any(x < y for x, y in zip(a, b)):
+                break
+            grados.append(sum(a) - sum(b))
+        else:
+            if grados and min(grados) > 0:
+                k = min(grados)
+                def mono_txt(c, a):
+                    fs = [] if abs(c) == 1 else [str(abs(c))]
+                    for nom, e_ in zip(("x", "y"), (a[0] - b[0], a[1] - b[1])):
+                        if e_:
+                            fs.append(f"|{nom}|" + (f"^{e_}" if e_ > 1 else ""))
+                    return "·".join(fs) or "1"
+                cota = " + ".join(mono_txt(c, exps(m)) for m, c in pn.items())
+                if mx.exact_value(d) != 1:
+                    cota = f"({cota})/{mx.text(d)}"
+                texto = (f"|f| ≤ {cota} porque {porque.replace('u_', '')}: "
+                         f"cada término es O(r^{k}) con r = √(x² + y²) (|x|, |y| ≤ r) → 0")
+                trace.verificacion("mv.limite_cota", texto,
+                                   why="sándwich: una cota de |f| que tiende a 0")
+                return texto
+    return None
+
+
+def _cota_polar(G, ux, uy, valor_txt, trace) -> str | None:
+    from academic_core.domain.engineering.mathlab import limite as LM
+    from academic_core.domain.engineering.mathlab import multiple as MI
+    from academic_core.domain.engineering.mathlab import poly as Pm
+
+    r_, t_ = mx.Sym("r__"), mx.Sym("t__")
+    G = mx.substitute(mx.substitute(G, ux, mx.Mul(r_, mx.Call("cos", (t_,)))),
+                      uy, mx.Mul(r_, mx.Call("sin", (t_,))))
+    G = _r_positivo(MI._limpio(MI._pitagoras(_r_positivo(MI._limpio(G)))))
+    G = MI._racional(G)
+    num, den = (G.left, G.right) if isinstance(G, mx.Div) else (G, mx.Num(1))
+    den = MI._limpio(MI._pitagoras(den))
+    if mx.depends(den, "t__"):
+        return None
+    # numerador: polinomio en r, cos t, sen t → |num| ≤ Σ|c|·r^k
+    while isinstance(num, mx.Call) and num.name == "abs":
+        num = num.args[0]
+    if isinstance(num, mx.Mul) and isinstance(num.left, mx.Call) and num.left.name == "abs":
+        num = mx.Mul(num.left.args[0], num.right)
+    try:
+        p = Pm.as_poly(MI._limpio(num))
+    except Exception:  # noqa: BLE001
+        return None
+    cota: mx.Expr = mx.Num(0)
+    for m, c in p.items():
+        k = 0
+        for nombre, e in m:
+            if nombre == "r__":
+                k = e
+            elif Pm.is_atom(nombre) and (Pm.es_llamada(nombre, "cos") or
+                                         Pm.es_llamada(nombre, "sin")) and \
+                    Pm.atom_text(nombre)[4:-1] == "t__":
+                continue
+            else:
+                return None
+        cota = mx.Add(cota, mx.Mul(mx.Num(abs(c)), mx.Pow(r_, mx.Num(k))))
+    h = MI._limpio(mx.Div(cota, mx.Call("abs", (den,))))
+    lr = LM.limite(h, "r__", "0", "+")
+    if lr.expr is None or mx.exact_value(lr.expr) != 0:
+        return None
+    hs = mx.text(h).replace("r__", "r")
+    texto = (f"en polares |f − {valor_txt}| ≤ {hs} → 0 cuando r → 0⁺, sin depender "
+             "del ángulo (|cos θ|, |sen θ| ≤ 1)")
+    trace.verificacion("mv.limite_polares", texto,
+                       why="criterio del sándwich con una cota que solo depende de r")
+    return texto
+
+
+def _r_positivo(e):
+    """r ≥ 0 en polares: √(c·r^(2k)) = r^k·√c y |r| = r."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+    from academic_core.domain.engineering.mathlab import poly as Pm
+
+    if isinstance(e, mx.Root) and e.degree == 2 or (
+            isinstance(e, mx.Call) and e.name == "sqrt"):
+        R = _r_positivo(e.radicand if isinstance(e, mx.Root) else e.args[0])
+        R = MI._limpio(MI._pitagoras(R))
+        try:
+            p = Pm.as_poly(R)
+        except Exception:  # noqa: BLE001
+            p = None
+        if p:
+            k = min(Pm.mono_exp(m, "r__") for m in p)
+            k -= k % 2
+            if k:
+                resto = Pm.to_expr({Pm.mono_div(m, (("r__", k),)): c for m, c in p.items()})
+                return mx.Mul(mx.Pow(mx.Sym("r__"), mx.Num(k // 2)), mx.Root(2, resto))
+        return mx.Root(2, R)
+    if isinstance(e, mx.Call) and e.name == "abs" and e.args[0] == mx.Sym("r__"):
+        return mx.Sym("r__")
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_r_positivo(e.left), _r_positivo(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_r_positivo(e.arg))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_r_positivo(e.base), e.exponent)
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_r_positivo(a) for a in e.args))
+    return e
+
+
+def _subexpresiones(e, vars):
+    vistos = []
+    for n in _nodos_mv(e):
+        if n is e or not (mx.variables(n) & vars) or isinstance(n, mx.Sym):
+            continue
+        if not any(mx.text(n) == mx.text(v) for v in vistos):
+            vistos.append(n)
+    vistos.sort(key=lambda n: -len(mx.text(n)))
+    return vistos
+
+
+def _reemplaza(e, w, por):
+    if mx.text(e) == mx.text(w):
+        return por
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_reemplaza(e.left, w, por), _reemplaza(e.right, w, por))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_reemplaza(e.arg, w, por))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_reemplaza(e.base, w, por), _reemplaza(e.exponent, w, por))
+    if isinstance(e, mx.Root):
+        return mx.Root(e.degree, _reemplaza(e.radicand, w, por))
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_reemplaza(a, w, por) for a in e.args))
+    return e
 
 
 def _camino(F: mx.Expr, ux: str, uy: str, nombre: str) -> mx.Expr:
@@ -248,6 +481,14 @@ def _camino(F: mx.Expr, ux: str, uy: str, nombre: str) -> mx.Expr:
         return mx.substitute(F, uy, mx.Pow(X, mx.Num(Fraction(2))))
     if nombre == "y = -x^2":
         return mx.substitute(F, uy, mx.Neg(mx.Pow(X, mx.Num(Fraction(2)))))
+    if nombre == "x = y^2":
+        return mx.substitute(F, ux, mx.Pow(Y, mx.Num(Fraction(2))))
+    if nombre == "x = -y^2":
+        return mx.substitute(F, ux, mx.Neg(mx.Pow(Y, mx.Num(Fraction(2)))))
+    if nombre == "y = x^3":
+        return mx.substitute(F, uy, mx.Pow(X, mx.Num(Fraction(3))))
+    if nombre == "x = y^3":
+        return mx.substitute(F, ux, mx.Pow(Y, mx.Num(Fraction(3))))
     raise _error("BAD_INPUT", f"camino desconocido «{nombre}»")
 
 
@@ -538,6 +779,56 @@ def _float(c) -> float:
 
 
 def _clasifica(f: mx.Expr, vars: list[str], punto: tuple, trace: Trace) -> str:
+    clase = _clasifica_hessiana(f, vars, punto, trace)
+    if clase.startswith("sin clasificar"):
+        otra = _clasifica_entorno(f, vars, punto, trace)
+        if otra is not None:
+            return otra
+    return clase
+
+
+def _clasifica_entorno(f, vars, punto, trace) -> str | None:
+    """Hessiana degenerada: signo de f(p + h) − f(p) en muchas direcciones y radios.
+    Valores mayores y menores ⇒ silla; si no, extremo (comprobación numérica)."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    fc = MI.compilar(f, list(vars))
+    if fc is None:
+        return None
+    x0 = [_float(c) for c in punto]
+    try:
+        f0 = fc(x0)
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return None
+    n = len(vars)
+    if n > 3:
+        return None
+    dirs = _direcciones(n) if n > 1 else [(1.0,), (-1.0,)]
+    signos = set()
+    for paso in (1e-1, 3e-2, 1e-2):
+        for u in dirs:
+            try:
+                d = fc([a + paso * b for a, b in zip(x0, u)]) - f0
+            except (ValueError, ZeroDivisionError, OverflowError):
+                continue
+            if abs(d) > 1e-13 * max(1.0, abs(f0)):
+                signos.add(1 if d > 0 else -1)
+    if signos == {1, -1}:
+        clase = "punto de silla (f toma valores mayores y menores muy cerca)"
+    elif signos == {1}:
+        clase = "mínimo (Hessiana degenerada; comparando f en un entorno)"
+    elif signos == {-1}:
+        clase = "máximo (Hessiana degenerada; comparando f en un entorno)"
+    else:
+        return None
+    trace.regla("mv.orden_superior", f"Hessiana degenerada: f(p + h) − f(p) en "
+                f"{len(dirs)} direcciones y 3 radios → {clase}",
+                why="el criterio de segundo orden no decide; se compara f con su valor "
+                    "en el punto (comprobación numérica en un entorno)")
+    return clase
+
+
+def _clasifica_hessiana(f: mx.Expr, vars: list[str], punto: tuple, trace: Trace) -> str:
     if all(isinstance(c, Fraction) for c in punto):
         try:
             return hessiana(f, vars, dict(zip(vars, punto)), trace)[1]
@@ -603,7 +894,13 @@ def puntos_criticos(f: mx.Expr, vars: list[str],
         why="un extremo interior de una función diferenciable anula el gradiente")
     trace.metodo("mv.criticos", "el sistema se resuelve por bases de Gröbner",
                  why="eliminación exacta: no se pierde ninguna solución ni se inventa")
-    sols = S.resolver(grad, list(vars), trace)
+    try:
+        sols = S.resolver(grad, list(vars), trace)
+    except UnsupportedError as exc:
+        if "no es polinómico" not in str(exc) or not any(
+                isinstance(n, mx.Call) and n.name in ("sin", "cos") for n in _nodos_mv(f)):
+            raise
+        return _criticos_trigonometricos(f, list(vars), grad, trace)
     if not sols:
         trace.regla("mv.criticos", "∇f = 0 no tiene solución real: sin puntos críticos")
         return []
@@ -614,6 +911,255 @@ def puntos_criticos(f: mx.Expr, vars: list[str],
         trace.regla("mv.criticos", f"({', '.join(texto_coord(c) for c in punto)}): {clase}")
         out.append((punto, clase))
     return out
+
+
+def _nodos_mv(e):
+    yield e
+    for h in ("left", "right", "arg", "base", "exponent", "radicand"):
+        c = getattr(e, h, None)
+        if isinstance(c, mx.Expr):
+            yield from _nodos_mv(c)
+    for a in getattr(e, "args", ()) or ():
+        if isinstance(a, mx.Expr):
+            yield from _nodos_mv(a)
+
+
+def _lineal_entera(e: mx.Expr, vars: list[str]) -> dict[str, int] | None:
+    """e = Σ kᵢ·vᵢ con kᵢ enteros (sin término constante)."""
+    from academic_core.domain.engineering.mathlab import poly as Pm
+
+    try:
+        p = Pm.as_poly(e)
+    except Exception:  # noqa: BLE001
+        return None
+    out = {}
+    for m, c in p.items():
+        if len(m) != 1 or m[0][1] != 1 or m[0][0] not in vars or c.denominator != 1:
+            return None
+        out[m[0][0]] = int(c)
+    return out
+
+
+def _sc(nombre: str, comb: dict[str, int]) -> mx.Expr:
+    """sin/cos de Σ kᵢvᵢ en polinomio de s_v = sen v, c_v = cos v (adición)."""
+    items = [(v, k) for v, k in comb.items() if k]
+    if not items:
+        return mx.Num(Fraction(0 if nombre == "sin" else 1))
+    v, k = items[0]
+    resto = dict(items[1:])
+    if k < 0:
+        a_s, a_c = mx.Neg(_sc("sin", {v: -k})), _sc("cos", {v: -k})
+    elif k == 1:
+        a_s, a_c = mx.Sym("s_" + v), mx.Sym("c_" + v)
+    else:
+        p_s, p_c = _sc("sin", {v: k - 1}), _sc("cos", {v: k - 1})
+        s1, c1 = mx.Sym("s_" + v), mx.Sym("c_" + v)
+        a_s = mx.Add(mx.Mul(p_s, c1), mx.Mul(p_c, s1))
+        a_c = mx.Sub(mx.Mul(p_c, c1), mx.Mul(p_s, s1))
+    if not resto:
+        return a_s if nombre == "sin" else a_c
+    b_s, b_c = _sc("sin", resto), _sc("cos", resto)
+    if nombre == "sin":
+        return mx.Add(mx.Mul(a_s, b_c), mx.Mul(a_c, b_s))
+    return mx.Sub(mx.Mul(a_c, b_c), mx.Mul(a_s, b_s))
+
+
+def _a_seno_coseno(e: mx.Expr, vars: list[str]) -> mx.Expr:
+    if isinstance(e, mx.Call) and e.name in ("sin", "cos") and len(e.args) == 1:
+        comb = _lineal_entera(e.args[0], vars)
+        if comb is None:
+            raise _no(f"{mx.text(e)}: argumento no lineal entero en las variables")
+        return _sc(e.name, comb)
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_a_seno_coseno(e.left, vars), _a_seno_coseno(e.right, vars))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_a_seno_coseno(e.arg, vars))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_a_seno_coseno(e.base, vars), e.exponent)
+    if isinstance(e, mx.Sym) and e.name in vars:
+        raise _no(f"{e.name} aparece fuera de sen/cos: el sistema no es periódico")
+    if isinstance(e, mx.Call):
+        raise _no(f"{mx.text(e)}: solo se tratan sen y cos")
+    return e
+
+
+def _angulo(sv, cv) -> mx.Expr:
+    """θ ∈ [0, 2π) con sen θ = s, cos θ = c: q·π si es notable; si no, arccos."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    sx, cx = sv.x, cv.x
+    ang = math.atan2(sx, cx) % (2 * math.pi)
+    q = Fraction(ang / math.pi).limit_denominator(12)
+    if abs(float(q) * math.pi - ang) < 1e-12:
+        return MI._limpio(mx.Mul(mx.Num(q), mx.Const("pi"))) if q else mx.Num(Fraction(0))
+    c = cv.expr if cv.exacto else mx.Num(Fraction(cx))
+    base = mx.Call("acos", (c,))
+    return base if sx >= 0 else MI._limpio(mx.Sub(mx.Mul(mx.Num(2), mx.Const("pi")), base))
+
+
+def _criticos_trigonometricos(f, vars, grad, trace):
+    """∇f = 0 con sen/cos de combinaciones enteras: sᵥ = sen v, cᵥ = cos v con
+    sᵥ² + cᵥ² = 1 lo vuelve polinómico; cada (s, c) da un ángulo único en [0, 2π)."""
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    incog = [p + v for v in vars for p in ("s_", "c_")]
+    ecs = [_a_seno_coseno(g, vars) for g in grad]
+    ecs += [mx.Sub(mx.Add(mx.Pow(mx.Sym("s_" + v), mx.Num(2)),
+                          mx.Pow(mx.Sym("c_" + v), mx.Num(2))), mx.Num(1)) for v in vars]
+    trace.regla("mv.trig_poli", "sᵥ = sen v, cᵥ = cos v (fórmulas de adición) y "
+                "sᵥ² + cᵥ² = 1: " + "; ".join(f"{mx.text(e)} = 0" for e in ecs),
+                why="el sistema trigonométrico pasa a polinómico sin perder soluciones; "
+                    "cada par (sen, cos) fija el ángulo en [0, 2π)")
+    sols = S.resolver(ecs, incog, trace)
+    out = []
+    for s_ in sols:
+        punto = tuple(_angulo(s_["s_" + v], s_["c_" + v]) for v in vars)
+        punto = tuple(Fraction(0) if mx.exact_value(c) == 0 else c for c in punto)
+        clase = _clasifica(f, vars, punto, trace)
+        trace.regla("mv.criticos", f"({', '.join(texto_coord(c) for c in punto)}): {clase}")
+        out.append((punto, clase))
+    out.sort(key=lambda t: tuple(_float(c) for c in t[0]))
+    trace.regla("mv.periodico", "f es 2π-periódica en cada variable: los puntos críticos "
+                "son los de [0, 2π)ⁿ más múltiplos de 2π en cada coordenada")
+    return out
+
+
+@dataclass
+class Curva:
+    ecuacion: mx.Expr          # h = 0: todos sus puntos son críticos
+    valores: list              # valores (exactos) de f en puntos de la curva
+    clase: str
+
+
+def conjunto_critico(f: mx.Expr, vars: list[str], trace: Trace | None = None):
+    """∇f = 0 con soluciones no aisladas: ∇f = h·(q₁, …, qₙ) con h = mcd de las
+    componentes; {h = 0} es entera crítica y q = 0 da los puntos aislados que
+    quedan. f es constante en cada componente conexa de la curva (∇f = 0 en
+    ella); su valor se da exacto en puntos racionales de la curva y la clase se
+    decide comparando f con su valor en un entorno."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+    from academic_core.domain.engineering.mathlab import poly as Pm
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    trace = trace if trace is not None else Trace()
+    grad = [_d(f, v, trace) for v in vars]
+    polis = [S.a_polinomio(g, list(vars), trace) for g in grad]
+    polis_e = [S._a_exp(p, list(vars)) for p in polis if p]
+    h, cof = S.factor_comun(polis_e)
+    if len(h) == 1 and all(x == 0 for x in next(iter(h))):
+        raise _no("las soluciones no están aisladas y no hay factor común en ∇f")
+    # parte libre de cuadrados: x³y³ tiene ∇ con factor x²y², la curva es xy = 0
+    derivadas = []
+    for k in range(len(vars)):
+        dk = {}
+        for ex, c in h.items():
+            if ex[k]:
+                e2 = tuple(x - (1 if i == k else 0) for i, x in enumerate(ex))
+                dk[e2] = dk.get(e2, Fraction(0)) + c * ex[k]
+        if dk:
+            derivadas.append(dk)
+    g_rep, _ = S.factor_comun([h] + derivadas)
+    if not (len(g_rep) == 1 and all(x == 0 for x in next(iter(g_rep)))):
+        h = S.divide_exacto(h, g_rep) or h
+
+    def a_expr(g):
+        return MI._bonito(Pm.to_expr({tuple((nm, e) for nm, e in zip(vars, ex) if e): c
+                                      for ex, c in g.items()}))
+    he = a_expr(h)
+    trace.regla("mv.factor_comun", f"∇f = ({mx.text(he)})·(" + ", ".join(
+        mx.text(a_expr(q)) for q in cof) + ")",
+        why="mcd de las componentes del gradiente (bases de Gröbner): donde se anula "
+            "el factor común se anulan todas")
+    # puntos aislados del resto
+    pts = []
+    if any(cof):
+        try:
+            sols = S.resolver([a_expr(q) for q in cof if q], list(vars), trace)
+        except UnsupportedError:
+            sols = []
+        for s_ in sols:
+            punto = tuple(_coord(s_[v]) for v in vars)
+            env = {v: float(mx.valor_real(_a_num(c), {}) if not isinstance(c, float) else c)
+                   for v, c in zip(vars, punto)}
+            if abs(mx.valor_real(he, env) or 0) < 1e-12:
+                continue        # ya está en la curva
+            pts.append((punto, _clasifica(f, vars, punto, trace)))
+    # puntos exactos de la curva: se fija todo menos la última variable
+    from academic_core.domain.engineering.mathlab import raices as RZ
+    import itertools
+
+    muestras = []
+    fijos = [Fraction(0), Fraction(1), Fraction(-1), Fraction(1, 2), Fraction(2),
+             Fraction(-2), Fraction(1, 3)]
+    for libre in reversed(vars):
+        otros = [v for v in vars if v != libre]
+        for combo in itertools.product(fijos, repeat=len(otros)):
+            g = he
+            for v, c in zip(otros, combo):
+                g = mx.substitute(g, v, mx.Num(c))
+            if not mx.depends(g, libre):
+                continue
+            try:
+                cs = RZ.ceros(MI._limpio(g), libre)
+            except Exception:  # noqa: BLE001
+                continue
+            for r in cs.raices:
+                if r.exacta:
+                    p = dict(zip(otros, (mx.Num(c) for c in combo)))
+                    p[libre] = r.valor
+                    muestras.append(p)
+            if len(muestras) >= 8:
+                break
+        if len(muestras) >= 8:
+            break
+    if not muestras:
+        raise _no(f"la curva crítica {mx.text(he)} = 0 no tiene puntos exactos sencillos")
+    valores = []
+    clases: dict[str, list] = {}
+    fc = MI.compilar(f, list(vars))
+    for p in muestras:
+        v = MI._limpio(_sustituye_todo(f, p))
+        valores.append(v)
+        x0 = [float(mx.valor_real(p[v_], {})) for v_ in vars]
+        f0 = fc(x0)
+        signos = set()
+        for k in range(24):
+            ang = [math.cos(2 * math.pi * k / 24), math.sin(2 * math.pi * k / 24)]
+            for paso in (1e-2, 1e-3):
+                d = [paso * ang[i % 2] * (1 if i < 2 else (-1) ** k) for i in range(len(vars))]
+                try:
+                    df = fc([a + b for a, b in zip(x0, d)]) - f0
+                except (ValueError, ZeroDivisionError, OverflowError):
+                    continue
+                escala = 1e-12 * max(1.0, abs(f0))
+                signos.add(0 if abs(df) <= escala else (1 if df > 0 else -1))
+        c_ = ("mínimos (no estrictos)" if signos <= {0, 1} else
+              "máximos (no estrictos)" if signos <= {0, -1} else "ni máximos ni mínimos")
+        clases.setdefault(c_, []).append(
+            "(" + ", ".join(mx.text(p[v_]) for v_ in vars) + ")")
+    if len(clases) == 1:
+        clase = next(iter(clases))
+    else:
+        clase = "depende del tramo: " + "; ".join(
+            f"{c_} p. ej. en {', '.join(ps[:3])}" for c_, ps in clases.items())
+    clase += " (comparando f en un entorno)"
+    distintos = []
+    for v in valores:
+        if not any(abs(float(mx.valor_real(v, {})) - float(mx.valor_real(w, {}))) < 1e-12
+                   for w in distintos):
+            distintos.append(v)
+    trace.regla("mv.curva_critica", f"todos los puntos de {mx.text(he)} = 0 son críticos; "
+                f"f = {', '.join(mx.text(v) for v in distintos)} en ellos: {clase}",
+                why="∇f = 0 a lo largo de la curva, luego f es constante en cada "
+                    "componente; la clase sale de comparar f con su valor en un entorno "
+                    "de puntos de la curva (comprobación numérica)")
+    return pts, [Curva(he, distintos, clase)]
+
+
+def _sustituye_todo(f, p):
+    for v, c in p.items():
+        f = mx.substitute(f, v, c)
+    return f
 
 
 def taylor2(f: mx.Expr, vars: list[str], centro: dict[str, mx.Expr],
@@ -745,6 +1291,28 @@ def lagrange(f: mx.Expr, g, vars: list[str],
                     "comparación de candidatos; sin compacidad comprobada no se afirma que "
                     "sean extremos absolutos")
     return out
+
+
+def comprueba_constante(f, gs, vars, c, trace) -> None:
+    """f − c ∈ ⟨g₁, …⟩ (forma normal 0 respecto de su base de Gröbner): f = c en
+    TODA la ligadura, exacto (no solo en los puntos de prueba)."""
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    try:
+        polis = [S._a_exp(S.a_polinomio(g, list(vars), Trace()), list(vars)) for g in gs]
+        dif = S._a_exp(S.a_polinomio(mx.Sub(f, _a_num(c)), list(vars), Trace()), list(vars))
+        G = S.grobner(polis, S.grevlex)
+        if S._reduce(dif, G):
+            raise _no("f − c no está en el ideal de la ligadura: f no es constante en ella")
+    except UnsupportedError as exc:
+        if "no está en el ideal" in str(exc):
+            raise
+        trace.aviso("mv.constante_muestreo", "f = c comprobado en muchos puntos de la "
+                    "ligadura (no polinómico: sin prueba por ideales)")
+        return
+    trace.verificacion("mv.constante_ideal", f"f − {texto_coord(c)} pertenece al ideal de "
+                       "las ligaduras: f es constante en toda la ligadura",
+                       why="forma normal 0 respecto de una base de Gröbner")
 
 
 def _es_acotada(g, vars) -> bool:

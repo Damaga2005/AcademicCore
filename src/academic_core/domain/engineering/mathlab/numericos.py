@@ -585,7 +585,9 @@ def resolver_x_exp(a, b, c, trace: Trace | None = None) -> list[tuple[object, fl
     for r in ramas:
         ex, w = lambert_w(arg, r, trace)
         x = w / float(mx.valor_real(be, {}))
-        xe = MI._limpio(mx.Div(ex, be)) if ex is not None else None
+        if ex is None:                       # forma cerrada con la propia W
+            ex = mx.Call("W" if r == 0 else "Wm1", (arg,))
+        xe = MI._limpio(mx.Div(ex, be))
         out.append((xe, x))
     return out
 

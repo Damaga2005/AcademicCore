@@ -175,7 +175,9 @@ def _por_exponencial(f: mx.Expr, var: str, trace: Trace) -> Resultado | None:
         try:
             from academic_core.domain.engineering.mathlab import poly as P
 
-            razon = P.as_ratio(_limpio(h), U)
+            from academic_core.domain.engineering.mathlab import multiple as MI
+
+            razon = P.as_ratio(MI._racional(_limpio(h)), U)
             coefs_u = RZ._polinomio_de(P.to_expr(razon.numerator), U) if razon else None
         except Exception:  # noqa: BLE001
             coefs_u = None
@@ -265,7 +267,7 @@ def _por_logaritmo(f: mx.Expr, var: str, trace: Trace) -> Resultado | None:
             resto += c
             continue
         if len(m) == 1 and m[0][1] == 1 and P.is_atom(m[0][0]) and \
-                P.atom_text(m[0][0]).startswith("ln("):
+                P.es_llamada(m[0][0], "ln"):
             logs[m[0][0]] = c          # también ln(constante): entra en el producto
         else:
             return None
@@ -491,7 +493,11 @@ def _por_lambert(f: mx.Expr, var: str, trace: Trace) -> Resultado | None:
         for rama in ([0, -1] if -1 / math.e <= lc < 0 else [0] if lc >= -1 / math.e else []):
             ex, w = NU.lambert_w(mx.Call("ln", (f.right,)), rama, trace)
             x = lc / w if w != 0 else 1.0
-            sols.append(Solucion(exactifica(f, var, x), x))
+            exacta = exactifica(f, var, x)
+            if exacta is None and w != 0:
+                lnc = mx.Call("ln", (f.right,))
+                exacta = mx.Div(lnc, mx.Call("W" if rama == 0 else "Wm1", (lnc,)))
+            sols.append(Solucion(exacta, x))
         trace.regla("ecuacion.lambert", "x^x = c ⇔ ln x·e^(ln x) = ln c ⇔ x = e^(W(ln c))")
         return Resultado(tuple(sorted(sols, key=lambda s: s.valor)), True, "Lambert W")
     try:

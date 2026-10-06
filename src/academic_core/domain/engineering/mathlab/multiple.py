@@ -128,6 +128,10 @@ def _log_racional(a: mx.Expr, b: mx.Expr) -> Fraction | None:
 
 def _raiz_cte(e: mx.Expr) -> mx.Expr:
     """√(c·u) con c cuadrado perfecto racional → √c·√u (√(4y) = 2√y)."""
+    if isinstance(e, mx.Root) and e.degree % 2 == 1:
+        q = mx.exact_value(e.radicand)
+        if q is not None and q < 0:          # ∛(−2) = −∛2
+            return mx.Neg(mx.Root(e.degree, leer(-Fraction(q))))
     if isinstance(e, mx.Root) and e.degree == 2:
         r = _raiz_cte(e.radicand)
         # contenido cuadrado de un polinomio: √(16 − 4y) = 2·√(4 − y)
@@ -286,7 +290,7 @@ def _sin_abs_pares(p):
         resto = []
         for v, k in m:
             texto = P.atom_text(v) if P.is_atom(v) else ""
-            if texto.startswith("sqrt(") and k >= 2:
+            if P.es_llamada(texto, "sqrt") and k >= 2:
                 u = P.as_poly(mx.parse(texto[5:-1]))
                 for _ in range(k // 2):
                     term = P.mul(term, u)
@@ -504,6 +508,9 @@ def _logexp(e: mx.Expr) -> mx.Expr:
             k = _angulo_notable(e.name, args[0])
             if k is not None:
                 return k
+        if e.name == "exp" and isinstance(args[0], mx.Call) and args[0].name in ("W", "Wm1"):
+            u = args[0].args[0]                       # W·e^W = u ⇒ e^W = u/W
+            return mx.Div(u, args[0])
         if e.name == "abs" and isinstance(args[0], mx.Call) and args[0].name == "exp":
             return args[0]                                  # eᵘ > 0
         if e.name == "abs" and isinstance(args[0], mx.Root) and args[0].degree % 2 == 0:
@@ -561,6 +568,8 @@ def _pitagoras(e: mx.Expr) -> mx.Expr:
         e = mx.Neg(_pitagoras(e.arg))
     elif isinstance(e, mx.Pow):
         e = mx.Pow(_pitagoras(e.base), e.exponent)
+    elif isinstance(e, mx.Root):
+        e = mx.Root(e.degree, _pitagoras(e.radicand))
     if not any(isinstance(n, mx.Call) and n.name in ("sin", "cos") for n in _nodos(e)):
         return e
     largos = sorted(v for v in mx.variables(e) if len(v) > 1)
@@ -583,7 +592,7 @@ def _pitagoras(e: mx.Expr) -> mx.Expr:
         cambio = False
         for m, c in list(p.items()):
             for v, k in m:
-                if P.is_atom(v) and P.atom_text(v).startswith("cos(") and k >= 2:
+                if P.is_atom(v) and P.es_llamada(v, "cos") and k >= 2:
                     seno = "@sin(" + P.atom_text(v)[4:]
                     resto = P.mono_div(m, ((v, 2),))
                     p = P.add(p, {m: c}, -1)
@@ -839,6 +848,14 @@ class Resultado:
     exacto: mx.Expr | None
     numerico: float
     coincide: bool
+
+    def __post_init__(self) -> None:
+        # con valor exacto (ya contrastado con la cuadratura) el decimal sale de él:
+        # la cuadratura cerca de una singularidad integrable pierde cifras
+        if self.exacto is not None:
+            v = mx.valor_real(self.exacto, {})
+            if v is not None and math.isfinite(float(v)):
+                object.__setattr__(self, "numerico", float(v))
 
     def texto(self) -> str:
         if self.exacto is None:
@@ -1119,6 +1136,8 @@ def numerica(f: mx.Expr, L) -> float:
         total = 0.0
         for x, w in _NODOS:
             v[k] = m + h * x
+            if v[k] == a or v[k] == b:
+                continue        # el nodo se redondea al extremo: no se evalúa nunca
             total += w * rec(k - 1)
         return total * h
     try:

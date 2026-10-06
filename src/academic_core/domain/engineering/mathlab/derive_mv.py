@@ -63,13 +63,12 @@ def finite_difference(f: mx.Expr, var: str, at: dict[str, float],
     second-order accurate, so it can actually *disagree* with a wrong derivative
     instead of agreeing with it by luck.
     """
-    h = mx.parse(str(step))
     plus = dict(at)
     minus = dict(at)
     plus[var] = at[var] + step
     minus[var] = at[var] - step
-    up = mx.evaluate(mx.substitute(f, var, h), plus)
-    down = mx.evaluate(mx.substitute(f, var, mx.Neg(h)), minus)
+    up = mx.evaluate(f, plus)
+    down = mx.evaluate(f, minus)
     if up is None or down is None:
         return None
     return (up.real - down.real) / (2 * step)
@@ -314,15 +313,22 @@ def verify_derivative(f: mx.Expr, derivative: mx.Expr, var: str) -> V.Seal:
     """
     names = sorted(mx.variables(f))
     if names == [var]:
-        seal = V.verify_against(derivative, _e01_derivative_of(f, var))
-        if seal.ok:
+        try:
+            seal = V.verify_against(derivative, _e01_derivative_of(f, var))
+        except UnsupportedError:
+            seal = None     # E0.1 no lo representa (f^g, especiales): queda la numérica
+        if seal is not None and seal.ok:
             return seal
     tested = worst = 0
-    for env in V.sampled_points([var]):
+    for env in V.sampled_points(names):
         numeric = finite_difference(f, var, env)
         analytic = mx.evaluate(derivative, env)
         if numeric is None or analytic is None:
             continue
+        valor = mx.evaluate(f, env)
+        if valor is None or abs(complex(valor).imag) > 1e-12 or \
+                abs(complex(analytic).imag) > 1e-12:
+            continue        # fuera del dominio real (x^x con x < 0)
         if abs(analytic) < V.ZERO_GUARD and abs(numeric) < V.ZERO_GUARD:
             continue
         tested += 1
@@ -332,11 +338,39 @@ def verify_derivative(f: mx.Expr, derivative: mx.Expr, var: str) -> V.Seal:
         return V.Seal(V.NUMERIC_ONLY, "sin puntos evaluables",
                       "no se pudo comparar la derivada numéricamente")
     if worst <= 1e-5:
+        segundo = _segundo_camino(f, derivative, var, names)
+        if segundo:
+            return V.Seal(V.VERIFIED, f"{segundo} y {tested} diferencias centrales",
+                          f"desviación máxima {worst:.3g}")
         return V.Seal(V.NUMERIC_ONLY, f"{tested} diferencias centrales",
                       f"desviación máxima {worst:.3g}")
     return V.Seal(V.DISCREPANT, f"{tested} diferencias centrales",
                   f"desviación máxima {worst:.3g}: la derivada no coincide con el "
                   "cociente incremental")
+
+
+def _segundo_camino(f, derivative, var, names) -> str:
+    """Otra derivada exacta e independiente, comparada por equivalencia exacta:
+    con varias variables, las reglas propias frente al puente de E0.1; con f^g,
+    la derivación logarítmica f·(g·ln f)′."""
+    try:
+        if len(names) > 1:
+            otra = derivada_directa(f, var)
+            nombre = "reglas propias frente al motor E0.1"
+        else:
+            def ln_de(e):
+                if isinstance(e, mx.Pow) and var in mx.variables(e.exponent):
+                    return mx.Mul(e.exponent, mx.Call("ln", (e.base,)))
+                return None
+            g = ln_de(f)
+            if g is None:
+                return ""
+            otra = mx.Mul(f, derivada_directa(g, var))
+            nombre = "derivación logarítmica f·(g·ln f)′"
+        ok = V.check_equivalence(derivative, otra)[0]
+    except Exception:  # noqa: BLE001
+        return ""
+    return nombre if ok else ""
 
 
 def _e01_derivative_of(f: mx.Expr, var: str) -> mx.Expr:

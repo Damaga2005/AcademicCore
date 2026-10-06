@@ -80,6 +80,67 @@ def comprueba(F: mx.Expr, f: mx.Expr, var: str) -> bool:
     return buenos >= 6
 
 
+def _sec_lineal(e: mx.Expr, var: str):
+    """(c, nombre, u) si e = c·sec(u) o c·csc(u) con u = a·x + b."""
+    from academic_core.domain.engineering.mathlab import cuasipolinomios as Q
+
+    c: mx.Expr = mx.Num(1)
+    n = e
+    if isinstance(n, mx.Neg):
+        c, n = mx.Num(-1), n.arg
+    if isinstance(n, mx.Mul) and not mx.depends(n.left, var):
+        c, n = mx.Mul(c, n.left), n.right
+    if isinstance(n, mx.Mul) and not mx.depends(n.right, var):
+        c, n = mx.Mul(c, n.right), n.left
+    if isinstance(n, mx.Div) and not mx.depends(n.left, var) and isinstance(n.right, mx.Call) \
+            and n.right.name in ("cos", "sin"):
+        c = mx.Mul(c, n.left)
+        n = mx.Call("sec" if n.right.name == "cos" else "csc", n.right.args)
+    if isinstance(n, mx.Call) and n.name in ("sec", "csc"):
+        lin = Q._lineal(n.args[0], var)
+        if lin is not None and not Q.es_cero(lin[0]):
+            return c, n.name, n.args[0], lin[0]
+    return None
+
+
+def _tabla_sec(f: mx.Expr, var: str, profundidad: int):
+    """∫ de sumas con términos c·sec(ax + b), c·csc(ax + b) (el resto, por primitiva)."""
+    terminos = []
+
+    def aplana(n, signo):
+        if isinstance(n, mx.Add):
+            aplana(n.left, signo)
+            aplana(n.right, signo)
+        elif isinstance(n, mx.Sub):
+            aplana(n.left, signo)
+            aplana(n.right, -signo)
+        elif isinstance(n, mx.Neg):
+            aplana(n.arg, -signo)
+        else:
+            terminos.append(n if signo > 0 else mx.Neg(n))
+    aplana(f, 1)
+    if not any(_sec_lineal(t, var) for t in terminos):
+        return None
+    total = None
+    for t in terminos:
+        sl = _sec_lineal(t, var)
+        if sl is None:
+            try:
+                F = primitiva(t, var, Trace(), profundidad + 1)
+            except UnsupportedError:
+                return None
+        else:
+            c, nombre, u, a = sl
+            if nombre == "sec":
+                arg = mx.Add(mx.Call("sec", (u,)), mx.Call("tan", (u,)))
+                F = mx.Mul(mx.Div(c, a), mx.Call("ln", (mx.Call("abs", (arg,)),)))
+            else:
+                arg = mx.Add(mx.Call("csc", (u,)), mx.Call("cot", (u,)))
+                F = mx.Neg(mx.Mul(mx.Div(c, a), mx.Call("ln", (mx.Call("abs", (arg,)),))))
+        total = F if total is None else mx.Add(total, F)
+    return _limpio(total)
+
+
 def primitiva(f: mx.Expr, var: str, trace: Trace | None = None, profundidad: int = 0
               ) -> mx.Expr:
     import time
@@ -94,6 +155,12 @@ def primitiva(f: mx.Expr, var: str, trace: Trace | None = None, profundidad: int
     f = _limpio(f)
     from academic_core.domain.engineering.mathlab import multiple as MI
 
+    tabla = _tabla_sec(f, var, profundidad)
+    if tabla is not None and comprueba(tabla, f, var):
+        trace.regla("integral.tabla_sec", f"∫ {mx.text(f)} d{var} = {mx.text(tabla)}",
+                    why="tabla: ∫sec u = ln|sec u + tan u|, ∫csc u = −ln|csc u + cot u| "
+                        "(u lineal), comprobada derivando")
+        return tabla
     try:
         return MI.primitiva(f, var, trace)
     except UnsupportedError:
@@ -630,7 +697,7 @@ def _sen_a_cos(e: mx.Expr) -> mx.Expr:
         cambio = False
         for m, c in list(p.items()):
             for v, k in m:
-                if P.is_atom(v) and P.atom_text(v).startswith("sin(") and k >= 2:
+                if P.is_atom(v) and P.es_llamada(v, "sin") and k >= 2:
                     cos_ = "@cos(" + P.atom_text(v)[4:]
                     resto = P.mono_div(m, ((v, 2),))
                     p = P.add(p, {m: c}, -1)

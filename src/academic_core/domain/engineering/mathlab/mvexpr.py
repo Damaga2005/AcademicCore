@@ -107,6 +107,10 @@ _FUNCTIONS: dict[str, tuple[tuple[str, ...], int | None]] = {
     "Ei": (("Ei",), 1),
     "FresnelS": (("FresnelS", "fresnels"), 1),
     "FresnelC": (("FresnelC", "fresnelc"), 1),
+    # ML-8: escalón y delta (la delta no tiene valor numérico: ninguna comprobación
+    # puede evaluarla por descuido)
+    "heaviside": (("heaviside", "escalon", "Heaviside"), 1),
+    "delta": (("delta", "dirac"), 1),
 }
 
 #: two-argument root written ``raiz(x, n)`` / ``root(x, n)`` -> n-th root of x
@@ -1101,6 +1105,7 @@ _FN_NUMERIC = {
     "Ei": lambda z: complex(_ei(_real(z))),
     "FresnelS": lambda z: complex(_fresnel(_real(z), True)),
     "FresnelC": lambda z: complex(_fresnel(_real(z), False)),
+    "heaviside": lambda z: complex(1.0 if _real(z) > 0 else (0.0 if _real(z) < 0 else 0.5)),
     "sin": cmath.sin, "cos": cmath.cos, "tan": cmath.tan,
     # cot, sec and csc are reciprocals, and the trig engine produces them: a
     # verification that could not evaluate them would silently check nothing.
@@ -1344,7 +1349,12 @@ def _print(e: Expr, power: str, style: str) -> str:
     if isinstance(e, Div):
         # the denominator always needs its parentheses when it is a product,
         # otherwise "x^2/(3y)" would read as "x^2/3 * y"
-        return f"{wrap(e.left, 2)}/{wrap(e.right, 2, strict=True)}"
+        # a negated denominator too: x/(-(2*t^2)) printed «x/-2*t^2» reads back as
+        # (x/−2)·t² (found 2026-10-06, it changed values inside _canon)
+        den = wrap(e.right, 2, strict=True)
+        if isinstance(e.right, Neg) and not den.startswith("("):
+            den = f"({den})"
+        return f"{wrap(e.left, 2)}/{den}"
     if isinstance(e, Integral):
         body = _print(e.integrand, power, style)
         lo = _print(e.lower, power, style) if e.lower is not None else None

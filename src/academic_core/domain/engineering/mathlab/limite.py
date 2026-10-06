@@ -312,12 +312,45 @@ def _pliega(e: mx.Expr) -> mx.Expr:
 def _limpio(e: mx.Expr) -> mx.Expr:
     from academic_core.domain.engineering.mathlab import calculators as K
 
-    e = _pliega(e)
+    if _FIN[0] is not None:
+        import time
+
+        if time.monotonic() > _FIN[0]:
+            raise NoSe("el cálculo del límite excede el tiempo máximo: no sé darlo exacto")
+
+    e = _raices_impares(_pliega(e))
     try:
         r = K._presentable(e, Trace())
     except Exception:  # noqa: BLE001
         return e
     return r if len(mx.text(r)) <= len(mx.text(e)) else e
+
+
+def _raices_impares(e: mx.Expr) -> mx.Expr:
+    """1^q = 1 and c^(p/n) with c < 0, n odd (real root): (−1)^p·|c|^(p/n),
+    exact when |c| is a perfect n-th power (∛(−8) = −2)."""
+    if isinstance(e, mx.Pow):
+        b, x = _raices_impares(e.base), _raices_impares(e.exponent)
+        c, q = mx.exact_value(b), mx.exact_value(x)
+        if c is not None and Fraction(c) == 1:
+            return mx.Num(Fraction(1))
+        if c is not None and q is not None and Fraction(c) < 0 and Fraction(q).denominator % 2:
+            c, q = Fraction(c), Fraction(q)
+            m = mx.Pow(mx.Num(-c), mx.Num(q)) if q > 0 else mx.Pow(mx.Num(-c), _num(q))
+            raiz = (mx._exact_root(-c, q.denominator) if q > 0 else None)
+            if raiz is not None:
+                m = mx.Num(raiz ** q.numerator)
+            return mx.Neg(m) if q.numerator % 2 else m
+        return mx.Pow(b, x)
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_raices_impares(e.left), _raices_impares(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_raices_impares(e.arg))
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_raices_impares(a) for a in e.args))
+    if isinstance(e, mx.Root):
+        return mx.Root(e.degree, _raices_impares(e.radicand))
+    return e
 
 
 def _num(q) -> mx.Expr:
@@ -678,12 +711,23 @@ def _s_pot(a: _Serie, q: Fraction, n: int) -> _Serie:
     if (a.m * q).denominator != 1:
         raise _no(f"orden {a.m}·{q} no entero: haría falta una serie de Puiseux")
     c0 = a.c[0]
-    if q.denominator != 1 and (mx.valor_real(c0, {}) or 0) <= 0:
+    negativo = q.denominator != 1 and (mx.valor_real(c0, {}) or 0) < 0
+    if q.denominator != 1 and (mx.valor_real(c0, {}) or 0) == 0:
+        raise _error("UNDEFINED", "raíz de una cantidad nula cerca del punto")
+    if negativo and q.denominator % 2 == 0:
         raise _error("UNDEFINED", "raíz de una cantidad negativa cerca del punto")
     t = _Serie(1, tuple(_s(mx.Div(x, c0)) for x in a.c[1:])) if len(a.c) > 1 else None
     coefs = [mx.Num(_binomial(q, k)) for k in range(n)]
     uno_mas_t = _s_compone(coefs, t, min(n, len(a.c)))
-    c0q = _s(mx.Pow(c0, _num(q)))
+    if negativo:
+        # raíz impar: (c₀)^q = (−1)^p·|c₀|^q
+        absoluto = _s(mx.Neg(c0))
+        c0q = mx.Num(Fraction(1)) if mx.exact_value(absoluto) == 1 else \
+            _s(mx.Pow(absoluto, _num(q)))
+        if q.numerator % 2:
+            c0q = _s(mx.Neg(c0q))
+    else:
+        c0q = _s(mx.Pow(c0, _num(q)))
     return _Serie(int(a.m * q) + uno_mas_t.m, tuple(_sm(c0q, x) for x in uno_mas_t.c))
 
 
@@ -696,8 +740,63 @@ _REESCRITURAS = {
 }
 
 
+def _taylor_conocido(nombre: str, a0: mx.Expr, n: int) -> list[mx.Expr] | None:
+    """Coeficientes de tabla (sin derivar n veces, que hace crecer las expresiones):
+    sen, cos, exp, senh, cosh en cualquier a₀; atan, asen, atanh, asenh y tan en 0;
+    ln en 1."""
+    cero = mx.exact_value(a0) == 0 and not mx.variables(a0)
+    fact = [1]
+    for k in range(1, n + 1):
+        fact.append(fact[-1] * k)
+    out: list[mx.Expr] = []
+    if nombre in ("sin", "cos"):
+        s_, c_ = _s(mx.Call("sin", (a0,))), _s(mx.Call("cos", (a0,)))
+        ciclo = [s_, c_, _s(mx.Neg(s_)), _s(mx.Neg(c_))] if nombre == "sin" else \
+            [c_, _s(mx.Neg(s_)), _s(mx.Neg(c_)), s_]
+        return [_s(mx.Div(ciclo[k % 4], mx.Num(Fraction(fact[k])))) for k in range(n)]
+    if nombre == "exp":
+        ea = _s(mx.Call("exp", (a0,)))
+        return [_s(mx.Div(ea, mx.Num(Fraction(fact[k])))) for k in range(n)]
+    if nombre in ("sinh", "cosh"):
+        sh, ch = _s(mx.Call("sinh", (a0,))), _s(mx.Call("cosh", (a0,)))
+        par = [sh, ch] if nombre == "sinh" else [ch, sh]
+        return [_s(mx.Div(par[k % 2], mx.Num(Fraction(fact[k])))) for k in range(n)]
+    if nombre in ("ln", "log") and mx.exact_value(a0) == 1 and not mx.variables(a0):
+        return [mx.Num(Fraction(0))] + [mx.Num(Fraction((-1) ** (k + 1), k))
+                                        for k in range(1, n)]
+    if not cero:
+        return None
+    if nombre in ("atan", "atanh"):
+        for k in range(n):
+            j = (k - 1) // 2
+            out.append(mx.Num(Fraction(0) if k % 2 == 0 else
+                              Fraction((-1) ** j if nombre == "atan" else 1, k)))
+        return out
+    if nombre in ("asin", "asinh"):
+        for k in range(n):
+            if k % 2 == 0:
+                out.append(mx.Num(Fraction(0)))
+                continue
+            j = (k - 1) // 2
+            c = Fraction(fact[2 * j] if 2 * j <= n else math.factorial(2 * j),
+                         4 ** j * math.factorial(j) ** 2 * (2 * j + 1))
+            out.append(mx.Num(c * ((-1) ** j if nombre == "asinh" else 1)))
+        return out
+    if nombre == "tan":
+        tabla = [Fraction(0), Fraction(1), Fraction(0), Fraction(1, 3), Fraction(0),
+                 Fraction(2, 15), Fraction(0), Fraction(17, 315), Fraction(0),
+                 Fraction(62, 2835), Fraction(0), Fraction(1382, 155925), Fraction(0),
+                 Fraction(21844, 6081075), Fraction(0), Fraction(929569, 638512875)]
+        if n <= len(tabla):
+            return [mx.Num(c) for c in tabla[:n]]
+    return None
+
+
 def _taylor_funcion(nombre: str, a0: mx.Expr, n: int) -> list[mx.Expr]:
     """fₖ = f⁽ᵏ⁾(a₀)/k!, each one checked to exist."""
+    conocido = _taylor_conocido(nombre, a0, n)
+    if conocido is not None:
+        return conocido
     from academic_core.domain.engineering.mathlab import derive_mv as DM
 
     z = "_z"
@@ -857,9 +956,17 @@ def principal(e: mx.Expr) -> Termino | Acotada | None:
                 raise _no(f"exponente irracional sobre una magnitud que crece ({mx.text(e)})")
             return Termino(_limpio(mx.Pow(a.c, expo)))
         q = Fraction(q)
-        if q.denominator != 1 and a.valor_c < 0:
+        if q.denominator % 2 == 0 and a.valor_c < 0:
             raise _error("UNDEFINED", f"{mx.text(e)}: raíz par de un número negativo")
-        c = _limpio(mx.Pow(a.c, _num(q)))
+        if q.denominator != 1 and a.valor_c < 0:
+            # odd root of a negative leading term: (−|c|)^(m/n) = (−1)^m·|c|^(m/n)
+            absoluto = _limpio(mx.Neg(a.c))
+            c = mx.Num(Fraction(1)) if mx.exact_value(absoluto) == 1 else \
+                _limpio(mx.Pow(absoluto, _num(q)))
+            if q.numerator % 2:
+                c = _limpio(mx.Neg(c))
+        else:
+            c = _limpio(mx.Pow(a.c, _num(q)))
         if a.escala == (0, 0, 0, 0) and q.denominator != 1:
             return Termino(c)
         return Termino(c, a.p * q, a.q * q, a.r * q, (a.sup if q > 0 else -a.sup) if a.sup else 0,
@@ -1284,9 +1391,26 @@ def _potencias_variables(e: mx.Expr, var: str) -> mx.Expr:
     return out if cambio[0] else e
 
 
+_FIN: list = [None]
+SEGUNDOS = 25.0
+
+
 def limite(expresion: mx.Expr, var: str, punto: str, lado: str = "",
            trace: Trace | None = None) -> Limite:
     """``lado`` = «+», «-» or «» (both sides when the point is finite)."""
+    import time
+
+    if _FIN[0] is not None:
+        return _limite_externo(expresion, var, punto, lado, trace)
+    _FIN[0] = time.monotonic() + SEGUNDOS
+    try:
+        return _limite_externo(expresion, var, punto, lado, trace)
+    finally:
+        _FIN[0] = None
+
+
+def _limite_externo(expresion: mx.Expr, var: str, punto: str, lado: str = "",
+                    trace: Trace | None = None) -> Limite:
     trace = trace if trace is not None else Trace()
     nueva = _potencias_variables(expresion, var)
     if nueva is not expresion:
@@ -1302,7 +1426,99 @@ def limite(expresion: mx.Expr, var: str, punto: str, lado: str = "",
             return Limite(r.valor, r.expr, r.laterales, tipo0 or r.indeterminacion)
         except (NoSe, UnsupportedError):
             pass
-    return _limite(expresion, var, punto, lado, trace)
+    try:
+        return _limite(expresion, var, punto, lado, trace)
+    except NoSe as fallo:
+        if "Puiseux" not in str(fallo):
+            raise
+        r = _puiseux(expresion, var, punto, lado, trace)
+        if r is None:
+            raise
+        return r
+
+
+def _puiseux(expresion: mx.Expr, var: str, punto: str, lado: str, trace: Trace):
+    """x = sᵈ (d = mcm de los índices de las raíces): las potencias fraccionarias
+    pasan a enteras y vuelven a valer Taylor/Laurent (series de Puiseux en x)."""
+    indices: set[int] = set()
+
+    def busca(n):
+        if isinstance(n, mx.Pow):
+            q = mx.exact_value(n.exponent)
+            if q is not None and mx.depends(n.base, var):
+                indices.add(Fraction(q).denominator)
+        if isinstance(n, mx.Root) and mx.depends(n.radicand, var):
+            indices.add(n.degree)
+        for h in _hijos_l(n):
+            busca(h)
+
+    busca(expresion)
+    d = 1
+    for k in indices:
+        d = d * k // math.gcd(d, k)
+    p = punto.strip()
+    if d == 1:
+        return None
+    if p in ("-oo", "-inf", "-∞") and d % 2 == 0:
+        return None
+    if p.lstrip("+") in ("oo", "inf", "∞", "-oo", "-inf", "-∞"):
+        nuevo_punto = p
+    elif p in ("0", "0+") and lado in ("+", "") and p != "0-":
+        nuevo_punto, lado = "0", "+"
+    else:
+        return None
+    s = "_s" if var != "_s" else "_r"
+    nueva = _potencia_entera(mx.substitute(expresion, var, mx.Pow(mx.Sym(s), mx.Num(Fraction(d)))),
+                             s, d)
+    t2 = Trace()
+    r = _limite(nueva, s, nuevo_punto, lado, t2)
+    trace.regla("limite.puiseux", f"{var} = {s}^{d}: {mx.text(nueva)}",
+                why="las potencias de exponente fraccionario se vuelven enteras y el "
+                    "desarrollo en serie vuelve a ser de Taylor/Laurent")
+    for paso in t2:
+        trace.steps.append(paso)
+    return r
+
+
+def _potencia_entera(e: mx.Expr, s: str, d: int) -> mx.Expr:
+    """(sᵈ)^q → s^(d·q) and ᵏ√(sᵈ) → s^(d/k) when the result is an integer power
+    (real odd roots; even roots only arise for s > 0)."""
+    base = mx.Pow(mx.Sym(s), mx.Num(Fraction(d)))
+
+    def r(n):
+        if isinstance(n, mx.Pow) and n.base == base:
+            q = mx.exact_value(n.exponent)
+            if q is not None and (Fraction(q) * d).denominator == 1:
+                return mx.Pow(mx.Sym(s), mx.Num(Fraction(q) * d))
+        if isinstance(n, mx.Root) and n.radicand == base and d % n.degree == 0:
+            return mx.Pow(mx.Sym(s), mx.Num(Fraction(d // n.degree)))
+        if isinstance(n, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+            return type(n)(r(n.left), r(n.right))
+        if isinstance(n, mx.Neg):
+            return mx.Neg(r(n.arg))
+        if isinstance(n, mx.Pow):
+            return mx.Pow(r(n.base), r(n.exponent))
+        if isinstance(n, mx.Root):
+            return mx.Root(n.degree, r(n.radicand))
+        if isinstance(n, mx.Call):
+            return mx.Call(n.name, tuple(r(a) for a in n.args))
+        return n
+
+    return r(e)
+
+
+def _hijos_l(n):
+    if isinstance(n, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return (n.left, n.right)
+    if isinstance(n, mx.Neg):
+        return (n.arg,)
+    if isinstance(n, mx.Pow):
+        return (n.base, n.exponent)
+    if isinstance(n, mx.Root):
+        return (n.radicand,)
+    if isinstance(n, mx.Call):
+        return n.args
+    return ()
 
 
 def _limite(expresion: mx.Expr, var: str, punto: str, lado: str, trace: Trace) -> Limite:

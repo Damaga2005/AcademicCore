@@ -87,6 +87,26 @@ def _norma(v: list[mx.Expr], limites) -> mx.Expr:
     from academic_core.domain.engineering.mathlab import poly as P
 
     R = MI._limpio(_suma([mx.Pow(c, mx.Num(2)) for c in v]))
+    try:
+        rac = MI._racional(R)
+    except Exception:  # noqa: BLE001
+        rac = None
+    if isinstance(rac, mx.Div) and mx.variables(rac.right):
+        # √(N/D) = √N/√D, con N y D del signo que tienen en la región (> 0)
+        n, d = MI._limpio(rac.left), MI._limpio(rac.right)
+        if _signos(d, limites) <= {-1, 0}:
+            n, d = MI._limpio(mx.Neg(n)), MI._limpio(mx.Neg(d))
+        n = MI._limpio(MI._pitagoras(n))
+        if _signos(d, limites) <= {1, 0} and _signos(n, limites) <= {1, 0}:
+            return MI._limpio(mx.Div(_raiz_de(n, limites), _raiz_de(d, limites)))
+    return _raiz_de(R, limites)
+
+
+def _raiz_de(R: mx.Expr, limites) -> mx.Expr:
+    from fractions import Fraction
+
+    from academic_core.domain.engineering.mathlab import poly as P
+
     raiz = mx.Root(2, R)
     largos = sorted(n for n in mx.variables(R) if len(n) > 1)
     libres = [c for c in "ABCDFGHJKLMNOPQRSTUVW" if c not in mx.variables(R)]

@@ -471,14 +471,26 @@ def _cociente(T: Termino, trace: Trace) -> Veredicto:
     razon = cociente(T)
     trace.regla("serie.cociente", f"aₙ₊₁/aₙ = {mx.text(LM._limpio(razon))}",
                 why="con factoriales, el criterio del cociente: (m+1)!/m! = m + 1 exacto")
-    lim = LM.limite(mx.Call("abs", (razon,)), T.var, "oo")
+    from academic_core.domain.engineering.mathlab import numericos as NU
+
+    try:
+        lim = LM.limite(mx.Call("abs", (razon,)), T.var, "oo")
+    except LM.NoSe:
+        razon = NU._normaliza_n(razon, T.var)
+        trace.regla("serie.cociente_agrupado", f"aₙ₊₁/aₙ = {mx.text(razon)}",
+                    why="potencias de exponente n agrupadas: (n/(n+1))ⁿ a la vista")
+        lim = LM.limite(mx.Call("abs", (razon,)), T.var, "oo")
     if lim.valor == "+∞":
         return Veredicto("diverge", "criterio del cociente: |aₙ₊₁/aₙ| → +∞")
     if lim.expr is None:
         raise _no(f"el cociente no tiene límite ({lim.texto()})")
     L = float(mx.valor_real(lim.expr, {}))
     if abs(L - 1) < 1e-14:
-        raise _no("criterio del cociente con límite 1: no decide")
+        r = NU._raabe(T, T.var, False, trace)
+        if r is not None:
+            criterio = r[1].split("(", 1)[1].rsplit(")", 1)[0] if "(" in r[1] else r[1]
+            return Veredicto("converge absolutamente" if r[0] else "diverge", criterio)
+        raise _no("criterio del cociente con límite 1 y Raabe sin decidir")
     return Veredicto("converge absolutamente" if L < 1 else "diverge",
                      f"criterio del cociente: |aₙ₊₁/aₙ| → {lim.texto()} "
                      f"{'< 1' if L < 1 else '> 1'}")

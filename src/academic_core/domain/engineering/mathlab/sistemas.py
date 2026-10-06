@@ -75,7 +75,7 @@ def a_polinomio(e: mx.Expr, incognitas: list[str], trace: Trace) -> P.Polynomial
     for atomo in sorted({v for m in p for v, _ in m if P.is_atom(v)}):
         texto = P.atom_text(atomo)
         minimo = min(P.mono_exp(m, atomo) for m in p)
-        if minimo > 0 and texto.startswith("exp("):
+        if minimo > 0 and P.es_llamada(texto, "exp"):
             p = {P.mono_div(m, ((atomo, minimo),)): c for m, c in p.items()}
             trace.regla("sistema.exp", f"se divide entre {texto}" +
                         (f"^{minimo}" if minimo > 1 else ""),
@@ -448,3 +448,64 @@ def _comprueba_exacta(polis: list[P.Polynomial], s: dict[str, Valor]) -> None:
             q = mx.valor_real(e, {})
             if q is None or abs(q) > 1e-9:
                 raise ValidationError("INTERNAL: la solución exacta no cumple el sistema")
+
+
+# ---------------------------------------------------------------------------
+# mcd de polinomios en varias variables (conjuntos de soluciones no aislados)
+# ---------------------------------------------------------------------------
+
+
+def _por(a: Poli, b: Poli) -> Poli:
+    out: Poli = {}
+    for ea, ca in a.items():
+        for eb, cb in b.items():
+            e = tuple(x + y for x, y in zip(ea, eb))
+            out[e] = out.get(e, Fraction(0)) + ca * cb
+    return {e: c for e, c in out.items() if c}
+
+
+def divide_exacto(p: Poli, d: Poli) -> Poli | None:
+    """p/d si d divide a p (división larga en orden lex); None si no."""
+    _ORDEN[0] = lex
+    p, q = dict(p), {}
+    ld = _lider(d)
+    while p:
+        lp = _lider(p)
+        t = _divide_mono(lp, ld)
+        if t is None:
+            return None
+        c = p[lp] / d[ld]
+        q[t] = q.get(t, Fraction(0)) + c
+        p = _resta_mult(p, c, t, d)
+    return q
+
+
+def mcd(a: Poli, b: Poli) -> Poli:
+    """mcd(a, b) = a·b / mcm(a, b); el mcm genera ⟨a⟩ ∩ ⟨b⟩, que se obtiene
+    eliminando t de ⟨t·a, (1 − t)·b⟩ (Gröbner lex con t la mayor)."""
+    if not a:
+        return b
+    if not b:
+        return a
+    n = len(next(iter(a)))
+    ta = {(1,) + e: c for e, c in a.items()}
+    unomenost = {(0,) + (0,) * n: Fraction(1), (1,) + (0,) * n: Fraction(-1)}
+    tb = _por(unomenost, {(0,) + e: c for e, c in b.items()})
+    G = grobner([ta, tb], lex)
+    sin_t = [g for g in G if all(e[0] == 0 for e in g)]
+    if not sin_t:
+        return {(0,) * n: Fraction(1)}
+    m = min(sin_t, key=lambda g: (sum(_lider(g)), len(g)))
+    m = {e[1:]: c for e, c in m.items()}
+    g = divide_exacto(_por(a, b), m)
+    if g is None:
+        raise _no("el mcd no divide (no debería ocurrir)")
+    return _monico(g) if g else {(0,) * n: Fraction(1)}
+
+
+def factor_comun(polis: list[Poli]) -> tuple[Poli, list[Poli]]:
+    """h = mcd de todos y los cofactores pᵢ/h."""
+    h = polis[0]
+    for p in polis[1:]:
+        h = mcd(h, p)
+    return h, [divide_exacto(p, h) or {} for p in polis]

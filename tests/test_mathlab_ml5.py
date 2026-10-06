@@ -27,8 +27,12 @@ def test_limites_direccionales_indicio():
 
     r = MV.limites_direccionales(mx.parse("x^2+y^2"), ["x", "y"],
                                  {"x": "0", "y": "0"})
-    assert r.existe is not False
-    assert "no prueba" in r.texto()
+    # la cota en polares |f| ≤ r² prueba la existencia (ya no es solo un indicio)
+    assert r.existe is True and "polares" in r.texto()
+    # sin cota ni composición sigue siendo un indicio, nunca una prueba
+    r2 = MV.limites_direccionales(mx.parse("x^2*y^2/(x^2*y^2+(x-y)^2)"), ["x", "y"],
+                                  {"x": "0", "y": "0"})
+    assert r2.existe is not True
 
 
 def test_derivada_direccional():
@@ -108,11 +112,16 @@ def test_extremos_recinto():
 def test_rechazos_honestos():
     from academic_core.domain.engineering.mathlab import varias as MV
 
-    # silla de mono: (0, 0) es el único crítico y la Hessiana nula no decide
+    # silla de mono: (0, 0) es el único crítico; la Hessiana nula no decide y la
+    # comparación de f en un entorno (valores mayores y menores) la da como silla
     pts = MV.puntos_criticos(mx.parse("x^3-3*x*y^2"), ["x", "y"])
-    assert pts == [((Fraction(0), Fraction(0)), "sin clasificar (segundo orden no decide)")]
+    assert len(pts) == 1 and pts[0][0] == (Fraction(0), Fraction(0))
+    assert pts[0][1].startswith("punto de silla")
     with pytest.raises(Exception, match="no están aisladas"):
         MV.puntos_criticos(mx.parse("(x-y)^2"), ["x", "y"])
+    # el conjunto crítico no aislado se describe entero
+    _, curvas = MV.conjunto_critico(mx.parse("(x-y)^2"), ["x", "y"])
+    assert mx.text(curvas[0].ecuacion) == "x - y" and curvas[0].clase.startswith("mínimos")
     with pytest.raises(Exception, match="[Dd]iscriminante|no decide|semidefinida"):
         MV.hessiana(mx.parse("x^4+y^4"), ["x", "y"])
 

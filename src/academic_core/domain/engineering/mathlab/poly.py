@@ -188,6 +188,21 @@ def atom_text(name: str) -> str:
     return name[len(ATOM_PREFIX):] if is_atom(name) else name
 
 
+def es_llamada(texto: str, nombre: str) -> bool:
+    """True only when the WHOLE text is one call nombre(…): «cos(v)*u^2/w» starts
+    with «cos(» but is a quotient, not a cosine."""
+    texto = atom_text(texto)
+    if not texto.startswith(nombre + "(") or not texto.endswith(")"):
+        return False
+    nivel = 0
+    for i, ch in enumerate(texto[len(nombre):]):
+        nivel += ch == "("
+        nivel -= ch == ")"
+        if nivel == 0:
+            return i == len(texto) - len(nombre) - 1
+    return False
+
+
 # ---------------------------------------------------------------------------
 # polynomial -> expression
 # ---------------------------------------------------------------------------
