@@ -110,10 +110,10 @@ def ceros(g: mx.Expr, var: str, a: float, b: float) -> list[float]:
     for i in range(MALLA):
         y0, y1 = ys[i], ys[i + 1]
         if y0 is None or y1 is None:
+            # only the EDGES of a region where g does not exist: every node inside
+            # it was being reported, hundreds of «zeros» for x^(2/3) on [-1, 0]
             if (y0 is None) != (y1 is None):
                 encontrados.append(_borde(g, var, xs[i], xs[i + 1], y0 is None))
-            elif y0 is None:
-                encontrados.append(xs[i])
             continue
         if y0 == 0:
             encontrados.append(xs[i])
@@ -304,7 +304,7 @@ def no_cubiertos(raices: list[float], valores: list[tuple[float, float]],
 # ---------------------------------------------------------------------------
 
 
-def es_singular(f: mx.Expr, var: str, c: float) -> bool:
+def es_singular(f: mx.Expr, var: str, c: float, lados=(-1, 1)) -> bool:
     """Whether ``f`` is unbounded (or undefined on a side) near ``c``.
 
     A removable point such as ``sin(x)/x`` at 0 keeps ``|f|`` bounded as the
@@ -312,10 +312,10 @@ def es_singular(f: mx.Expr, var: str, c: float) -> bool:
     """
     valores = []
     for d in (1e-3, 1e-5, 1e-7):
-        lados = [_valor(f, var, c - d), _valor(f, var, c + d)]
-        if any(v is None for v in lados):
+        cerca = [_valor(f, var, c + signo * d) for signo in lados]
+        if any(v is None for v in cerca):
             return True
-        valores.append(max(abs(v) for v in lados))
+        valores.append(max(abs(v) for v in cerca))
     return valores[2] > 50 * max(1.0, valores[0])
 
 
@@ -323,7 +323,16 @@ def puntos_singulares(f: mx.Expr, var: str, a: float, b: float) -> list[float]:
     """Points of ``[a, b]`` where the integrand is unbounded or undefined."""
     candidatos = sorted({round(c, 12) for g in peligros(f, var)
                          for c in ceros(g, var, a, b)})
-    malos = [c for c in candidatos if es_singular(f, var, c)]
+    # at an END of the interval only the inside matters: x^(1/3) does not exist
+    # left of 0, and that was refusing ∫_0^8 x^(1/3) as improper (2026-10-06)
+    def lados_de(c):
+        if abs(c - a) < 1e-12:
+            return (1,)
+        if abs(c - b) < 1e-12:
+            return (-1,)
+        return (-1, 1)
+
+    malos = [c for c in candidatos if es_singular(f, var, c, lados_de(c))]
     # a region where f does not evaluate at all (ln of a negative, for instance)
     paso = (b - a) / 400 if b > a else 0
     for i in range(401):

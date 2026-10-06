@@ -1451,6 +1451,80 @@ def _multiplo_de(arg: Expr, x: Sym) -> int | None:
     return None
 
 
+def _cuadratica_bajo_raiz(e: Expr, var: str) -> tuple[Fraction, Fraction, Fraction] | None:
+    """``(a, b, c)`` when ``e`` is ``1/sqrt(a·x² + b·x + c)`` in any spelling."""
+    if isinstance(e, Div) and e.left == ONE and isinstance(e.right, Fn) and e.right.name == "sqrt":
+        base = e.right.arg
+    elif isinstance(e, Pow) and exact_value(e.exponent) == Fraction(-1, 2):
+        base = e.base
+    elif (isinstance(e, Div) and e.left == ONE and isinstance(e.right, Pow)
+          and exact_value(e.right.exponent) == Fraction(1, 2)):
+        base = e.right.base
+    else:
+        return None
+    try:
+        p = _poly(base, var, None, 0)
+    except Exception:  # noqa: BLE001
+        return None
+    a = b = c = Fraction(0)
+    for m, coef in p.terms.items():
+        if m == ():
+            c = Fraction(coef)
+        elif m == ((var, Fraction(1)),):
+            b = Fraction(coef)
+        elif m == ((var, Fraction(2)),):
+            a = Fraction(coef)
+        else:
+            return None
+    return (a, b, c) if a != 0 else None
+
+
+def _raiz_k(q: Fraction) -> Expr:
+    """sqrt(q) for a rational q > 0: a rational when q is a perfect square."""
+    num, den = isqrt(q.numerator), isqrt(q.denominator)
+    if num * num == q.numerator and den * den == q.denominator:
+        return _k(Fraction(num, den))
+    return Fn("sqrt", _k(q))
+
+
+def _raiz_de_cuadratica(e: Expr, var: str, log: StepLog, depth: int):
+    """``∫ dx/sqrt(a·x² + b·x + c)``: arcsin, arsinh or the logarithm.
+
+    The square is completed, ``a·(x + h)² + k`` with ``h = b/(2a)``, and then
+
+    * ``a < 0, k > 0``: ``arcsen((x + h)·sqrt(-a/k))/sqrt(-a)``;
+    * ``a > 0``: ``ln|sqrt(a)·(x + h) + sqrt(a·x² + b·x + c)|/sqrt(a)``, which is
+      arsinh for ``k > 0`` and arcosh for ``k < 0`` written once for both.
+
+    None of the three was in the table: ∫dx/sqrt(1 - x²) was refused (found
+    2026-10-06). Each answer is differentiated by the caller's verification.
+    """
+    coeficientes = _cuadratica_bajo_raiz(e, var)
+    if coeficientes is None:
+        return None
+    a, b, c = coeficientes
+    x = Sym(var)
+    h = b / (2 * a)
+    k = c - b * b / (4 * a)
+    desplazada = x if h == 0 else Add(x, _k(h))
+    if a < 0:
+        if k <= 0:
+            return None                    # sqrt of something negative everywhere
+        salida = Div(Fn("asin", Mul(desplazada, _raiz_k(-a / k))), _raiz_k(-a))
+        etiqueta = "tabla: ∫du/sqrt(k - a·u²) = arcsen(u·sqrt(a/k))/sqrt(a)"
+    else:
+        raiz = Fn("sqrt", Add(Add(Mul(_k(a), Pow(x, Num(Fraction(2)))), Mul(_k(b), x)), _k(c)))
+        salida = Div(Fn("log", Fn("abs", Add(Mul(_raiz_k(a), desplazada), raiz))),
+                     _raiz_k(a))
+        etiqueta = ("tabla: ∫du/sqrt(a·u² + k) = ln|sqrt(a)·u + sqrt(a·u² + k)|/sqrt(a)"
+                    " (argsenh si k > 0, argcosh si k < 0)")
+    simple, _r = simplify(salida, var)
+    return simple, log.add(OP, etiqueta, _integral(e, var), text(simple),
+                           substitution=f"u = {text(desplazada)}" if h else "",
+                           explanation=("Se completa el cuadrado bajo la raíz y se lee "
+                                        "la primitiva de la tabla de las inversas."))
+
+
 def _producto_a_suma(e: Expr, var: str, log: StepLog, depth: int):
     """``sen(mx)·cos(nx)`` and friends, through the product-to-sum identities.
 
@@ -1747,8 +1821,8 @@ def integrate(e: Expr, var: str, log: StepLog, depth: int = 0, normalized: bool 
         return salida, log.add(OP, etiqueta, _integral(e, var), text(salida),
                                 explanation=por_que)
     for strategy in (_potencia_producto, _potencia_trig, _potencia_tabulada,
-                   _substitution, _by_parts, _producto_a_suma, _medio_angulo,
-                   _integral_racional):
+                   _raiz_de_cuadratica, _substitution, _by_parts, _producto_a_suma,
+                   _medio_angulo, _integral_racional):
         got = _attempt(log, lambda scratch, st=strategy: st(e, var, scratch, depth))
         if got is not None:
             return got

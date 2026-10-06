@@ -1204,7 +1204,9 @@ def _integral_definida(integrando: mx.Expr, var: str, bounds, trace: Trace,
     lo_exacto = mx.exact_value(low)
     hi_exacto = mx.exact_value(high)
     if lo_exacto is not None and hi_exacto is not None:
-        return _barrow(integrando, var, lo_exacto, hi_exacto, trace, peticion)
+        resultado = _barrow(integrando, var, lo_exacto, hi_exacto, trace, peticion)
+        if resultado is not _A_CAMINO_GENERAL:
+            return resultado
     trace.metodo(
         "integral.definida.metodo",
         "integral definida: se evalúa el resultado exacto en los límites",
@@ -1358,10 +1360,44 @@ def pliega_constante(e: mx.Expr) -> mx.Expr:
     if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
         return normal(type(e)(pliega_constante(e.left), pliega_constante(e.right)))
     if isinstance(e, mx.Pow):
-        return normal(mx.Pow(pliega_constante(e.base), pliega_constante(e.exponent)))
+        base, exponente = pliega_constante(e.base), pliega_constante(e.exponent)
+        exacta = _potencia_exacta(base, exponente)
+        return exacta if exacta is not None else normal(mx.Pow(base, exponente))
     if isinstance(e, mx.Root):
-        return normal(mx.Root(e.degree, pliega_constante(e.radicand)))
+        radicando = pliega_constante(e.radicand)
+        exacta = _potencia_exacta(radicando, mx.Num(Fraction(1, e.degree)))
+        return exacta if exacta is not None else normal(mx.Root(e.degree, radicando))
     return e
+
+
+def _potencia_exacta(base: mx.Expr, exponente: mx.Expr) -> mx.Expr | None:
+    """``q^(p/k)`` as a rational when ``q`` is a perfect k-th power: sqrt(4) = 2."""
+    q, r = mx.exact_value(base), mx.exact_value(exponente)
+    if q is None or r is None:
+        return None
+    q, r = Fraction(q), Fraction(r)
+    k = r.denominator
+    if q < 0:
+        if k % 2 == 0:
+            return None
+        # an odd root of a negative is real: (-1)^(1/3) = -1
+        positiva = _potencia_exacta(mx.Num(-q), exponente)
+        if positiva is None:
+            return None
+        valor = mx.exact_value(positiva)
+        return mx.Num(valor if r.numerator % 2 == 0 else -valor)
+
+    def raiz(n: int) -> int | None:
+        c = round(n ** (1.0 / k))
+        for d in (c - 1, c, c + 1):
+            if d >= 0 and d ** k == n:
+                return d
+        return None
+
+    num, den = raiz(q.numerator), raiz(q.denominator)
+    if num is None or den is None or (q == 0 and r < 0):
+        return None
+    return mx.Num(Fraction(num, den) ** r.numerator)
 
 
 def _cerrado(e: mx.Expr) -> bool:
@@ -1396,6 +1432,9 @@ def _singularidad_en(integrando: mx.Expr, var: str, a: float, b: float,
     malos = K.puntos_singulares(integrando, var, lo, hi)
     if not malos:
         return None
+    impropia = _impropia(integrando, var, a, b, malos, trace)
+    if impropia is not None:
+        return impropia
     punto = f"{malos[0]:.10g}"
     mensaje = (f"el integrando no está acotado (o no está definido) en {var} ≈ {punto}, "
                f"dentro de [{lo:.10g}, {hi:.10g}]: la integral es impropia y la regla "
@@ -1403,6 +1442,173 @@ def _singularidad_en(integrando: mx.Expr, var: str, a: float, b: float,
                "el intervalo")
     trace.aviso("integral.dominio", mensaje)
     return (None, None, V.Seal(V.NUMERIC_ONLY, "dominio", mensaje), None, None)
+
+
+def _suma_exacta_por_tramos(F: mx.Expr, var: str, puntos, decimal: float):
+    """``Σ F(x1) - F(x0)`` exactly when every cut is a small rational, else None."""
+    exactos = []
+    for p in puntos:
+        q = Fraction(p).limit_denominator(1000)
+        if abs(float(q) - p) > 1e-12:
+            return None
+        exactos.append(mx.Num(q))
+    total = None
+    for a, b in zip(exactos, exactos[1:]):
+        termino = mx.Sub(mx.substitute(F, var, b), mx.substitute(F, var, a))
+        total = termino if total is None else mx.Add(total, termino)
+    return _diferencia_exacta(mx.Sym("_t"), "_t", mx.ZERO, total, decimal)
+
+
+def _raiz_real(e: mx.Expr) -> mx.Expr:
+    """``u^(p/n)`` with ``n`` odd written as ``(n-th root of u)^p``, which is real.
+
+    The integrand ``x^(1/3)`` is read as the real cube root, but the primitive
+    that comes back from E0.1 keeps the power, and a power of a negative base
+    evaluates on the complex principal branch: ∫_{-1}^{1} x^(-2/3) could not be
+    evaluated at -1 (found 2026-10-06). The primitive is read like its integrand.
+    """
+    if isinstance(e, mx.Pow):
+        base, exponente = _raiz_real(e.base), _raiz_real(e.exponent)
+        r = mx.exact_value(exponente)
+        if r is not None and Fraction(r).denominator % 2 == 1 and Fraction(r).denominator > 1:
+            r = Fraction(r)
+            return mx.Pow(mx.Root(r.denominator, base), mx.Num(Fraction(r.numerator)))
+        return mx.Pow(base, exponente)
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_raiz_real(e.arg))
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_raiz_real(e.left), _raiz_real(e.right))
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_raiz_real(a) for a in e.args))
+    if isinstance(e, mx.Root):
+        return mx.Root(e.degree, _raiz_real(e.radicand))
+    return e
+
+
+def _tiende_a(F: mx.Expr, var: str, c: float, lado: int, objetivo: float) -> bool:
+    """Whether F(c + lado·h) approaches ``objetivo`` monotonically as h → 0."""
+    distancias = []
+    for k in range(2, 16):
+        x = c + lado * 10.0 ** (-k)
+        if x == c:
+            break
+        v = mx.valor_real(F, {var: x})
+        if v is None:
+            return False
+        distancias.append(abs(v - objetivo))
+    if len(distancias) < 3:
+        return False
+    decrece = all(b <= a + 1e-15 for a, b in zip(distancias, distancias[1:]))
+    return decrece and distancias[-1] < 1e-4 * max(1.0, abs(objetivo))
+
+
+def _limite_lateral(F: mx.Expr, var: str, c: float, lado: int):
+    """``("converge", valor, error)`` / ``("diverge", None, None)`` / ``None``.
+
+    F at c + lado·10^-k, k = 2..9. Converging means every step at most 0.6 of the
+    previous one; the last step bounds the rest. Diverging means |F| grows
+    without the steps shrinking (ln|x| at 0 grows by ln 10 each time).
+    """
+    valores = []
+    for k in range(2, 16):
+        v = mx.valor_real(F, {var: c + lado * 10.0 ** (-k)})
+        if v is None:
+            return None
+        valores.append(v)
+    pasos = [abs(y - x) for x, y in zip(valores, valores[1:])]
+    if all(b <= 0.6 * a + 1e-15 for a, b in zip(pasos, pasos[1:])):
+        return "converge", valores[-1], pasos[-1] / 0.4 + 1e-15
+    if abs(valores[-1]) > abs(valores[0]) and min(pasos[-3:]) > 1e-3 * max(1.0, abs(valores[0])):
+        return "diverge", None, None
+    return None
+
+
+def _impropia(integrando: mx.Expr, var: str, a: float, b: float, singulares,
+              trace: Trace):
+    """An integral with singular points: its value if it converges, «diverge» if not.
+
+    ∫_0^1 dx/sqrt(x) is 2 and ∫_0^1 ln x is -1; they used to be refused as
+    «impropia». The interval is cut at each singular point, the primitive's
+    one-sided limits are taken there, and the sum is checked against the
+    quadrature. ``None`` when nothing can be established (no primitive, a limit
+    that neither converges nor diverges): the caller then refuses as before.
+    """
+    from academic_core.domain.engineering.symbolic import integrate as I_
+    from academic_core.domain.engineering.symbolic import steps as St
+
+    try:
+        _c, resultado, _i = I_.antiderivative(mx.to_symbolic(integrando), var, St.StepLog())
+        F = _raiz_real(mx.from_symbolic(resultado))
+    except Exception:  # noqa: BLE001
+        return None
+    signo = 1.0 if b >= a else -1.0
+    lo, hi = min(a, b), max(a, b)
+    puntos = sorted({lo, hi, *[c for c in singulares if lo <= c <= hi]})
+    total, error = 0.0, 0.0
+    todos_evaluables = True
+    for x0, x1 in zip(puntos, puntos[1:]):
+        extremos = []
+        for c, lado in ((x0, 1), (x1, -1)):
+            directo = mx.valor_real(F, {var: c})
+            if directo is not None and _tiende_a(F, var, c, lado, directo):
+                # F defined AT the point (2·sqrt(x) at 0) and approached from the
+                # side: its value is the limit, exactly
+                extremos.append(directo)
+                continue
+            todos_evaluables = False
+            if True:
+                limite = _limite_lateral(F, var, c, lado)
+                if limite is None:
+                    return None
+                if limite[0] == "diverge":
+                    mensaje = (f"la integral es impropia en {var} ≈ {c:.10g} y DIVERGE: la "
+                               "primitiva no tiene límite finito al acercarse a ese punto")
+                    trace.aviso("integral.diverge", mensaje)
+                    return (None, None, V.Seal(V.VERIFIED, "integral impropia divergente",
+                                               mensaje), None, None)
+                extremos.append(limite[1])
+                error += limite[2]
+        total += extremos[1] - extremos[0]
+    total *= signo
+    cuadratura, error_cuadratura = None, 0.0
+    try:
+        # piece by piece, cut at the singular points, so no piece has one inside
+        piezas = [K.cuadratura(integrando, var, x0, x1, tolerancia=1e-12)
+                  for x0, x1 in zip(puntos, puntos[1:])]
+        if all(p is not None for p in piezas):
+            cuadratura = signo * sum(p[0] for p in piezas)
+            error_cuadratura = sum(p[1] for p in piezas)
+    except Exception:  # noqa: BLE001
+        pass
+    # an endpoint singularity costs the quadrature digits; its own error estimate
+    # is part of the comparison, or a right answer is called discrepant
+    if cuadratura is not None and abs(cuadratura - total) > max(
+            1e-6 * max(1, abs(total)), 10 * error, 100 * error_cuadratura):
+        detalle = (f"límites de la primitiva: {total:.12g}; cuadratura: {cuadratura:.12g}; "
+                   "no coinciden")
+        trace.aviso("integral.discrepancia", detalle)
+        return (None, complex(total), V.Seal(V.DISCREPANT, "integral impropia", detalle),
+                None, error)
+    if todos_evaluables:
+        exacto = _suma_exacta_por_tramos(F, var, puntos, total * signo)
+        if exacto is not None:
+            exacto = exacto if signo > 0 else mx.Neg(exacto)
+            racional = mx.exact_value(exacto)
+            return (mx.num(racional) if racional is not None else exacto, complex(total),
+                    V.Seal(V.VERIFIED, "integral impropia convergente, valor exacto",
+                           mx.text(exacto)), None, None)
+    trace.metodo(
+        "integral.impropia",
+        "integral impropia: límites laterales de la primitiva en los puntos singulares",
+        why=("el integrando no está acotado en algún punto del intervalo; la integral "
+             "existe si la primitiva tiene límite finito al acercarse a cada uno, y "
+             "su valor es la suma por tramos de esos límites"),
+        after=f"{total:.12g} con error {error:.2g}")
+    grafica = None
+    return (None, complex(total),
+            V.Seal(V.NUMERIC_ONLY, "integral impropia convergente",
+                   f"{total:.12g} con error {error:.2g}; contrastada con cuadratura"),
+            grafica, max(error, 1e-12))
 
 
 def _barrow_comprobado(integrando: mx.Expr, primitiva: mx.Expr, var: str,
@@ -1520,6 +1726,10 @@ def _simpson(integrando: mx.Expr, var: str, a, b, trace: Trace,
     return valor, error
 
 
+#: returned by _barrow when E0.1 declines and the general path should answer
+_A_CAMINO_GENERAL = object()
+
+
 def _barrow(integrando: mx.Expr, var: str, a, b, trace: Trace,
             peticion: C.Peticion
             ) -> tuple[mx.Expr | None, complex | None, V.Seal,
@@ -1551,9 +1761,12 @@ def _barrow(integrando: mx.Expr, var: str, a, b, trace: Trace,
         grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b), valor, error)
         return None, complex(valor), sello, grafica, error
     except ValidationError as exc:
-        # Barrow's rule refused: the integrand is not continuous on the interval
-        trace.aviso("integral.dominio", str(exc))
-        return (None, None, V.Seal(V.NUMERIC_ONLY, "dominio", str(exc)), None, None)
+        # E0.1 refused at an END point (its evaluator cannot do 0^(3/2)), but the
+        # integrand was already checked bounded on [a, b]: ∫_0^4 sqrt(x) is 16/3 and
+        # returned nothing (found 2026-10-06). The general path evaluates F with the
+        # multivariate engine, measures jumps and checks against the quadrature.
+        trace.aviso("integral.dominio_e01", f"{exc}; se usa el camino general")
+        return _A_CAMINO_GENERAL
     for step in log.steps:
         trace.regla(f"e01.{step.rule}", step.explanation or step.rule,
                     before=step.before, after=step.after, piece=step.substitution,

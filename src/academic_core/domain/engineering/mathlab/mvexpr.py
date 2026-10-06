@@ -574,7 +574,11 @@ def _make_pow(base: Expr, exponent: Expr) -> Expr:
                     # 35 times too big — an answer that looked fine and was not.
                     raiz = Root(degree, base)
                     return raiz if entero == 0 else Mul(Pow(base, Num(Fraction(entero))), raiz)
-                # x^(2/3) needs a cube root, and this node only carries squares
+                if degree % 2 == 1:
+                    # an ODD root is real for every base: x^(2/3) is (∛x)², and left
+                    # as a power it evaluated on the complex branch for x < 0 while
+                    # x^(1/3) was already the real root (found 2026-10-06)
+                    return Pow(Root(degree, base), Num(Fraction(numerador)))
                 return Pow(base, exponent)
     return Pow(base, exponent)
 
@@ -1090,7 +1094,9 @@ def _print(e: Expr, power: str, style: str) -> str:
         if style == "pretty" and isinstance(e.exponent, Num) and e.exponent.value.denominator == 1:
             digits = str(abs(int(e.exponent.value)))
             if all(d in _SUP for d in digits) and len(digits) <= 2:
-                sign = "-" if e.exponent.value < 0 else ""
+                # the superscript minus: a plain "-" printed x^(-1) as «x-¹», which
+                # reads as x minus one (found 2026-10-06)
+                sign = "⁻" if e.exponent.value < 0 else ""
                 return f"{base}{sign}{''.join(_SUP[d] for d in digits)}"
         return f"{base}{power}{wrap(e.exponent, 4 if power == '^' else 5)}"
     if isinstance(e, Root):
@@ -1098,7 +1104,14 @@ def _print(e: Expr, power: str, style: str) -> str:
         if style == "latex":
             return rf"\sqrt[{e.degree}]{{{inner}}}" if e.degree != 2 else rf"\sqrt{{{inner}}}"
         if e.degree == 2:
-            return f"√{_print(e.radicand, power, style)}" if style == "pretty" else f"sqrt({inner})"
+            if style != "pretty":
+                return f"sqrt({inner})"
+            # «√x² + 1» reads as (√x²) + 1: a compound radicand keeps its
+            # parentheses (found 2026-10-06)
+            if isinstance(e.radicand, (Sym, Num, Const, Call)) and not (
+                    isinstance(e.radicand, Num) and e.radicand.value.denominator != 1):
+                return f"√{inner}"
+            return f"√({inner})"
         return f"raiz({inner}, {e.degree})"
     if isinstance(e, Call):
         if e.name == "abs":
@@ -1275,7 +1288,10 @@ def _to_symbolic(e: Expr, sx, seen: set[str]):
     if isinstance(e, Root):
         if e.degree == 2:
             return sx.Fn("sqrt", _to_symbolic(e.radicand, sx, seen))
-        raise no_rule("solo la raíz cuadrada tiene forma en el motor de una variable")
+        # an n-th root is the power 1/n, which the power rule already knows: x^(1/3)
+        # could be neither derived nor integrated before (found 2026-10-06)
+        return sx.Pow(_to_symbolic(e.radicand, sx, seen),
+                      sx.Num(Fraction(1, e.degree)))
     if isinstance(e, Call):
         name = {"ln": "log", "log10": None, "log": None, "abs": "abs"}.get(e.name, e.name)
         if name is None or len(e.args) != 1:
