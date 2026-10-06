@@ -344,7 +344,142 @@ def ceros(e: mx.Expr, var: str, ventana: tuple[float, float] = (-VENTANA, VENTAN
         if num is not None and den is not None:
             r = raices_polinomio(num)
             return _filtra(r, e, var)
+    trozos = _por_trozos(e, var, ventana)
+    if trozos is not None:
+        return trozos
+    por_atomos = _por_atomos(e, var, ventana)
+    if por_atomos is not None:
+        return _filtra(por_atomos, e, var)
     return _filtra(_por_factores(e, var, ventana), e, var)
+
+
+_TROCEABLES = ("abs", "valor_abs", "sign", "signo")
+
+
+def _troceables(e: mx.Expr, var: str) -> list[mx.Expr]:
+    salida = []
+    if isinstance(e, mx.Call) and e.name in _TROCEABLES and mx.depends(e.args[0], var):
+        salida.append(e.args[0])
+    for hijo in _hijos_de(e):
+        salida.extend(_troceables(hijo, var))
+    return salida
+
+
+def _hijos_de(n: mx.Expr):
+    if isinstance(n, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return (n.left, n.right)
+    if isinstance(n, mx.Neg):
+        return (n.arg,)
+    if isinstance(n, mx.Pow):
+        return (n.base, n.exponent)
+    if isinstance(n, mx.Root):
+        return (n.radicand,)
+    if isinstance(n, mx.Call):
+        return n.args
+    return ()
+
+
+def _sin_valor_absoluto(e: mx.Expr, var: str, x: float) -> mx.Expr:
+    """On a piece where every |g| and sign(g) has a fixed sign, replace them."""
+    if isinstance(e, mx.Call) and e.name in _TROCEABLES and mx.depends(e.args[0], var):
+        g = _sin_valor_absoluto(e.args[0], var, x)
+        v = mx.valor_real(g, {var: x})
+        s = 1 if v > 0 else -1
+        if e.name in ("sign", "signo"):
+            return mx.Num(Fraction(s)) if s > 0 else mx.Neg(mx.Num(Fraction(1)))
+        return g if s > 0 else mx.Neg(g)
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_sin_valor_absoluto(e.left, var, x), _sin_valor_absoluto(e.right, var, x))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_sin_valor_absoluto(e.arg, var, x))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_sin_valor_absoluto(e.base, var, x), e.exponent)
+    if isinstance(e, mx.Root):
+        return mx.Root(e.degree, _sin_valor_absoluto(e.radicand, var, x))
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_sin_valor_absoluto(a, var, x) for a in e.args))
+    return e
+
+
+def _por_trozos(e: mx.Expr, var: str, ventana) -> Ceros | None:
+    """|g| and sign(g): cut at the zeros of every g, solve each piece without them."""
+    args = _troceables(e, var)
+    if not args:
+        return None
+    cortes_c = _une(*[ceros(g, var, ventana) for g in args])
+    cortes = [r.x for r in cortes_c.raices]
+    bordes = [None] + cortes + [None]
+    partes = []
+    for a, b in zip(bordes, bordes[1:]):
+        x = 0.0 if a is None and b is None else (b - 1 if a is None else a + 1 if b is None
+                                                 else (a + b) / 2)
+        try:
+            liso = _sin_valor_absoluto(e, var, x)
+        except Exception:  # noqa: BLE001
+            return None
+        trozo = ceros(liso, var, ventana)
+        dentro = tuple(r for r in trozo.raices
+                       if (a is None or r.x > a + 1e-12) and (b is None or r.x < b - 1e-12))
+        partes.append(Ceros(dentro, trozo.completo, trozo.avisos))
+    # the cut points themselves
+    propios = tuple(r for r in cortes_c.raices
+                    if (v := mx.valor_real(e, {var: r.x})) is not None and abs(v) < 1e-12)
+    partes.append(Ceros(propios, cortes_c.completo))
+    return _une(*partes)
+
+
+def _por_atomos(e: mx.Expr, var: str, ventana) -> Ceros | None:
+    """Seen as a polynomial in x and in atoms like e^(−x) or ln x:
+    - an atom e^(…) that divides every term never vanishes: divide it out
+      (e^(−x) − x·e^(−x) = e^(−x)·(1 − x));
+    - if what is left involves ONE atom f(x) with f invertible and no bare x,
+      it is a polynomial in y = f(x): solve for y exactly, then x = f⁻¹(y)
+      (2·ln x − 3 = 0 ⇒ ln x = 3/2 ⇒ x = e^(3/2))."""
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    try:
+        p = P.as_poly(e)
+    except Exception:  # noqa: BLE001
+        return None
+    atomos = {n for mono in p for n, _ in mono if P.is_atom(n)}
+    if not atomos:
+        return None
+    textos = {a: P.atom_text(a) for a in atomos}
+    # never-vanishing atoms: exp(...)
+    for a in list(atomos):
+        if textos[a].startswith("exp("):
+            minimo = min(dict(m).get(a, 0) for m in p)
+            if minimo > 0:
+                p = {tuple((n, k - minimo) if n == a else (n, k) for n, k in m if
+                           not (n == a and k == minimo)): c for m, c in p.items()}
+    restantes = {n for mono in p for n, _ in mono if P.is_atom(n)}
+    if not restantes:
+        return ceros(P.to_expr(p), var, ventana)
+    if len(restantes) != 1 or any(n == var for mono in p for n, _ in mono):
+        nuevo = P.to_expr(p)
+        return None if mx.text(nuevo) == mx.text(e) else _filtra(_por_factores(nuevo, var, ventana),
+                                                              nuevo, var)
+    atomo = restantes.pop()
+    interno = mx.parse(P.atom_text(atomo))
+    if not isinstance(interno, mx.Call) or interno.name not in ("ln", "exp") or \
+            len(interno.args) != 1:
+        return None
+    y = "_y"
+    poli_y = {tuple((y if n == atomo else n, k) for n, k in m): c for m, c in p.items()}
+    soluciones = raices_polinomio(_polinomio_de(P.to_expr(poli_y), y) or [Fraction(0)])
+    partes = []
+    for r in soluciones.raices:
+        valor = r.valor if r.exacta else mx.Num(Fraction(r.x))
+        if interno.name == "ln":
+            objetivo = mx.Call("exp", (valor,))
+        else:
+            if r.x <= 0:
+                continue
+            objetivo = mx.Call("ln", (valor,))
+        from academic_core.domain.engineering.mathlab import limite as LM
+
+        partes.append(_igual_a(interno.args[0], LM._limpio(objetivo), var, ventana))
+    return _une(*partes) if partes else Ceros((), True)
 
 
 def _filtra(r: Ceros, e: mx.Expr, var: str) -> Ceros:

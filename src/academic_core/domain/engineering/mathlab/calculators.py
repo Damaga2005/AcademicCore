@@ -936,6 +936,86 @@ def _calc_limite(peticion: C.Peticion) -> C.Resultado:
                            "; ".join(d for _, d in veredictos))
     return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
 
+
+def _estudio(peticion: C.Peticion) -> C.Resultado:
+    """ML-2 (T7): the complete study of f — ``{"expr": "x*exp(-x)", "var": "x"}``."""
+    from academic_core.domain.engineering.mathlab import estudio as ES
+
+    e = peticion.entrada
+    f = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or "x") if isinstance(e, dict) else "x"
+    trace = Trace()
+    trace.metodo("estudio.completo", "dominio, simetría, cortes, asíntotas, f′ y f″ con tabla "
+                 "de signos", why="es el orden del estudio de funciones del curso; cada "
+                 "tramo se decide con un punto porque todos los ceros y bordes están hallados")
+    est = ES.estudiar(f, var, trace)
+    sello = _sello_estudio(f, var, est)
+    avisos = tuple(est.avisos) if est.avisos else ()
+    if not est.completo:
+        sello = V.Seal(V.NUMERIC_ONLY, sello.method, sello.detail)
+    return _finalizar(peticion, trace, est.texto(), aproximado=None, sello=sello,
+                      avisos=avisos)
+
+
+def _sello_estudio(f, var, est) -> V.Seal:
+    """Second path: each extremum is a sign change of f′ seen numerically just
+    before and after, and f at the extremum is ≥ (max) or ≤ (min) its neighbours."""
+    for p in est.extremos:
+        x = p.x.x
+        h = 1e-4 * max(1.0, abs(x))
+        y0 = mx.valor_real(f, {var: x})
+        ya, yb = mx.valor_real(f, {var: x - h}), mx.valor_real(f, {var: x + h})
+        if None in (y0, ya, yb):
+            continue
+        if p.tipo.startswith("máximo") and not (y0 >= ya and y0 >= yb):
+            return V.Seal(V.DISCREPANT, "comparación con los vecinos", p.texto())
+        if p.tipo.startswith("mínimo") and not (y0 <= ya and y0 <= yb):
+            return V.Seal(V.DISCREPANT, "comparación con los vecinos", p.texto())
+    return V.Seal(V.VERIFIED, "extremos comparados con sus vecinos; asíntotas por límites "
+                  "comprobados numéricamente", "")
+
+
+def _extremos_absolutos(peticion: C.Peticion) -> C.Resultado:
+    """ML-2: Weierstrass on [a, b] — ``{"expr": ..., "a": "0", "b": "2"}``."""
+    from academic_core.domain.engineering.mathlab import estudio as ES
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "a" not in e or "b" not in e:
+        raise C.error("BAD_INPUT", "se espera {'expr': ..., 'a': ..., 'b': ...}")
+    f = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or "x")
+    trace = Trace()
+    r = ES.extremos_absolutos(f, var, _expr(str(e["a"])), _expr(str(e["b"])), trace)
+    # second path: a fine grid never beats the maximum nor undercuts the minimum
+    a, b = float(mx.valor_real(_expr(str(e["a"])), {})), float(mx.valor_real(_expr(str(e["b"])), {}))
+    vmax, vmin = mx.valor_real(r.maximo[0], {}), mx.valor_real(r.minimo[0], {})
+    malla = [mx.valor_real(f, {var: a + (b - a) * k / 2000}) for k in range(2001)]
+    malla = [v for v in malla if v is not None]
+    tol = 1e-9 * max(1.0, abs(vmax), abs(vmin))
+    if max(malla) > vmax + tol or min(malla) < vmin - tol:
+        sello = V.Seal(V.DISCREPANT, "malla de 2001 puntos", "la malla supera el extremo")
+    else:
+        sello = V.Seal(V.VERIFIED, "ningún punto de una malla de 2001 lo supera", r.texto())
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+
+
+def _soluciones(peticion: C.Peticion) -> C.Resultado:
+    """ML-2: how many solutions f = 0 has — Bolzano + strict monotony."""
+    from academic_core.domain.engineering.mathlab import estudio as ES
+
+    e = peticion.entrada
+    f = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or "x") if isinstance(e, dict) else "x"
+    a = _expr(str(e["a"])) if isinstance(e, dict) and e.get("a") is not None else None
+    b = _expr(str(e["b"])) if isinstance(e, dict) and e.get("b") is not None else None
+    trace = Trace()
+    r = ES.numero_de_soluciones(f, var, a, b, trace)
+    sello = V.Seal(V.VERIFIED if r.completo else V.NUMERIC_ONLY,
+                   "Bolzano en cada tramo de monotonía estricta", "; ".join(r.justificacion))
+    avisos = () if r.completo or a is not None else (
+        "fuera del intervalo estudiado no se ha buscado",)
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello, avisos=avisos)
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2471,6 +2551,9 @@ C.registrar("grafo", _grafo)
 C.registrar("huffman", _huffman)
 C.registrar("convencion", _convencion)
 C.registrar("limite", _calc_limite)
+C.registrar("estudio", _estudio)
+C.registrar("extremos_absolutos", _extremos_absolutos)
+C.registrar("soluciones", _soluciones)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)

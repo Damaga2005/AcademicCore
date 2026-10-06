@@ -232,7 +232,28 @@ def _pliega(e: mx.Expr) -> mx.Expr:
     if isinstance(e, mx.Root):
         return mx.Root(e.degree, _pliega(e.radicand))
     if isinstance(e, mx.Call):
-        return mx.Call(e.name, tuple(_pliega(x) for x in e.args))
+        args = tuple(_pliega(x) for x in e.args)
+        if e.name in ("abs", "valor_abs") and not mx.variables(args[0]):
+            v = mx.exact_value(args[0])
+            if v is not None:
+                return _num(abs(v))
+            r: list = []
+            try:
+                a, b = _en_q_raiz(args[0], r)
+                valor = mx.valor_real(args[0], {})
+                if valor is not None:
+                    return _pliega(args[0] if valor >= 0 else mx.Neg(args[0]))
+            except (_NoCuadratico, ZeroDivisionError):
+                pass
+        # ln(e^k) = k, e^(ln k) = k (k > 0)
+        if e.name in ("ln", "log") and len(args) == 1 and isinstance(args[0], mx.Call) \
+                and args[0].name == "exp":
+            return args[0].args[0]
+        if e.name == "exp" and isinstance(args[0], mx.Call) and args[0].name in ("ln", "log"):
+            v = mx.valor_real(args[0].args[0], {}) if not mx.variables(args[0]) else None
+            if v is not None and v > 0:
+                return args[0].args[0]
+        return mx.Call(e.name, args)
     return e
 
 

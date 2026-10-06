@@ -36,6 +36,9 @@ EJEMPLOS = {
     "huffman": {"probabilidades": {"a": "1/2", "b": "1/4", "c": "1/4"}},
     "convencion": {"tipo": "db", "razon": 2, "convencion": "20log10"},
     "limite": {"expr": "sin(x)/x", "punto": "0"},
+    "estudio": {"expr": "x^3-3*x"},
+    "extremos_absolutos": {"expr": "x^2", "a": "-1", "b": "2"},
+    "soluciones": {"expr": "x^3+x-1"},
 }
 
 
