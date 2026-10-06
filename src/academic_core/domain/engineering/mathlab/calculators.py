@@ -601,6 +601,86 @@ def _lineal(peticion: C.Peticion) -> C.Resultado:
     sello = V.Seal(V.NUMERIC_ONLY, "comprobado por un segundo camino con tolerancia", detalle)
     return _finalizar(peticion, trace, texto, aproximado=None, sello=sello, avisos=(aviso,))
 
+
+def _distribucion(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: distributions with area (§5.1).
+
+    ``{"expr": "t*u(t)-t*u(t-1)", "var": "t", "calculo": "leer"|"derivada"|"integral"|
+    "convolucion"|"tren", "desde", "hasta", "extremo", "f", "periodo", "area"}``.
+    """
+    from academic_core.domain.engineering.mathlab import distribuciones as DS
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': leer|derivada|integral|convolucion|"
+                      "tren, 'expr': ...}")
+    calculo, var = str(e["calculo"]), str(e.get("var") or "t")
+    trace = Trace()
+    if calculo == "tren":
+        frecuencia = peticion.convenciones.get("frecuencia", "f")
+        tren = DS.Tren(_fraccion(e, "periodo"), _fraccion(e, "area", "1"),
+                       "f" if frecuencia == "f" else "omega", trace)
+        texto = f"Σₖ δ({var} − k·{tren.periodo}) ⟷ {tren.transformada()}"
+        sello = V.Seal(V.VERIFIED, "par de transformadas de tabla",
+                       "coeficientes de Fourier de un tren: cₖ = A/T para todo k")
+        return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+    if "expr" not in e:
+        raise C.error("BAD_INPUT", "falta 'expr'")
+    D = DS.leer(str(e["expr"]), var, trace)
+    if calculo == "leer":
+        texto = D.texto()
+        sello = V.Seal(V.VERIFIED, "cribado y escala de δ", "áreas evaluadas en t₀")
+    elif calculo == "derivada":
+        dD = DS.derivada(D, trace)
+        texto = dD.texto()
+        sello = _sello_derivada_distribucion(D, dD, trace)
+    elif calculo == "integral":
+        a, b = _fraccion(e, "desde"), _fraccion(e, "hasta")
+        valor = DS.integral(D, a, b, extremo=e.get("extremo"), trace=trace)
+        texto = mx.text(valor)
+        sello = V.Seal(V.VERIFIED, "integral de cada tramo (Barrow) + áreas de las deltas",
+                       texto)
+    elif calculo == "convolucion":
+        f = _expresion_de(e, "f")
+        valor = DS.convolucion_con_impulsos(f, D, trace)
+        texto = mx.text(valor)
+        sello = V.Seal(V.VERIFIED, "f * δ(t − t₀) = f(t − t₀)", texto)
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
+
+def _fraccion(e: dict, clave: str, defecto: str | None = None) -> Fraction:
+    valor = e.get(clave, defecto)
+    if valor is None:
+        raise C.error("BAD_INPUT", f"falta '{clave}'")
+    exacto = mx.exact_value(_expr(str(valor)))
+    if exacto is None:
+        raise C.error("BAD_INPUT", f"'{clave}' tiene que ser un número racional exacto")
+    return Fraction(exacto)
+
+
+def _sello_derivada_distribucion(D, dD, trace: Trace) -> V.Seal:
+    """Second path: ∫ₐᵇ D′ = D(b) − D(a) between points off the breaks."""
+    from academic_core.domain.engineering.mathlab import distribuciones as DS
+
+    cortes = [t.hasta for t in D.tramos if t.hasta is not None]
+    if not cortes:
+        return V.Seal(V.VERIFIED, "sin saltos: derivada ordinaria", "")
+    a, b = min(cortes) - Fraction(1, 3), max(cortes) + Fraction(1, 3)
+    try:
+        incremento = mx.Sub(mx.substitute(D.ordinaria(b), D.var, mx.num(b)),
+                            mx.substitute(D.ordinaria(a), D.var, mx.num(a)))
+        integral = DS.integral(dD, a, b)
+    except Exception as exc:  # noqa: BLE001 - no second path is a lower seal
+        return V.Seal(V.NUMERIC_ONLY, "sin segundo camino", str(exc))
+    x, y = mx.evaluate(integral), mx.evaluate(incremento)
+    if x is None or y is None or abs(x - y) > 1e-9 * max(1.0, abs(y)):
+        return V.Seal(V.DISCREPANT, "∫ D′ = incremento de D", f"{x} ≠ {y}")
+    trace.verificacion("distribucion.barrow",
+                       f"∫ de {a} a {b} de D′ = D({b}) − D({a}) contando las deltas")
+    return V.Seal(V.VERIFIED, "∫ D′ = incremento de D, con las deltas", mx.text(integral))
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2127,6 +2207,7 @@ C.registrar("simplificar", _simplificar)
 C.registrar("transformar", _transformar)
 C.registrar("modular", _modular)
 C.registrar("lineal", _lineal)
+C.registrar("distribucion", _distribucion)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
