@@ -27,6 +27,7 @@ de puntos críticos): se dice, no se inventa una lista.
 from __future__ import annotations
 
 import itertools
+import time
 import math
 from dataclasses import dataclass
 from fractions import Fraction
@@ -40,6 +41,7 @@ MAX_INCOGNITAS = 5
 MAX_CANDIDATOS = 20000
 MAX_TERMINOS = 4000
 MAX_PASOS = 4000
+MAX_SEGUNDOS = 8.0
 
 
 def _no(mensaje: str) -> UnsupportedError:
@@ -163,9 +165,10 @@ def grobner(polis: list[Poli]) -> list[Poli]:
     G = [_monico(p) for p in polis if p]
     pares = [(i, j) for i in range(len(G)) for j in range(i)]
     pasos = 0
+    limite = time.monotonic() + MAX_SEGUNDOS
     while pares:
         pasos += 1
-        if pasos > MAX_PASOS:
+        if pasos > MAX_PASOS or time.monotonic() > limite:
             raise _no("la base de Gröbner no termina en un tamaño razonable")
         i, j = pares.pop(0)
         li, lj = _lider(G[i]), _lider(G[j])

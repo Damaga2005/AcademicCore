@@ -527,9 +527,11 @@ def _clasifica(f: mx.Expr, vars: list[str], punto: tuple, trace: Trace) -> str:
     escala = max(1.0, max(abs(h) for fila in H for h in fila))
     menores = [_det_float([fila[:k] for fila in H[:k]]) for k in range(1, n + 1)]
     tol = 1e-9 * escala ** n
+    if abs(menores[-1]) <= tol:
+        return "sin clasificar (Hessiana casi singular en coma flotante)"
     if any(abs(d) <= tol for d in menores):
-        return "sin clasificar (menor casi nulo en coma flotante)"
-    if all(d > 0 for d in menores):
+        clase = "punto de silla"     # no singular y no definida ⇒ indefinida
+    elif all(d > 0 for d in menores):
         clase = "mínimo"
     elif all(((-1) ** (k + 1)) * menores[k] > 0 for k in range(n)):
         clase = "máximo"
