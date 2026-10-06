@@ -477,6 +477,34 @@ def _transformar(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, resultado, aproximado=None, sello=sello)
 
 
+def _racional(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: a rational function of several variables in lowest terms, with its
+    gain, zeros and poles in ``var`` and the case discussion of the parameters."""
+    from academic_core.domain.engineering.mathlab import racional as R
+
+    entrada = peticion.entrada
+    expr = _expresion_de(entrada, "expr", "expresion", "H")
+    var = str(entrada.get("var") or "s") if isinstance(entrada, dict) else "s"
+    if var not in mx.variables(expr):
+        nombres = sorted(mx.variables(expr))
+        if len(nombres) != 1:
+            raise C.error("AMBIGUOUS", f"indica con «var» la variable de la función ({', '.join(nombres)})")
+        var = nombres[0]
+    trace = Trace()
+    trace.metodo("racional.metodo", "mcd en todas las variables y raíces del numerador y "
+                 "del denominador",
+                 why=("una función racional solo está en forma normal cuando numerador y "
+                      "denominador no comparten factor; con parámetros eso exige el mcd "
+                      "de polinomios en varias variables, no solo en la de la función"),
+                 before=mx.text(expr))
+    forma = R.forma_normal(expr, var, trace)
+    sello = V.Seal(V.VERIFIED if forma.completo else V.NUMERIC_ONLY,
+                   "forma normal comprobada en puntos sembrados; raíces sustituidas",
+                   forma.factorizada())
+    return _finalizar(peticion, trace, forma.factorizada(), aproximado=None, sello=sello,
+                      avisos=() if forma.completo else ("factorización incompleta",))
+
+
 def _modular(peticion: C.Peticion) -> C.Resultado:
     """ML-12: integer arithmetic in ℤₙ with every step written (§5.1).
 
@@ -2055,6 +2083,7 @@ C.registrar("gradiente", _gradiente)
 C.registrar("simplificar", _simplificar)
 C.registrar("transformar", _transformar)
 C.registrar("modular", _modular)
+C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
 C.registrar("integrar", _integrar)

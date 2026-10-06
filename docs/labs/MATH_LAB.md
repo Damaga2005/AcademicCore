@@ -373,6 +373,14 @@ Respaldo **E**: Electromagnetismo (9 exámenes revisados; el mismo problema de l
 
 ---
 
+## Capacidad implementada — ML-12, primeros bloques (2026-10-06)
+
+**Aritmética entera con trazas** (`mathlab/enteros.py`, operación `modular`): Euclides extendido con la tabla de cocientes y la identidad de Bézout; inverso modular (o la razón por la que no existe: el mcd); potencia por cuadrados sucesivos con cada cuadrado y cada producto; congruencias lineales `a·x ≡ b (mod n)` con sus `mcd(a, n)` soluciones; teorema chino del resto también con módulos no coprimos (o «incompatible»); φ de Euler, orden multiplicativo, raíz primitiva y si ℤₙ es cuerpo. Segundo camino de cada resultado: Bézout sustituido, `a·a⁻¹ mod n = 1`, `pow`, sustitución en la congruencia, recuento por fuerza bruta. ~10 000 casos contra fuerza bruta sin discrepancias.
+
+**Fracciones racionales multivariable** (`mathlab/racional.py`, operación `racional`): mcd de polinomios en varias variables (contenido y parte primitiva recursivos, sucesión de pseudorrestos primitivos), forma normal en términos mínimos —`(s² − a²)/(s − a) = s + a`—, ganancia, ceros y polos en la variable elegida: grado 1 y 2 con coeficientes simbólicos (raíz exacta del discriminante cuando es un cuadrado de polinomio, `K/(s(s+a))` → polos `0` y `−a`), polos complejos conjugados, cúbicas y bicuadradas numéricas por el buscador de ecuaciones. **Discusión por casos** del discriminante con el factor positivo apartado: en `1/(LCs² + RCs + 1)` decide el signo de `C·R² − 4·L`. Comprobado contra `sympy.cancel` en 144 funciones aleatorias y contra `sympy.gcd` en 145 pares.
+
+Queda de ML-12: cuerpo como parámetro del motor lineal, distribuciones con área, contrato con otros laboratorios y plug-ins, convenciones declaradas, análisis dimensional, verificador de gradientes, simulador de eventos, árboles y grafos.
+
 ## 5. El motor matemático
 
 ### 5.1 Expresiones y exactitud
