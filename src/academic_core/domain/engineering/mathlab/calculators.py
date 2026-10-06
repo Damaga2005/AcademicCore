@@ -362,6 +362,121 @@ def _simplificar(peticion: C.Peticion) -> C.Resultado:
                       sello=sello)
 
 
+def _expande(e: mx.Expr) -> mx.Expr:
+    """The exact ring normal form: products of sums multiplied out, terms collected."""
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    try:
+        return _sin_unos(P.to_expr(P.as_poly(e)))
+    except Exception:  # noqa: BLE001
+        return e
+
+
+def _sin_unos(e: mx.Expr) -> mx.Expr:
+    """``c·1`` is ``c``: the ring writes a constant term as a product with 1."""
+    if isinstance(e, mx.Mul):
+        a, b = _sin_unos(e.left), _sin_unos(e.right)
+        if mx.exact_value(b) == 1:
+            return a
+        if mx.exact_value(a) == 1:
+            return b
+        return mx.Mul(a, b)
+    if isinstance(e, (mx.Add, mx.Sub, mx.Div)):
+        return type(e)(_sin_unos(e.left), _sin_unos(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_sin_unos(e.arg))
+    return e
+
+
+def _pliega_argumentos(e: mx.Expr) -> mx.Expr:
+    """Each trigonometric argument folded, and its sign taken out by parity.
+
+    The identities write their arguments as they come — sen(x + 3x), sen(x - 3x)
+    — which is correct and is not what anyone writes: sen(4x) and -sen(2x).
+    """
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    if isinstance(e, mx.Call) and len(e.args) == 1:
+        try:
+            arg = P.to_expr(P.as_poly(_pliega_argumentos(e.args[0])))
+        except Exception:  # noqa: BLE001
+            arg = _pliega_argumentos(e.args[0])
+        negativo = isinstance(arg, mx.Neg) or (
+            isinstance(arg, mx.Mul) and mx.exact_value(arg.left) is not None
+            and mx.exact_value(arg.left) < 0)
+        if negativo and e.name in ("sin", "tan", "sinh", "tanh", "cos", "cosh"):
+            opuesto = arg.arg if isinstance(arg, mx.Neg) else mx.Mul(
+                mx.Num(-mx.exact_value(arg.left)), arg.right)
+            if mx.exact_value(getattr(opuesto, "left", mx.ZERO)) == 1:
+                opuesto = opuesto.right
+            llamada = mx.Call(e.name, (opuesto,))
+            return llamada if e.name in ("cos", "cosh") else mx.Neg(llamada)
+        return mx.Call(e.name, (arg,))
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_pliega_argumentos(a) for a in e.args))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_pliega_argumentos(e.arg))
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_pliega_argumentos(e.left), _pliega_argumentos(e.right))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_pliega_argumentos(e.base), e.exponent)
+    return e
+
+
+def _transformar(peticion: C.Peticion) -> C.Resultado:
+    """T-20 through the calculator: one rewrite objective, chosen by name.
+
+    The eight rewrite objectives existed in ``trig.OBJETIVOS`` and only
+    ``simplificar`` reached the calculator, so «expand sin(x+y)» or «write
+    sin(x)cos(3x) as a sum» could not be asked at all — which is what T-24 calls
+    «integración con calculators.py» (found 2026-10-06).
+    """
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    entrada = peticion.entrada
+    if not isinstance(entrada, dict) or "objetivo" not in entrada:
+        raise C.error("BAD_INPUT", "se espera {'expr': ..., 'objetivo': ...}; objetivos: "
+                      + ", ".join(n for n, o in T.OBJETIVOS.items() if o.es_reescritura))
+    expr = _expresion_de(entrada, "expr", "expresion")
+    nombre = str(entrada["objetivo"])
+    objetivo = T.OBJETIVOS.get(nombre)
+    if objetivo is None or not objetivo.es_reescritura:
+        raise C.error("BAD_INPUT", f"«{nombre}» no es un objetivo de reescritura; hay: "
+                      + ", ".join(n for n, o in T.OBJETIVOS.items() if o.es_reescritura))
+    trace = Trace()
+    trace.metodo(
+        f"objetivo.{nombre}", f"objetivo «{nombre}»",
+        why=objetivo.porque,
+        alternatives=((f"«simplificar»", "reduce; este objetivo puede alargar a propósito "
+                       "porque busca una FORMA concreta (§5.5b)"),),
+        before=mx.text(expr))
+    resultado = objetivo.metodo(expr)
+    resultado = getattr(resultado, "expresion", resultado)
+    if nombre == "potencias":
+        # cos(x)^4 first becomes ((1 + cos 2x)/2)^2, which still has a square:
+        # expand and lower again until every power is the first
+        # and a product of first powers is not a first power either:
+        # sen x·cos 2x goes to a sum, which is what makes sen³x = (3 sen x - sen 3x)/4
+        for _ in range(8):
+            siguiente = objetivo.metodo(_expande(resultado))
+            siguiente = getattr(siguiente, "expresion", siguiente)
+            siguiente = _expande(_pliega_argumentos(T.product_to_sum(siguiente)))
+            if mx.text(siguiente) == mx.text(resultado):
+                break
+            resultado = siguiente
+    plegado = _expande(_pliega_argumentos(resultado)) if nombre in (
+        "producto_a_suma", "potencias") else _pliega_argumentos(resultado)
+    if V.numeric_agreement(plegado, resultado)[0]:
+        resultado = plegado
+    for familia in objetivo.familias:
+        trace.hipotesis(f"trig.{familia}", T.descripcion(familia), "regla disponible")
+    trace.cambio(f"objetivo.{nombre}.resultado", f"forma «{nombre}»",
+                 why=objetivo.porque, before=mx.text(expr), after=mx.text(resultado))
+    trace.verificacion(f"objetivo.{nombre}.verifica", objetivo.verifica)
+    sello = V.verify_against(resultado, expr)
+    return _finalizar(peticion, trace, resultado, aproximado=None, sello=sello)
+
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -1885,6 +2000,7 @@ def _grafica_area(integrando: mx.Expr, var: str, low, high,
 C.registrar("derivar", _derivar)
 C.registrar("gradiente", _gradiente)
 C.registrar("simplificar", _simplificar)
+C.registrar("transformar", _transformar)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
 C.registrar("integrar", _integrar)

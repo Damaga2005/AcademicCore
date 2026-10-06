@@ -1,6 +1,6 @@
 # Laboratorio de Matemáticas — Especificación de diseño
 
-Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación parcial iniciada (ML-0 y motor trigonométrico)** · Fecha: 2026-10-01 (v1: 2026-09-30)
+Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 iniciado (aritmética entera con trazas, racionales multivariable)** · Fecha: 2026-10-06 (v1: 2026-09-30)
 Ámbito: desde la aritmética básica hasta las integrales triples, de línea y de superficie, pasando por cálculo, álgebra lineal, ecuaciones diferenciales, transformadas y probabilidad. Cada tema con **ejercicios para resolver, gráficas y solución paso a paso**. **v2** añade la matemática de otras asignaturas del grado que no es de otro laboratorio: matemática discreta y cuerpos finitos, códigos y criptografía, teoría de la información, Markov y refuerzo, optimización y aprendizaje automático, finanzas, señales deterministas, detección y estimación, fasores y polarización, campos y ondas, y mecánica auxiliar (**bloques 8 a 19**). Lo que va a `SIGNALS_LAB.md` y a `CIRCUITS_LAB.md` está en la tabla «qué va dónde» (§16).
 Fuentes: guías docentes de GREELEC (UPC) en `guias_upc/` — Cálculo (230903), Álgebra Lineal (230904), Cálculo Vectorial (230908), Ecuaciones Diferenciales y Transformadas (230909), Probabilidad y Procesos Estocásticos (230914), Señales y Sistemas (230913). **v2:** cuatro informes de lectura de solo lectura en `Descargas/labs/math_catalog/` (`extra_senales.md`, `extra_electromagnetismo.md`, `extra_circuitos_control.md`, `extra_algoritmia_ia_codigos.md`), integrados con el **reparto decidido por el usuario** (D6, §13) y sin tocar el repositorio ni `guias_upc`.
 
@@ -1752,7 +1752,7 @@ Cada transformación debe conservar semántica en su dominio, registrar regla y 
 - comparación de expresiones.
 - aproximación y error.
 
-### T-24. Criterio de completitud
+### T-24. Criterio de completitud — **CUMPLIDO** (2026-10-06): las 23 familias tienen parser, reglas exactas, control de dominio, traza, pruebas, verificación independiente y **operación en la calculadora** (la última pieza: los ocho objetivos de reescritura se piden con `transformar`, que hasta entonces solo alcanzaba `simplificar`)
 Una familia solo será COMPLETADA con parser/AST compatible, reglas exactas, control de dominio, trazabilidad, tests, verificación independiente, integración con calculators.py, documentación y CI verde.
 
 Este catálogo es el alcance de implantación de trigonometría para Ingeniería de MathLab. Documentado no significa implementado.
