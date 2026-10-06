@@ -58,11 +58,12 @@ def _no(mensaje: str) -> UnsupportedError:
 class Punto:
     """An exact real position (``1/2``, ``sqrt(2)``), ordered by its value."""
 
-    __slots__ = ("expr", "x")
+    __slots__ = ("expr", "x", "aproximado")
 
-    def __init__(self, valor):
+    def __init__(self, valor, aproximado: bool = False):
+        self.aproximado = aproximado
         if isinstance(valor, Punto):
-            self.expr, self.x = valor.expr, valor.x
+            self.expr, self.x, self.aproximado = valor.expr, valor.x, valor.aproximado
             return
         expr = valor if isinstance(valor, mx.Expr) else mx.num(Fraction(valor))
         x = mx.valor_real(expr, {})
@@ -74,9 +75,11 @@ class Punto:
 
     @property
     def racional(self) -> Fraction | None:
-        return mx.exact_value(self.expr)
+        return None if self.aproximado else mx.exact_value(self.expr)
 
     def mas(self, d: Fraction) -> "Punto":
+        if self.aproximado:
+            return Punto(mx.Num(Fraction(self.x) + d), aproximado=True)
         q = self.racional
         return Punto(q + d) if q is not None else Punto(mx.Add(self.expr, mx.num(d)))
 
@@ -104,7 +107,7 @@ class Punto:
         return self == otro or self.x > Punto(otro).x
 
     def __str__(self) -> str:
-        return mx.text(self.expr)
+        return f"≈{self.x:.12g}" if self.aproximado else mx.text(self.expr)
 
     __repr__ = __str__
 
@@ -154,6 +157,10 @@ class Distribucion:
             partes.append(f"{mx.text(t.expr)} en ({a}, {b})")
         for imp in self.impulsos:
             delta = f"δ{_primas(imp.orden)}({_desplazado(self.var, imp.posicion)})"
+            if imp.posicion.aproximado:
+                a = mx.valor_real(imp.area, {})
+                partes.append(f"≈{a:.10g}·{delta}")
+                continue
             v = mx.exact_value(imp.area)
             if v == 1:
                 partes.append(delta)
@@ -162,6 +169,12 @@ class Distribucion:
             else:
                 partes.append(f"{_texto_area(imp.area)}·{delta}")
         return " + ".join(partes).replace("+ −", "− ") if partes else "0"
+
+    @property
+    def aproximada(self) -> bool:
+        """Some position is only known numerically (a root isolated by Sturm)."""
+        return any(i.posicion.aproximado for i in self.impulsos) or any(
+            p is not None and p.aproximado for t in self.tramos for p in (t.desde, t.hasta))
 
     def ordinaria(self, t) -> mx.Expr | None:
         x = Punto(t).x
@@ -177,7 +190,9 @@ def _desplazado(var: str, t0: Punto) -> str:
         if q == 0:
             return var
         return f"{var} − {q}" if q > 0 else f"{var} + {-q}"
-    texto = mx.text(t0.expr)
+    texto = str(t0)
+    if t0.aproximado:
+        return f"{var} − ({texto})"
     if texto.startswith("-"):
         return f"{var} + {texto[1:]}"
     return f"{var} − {texto}"
@@ -202,12 +217,9 @@ def _es_cero(e: mx.Expr) -> bool:
 
 
 def _limpio(e: mx.Expr) -> mx.Expr:
-    from academic_core.domain.engineering.mathlab import calculators as K
+    from academic_core.domain.engineering.mathlab import limite as LM
 
-    try:
-        return K._presentable(e, Trace())
-    except Exception:  # noqa: BLE001 - the raw form is still right
-        return e
+    return LM._limpio(e)
 
 
 def _suma(a: mx.Expr, b: mx.Expr) -> mx.Expr:
@@ -297,17 +309,17 @@ def _lineal(p, var: str) -> tuple[Fraction, Fraction] | None:
 
 
 def _raices_reales(p, var: str, arg: str) -> list[tuple[Punto, int]]:
-    """All real roots with multiplicity, exactly, or refused."""
-    from academic_core.domain.engineering.mathlab import racional as R
+    """ALL real roots with multiplicity: exact when possible; otherwise isolated by
+    Sturm's theorem (the count is exact) and given as approximate positions."""
+    from academic_core.domain.engineering.mathlab import raices as RZ
 
-    raices, _, completo = R._raices(p, var)
-    if not completo:
-        raise _no(f"no sé hallar exactamente todas las raíces reales de «{arg}»")
+    coefs = RZ._polinomio_de(mx.parse(arg), var)
+    if coefs is None:
+        raise _no(f"«{arg}» no es un polinomio con coeficientes racionales")
     salida = []
-    for r in raices:
-        if r.naturaleza != "real" or mx.variables(r.valor):
-            continue
-        salida.append((Punto(r.valor), r.multiplicidad))
+    for r in RZ.raices_polinomio(coefs).raices:
+        punto = Punto(r.valor) if r.exacta else Punto(mx.Num(Fraction(r.x)), aproximado=True)
+        salida.append((punto, r.multiplicidad))
     return sorted(salida, key=lambda rm: rm[0].x)
 
 
@@ -396,6 +408,42 @@ def _cribar(coef: mx.Expr, var: str, t0: Punto, k: int, escala: mx.Expr,
     return salida
 
 
+def _delta_de_g(e: mx.Expr, var: str, arg: str, k: int, trace: Trace) -> list[Impulso]:
+    """δ⁽ᵏ⁾(g(t)) for g with simple real roots.
+
+    δ(g) = Σ δ(t − tᵢ)/|g′(tᵢ)|, and since d/dt δ⁽ʲ⁾(g) = g′·δ⁽ʲ⁺¹⁾(g),
+    δ⁽ʲ⁺¹⁾(g) = (1/g′)·d/dt δ⁽ʲ⁾(g): each step differentiates the impulses and
+    multiplies by 1/g′ (smooth at simple roots) with the Leibniz sifting rule.
+    """
+    from academic_core.domain.engineering.mathlab import derive_mv as DM
+
+    dg = _limpio(DM.differentiate(e, var))
+    base: list[Impulso] = []
+    for r, mult in _raices_reales(None, var, arg):
+        if mult > 1:
+            raise _error("UNDEFINED", f"δ({arg}): {r} es raíz múltiple de g y allí "
+                                      "δ(g) no está definida (g′ = 0)")
+        pendiente = _limpio(mx.substitute(dg, var, r.expr))
+        valor = mx.valor_real(pendiente, {})
+        # |g′(tᵢ)| exactly: the sign is known from the value, so no abs() is left
+        modulo = pendiente if valor > 0 else _limpio(mx.Neg(pendiente))
+        base.append(Impulso(r, _limpio(mx.Div(mx.num(1), modulo)), 0))
+    trace.regla("delta.composicion",
+                f"δ({arg}) = " + (" + ".join(f"δ({_desplazado(var, i.posicion)})·"
+                                            f"{mx.text(i.area)}" for i in base) or "0"),
+                why="δ(g(t)) = Σ δ(t − tᵢ)/|g′(tᵢ)| sobre las raíces reales simples de g")
+    inversa = _limpio(mx.Div(mx.num(1), dg))
+    for j in range(k):
+        siguiente: list[Impulso] = []
+        for imp in base:
+            siguiente.extend(_cribar(inversa, var, imp.posicion, imp.orden + 1, imp.area, trace))
+        base = siguiente
+        trace.regla("delta.composicion_derivada",
+                    f"δ{_primas(j + 1)}({arg}) = (1/g′)·d/dt δ{_primas(j)}({arg})",
+                    why="d/dt δ⁽ʲ⁾(g(t)) = g′(t)·δ⁽ʲ⁺¹⁾(g(t)) (regla de la cadena)")
+    return base
+
+
 def leer(texto: str, var: str = "t", trace: Trace | None = None,
          u0: Fraction | None = None) -> Distribucion:
     """``u0`` is the declared value of the step at its jump, needed only when a
@@ -455,8 +503,7 @@ def leer(texto: str, var: str = "t", trace: Trace | None = None,
         if lineal is not None:
             a, c = lineal
             t0 = Punto(-c / a)
-            escala = mx.num(Fraction(1) / (a ** k * abs(a)))
-            puntos = [(t0, escala)]
+            base = [Impulso(t0, mx.num(Fraction(1) / (a ** k * abs(a))), k)]
             if a != 1:
                 trace.regla("delta.escala",
                             f"δ{_primas(k)}({arg}) = δ{_primas(k)}({_desplazado(var, t0)})"
@@ -464,37 +511,19 @@ def leer(texto: str, var: str = "t", trace: Trace | None = None,
                             why="δ⁽ᵏ⁾(a·t − b) = δ⁽ᵏ⁾(t − b/a)/(aᵏ·|a|): el área se reparte al "
                                 "comprimir y cada derivada saca un factor a")
         else:
-            if k:
-                raise _no(f"δ{_primas(k)}(g({var})) con g no lineal no está implementado")
-            from academic_core.domain.engineering.mathlab import derive_mv as DM
-
-            dg = _limpio(DM.differentiate(e, var))
-            puntos = []
-            for r, mult in _raices_reales(p, var, arg):
-                if mult > 1:
-                    raise _error("UNDEFINED", f"δ({arg}): {r} es raíz múltiple de g y allí "
-                                              "δ(g) no está definida (g′ = 0)")
-                pendiente = _limpio(mx.substitute(dg, var, r.expr))
-                valor = mx.valor_real(pendiente, {})
-                # |g′(tᵢ)| exactly: the sign is known from the value, so no abs() is left
-                modulo = pendiente if valor > 0 else _limpio(mx.Neg(pendiente))
-                escala = _limpio(mx.Div(mx.num(1), modulo))
-                puntos.append((r, escala))
-            trace.regla("delta.composicion",
-                        f"δ({arg}) = " + (" + ".join(f"δ({_desplazado(var, r)})·{mx.text(s)}"
-                                                    for r, s in puntos) or "0"),
-                        why="δ(g(t)) = Σ δ(t − tᵢ)/|g′(tᵢ)| sobre las raíces reales simples de g")
-        for t0, escala in puntos:
+            base = _delta_de_g(e, var, arg, k, trace)
+        for imp in base:
             factor = Fraction(1)
             for arg_u in escalones:
-                factor *= _escalon_en(arg_u, var, t0, u0)
+                factor *= _escalon_en(arg_u, var, imp.posicion, u0)
             if escalones:
-                trace.regla("delta.escalon", f"los escalones valen {factor} en {var} = {t0}",
+                trace.regla("delta.escalon", f"los escalones valen {factor} en "
+                                             f"{var} = {imp.posicion}",
                             why="la delta solo ve el valor de los demás factores en su punto")
             if factor == 0:
                 continue
-            impulsos.extend(_cribar(coef, var, t0, k, _limpio(mx.Mul(mx.num(factor), escala)),
-                                    trace))
+            impulsos.extend(_cribar(coef, var, imp.posicion, imp.orden,
+                                    _limpio(mx.Mul(mx.num(factor), imp.area)), trace))
     return _normalizar(var, piezas, impulsos)
 
 

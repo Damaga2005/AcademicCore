@@ -61,7 +61,7 @@ def test_convolucion_y_tren():
 
 
 @pytest.mark.parametrize("texto", ["delta(t)*u(t)", "sin(delta(t))", "delta((t-1)^2)",
-                                   "delta(t)*delta(t-1)", "delta'(t^2-1)", "1/delta(t)"])
+                                   "delta(t)*delta(t-1)", "1/delta(t)"])
 def test_lo_que_no_esta_definido_lo_rechaza(texto):
     with pytest.raises(Exception):
         D.leer(texto)
@@ -70,7 +70,8 @@ def test_lo_que_no_esta_definido_lo_rechaza(texto):
 @pytest.mark.parametrize("texto,esperado", [
     ("delta(t^2-1)", "(1/2)·δ(t + 1) + (1/2)·δ(t − 1)"),
     ("delta(t^3-t)", "(1/2)·δ(t + 1) + δ(t) + (1/2)·δ(t − 1)"),
-    ("delta(t^2-2)", "(1/(2*sqrt(2)))·δ(t + sqrt(2)) + (1/(2*sqrt(2)))·δ(t − sqrt(2))"),
+    ("delta(t^2-2)", "(1/4*sqrt(2))·δ(t + sqrt(2)) + (1/4*sqrt(2))·δ(t − sqrt(2))"),
+    ("delta'(t^2-1)", "(-1/4)·δ′(t + 1) + (1/4)·δ(t + 1) + (1/4)·δ′(t − 1) + (1/4)·δ(t − 1)"),
     ("u(t^2-1)", "1 en (−∞, -1) + 1 en (1, +∞)"),
     ("u(t)*u(1-t)", "1 en (0, 1)"),
     ("exp(t)*delta(t-1)*u(t)", "(exp(1))·δ(t − 1)"),
@@ -130,3 +131,39 @@ def test_doblete_contra_gaussiana():
     # the Leibniz form t³δ′(t−1) = δ′(t−1) − 3δ(t−1) integrates to −3
     areas = {i.orden: mx.valor_real(i.area, {}) for i in d.impulsos}
     assert areas == {1: 1.0, 0: -3.0} and abs(numerico + 3) < 1e-4
+
+
+def _aplica(d, f):
+    """⟨D, f⟩ = Σ (−1)ᵏ·área·f⁽ᵏ⁾(t₀)."""
+    from academic_core.domain.engineering.mathlab import derive_mv as DM
+
+    total = 0.0
+    for imp in d.impulsos:
+        fk = mx.parse(f)
+        for _ in range(imp.orden):
+            fk = DM.differentiate(fk, "t")
+        total += (-1) ** imp.orden * mx.valor_real(imp.area, {}) * \
+            mx.valor_real(fk, {"t": imp.posicion.x})
+    return total
+
+
+@pytest.mark.parametrize("f,g,k", [("exp(t)", "t^2-1", 1), ("cos(t)+t", "t^3-t", 1),
+                                   ("t^2+1", "t^2-2", 1), ("exp(t)", "t^2-1", 2),
+                                   ("1+t", "t^3-2", 0), ("t", "t^3-3*t+1", 0)])
+def test_delta_k_de_g_contra_gaussiana(f, g, k):
+    """δ⁽ᵏ⁾(g) by (1/g′·d/dt)ᵏ, and roots without closed form (Sturm), checked against
+    ∫ f(t)·δ_ε⁽ᵏ⁾(g(t)) dt with a narrow Gaussian."""
+    nucleos = {0: lambda x, e: _gauss(x, e),
+               1: lambda x, e: -x / (e * e) * _gauss(x, e),
+               2: lambda x, e: (x * x / e ** 4 - 1 / (e * e)) * _gauss(x, e)}
+    d = D.leer(f"delta{chr(39) * k}({g})")
+    fe, ge = mx.parse(f), mx.parse(g)
+    numerico = _simpson(lambda t: mx.valor_real(fe, {"t": t}) *
+                        nucleos[k](mx.valor_real(ge, {"t": t}), 2e-3), -3, 3, 400000)
+    assert abs(_aplica(d, f) - numerico) < 1e-3 * max(1, abs(numerico))
+
+
+def test_raices_sin_forma_exacta_marcan_el_resultado():
+    r = _calc(calculo="leer", expr="(1+t)*delta(t^3-2)")
+    assert r.exacto.startswith("≈0.4745536836·δ(t − (≈1.25992104989))")
+    assert r.sello.verdict == "solo_numerico" and r.avisos

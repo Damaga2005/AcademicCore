@@ -648,6 +648,12 @@ def _distribucion(peticion: C.Peticion) -> C.Resultado:
         sello = V.Seal(V.VERIFIED, "f * δ(t − t₀) = f(t − t₀)", texto)
     else:
         raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    if D.aproximada and sello.verdict == V.VERIFIED:
+        aviso = ("hay posiciones que solo se conocen numéricamente: raíces sin forma exacta, "
+                 "aisladas por el teorema de Sturm (su número es exacto, su valor no)")
+        trace.aviso("distribucion.aproximada", aviso)
+        sello = V.Seal(V.NUMERIC_ONLY, sello.method, sello.detail)
+        return _finalizar(peticion, trace, texto, aproximado=None, sello=sello, avisos=(aviso,))
     return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
 
 

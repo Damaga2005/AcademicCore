@@ -110,14 +110,92 @@ class Oscila(Acotada):
 OSCILA = Oscila()
 
 
+class _NoCuadratico(Exception):
+    pass
+
+
+def _en_q_raiz(e: mx.Expr, r: list) -> tuple[Fraction, Fraction]:
+    """e = a + b·√r exactly, for ONE square-free r (shared through the list ``r``)."""
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    if isinstance(e, mx.Num):
+        return Fraction(e.value), Fraction(0)
+    if isinstance(e, mx.Neg):
+        a, b = _en_q_raiz(e.arg, r)
+        return -a, -b
+    raiz = None
+    if isinstance(e, mx.Root) and e.degree == 2:
+        raiz = e.radicand
+    elif isinstance(e, mx.Call) and e.name in ("sqrt", "raiz", "raiz2"):
+        raiz = e.args[0]
+    elif isinstance(e, mx.Pow) and mx.exact_value(e.exponent) == Fraction(1, 2):
+        raiz = e.base
+    if raiz is not None:
+        q = mx.exact_value(raiz)
+        if q is None or q < 0:
+            raise _NoCuadratico
+        k, libre = RZ._raiz_simplificada(Fraction(q))
+        if libre == 1:
+            return k, Fraction(0)
+        if r and r[0] != libre:
+            raise _NoCuadratico
+        r[:] = [libre]
+        return Fraction(0), k
+    if isinstance(e, (mx.Add, mx.Sub)):
+        a1, b1 = _en_q_raiz(e.left, r)
+        a2, b2 = _en_q_raiz(e.right, r)
+        s = 1 if isinstance(e, mx.Add) else -1
+        return a1 + s * a2, b1 + s * b2
+    if isinstance(e, mx.Mul):
+        a1, b1 = _en_q_raiz(e.left, r)
+        a2, b2 = _en_q_raiz(e.right, r)
+        rr = r[0] if r else Fraction(0)
+        return a1 * a2 + b1 * b2 * rr, a1 * b2 + a2 * b1
+    if isinstance(e, mx.Div):
+        a1, b1 = _en_q_raiz(e.left, r)
+        a2, b2 = _en_q_raiz(e.right, r)
+        rr = r[0] if r else Fraction(0)
+        n = a2 * a2 - b2 * b2 * rr
+        if n == 0:
+            raise _NoCuadratico
+        # (a1 + b1√r)(a2 − b2√r)/n
+        return (a1 * a2 - b1 * b2 * rr) / n, (b1 * a2 - a1 * b2) / n
+    if isinstance(e, mx.Pow):
+        k = mx.exact_value(e.exponent)
+        if k is None or Fraction(k).denominator != 1 or abs(k) > 32:
+            raise _NoCuadratico
+        a, b = _en_q_raiz(e.base, r)
+        ra, rb = Fraction(1), Fraction(0)
+        rr = r[0] if r else Fraction(0)
+        for _ in range(abs(int(k))):
+            ra, rb = ra * a + rb * b * rr, ra * b + rb * a
+        if k < 0:
+            n = ra * ra - rb * rb * rr
+            if n == 0:
+                raise _NoCuadratico
+            ra, rb = ra / n, -rb / n
+        return ra, rb
+    raise _NoCuadratico
+
+
 def _pliega(e: mx.Expr) -> mx.Expr:
-    """Fold exact constants: sqrt(1) → 1, 2·(1/ln 2)·(1/1) → 2/ln 2."""
+    """Fold exact constants: sqrt(1) → 1, 2·(1/ln 2)·(1/1) → 2/ln 2,
+    1/(2·√2)² → 1/8, and anything in ℚ(√r) to a + b·√r."""
     if isinstance(e, (mx.Num, mx.Sym, mx.Const)):
         return e
     if not mx.variables(e):
         v = mx.exact_value(e)
         if v is not None:
             return _num(v)
+        r: list = []
+        try:
+            a, b = _en_q_raiz(e, r)
+        except (_NoCuadratico, ZeroDivisionError):
+            pass
+        else:
+            from academic_core.domain.engineering.mathlab import raices as RZ
+
+            return RZ._mas_raiz(a, b, r[0] if r else Fraction(1))
     if isinstance(e, mx.Neg):
         a = _pliega(e.arg)
         v = mx.exact_value(a) if not mx.variables(a) else None
