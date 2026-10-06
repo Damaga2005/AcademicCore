@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-06 — Límites de ML-5/ML-6 resueltos, ML-13 y ML-4
+
+- **Gröbner rápido:** grevlex + estrategia normal + criterio de la cadena, y el polinomio de cada variable por formas normales (FGLM en una variable). Los sistemas que agotaban los 8 s se resuelven en 0,2 s.
+- **Conjuntos críticos no aislados** descritos con su forma más simple (x²y² → xy = 0).
+- **Recintos {g ≤ 0} en 3 variables** (bolas, elipsoides) y valores críticos irracionales por el polinomio mínimo m(f) = 0. Bug real corregido: con una curva de candidatos se perdían los puntos aislados (x²y en la bola). 60 elipsoides aleatorios contra fuerza bruta: 0 errores.
+- **Cambio de orden con curvas no monótonas:** se parte solo en los extremos de g₁ y g₂; inversas de sen y cos con todas sus ramas. Primitivas de potencias trigonométricas por linealización (x·cos²x).
+- **Simplificador racional** (N/D sobre átomos, cancelación, ángulo doble, csc/sec/cot, √ de contenido cuadrado).
+- **ML-13 (`operadores.py`, operación `operadores`).** 60 campos aleatorios contra `sympy.vector`: 0 errores.
+- **ML-4 (`numericos.py`, operación `numericos`).** Baterías: 60 radios y 100 extremos contra SymPy, 40 funciones contra un barrido de 400 000 puntos, 200 Lambert W contra mpmath, 60 LU contra SymPy y órdenes de EDO en 5 ecuaciones × 5 métodos: 0 errores. Bugs corregidos por las baterías: raíces perdidas cuando f(r) daba 0.0 exacto (`0.0 or …`), W(e) = 1 sin reconocer por lo mismo, y orden observado falso al nivel del redondeo.
+
 ## 2026-10-06 — ML-7 (línea, superficie, Green/Stokes/Gauss) y revisión a fondo de ML-5/ML-6
 
 - **ML-7 (`vectorial.py`, operación `vectorial`):** circulación y ∫ f ds, potencial (rot F = 0, integración sucesiva, ∇φ = F comprobado), flujo y ∬ f dS, rotacional y divergencia; Green, Stokes y Gauss por los dos lados. Batería de 60 campos aleatorios contra SymPy (circulación por curvas polinómicas, flujo por gráficas, Gauss en el cubo con sus 6 caras): 0 errores.

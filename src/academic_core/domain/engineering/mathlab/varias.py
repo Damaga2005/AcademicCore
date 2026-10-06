@@ -736,7 +736,7 @@ def lagrange(f: mx.Expr, g, vars: list[str],
         return out
     vmax = max(out, key=lambda c: _float(c[1]))
     vmin = min(out, key=lambda c: _float(c[1]))
-    acotada = len(vars) == 2 and len(gs) == 1 and _es_acotada(gs[0], vars)
+    acotada = len(vars) in (2, 3) and len(gs) == 1 and _es_acotada(gs[0], vars)
     trace.regla("mv.lagrange_resumen",
                 f"mayor valor {texto_coord(vmax[1])} en ({', '.join(texto_coord(c) for c in vmax[0])}); "
                 f"menor {texto_coord(vmin[1])} en ({', '.join(texto_coord(c) for c in vmin[0])})",
@@ -756,21 +756,27 @@ def _es_acotada(g, vars) -> bool:
 
 
 def _constante_en_ligadura(f, gs, vars):
-    """Valor de f si es el mismo en muchos puntos de la ligadura (2 variables, una
-    ligadura polinómica: se cortan rectas y = cte y se resuelve en x)."""
+    """Valor de f si es el mismo en muchos puntos de la ligadura (una ligadura
+    polinómica en 2 o 3 variables: se fijan todas menos la primera en una rejilla y
+    se resuelve en ella)."""
     from academic_core.domain.engineering.mathlab import raices as RZ
 
-    if len(vars) != 2 or len(gs) != 1:
+    if len(gs) != 1 or len(vars) not in (2, 3):
         return None
-    x, y = vars
+    x, resto = vars[0], vars[1:]
     valores = []
-    for k in range(-20, 21):
-        y0 = Fraction(k, 7)
-        coefs = RZ._polinomio_de(mx.substitute(gs[0], y, _num(y0)), x)
+    rejilla = [Fraction(k, 7) for k in range(-20, 21)]
+    combos = ([(a,) for a in rejilla] if len(resto) == 1 else
+              [(a, b) for a in rejilla[::3] for b in rejilla[::3]])
+    for combo in combos:
+        h = gs[0]
+        for v, c in zip(resto, combo):
+            h = mx.substitute(h, v, _num(c))
+        coefs = RZ._polinomio_de(h, x)
         if coefs is None or len(RZ._recorta(coefs)) < 2:
             continue
         for r in RZ.raices_polinomio(coefs).raices:
-            v = mx.valor_real(f, {x: r.x, y: float(y0)})
+            v = mx.valor_real(f, {x: r.x, **{u: float(c) for u, c in zip(resto, combo)}})
             if v is not None:
                 valores.append(float(v))
     if len(valores) < 4 or max(valores) - min(valores) > 1e-9 * max(1.0, abs(valores[0])):
@@ -938,7 +944,8 @@ def _extremos_region(f: mx.Expr, vars: list[str], g, trace: Trace) -> Recinto:
                                         lambda p: True, caja, trace)
             if not vals:
                 raise exc
-            candidatos.extend(("frontera (arco de candidatos)", v, _float(v)) for _, v in vals)
+            candidatos.extend((d.replace("punto crítico", "frontera"), v, _float(v))
+                              for d, v in vals)
     try:
         sing = S.resolver([g] + [_d(g, v) for v in vars], list(vars), Trace())
     except UnsupportedError:
@@ -956,28 +963,40 @@ def _extremos_region(f: mx.Expr, vars: list[str], g, trace: Trace) -> Recinto:
     return Recinto((minimo[0], minimo[1]), (maximo[0], maximo[1]))
 
 
+def _direcciones(n: int) -> list[tuple[float, ...]]:
+    """Direcciones unitarias bien repartidas en ℝ² (720) o ℝ³ (espiral de Fibonacci)."""
+    if n == 2:
+        return [(math.cos(2 * math.pi * k / 720), math.sin(2 * math.pi * k / 720))
+                for k in range(720)]
+    out = []
+    m = 2000
+    for k in range(m):
+        zc = 1 - 2 * (k + 0.5) / m
+        r = math.sqrt(1 - zc * zc)
+        th = math.pi * (3 - math.sqrt(5)) * k
+        out.append((r * math.cos(th), r * math.sin(th), zc))
+    return out
+
+
 def _acotada(g: mx.Expr, vars: list[str], trace: Trace) -> None:
-    """{g ≤ 0} acotado: g → +∞ en todas las direcciones (muestreo en un círculo
-    grande; si g es polinómico, por su parte de mayor grado definida positiva)."""
+    """{g ≤ 0} acotado: la parte de mayor grado de g (polinómica) es > 0 en todas las
+    direcciones (y de grado par)."""
     from academic_core.domain.engineering.mathlab import poly as Pm
 
     try:
         p = Pm.as_poly(g)
     except Exception:  # noqa: BLE001
         p = None
-    if p is None or Pm.atoms_of(p) or len(vars) != 2:
-        raise _no("['region', g] necesita g polinómica en 2 variables")
+    if p is None or Pm.atoms_of(p) or len(vars) not in (2, 3):
+        raise _no("['region', g] necesita g polinómica en 2 o 3 variables")
     d = max(Pm.mono_degree(m) for m in p)
     top = {m: c for m, c in p.items() if Pm.mono_degree(m) == d}
-    x, y = vars
-    malos = []
-    for k in range(720):
-        t = 2 * math.pi * k / 720
-        u = (math.cos(t), math.sin(t))
-        val = sum(float(c) * u[0] ** Pm.mono_exp(m, x) * u[1] ** Pm.mono_exp(m, y)
+    malos = 0
+    for u in _direcciones(len(vars)):
+        val = sum(float(c) * math.prod(u[i] ** Pm.mono_exp(m, v) for i, v in enumerate(vars))
                   for m, c in top.items())
         if val <= 1e-9:
-            malos.append(t)
+            malos += 1
     if d % 2 or malos:
         raise _no("{g ≤ 0} no es acotado (la parte de mayor grado de g no es definida "
                   "positiva): Weierstrass no aplica")
@@ -1004,39 +1023,38 @@ def _extremos_lado(g, var, ia, ib, trace):
 
 
 def _caja_region(g: mx.Expr, vars: list[str]) -> list[tuple[float, float]]:
-    """Caja que contiene {g ≤ 0} (acotado): por cada dirección, el radio más lejano
-    con g ≤ 0 en un barrido logarítmico y luego bisección."""
+    """Caja que contiene {g ≤ 0} (acotado): en cada dirección, el radio más lejano con
+    g ≤ 0 (barrido logarítmico y bisección)."""
     from academic_core.domain.engineering.mathlab import multiple as MI
 
+    n = len(vars)
     gc = MI.compilar(g, list(vars))
     if gc is None:
-        return [(-10.0, 10.0), (-10.0, 10.0)]
+        return [(-10.0, 10.0)] * n
 
-    def val(px, py):
+    def val(p):
         try:
-            return gc([px, py])
+            return gc(list(p))
         except (ValueError, ZeroDivisionError, OverflowError):
             return None
-    xs, ys = [0.0], [0.0]
-    for k in range(180):
-        th = 2 * math.pi * k / 180
-        cx, cy = math.cos(th), math.sin(th)
+    puntos = [tuple(0.0 for _ in range(n))]
+    dirs = _direcciones(n)[:: (4 if n == 2 else 5)]
+    for u in dirs:
         radios = [0.01 * 1.15 ** j for j in range(80)]
-        dentro = [r for r in radios if (v := val(r * cx, r * cy)) is not None and v <= 0]
+        dentro = [r for r in radios if (v := val([r * c for c in u])) is not None and v <= 0]
         if not dentro:
             continue
-        lo = max(dentro)
-        hi = lo * 1.15
+        lo, hi = max(dentro), max(dentro) * 1.15
         for _ in range(40):
             m = (lo + hi) / 2
-            v = val(m * cx, m * cy)
+            v = val([m * c for c in u])
             if v is not None and v <= 0:
                 lo = m
             else:
                 hi = m
-        xs.append(lo * cx)
-        ys.append(lo * cy)
-    return [(min(xs) - 1e-6, max(xs) + 1e-6), (min(ys) - 1e-6, max(ys) + 1e-6)]
+        puntos.append(tuple(lo * c for c in u))
+    return [(min(p[k] for p in puntos) - 1e-6, max(p[k] for p in puntos) + 1e-6)
+            for k in range(n)]
 
 
 def _criticos_interiores(f, vars, dentro, caja, trace) -> list[tuple[str, object, float]]:
@@ -1062,9 +1080,13 @@ def _criticos_interiores(f, vars, dentro, caja, trace) -> list[tuple[str, object
 
 
 def _valores_no_aislados(ecs, incognitas, f, vars, dentro, caja, trace) -> list[tuple[str, object]]:
-    """Valores de f en un conjunto crítico no aislado: el ideal (ecs, f − w) eliminado
-    hasta w da un polinomio cuyas raíces son TODOS los valores críticos (Sard); cada
-    uno se acepta si algún punto crítico con ese valor cae dentro (cortes x = c, y = c)."""
+    """Candidatos de un conjunto crítico no aislado (curvas más, quizá, puntos
+    sueltos). Eliminando todo menos w en (ecs, f − w) queda un polinomio cuyas raíces
+    son TODOS los valores críticos (Sard). Para cada factor racional m de ese
+    polinomio se resuelve (ecs, m(f) = 0): si sus puntos están aislados se toman los
+    que caen dentro; si forman una curva (f es constante en ella) se corta con
+    x = c, y = c… para ver si pasa por dentro."""
+    from academic_core.domain.engineering.mathlab import poly as Pm
     from academic_core.domain.engineering.mathlab import sistemas as S
 
     w = "w__"
@@ -1079,37 +1101,41 @@ def _valores_no_aislados(ecs, incognitas, f, vars, dentro, caja, trace) -> list[
     uni = [Fraction(0)] * (S._lider(gw)[-1] + 1)
     for e, c in gw.items():
         uni[e[-1]] = c
-    valores = S.raices_exactas(uni)
+    grupos = S.factores(uni)
     trace.regla("mv.valores_criticos", "valores críticos posibles: " + ", ".join(
-        mx.text(z.expr) if z.exacto else f"≈ {z.x:.10g}" for z in valores),
-        why="eliminando las variables de (∇f = 0, f = w) queda un polinomio en w")
+        mx.text(z.expr) if z.exacto else f"≈ {z.x:.10g}" for _, vs in grupos for z in vs),
+        why="eliminando las variables de (sistema, f = w) queda un polinomio en w")
     out = []
-    for z in valores:
-        w0 = z.expr if z.exacto else mx.Num(Fraction(z.x))
-        base = list(ecs) + [mx.Sub(f, w0)]
-        hallado = None
-        for k, v in enumerate(vars):
-            lo, hi = caja[k]
-            for i in range(41):
-                c = Fraction(lo + (hi - lo) * i / 40).limit_denominator(1000)
-                try:
-                    sols = S.resolver(base + [mx.Sub(mx.Sym(v), _num(c))], list(incognitas),
-                                      Trace())
-                except UnsupportedError:
-                    continue
-                for s in sols:
-                    p = tuple(_coord(s[u]) for u in vars)
-                    if dentro(p):
-                        hallado = p
-                        break
-                if hallado:
+    fp = Pm.as_poly(f)
+    for m, valores in grupos:
+        # m(f) como expresión con coeficientes racionales
+        mf: Pm.Polynomial = {}
+        pot: Pm.Polynomial = {(): Fraction(1)}
+        for c in m:
+            mf = Pm.add(mf, Pm.scale(pot, c))
+            pot = Pm.mul(pot, fp)
+        base = list(ecs) + [Pm.to_expr(mf)]
+        puntos = []
+        try:
+            for s_ in S.resolver(base, list(incognitas), Trace()):
+                puntos.append(tuple(_coord(s_[u]) for u in vars))
+        except UnsupportedError:
+            for k, v in enumerate(vars):
+                lo, hi = caja[k]
+                for i in range(41):
+                    c = Fraction(lo + (hi - lo) * i / 40).limit_denominator(1000)
+                    try:
+                        sols = S.resolver(base + [mx.Sub(mx.Sym(v), _num(c))],
+                                          list(incognitas), Trace())
+                    except UnsupportedError:
+                        continue
+                    puntos.extend(tuple(_coord(s_[u]) for u in vars) for s_ in sols)
+        for z in valores:
+            for p in puntos:
+                if dentro(p) and abs(_float(_valor_f(f, vars, p)) - z.x) <= 1e-9 * max(1.0, abs(z.x)):
+                    valor = z.fraccion if z.fraccion is not None else (z.expr if z.exacto else z.x)
+                    out.append((f"punto crítico ({', '.join(texto_coord(c) for c in p)})", valor))
                     break
-            if hallado:
-                break
-        if hallado:
-            valor = z.fraccion if z.fraccion is not None else (z.expr if z.exacto else z.x)
-            out.append((f"curva crítica por ({', '.join(texto_coord(c) for c in hallado)})",
-                        valor))
     return out
 
 

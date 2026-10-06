@@ -57,7 +57,197 @@ def _limpio(e: mx.Expr) -> mx.Expr:
         e = LM._limpio(T.simplify(e))
     except Exception:  # noqa: BLE001 - se queda sin simplificar, sigue siendo exacta
         pass
-    return _bonito(_canon(e))
+    e = _canon(_raiz_cte(_logexp(e)))
+    for cand in (_racional(e), _racional(_angulo_doble(e))):
+        if cand is not None and len(mx.text(cand)) <= len(mx.text(e)):
+            e = cand
+    return _bonito(e)
+
+
+def _raiz_cte(e: mx.Expr) -> mx.Expr:
+    """√(c·u) con c cuadrado perfecto racional → √c·√u (√(4y) = 2√y)."""
+    if isinstance(e, mx.Root) and e.degree == 2:
+        r = _raiz_cte(e.radicand)
+        # contenido cuadrado de un polinomio: √(16 − 4y) = 2·√(4 − y)
+        try:
+            from academic_core.domain.engineering.mathlab import poly as P
+
+            p = P.as_poly(r)
+            if len(p) > 1 and not P.atoms_of(p) and all(len(n) == 1 for m in p for n, _ in m):
+                g = 0
+                for c in p.values():
+                    g = math.gcd(g, abs(c.numerator)) if c.denominator == 1 else -1
+                    if g == -1:
+                        break
+                if g > 1:
+                    k = 1
+                    for q in range(int(math.isqrt(g)), 1, -1):
+                        if g % (q * q) == 0:
+                            k = q
+                            break
+                    if k > 1:
+                        return mx.Mul(leer(k), mx.Root(2, _bonito(P.to_expr(P.scale(p, Fraction(1, k * k))))))
+        except Exception:  # noqa: BLE001
+            pass
+        if isinstance(r, mx.Mul):
+            c = mx.exact_value(r.left)
+            if c is not None and c > 0 and not mx.variables(r.left):
+                c = Fraction(c)
+                rn, rd = math.isqrt(c.numerator), math.isqrt(c.denominator)
+                if rn * rn == c.numerator and rd * rd == c.denominator:
+                    return mx.Mul(leer(Fraction(rn, rd)), mx.Root(2, r.right))
+        return mx.Root(2, r)
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_raiz_cte(e.left), _raiz_cte(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_raiz_cte(e.arg))
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_raiz_cte(a) for a in e.args))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_raiz_cte(e.base), e.exponent)
+    return e
+
+
+def _angulo_doble(e: mx.Expr) -> mx.Expr:
+    """sen(2u) = 2·sen u·cos u y cos(2u) = 1 − 2·sen²u (para que se cancelen con
+    los factores sen u, cos u de un denominador)."""
+    if isinstance(e, mx.Call) and e.name in ("sin", "cos") and len(e.args) == 1:
+        a = e.args[0]
+        if isinstance(a, mx.Mul) and mx.exact_value(a.left) == 2 and not mx.variables(a.left):
+            u = _angulo_doble(a.right)
+            if e.name == "sin":
+                return mx.Mul(mx.Num(Fraction(2)), mx.Mul(mx.Call("sin", (u,)),
+                                                          mx.Call("cos", (u,))))
+            return mx.Sub(mx.Num(Fraction(1)), mx.Mul(mx.Num(Fraction(2)),
+                                                      mx.Pow(mx.Call("sin", (u,)), mx.Num(2))))
+        return mx.Call(e.name, (_angulo_doble(a),))
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_angulo_doble(e.left), _angulo_doble(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_angulo_doble(e.arg))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_angulo_doble(e.base), e.exponent)
+    return e
+
+
+def _racional(e: mx.Expr) -> mx.Expr | None:
+    """e como N/D (polinomios sobre átomos: sen θ, eˣ… cuentan como variables) con el
+    factor monomio común cancelado y, si D divide a N, el cociente exacto. None si no
+    se puede (forma demasiado grande o algo no racional)."""
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    largos = sorted(v for v in mx.variables(e) if len(v) > 1)
+    libres = [c for c in "ABCDFGHJKLMNOPQRSTUVW" if c not in mx.variables(e)]
+    ida = dict(zip(largos, libres))
+    f = e
+    for v, c in ida.items():
+        f = mx.substitute(f, v, mx.Sym(c))
+    try:
+        N, D = _nd(f)
+        if not D:
+            return None
+        if not N:
+            return mx.Num(Fraction(0))
+        N, D = _cancela(N, D)
+        if D[max(D, key=lambda m: (P.mono_degree(m), m))] < 0:
+            N, D = P.scale(N, -1), P.scale(D, -1)
+        num = P.to_expr(N)
+        if len(D) == 1 and () in D:
+            out = P.to_expr(P.scale(N, 1 / D[()]))
+        else:
+            out = mx.Div(num, P.to_expr(D))
+    except Exception:  # noqa: BLE001 - tamaño, atomos raros: se deja como estaba
+        return None
+    for v, c in ida.items():
+        out = mx.substitute(out, c, mx.Sym(v))
+    return out
+
+
+def _nd(e: mx.Expr):
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    uno = {(): Fraction(1)}
+    if isinstance(e, (mx.Add, mx.Sub)):
+        n1, d1 = _nd(e.left)
+        n2, d2 = _nd(e.right)
+        if d1 == d2:
+            return P.add(n1, n2, 1 if isinstance(e, mx.Add) else -1), d1
+        return (P.add(P.mul(n1, d2), P.mul(n2, d1), 1 if isinstance(e, mx.Add) else -1),
+                P.mul(d1, d2))
+    if isinstance(e, mx.Mul):
+        n1, d1 = _nd(e.left)
+        n2, d2 = _nd(e.right)
+        return P.mul(n1, n2), P.mul(d1, d2)
+    if isinstance(e, mx.Div):
+        n1, d1 = _nd(e.left)
+        n2, d2 = _nd(e.right)
+        return P.mul(n1, d2), P.mul(d1, n2)
+    if isinstance(e, mx.Neg):
+        n, d = _nd(e.arg)
+        return P.scale(n, -1), d
+    if isinstance(e, mx.Pow):
+        k = mx.exact_integer(e.exponent)
+        if k is not None and abs(k) <= 12:
+            n, d = _nd(e.base)
+            pn, pd = uno, uno
+            for _ in range(abs(k)):
+                pn, pd = P.mul(pn, n), P.mul(pd, d)
+            return (pn, pd) if k >= 0 else (pd, pn)
+    return P.as_poly(e), uno
+
+
+def _cancela(N, D):
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    # factor monomio común
+    nombres = {v for m in list(N) + list(D) for v, _ in m}
+    comun = []
+    for v in sorted(nombres):
+        k = min(P.mono_exp(m, v) for m in list(N) + list(D))
+        if k > 0:
+            comun.append((v, k))
+    if comun:
+        c = tuple(comun)
+        N = {P.mono_div(m, c): x for m, x in N.items()}
+        D = {P.mono_div(m, c): x for m, x in D.items()}
+    # D divide a N
+    q = _division_exacta(N, D)
+    if q is not None:
+        return q, {(): Fraction(1)}
+    # N divide a D (resultado 1/q)
+    q = _division_exacta(D, N)
+    if q is not None:
+        return {(): Fraction(1)}, q
+    # coeficiente principal de D a 1
+    lc = D[max(D)]
+    return P.scale(N, 1 / lc), P.scale(D, 1 / lc)
+
+
+def _division_exacta(N, D):
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    if len(D) == 1 and () in D:
+        return P.scale(N, 1 / D[()])
+    nombres = sorted({v for m in list(N) + list(D) for v, _ in m})
+
+    def clave(m):
+        return tuple(P.mono_exp(m, v) for v in nombres)
+    q = {}
+    r = dict(N)
+    ld = max(D, key=clave)
+    pasos = 0
+    while r:
+        pasos += 1
+        if pasos > 200:
+            return None
+        lr = max(r, key=clave)
+        t = P.mono_div(lr, ld)
+        if t is None:
+            return None
+        c = r[lr] / D[ld]
+        q[t] = q.get(t, Fraction(0)) + c
+        r = P.add(r, P.mul({t: c}, D), -1)
+    return q
 
 
 def _neg_de(e: mx.Expr) -> mx.Expr | None:
@@ -95,6 +285,8 @@ def _bonito(e: mx.Expr) -> mx.Expr:
         return type(e)(a, b)
     if isinstance(e, mx.Neg):
         return mx.Neg(_bonito(e.arg))
+    if isinstance(e, mx.Root):
+        return mx.Root(e.degree, _bonito(e.radicand))
     if isinstance(e, mx.Call):
         return mx.Call(e.name, tuple(_bonito(x) for x in e.args))
     if isinstance(e, mx.Pow):
@@ -124,6 +316,11 @@ def _canon(e: mx.Expr) -> mx.Expr:
 
 def _logexp(e: mx.Expr) -> mx.Expr:
     """ln(e) = 1, ln(exp(u)) = u, exp(ln(u)) = u (u > 0 donde se usa), x − 0 = x."""
+    if isinstance(e, mx.Call) and e.name in ("csc", "sec", "cot") and len(e.args) == 1:
+        u = _logexp(e.args[0])
+        if e.name == "cot":
+            return mx.Div(mx.Call("cos", (u,)), mx.Call("sin", (u,)))
+        return mx.Div(mx.Num(Fraction(1)), mx.Call("sin" if e.name == "csc" else "cos", (u,)))
     if isinstance(e, mx.Call):
         args = tuple(_logexp(a) for a in e.args)
         if e.name == "ln" and args[0] == mx.Const("e"):
@@ -239,6 +436,14 @@ def primitiva(f: mx.Expr, var: str, trace: Trace) -> mx.Expr:
                 for Fi in partes[1:]:
                     F = mx.Add(F, Fi)
     if F is None:
+        lin = _linealiza_trig(f)
+        if lin is not f:
+            F = _por_terminos(lin, var)
+            if F is not None:
+                trace.regla("multiple.linealiza", f"{mx.text(f)} = {mx.text(_limpio(lin))}",
+                            why="potencias de sen y cos a ángulo doble: sen²u = (1 − cos 2u)/2, "
+                                "cos²u = (1 + cos 2u)/2, sen u·cos u = sen 2u/2")
+    if F is None:
         try:
             F = PR.sustitucion_trigonometrica(f, var, Trace())
         except Exception:  # noqa: BLE001
@@ -254,6 +459,60 @@ def primitiva(f: mx.Expr, var: str, trace: Trace) -> mx.Expr:
     F = _limpio(F)
     trace.regla("multiple.primitiva", f"∫ {mx.text(f)} d{var} = {mx.text(F)}",
                 why="las demás variables son constantes en esta integración (Fubini)")
+    return F
+
+
+def _linealiza_trig(e: mx.Expr) -> mx.Expr:
+    """Reescribe sen²u, cos²u y sen u·cos u (también dentro de potencias pares
+    mayores) con el ángulo doble; devuelve el mismo objeto si no hay nada que hacer."""
+    def dos(u):
+        return mx.Mul(mx.Num(Fraction(2)), u)
+
+    def lin(n):
+        if isinstance(n, mx.Pow) and isinstance(n.base, mx.Call) and n.base.name in ("sin", "cos"):
+            k = mx.exact_integer(n.exponent)
+            if k is not None and k >= 2:
+                u = n.base.args[0]
+                signo = mx.Sub if n.base.name == "sin" else mx.Add
+                cuadrado = mx.Div(signo(mx.Num(Fraction(1)), mx.Call("cos", (dos(u),))),
+                                  mx.Num(Fraction(2)))
+                resto = (mx.Num(Fraction(1)) if k == 2 else
+                         lin(mx.Pow(n.base, mx.Num(Fraction(k - 2)))))
+                return mx.Mul(cuadrado, resto)
+        if isinstance(n, mx.Mul):
+            a, b = n.left, n.right
+            if (isinstance(a, mx.Call) and isinstance(b, mx.Call) and {a.name, b.name} ==
+                    {"sin", "cos"} and a.args == b.args):
+                return mx.Div(mx.Call("sin", (dos(a.args[0]),)), mx.Num(Fraction(2)))
+            return mx.Mul(lin(a), lin(b))
+        if isinstance(n, (mx.Add, mx.Sub, mx.Div)):
+            return type(n)(lin(n.left), lin(n.right))
+        if isinstance(n, mx.Neg):
+            return mx.Neg(lin(n.arg))
+        return n
+    out = lin(e)
+    return e if mx.text(out) == mx.text(e) else out
+
+
+def _por_terminos(e: mx.Expr, var: str) -> mx.Expr | None:
+    """Primitiva término a término de la forma expandida."""
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    try:
+        p = P.as_poly(e)
+    except Exception:  # noqa: BLE001
+        return None
+    partes = []
+    for m, c in p.items():
+        Fi = _e01(P.to_expr({m: c}), var)
+        if Fi is None:
+            return None
+        partes.append(Fi)
+    if not partes:
+        return mx.Num(Fraction(0))
+    F = partes[0]
+    for Fi in partes[1:]:
+        F = mx.Add(F, Fi)
     return F
 
 
@@ -627,6 +886,23 @@ def _invierte(g: mx.Expr, x: str, Y: mx.Expr) -> list[mx.Expr]:
                 r2 = raiz if s > 0 else mx.Neg(raiz)
                 cand.append(mx.Div(r2 if b == 0 else mx.Add(leer(-b), r2), leer(2 * a)))
         return cand
+    # sen y cos: todas las ramas de la inversa en unas cuantas vueltas
+    for h, ramas in (("sin", ((1, "asin", 0), (-1, "asin", 1))),
+                     ("cos", ((1, "acos", 0), (-1, "acos", 0)))):
+        lin = _lineal_en(g, mx.Call(h, (mx.Sym(x),)), x)
+        if lin is None:
+            continue
+        c, d = lin
+        u = Y if d == 0 else mx.Sub(Y, leer(d))
+        u = u if c == 1 else mx.Div(u, leer(c))
+        for signo, inv, pi_extra in ramas:
+            base = mx.Call(inv, (u,))
+            base = base if signo > 0 else mx.Neg(base)
+            for k in range(-3, 4):
+                desplaz = 2 * k + pi_extra          # múltiplo de π que se suma
+                cand.append(base if desplaz == 0 else
+                            mx.Add(mx.Mul(leer(desplaz), mx.Const("pi")), base))
+        return cand
     # forma c·h(x) + d: se aísla numéricamente c y d con dos evaluaciones de h
     for h, inv in (("sqrt", lambda u: mx.Pow(u, leer(2))), ("exp", lambda u: mx.Call("ln", (u,))),
                    ("ln", lambda u: mx.Call("exp", (u,)))):
@@ -682,11 +958,32 @@ def cambio_orden(f, x: str, a, b, y: str, g1, g2,
     def ev(g, t):
         return float(mx.valor_real(g, {x: t}))
     muestras = [fa + (fb - fa) * k / 400 for k in range(401)]
+    cortes_x = _cortes_monotonia((g1, g2), x, a, b, fa, fb)
+    if cortes_x:
+        trace.regla("multiple.partir", f"g₁ o g₂ cambian de monotonía en {x} = " +
+                    ", ".join(mx.text(c) for c in cortes_x) + ": se parte la región ahí",
+                    why="en cada trozo las curvas son monótonas y tienen inversa")
+        puntos = [a] + cortes_x + [b]
+        todas, origs, nuevos = [], [], []
+        for lo, hi in zip(puntos, puntos[1:]):
+            fr, o, nv = cambio_orden(f, x, lo, hi, y, g1, g2, trace)
+            todas.extend(fr)
+            origs.append(o)
+            nuevos.append(nv)
+        def junta(rs):
+            num = sum(r.numerico for r in rs)
+            if all(r.exacto is not None for r in rs):
+                tot = rs[0].exacto
+                for r in rs[1:]:
+                    tot = mx.Add(tot, r.exacto)
+                return Resultado(_limpio(tot), num, all(r.coincide for r in rs))
+            return Resultado(None, num, False)
+        return todas, junta(origs), junta(nuevos)
     for g in (g1, g2):
         d = [ev(g, t2) - ev(g, t1) for t1, t2 in zip(muestras, muestras[1:])]
         if any(u > 1e-12 for u in d) and any(u < -1e-12 for u in d):
-            raise _no(f"{mx.text(g)} no es monótona en [{mx.text(a)}, {mx.text(b)}]: parte "
-                      "la región antes de cambiar el orden")
+            raise _no(f"{mx.text(g)} no es monótona en [{mx.text(a)}, {mx.text(b)}] y sus "
+                      "extremos no se localizan exactos")
     if any(ev(g1, t) > ev(g2, t) + 1e-12 for t in muestras):
         raise _error("BAD_INPUT", "g₁ ≤ g₂ no se cumple en todo el intervalo")
     # cortes en y: valores de g₁ y g₂ en los extremos
@@ -734,6 +1031,31 @@ def cambio_orden(f, x: str, a, b, y: str, g1, g2,
     trace.verificacion("multiple.dos_ordenes", f"los dos órdenes dan {num:.12g}",
                        why="Fubini: el valor no depende del orden de integración")
     return franjas, original, nuevo
+
+
+def _cortes_monotonia(gs, x, a, b, fa, fb) -> list[mx.Expr]:
+    """Ceros de g′ estrictamente dentro de (a, b) donde g cambia de sentido (exactos)."""
+    from academic_core.domain.engineering.mathlab import derive_mv as DM
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    cortes: list[tuple[float, mx.Expr]] = []
+    for g in gs:
+        if x not in mx.variables(g):
+            continue
+        dg = _limpio(DM.differentiate(g, x))
+        if x not in mx.variables(dg):
+            continue
+        try:
+            ceros = RZ.ceros(dg, x, (fa, fb))
+        except Exception:  # noqa: BLE001
+            continue
+        for r in ceros.raices:
+            if fa + 1e-9 < r.x < fb - 1e-9 and r.exacta:
+                izq = float(mx.valor_real(dg, {x: r.x - 1e-6}))
+                der = float(mx.valor_real(dg, {x: r.x + 1e-6}))
+                if izq * der < 0 and all(abs(r.x - c) > 1e-9 for c, _ in cortes):
+                    cortes.append((r.x, r.valor))
+    return [e for _, e in sorted(cortes, key=lambda c: c[0])]
 
 
 def _borde(xb: float, fa: float, fb: float, a, b, ym: float, inversas, gs, x, y):

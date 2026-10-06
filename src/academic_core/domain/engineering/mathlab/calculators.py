@@ -3352,6 +3352,151 @@ def _vectorial_calc(peticion: C.Peticion) -> C.Resultado:
                       avisos=("sin primitiva exacta en algún paso: valor numérico",))
 
 
+def _operadores_calc(peticion: C.Peticion) -> C.Resultado:
+    """ML-13: ∇ en cilíndricas y esféricas, Poisson, cambio de base, V dado y
+    cinemática intrínseca.
+
+    ``{"calculo": "gradiente"|"divergencia"|"rotacional"|"laplaciano"|"poisson"|
+    "cambio_base"|"electrostatica"|"intrinseca"|"controles", "sistema", "V", "campo",
+    "de", "a", "punto", "caja", "r", "t", "t0"}``.
+    """
+    from academic_core.domain.engineering.mathlab import operadores as OP
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., ...}; cálculos: gradiente, "
+                      "divergencia, rotacional, laplaciano, poisson, cambio_base, "
+                      "electrostatica, intrinseca, controles")
+    calculo = str(e["calculo"])
+    sistema = str(e.get("sistema", "cartesianas"))
+    trace = Trace()
+
+    def dato(k):
+        if k not in e:
+            raise C.error("BAD_INPUT", f"falta '{k}' para «{calculo}»")
+        return e[k]
+
+    def vec(v):
+        return "(" + ", ".join(mx.text(c) for c in v) + ")"
+    if calculo == "gradiente":
+        texto = "∇V = " + vec(OP.gradiente(dato("V"), sistema, trace))
+    elif calculo == "divergencia":
+        texto = "∇·F = " + mx.text(OP.divergencia(dato("campo"), sistema, trace))
+    elif calculo == "rotacional":
+        texto = "∇×F = " + vec(OP.rotacional(dato("campo"), sistema, trace))
+    elif calculo == "laplaciano":
+        texto = "∇²V = " + mx.text(OP.laplaciano(dato("V"), sistema, trace))
+    elif calculo == "poisson":
+        texto = "ρ = " + mx.text(OP.poisson(dato("V"), sistema, trace))
+    elif calculo == "cambio_base":
+        texto = "F = " + vec(OP.cambio_base(dato("campo"), str(dato("de")), str(dato("a")),
+                                            e.get("punto"), trace))
+    elif calculo == "electrostatica":
+        texto = OP.electrostatica(dato("V"), sistema, e.get("caja"), trace).texto()
+    elif calculo == "intrinseca":
+        texto = OP.intrinseca(dato("r"), str(e.get("t", "t")), e.get("t0"), trace).texto()
+    elif calculo == "controles":
+        OP.controles(dato("campo"), e.get("V"), sistema, trace)
+        texto = "∇·(∇×F) = 0" + (" y ∇×(∇V) = 0" if e.get("V") is not None else "")
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    sello = V.Seal(V.VERIFIED, "derivadas exactas; segundo camino en cartesianas o "
+                   "identidad comprobada", texto)
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
+
+def _numericos_calc(peticion: C.Peticion) -> C.Resultado:
+    """ML-4: radio de convergencia, raíces, Lambert W, sistemas, ajustes y EDO.
+
+    ``{"calculo": "radio"|"secante"|"regula_falsi"|"raices"|"lambert"|"x_exp"|"lu"|
+    "jacobi"|"gauss_seidel"|"newton_dd"|"ajuste_polinomico"|"ajuste_linealizado"|
+    "gauss_newton"|"minimax"|"edo", ...}``.
+    """
+    from academic_core.domain.engineering.mathlab import numericos as NU
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., ...}; cálculos: radio, "
+                      "secante, regula_falsi, raices, lambert, x_exp, lu, jacobi, "
+                      "gauss_seidel, newton_dd, ajuste_polinomico, ajuste_linealizado, "
+                      "gauss_newton, minimax, edo")
+    calculo = str(e["calculo"])
+    trace = Trace()
+    var = str(e.get("var", "x"))
+
+    def dato(k):
+        if k not in e:
+            raise C.error("BAD_INPUT", f"falta '{k}' para «{calculo}»")
+        return e[k]
+
+    def tabla(t):
+        for fila in t.filas[:80]:
+            trace.regla(f"{calculo}.paso", " | ".join(
+                f"{v:.12g}" if isinstance(v, float) else str(v) for v in fila))
+    exacto_ok = True
+    if calculo == "radio":
+        r = NU.radio_convergencia(str(dato("coef")), var, e.get("centro", "0"),
+                                  int(e.get("k", 1)), str(e.get("n", "n")), trace)
+        texto = r.texto()
+    elif calculo in ("secante", "regula_falsi"):
+        fn_ = NU.secante if calculo == "secante" else NU.regula_falsi
+        a, b = (float(Fraction(str(dato("x0")))), float(Fraction(str(dato("x1"))))) \
+            if calculo == "secante" else (float(Fraction(str(dato("a")))),
+                                         float(Fraction(str(dato("b")))))
+        t = fn_(dato("expr"), var, a, b)
+        tabla(t)
+        texto, exacto_ok = t.texto(), False
+    elif calculo == "raices":
+        r = NU.todas_las_raices(dato("expr"), var, dato("a"), dato("b"), trace)
+        texto = r.texto()
+        exacto_ok = all(ex is not None for ex, _, _ in r.raices)
+    elif calculo == "lambert":
+        ex, w = NU.lambert_w(dato("a"), int(e.get("rama", 0)), trace)
+        texto = f"W = {mx.text(ex)}" if ex is not None else f"W ≈ {w:.15g}"
+        exacto_ok = ex is not None
+    elif calculo == "x_exp":
+        sols = NU.resolver_x_exp(dato("a"), dato("b"), dato("c"), trace)
+        texto = "; ".join(f"x = {mx.text(xe)}" if xe is not None else f"x ≈ {x:.15g}"
+                          for xe, x in sols) or "sin solución real"
+        exacto_ok = all(xe is not None for xe, _ in sols)
+    elif calculo == "lu":
+        L, U, perm, x = NU.lu(dato("matriz"), e.get("b"), trace)
+        texto = ("L = [" + "; ".join(", ".join(map(str, f)) for f in L) + "], U = [" +
+                 "; ".join(", ".join(map(str, f)) for f in U) + f"], P = {perm}")
+        if x is not None:
+            texto += ", x = (" + ", ".join(map(str, x)) + ")"
+    elif calculo in ("jacobi", "gauss_seidel"):
+        t = NU.iterativo(dato("matriz"), dato("b"), calculo, e.get("x0"),
+                         float(e.get("tol", 1e-10)), trace=trace)
+        tabla(t)
+        texto, exacto_ok = t.texto(), False
+    elif calculo == "newton_dd":
+        texto = "P(x) = " + mx.text(NU.newton_divididas(dato("puntos"), var, trace))
+    elif calculo == "ajuste_polinomico":
+        texto = NU.ajuste_polinomico(dato("puntos"), int(dato("grado")), trace).texto()
+    elif calculo == "ajuste_linealizado":
+        texto = NU.ajuste_linealizado(dato("puntos"), str(dato("modelo")), trace).texto()
+        exacto_ok = False
+    elif calculo == "gauss_newton":
+        texto = NU.gauss_newton(dato("modelo"), list(dato("parametros")), dato("puntos"),
+                                list(dato("inicial")), var, trace=trace).texto()
+        exacto_ok = False
+    elif calculo == "minimax":
+        texto = NU.minimax_recta(dato("puntos"), trace).texto()
+    elif calculo == "edo":
+        r = NU.edo(dato("f"), e.get("t0", "0"), dato("y0"), dato("h"), int(dato("n")),
+                   str(e.get("metodo", "rk4")), e.get("exacta"), trace=trace)
+        texto = r.texto() + ("; " + "; ".join(r.notas) if r.notas else "")
+        exacto_ok = False
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    if exacto_ok:
+        sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino", texto)
+    else:
+        sello = V.Seal(V.NUMERIC_ONLY, "método numérico con su error y comprobación", texto)
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
+
 # ---------------------------------------------------------------------------
 # registration
 # ---------------------------------------------------------------------------
@@ -3365,6 +3510,8 @@ C.registrar("lineal", _lineal)
 C.registrar("multivar", _multivar)
 C.registrar("multiple", _multiple)
 C.registrar("vectorial", _vectorial_calc)
+C.registrar("operadores", _operadores_calc)
+C.registrar("numericos", _numericos_calc)
 C.registrar("algebra", _algebra)
 C.registrar("espacios", _espacios)
 C.registrar("gamma", _gamma_calc)

@@ -106,8 +106,20 @@ def _a_exp(p: P.Polynomial, orden: list[str]) -> Poli:
     return {e: c for e, c in out.items() if c}
 
 
+def lex(e: Exp):
+    return e
+
+
+def grevlex(e: Exp):
+    """Grado total y, a igualdad, el menor exponente de la última variable gana."""
+    return (sum(e), tuple(-x for x in reversed(e)))
+
+
+_ORDEN = [lex]          # orden activo (lo fija ``grobner``; lex por defecto)
+
+
 def _lider(p: Poli) -> Exp:
-    return max(p)
+    return max(p, key=_ORDEN[0])
 
 
 def _monico(p: Poli) -> Poli:
@@ -134,15 +146,16 @@ def _resta_mult(p: Poli, c: Fraction, t: Exp, g: Poli) -> Poli:
 
 
 def _reduce(p: Poli, G: list[Poli]) -> Poli:
-    """Forma normal completa de p módulo G."""
+    """Forma normal completa de p módulo G (en el orden activo)."""
     resto: Poli = {}
     p = dict(p)
+    lideres = [(_lider(g), g) for g in G]
     while p:
         lp = _lider(p)
-        for g in G:
-            t = _divide_mono(lp, _lider(g))
+        for lg, g in lideres:
+            t = _divide_mono(lp, lg)
             if t is not None:
-                p = _resta_mult(p, p[lp] / g[_lider(g)], t, g)
+                p = _resta_mult(p, p[lp] / g[lg], t, g)
                 break
         else:
             resto[lp] = p.pop(lp)
@@ -151,41 +164,90 @@ def _reduce(p: Poli, G: list[Poli]) -> Poli:
     return resto
 
 
+def _mcm(a: Exp, b: Exp) -> Exp:
+    return tuple(max(x, y) for x, y in zip(a, b))
+
+
 def _spoli(f: Poli, g: Poli) -> Poli:
     lf, lg = _lider(f), _lider(g)
-    mcm = tuple(max(a, b) for a, b in zip(lf, lg))
-    tf = tuple(a - b for a, b in zip(mcm, lf))
-    tg = tuple(a - b for a, b in zip(mcm, lg))
+    m = _mcm(lf, lg)
+    tf = tuple(a - b for a, b in zip(m, lf))
+    tg = tuple(a - b for a, b in zip(m, lg))
     s = _resta_mult({}, -1 / f[lf], tf, f)
     return _resta_mult(s, 1 / g[lg], tg, g)
 
 
-def grobner(polis: list[Poli]) -> list[Poli]:
-    """Base de Gröbner reducida (orden lex sobre la tupla de exponentes)."""
+def grobner(polis: list[Poli], orden=lex) -> list[Poli]:
+    """Base de Gröbner reducida. Buchberger con estrategia normal (par de menor mcm
+    primero), criterio del producto y criterio de la cadena."""
+    _ORDEN[0] = orden
     G = [_monico(p) for p in polis if p]
-    pares = [(i, j) for i in range(len(G)) for j in range(i)]
+    for g in G:
+        if all(x == 0 for x in _lider(g)):
+            return [{_lider(g): Fraction(1)}]
+    hechos: set[tuple[int, int]] = set()
+    pares = {(i, j) for i in range(len(G)) for j in range(i)}
     pasos = 0
     limite = time.monotonic() + MAX_SEGUNDOS
     while pares:
         pasos += 1
         if pasos > MAX_PASOS or time.monotonic() > limite:
             raise _no("la base de Gröbner no termina en un tamaño razonable")
-        i, j = pares.pop(0)
+        i, j = min(pares, key=lambda ij: orden(_mcm(_lider(G[ij[0]]), _lider(G[ij[1]]))))
+        pares.discard((i, j))
+        hechos.add((i, j))
         li, lj = _lider(G[i]), _lider(G[j])
         if all(a == 0 or b == 0 for a, b in zip(li, lj)):
             continue                                   # criterio del producto
+        m = _mcm(li, lj)
+        if any(k not in (i, j) and _divide_mono(m, _lider(G[k])) is not None
+               and (max(i, k), min(i, k)) in hechos and (max(j, k), min(j, k)) in hechos
+               for k in range(len(G))):
+            continue                                   # criterio de la cadena
         r = _reduce(_spoli(G[i], G[j]), G)
         if r:
             G.append(_monico(r))
             if all(x == 0 for x in _lider(r)):
                 return [G[-1]]                         # 1 ∈ ideal
-            pares.extend((len(G) - 1, k) for k in range(len(G) - 1))
-    # minimal y reducida
+            n = len(G) - 1
+            pares.update((n, k) for k in range(n))
     G = [g for k, g in enumerate(G)
          if not any(_divide_mono(_lider(g), _lider(h)) is not None and
                     (_lider(h) != _lider(g) or m < k)
                     for m, h in enumerate(G) if m != k)]
     return [_monico(_reduce(g, [h for h in G if h is not g])) or g for g in G]
+
+
+def dimension_cero(G: list[Poli], n: int) -> bool:
+    """Finitas soluciones (complejas) ⇔ cada variable tiene una potencia pura líder."""
+    puras = {k for g in G for k in range(n)
+             if (l := _lider(g))[k] > 0 and sum(l) == l[k]}
+    return len(puras) == n
+
+
+def polinomio_minimo(G: list[Poli], k: int, n: int, max_grado: int = 200) -> list[Fraction]:
+    """Polinomio de menor grado en x_k dentro del ideal (FGLM en una variable):
+    formas normales de 1, x_k, x_k², … hasta la primera dependencia lineal."""
+    uno = tuple(0 for _ in range(n))
+    xk = tuple(1 if i == k else 0 for i in range(n))
+    filas: list[tuple[Poli, list[Fraction]]] = []     # (vector reducido, combinación)
+    actual: Poli = _reduce({uno: Fraction(1)}, G)
+    for grado in range(max_grado + 1):
+        vec = dict(actual)
+        comb = [Fraction(0)] * (grado + 1)
+        comb[grado] = Fraction(1)
+        for piv, (fv, fc) in [(max(fv, key=_ORDEN[0]), (fv, fc)) for fv, fc in filas]:
+            c = vec.get(piv)
+            if c:
+                vec = _resta_mult(vec, c / fv[piv], uno, fv)
+                for t, x in enumerate(fc):
+                    comb[t] -= c / fv[piv] * x
+        if not vec:
+            return comb                                # Σ comb[t]·x_k^t ∈ ideal
+        filas.append((vec, comb))
+        actual = _reduce({tuple(a + b for a, b in zip(e, xk)): c
+                          for e, c in actual.items()}, G)
+    raise _no(f"el polinomio en una variable supera grado {max_grado}")
 
 
 @dataclass(frozen=True)
@@ -228,6 +290,40 @@ def raices_exactas(coefs: list[Fraction]) -> list[Valor]:
     return vals
 
 
+def factores(coefs: list[Fraction]) -> list[tuple[list[Fraction], list[Valor]]]:
+    """Agrupa las raíces reales de p ∈ ℚ[x] por factor racional: (x − r) para cada
+    racional, el cuadrático de cada par en ℚ(√r) y, para las numéricas, el resto de p.
+    Cada factor tiene coeficientes racionales (sirve para plantear m(f) = 0)."""
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    p = RZ._recorta([Fraction(c) for c in coefs])
+    vals = raices_exactas(p)
+    grupos: list[tuple[list[Fraction], list[Valor]]] = []
+    usados: set[int] = set()
+    for i, v in enumerate(vals):
+        q = v.fraccion
+        if q is not None:
+            grupos.append(([-q, Fraction(1)], [v]))
+            usados.add(i)
+    for i, j in itertools.combinations(range(len(vals)), 2):
+        if i in usados or j in usados or not (vals[i].exacto and vals[j].exacto):
+            continue
+        s_ = Fraction(vals[i].x + vals[j].x).limit_denominator(10 ** 6)
+        q_ = Fraction(vals[i].x * vals[j].x).limit_denominator(10 ** 6)
+        cuad = [q_, -s_, Fraction(1)]
+        if not RZ._divmod(p, cuad)[1]:
+            grupos.append((cuad, [vals[i], vals[j]]))
+            usados.update((i, j))
+    resto = [v for i, v in enumerate(vals) if i not in usados]
+    if resto:
+        q = p
+        for m, _ in grupos:
+            while not RZ._divmod(q, m)[1] and len(q) > 1:
+                q = RZ._divmod(q, m)[0]
+        grupos.append((q, resto))
+    return grupos
+
+
 def _valor_en(p: P.Polynomial, punto: dict[str, float]) -> tuple[float, float]:
     total, escala = 0.0, 0.0
     for m, c in p.items():
@@ -237,6 +333,30 @@ def _valor_en(p: P.Polynomial, punto: dict[str, float]) -> tuple[float, float]:
         total += t
         escala += abs(t)
     return total, escala
+
+
+def radical_monomios(G: list[Poli], n: int) -> list[Poli]:
+    """Descripción más simple del mismo conjunto: un monomio x^a·y^b se cambia por
+    x·y (mismo conjunto de ceros); x = 0 absorbe a los generadores que divide; se
+    quitan repetidos."""
+    out: list[Poli] = []
+    for g in G:
+        if len(g) == 1:
+            (e, _), = g.items()
+            g = {tuple(1 if x else 0 for x in e): Fraction(1)}
+        if g not in out:
+            out.append(g)
+    ceros = {i for g in out if len(g) == 1 for e in g if sum(e) == 1 for i, x in enumerate(e) if x}
+    final = []
+    for g in out:
+        es_cero = len(g) == 1 and sum(next(iter(g))) == 1
+        if not es_cero and any(all(e[i] > 0 for e in g) for i in ceros):
+            continue
+        final.append(g)
+    # un monomio múltiplo de otro monomio presente sobra
+    mon = [next(iter(g)) for g in final if len(g) == 1]
+    return [g for g in final if not (len(g) == 1 and any(
+        m != next(iter(g)) and _divide_mono(next(iter(g)), m) is not None for m in mon))]
 
 
 def resolver(ecuaciones: list[mx.Expr], incognitas: list[str],
@@ -259,37 +379,29 @@ def resolver(ecuaciones: list[mx.Expr], incognitas: list[str],
     from academic_core.domain.engineering.mathlab import raices as RZ
 
     candidatas: dict[str, list[Valor]] = {}
-    for v in incognitas:
-        orden = [u for u in incognitas if u != v] + [v]
-        G = grobner([_a_exp(p, orden) for p in polis])
-        if len(G) == 1 and all(x == 0 for x in _lider(G[0])):
-            trace.regla("sistema.incompatible", "1 está en el ideal (base de Gröbner {1})",
-                        why="el sistema no tiene solución ni siquiera compleja")
-            return []
-        solo_v = [g for g in G if all(x == 0 for x in _lider(g)[:-1])]
-        if not solo_v:
-            from academic_core.domain.engineering.mathlab import multiple as MI
+    n = len(incognitas)
+    G = grobner([_a_exp(p, incognitas) for p in polis], grevlex)
+    if len(G) == 1 and all(x == 0 for x in _lider(G[0])):
+        trace.regla("sistema.incompatible", "1 está en el ideal (base de Gröbner {1})",
+                    why="el sistema no tiene solución ni siquiera compleja")
+        return []
+    if not dimension_cero(G, n):
+        from academic_core.domain.engineering.mathlab import multiple as MI
 
-            def a_expr(g):
-                return MI._bonito(P.to_expr({tuple((n, e) for n, e in zip(orden, ex) if e): c
-                                             for ex, c in g.items()}))
-            # x^k = 0 ⇔ x = 0: con un monomio puro en una variable basta esa variable,
-            # y las ecuaciones que ya se anulan con ella sobran
-            ceros = {i for g in G if len(g) == 1 for ex in g
-                     if sum(1 for e in ex if e) == 1 for i, e in enumerate(ex) if e}
-            G2 = [{tuple(1 if i == j else 0 for j in range(len(orden))): Fraction(1)}
-                  for i in sorted(ceros)]
-            G2 += [g for g in G if not any(all(ex[i] > 0 for ex in g) for i in ceros)]
-            desc = "; ".join(f"{mx.text(a_expr(g))} = 0" for g in G2)
-            trace.regla("sistema.no_aislado", f"conjunto de soluciones: {desc}",
-                        why="base de Gröbner reducida: describe el mismo conjunto, y no "
-                            "tiene ninguna ecuación en una sola variable")
-            raise _no(f"las soluciones no están aisladas (hay una curva o superficie de "
-                      f"soluciones): {desc}")
-        g = solo_v[0]
-        uni = [Fraction(0)] * (_lider(g)[-1] + 1)
-        for e, c in g.items():
-            uni[e[-1]] = c
+        orden = list(incognitas)
+
+        def a_expr(g):
+            return MI._bonito(P.to_expr({tuple((nm, e) for nm, e in zip(orden, ex) if e): c
+                                         for ex, c in g.items()}))
+        desc = "; ".join(f"{mx.text(a_expr(g))} = 0" for g in radical_monomios(G, n))
+        trace.regla("sistema.no_aislado", f"conjunto de soluciones: {desc}",
+                    why="base de Gröbner reducida: describe el mismo conjunto, y alguna "
+                        "variable no tiene potencia pura entre los términos líderes")
+        raise _no(f"las soluciones no están aisladas (hay una curva o superficie de "
+                  f"soluciones): {desc}")
+    for k, v in enumerate(incognitas):
+        orden = [u for u in incognitas if u != v] + [v]
+        uni = polinomio_minimo(G, k, n)
         sin_rep = RZ._divmod(uni, RZ._mcd(uni, RZ._deriv(uni)))[0] if len(uni) > 2 else uni
         candidatas[v] = raices_exactas(sin_rep)
         from academic_core.domain.engineering.mathlab import poly as Pm
@@ -301,8 +413,9 @@ def resolver(ecuaciones: list[mx.Expr], incognitas: list[str],
                     f"eliminando {', '.join(orden[:-1]) or 'nada'}: {mx.text(poli_v)} = 0 → "
                     f"{v} ∈ {{" + ", ".join(mx.text(z.expr) if z.exacto else f"≈ {z.x:.10g}"
                                            for z in candidatas[v]) + "}",
-                    why="base de Gröbner lex: su elemento en una sola variable genera la "
-                        "proyección de todas las soluciones; raíces reales por Sturm")
+                    why="polinomio mínimo de la variable en el ideal (formas normales "
+                        "respecto de la base de Gröbner): sus raíces son las proyecciones "
+                        "de todas las soluciones; raíces reales por Sturm")
     total = math.prod(len(c) for c in candidatas.values())
     if total > MAX_CANDIDATOS:
         raise _no(f"{total} combinaciones candidatas: demasiadas")

@@ -45,8 +45,14 @@ def test_cambio_de_orden():
     franjas, _, nuevo = M.cambio_orden("1", "x", 0, 4, "y", "0", "sqrt(x)")
     assert [f.texto("x", "y") for f in franjas] == ["0 ≤ y ≤ 2, y^2 ≤ x ≤ 4"]
     assert mx.exact_value(nuevo.exacto) == Fraction(16, 3)
-    with pytest.raises(Exception, match="monótona"):
-        M.cambio_orden("1", "x", -1, 1, "y", "x^2", "2")
+    # x² no es monótona en [−1, 1]: se parte en x = 0 sola
+    franjas, orig, nuevo = M.cambio_orden("1", "x", -1, 1, "y", "x^2", "2")
+    assert len(franjas) == 4 and mx.exact_value(nuevo.exacto) == Fraction(10, 3)
+    # sen x en [0, 2π]: ramas de arcsen
+    franjas, orig, nuevo = M.cambio_orden("x", "x", 0, "2*pi", "y", "-1", "sin(x)")
+    assert abs(orig.numerico - nuevo.numerico) < 1e-9
+    _, orig, _ = M.cambio_orden("x*y", "x", 0, "pi", "y", "cos(x)", "2")
+    assert abs(_val(orig) - 7 * math.pi ** 2 / 8) < 1e-12        # x·cos²x linealizada
 
 
 def test_masa_y_centro():
