@@ -835,6 +835,63 @@ def _huffman(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, h.texto(), aproximado=None, sello=sello,
                       avisos=(aviso,))
 
+
+def _convencion(peticion: C.Peticion) -> C.Resultado:
+    """ML-12 (§5.11): a calculation under the declared convention and the opposite one.
+
+    ``{"tipo": "db", "razon": 0.01, "magnitud": "amplitud"}``; the convention is the
+    one the request declares (``convenciones``) or ``"convencion"`` in the input.
+    Types: db, valor_efectivo, desviacion_tipica, resto_division, base_logaritmos,
+    frecuencia, finanzas, chauvenet.
+    """
+    from academic_core.domain.engineering.mathlab import convenciones as CV
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "tipo" not in e:
+        raise C.error("BAD_INPUT", "se espera {'tipo': ..., ...}")
+    tipo = str(e["tipo"])
+    if tipo not in C.CONVENTIONS:
+        raise C.error("BAD_INPUT", f"tipo desconocido «{tipo}»")
+    convencion = peticion.convenciones.get(tipo) or e.get("convencion")
+    if convencion is None:
+        raise C.error("BAD_CONVENTION", f"declara la convención «{tipo}» "
+                                        f"({' | '.join(C.CONVENTIONS[tipo])})")
+    if not peticion.convenciones.get(tipo):
+        # declared in the input: it joins the request's conventions, so it is printed
+        # with the answer like any declared one (§5.11)
+        import dataclasses
+
+        peticion = dataclasses.replace(peticion, convenciones=C.ConvencionConjunto.of(
+            **dict(peticion.convenciones.valores), **{tipo: str(convencion)}))
+    trace = Trace()
+    try:
+        if tipo == "db":
+            r = CV.decibelios(float(e["razon"]), str(e.get("magnitud", "amplitud")),
+                              convencion, trace)
+        elif tipo == "valor_efectivo":
+            r = CV.valor_eficaz(float(e["valor"]), convencion, float(e.get("R", 1)), trace)
+        elif tipo == "desviacion_tipica":
+            r = CV.desviacion(e["datos"], convencion, trace)
+        elif tipo == "resto_division":
+            r = CV.resto(int(e["a"]), int(e["n"]), convencion, trace)
+        elif tipo == "base_logaritmos":
+            r = CV.logaritmo(float(e["x"]), convencion, trace)
+        elif tipo == "frecuencia":
+            r = CV.frecuencia(float(e["valor"]), convencion, trace)
+        elif tipo == "finanzas":
+            r = CV.interes(Fraction(str(e["tasa"])), int(e.get("periodos", 12)), convencion,
+                           trace)
+        elif tipo == "chauvenet":
+            r = CV.chauvenet(e["datos"], convencion, trace)
+        else:
+            raise C.error("UNSUPPORTED", f"la convención «{tipo}» no tiene cálculo propio")
+    except KeyError as falta:
+        raise C.error("BAD_INPUT", f"falta el dato {falta} para «{tipo}»") from None
+    trace.verificacion("convencion.contraria", r.reconciliacion)
+    sello = V.Seal(V.VERIFIED, "resuelto también con la convención contraria",
+                   r.reconciliacion)
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2368,6 +2425,7 @@ C.registrar("markov", _markov)
 C.registrar("cola_mm1", _cola_mm1)
 C.registrar("grafo", _grafo)
 C.registrar("huffman", _huffman)
+C.registrar("convencion", _convencion)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
