@@ -188,7 +188,133 @@ def check_equivalence(a: mx.Expr, b: mx.Expr) -> tuple[bool, str, str]:
             return True, "forma normal racional", (
                 f"idénticas como funciones racionales de {var}"
             )
+    if _simplifica_a_cero(mx.Sub(a, b)):
+        return True, "simplificación exacta de la diferencia", (
+            "a − b se reduce a 0 con identidades exactas (Pitágoras, ángulo doble, "
+            "logaritmos, cancelación racional sobre átomos)")
     return False, "", "no hay forma normal común"
+
+
+def _simplifica_a_cero(e: mx.Expr) -> bool:
+    """Ruta exacta 4: la diferencia simplificada es literalmente 0. Las reglas son
+    identidades (no evaluaciones), así que un «sí» aquí es una prueba."""
+    try:
+        from academic_core.domain.engineering.mathlab import multiple as MI
+
+        r = MI._limpio(_abs_signo(e))
+        if mx.exact_value(r) == 0 and not mx.variables(r):
+            return True
+        # sin la simplificación trigonométrica (que vuelve a escribir tan): todo en
+        # sen y cos, forma N/D sobre átomos normalizados y Pitágoras en N
+        b = MI._canon_profundo(MI._raiz_cte(MI._logexp(_a_seno_coseno(_pares_abs(_abs_signo(e))))))
+        q = MI._racional(MI._canon(b))
+        if q is None:
+            return False
+        if mx.exact_value(q) == 0 and not mx.variables(q):
+            return True
+        n = q.left if isinstance(q, mx.Div) else q
+        n = MI._pitagoras(MI._canon(n))
+        n = MI._canon(n)
+        return mx.exact_value(n) == 0 and not mx.variables(n)
+    except Exception:  # noqa: BLE001 - sin simplificación no hay prueba
+        return False
+
+
+def _a_seno_coseno(e: mx.Expr) -> mx.Expr:
+    """tan, cot, sec y csc escritas con sen y cos (solo para decidir si algo es 0)."""
+    if isinstance(e, mx.Call) and len(e.args) == 1:
+        u = _a_seno_coseno(e.args[0])
+        s_, c_ = mx.Call("sin", (u,)), mx.Call("cos", (u,))
+        uno = mx.Num(1)
+        tabla = {"tan": mx.Div(s_, c_), "cot": mx.Div(c_, s_), "sec": mx.Div(uno, c_),
+                 "csc": mx.Div(uno, s_)}
+        return tabla.get(e.name, mx.Call(e.name, (u,)))
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_a_seno_coseno(e.left), _a_seno_coseno(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_a_seno_coseno(e.arg))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_a_seno_coseno(e.base), e.exponent)
+    if isinstance(e, mx.Root):
+        return mx.Root(e.degree, _a_seno_coseno(e.radicand))
+    return e
+
+
+def _pares_abs(e: mx.Expr) -> mx.Expr:
+    """En cada cadena de productos y cocientes, cada pareja |u|·|u| (o |u|/|u|) se
+    sustituye por u² (o se cancela): son identidades."""
+    from academic_core.domain.engineering.mathlab import limite as LM
+
+    if isinstance(e, (mx.Add, mx.Sub)):
+        return type(e)(_pares_abs(e.left), _pares_abs(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_pares_abs(e.arg))
+    if isinstance(e, (mx.Mul, mx.Div)):
+        nums, dens = LM._factores(e)
+        nums = [_pares_abs(f) for f in nums]
+        dens = [_pares_abs(f) for f in dens]
+
+        def es_abs(f):
+            return isinstance(f, mx.Call) and f.name == "abs"
+        for lista in (nums, dens):
+            vistos: dict[str, int] = {}
+            i = 0
+            while i < len(lista):
+                f = lista[i]
+                if es_abs(f):
+                    t = mx.text(f)
+                    if t in vistos:
+                        j = vistos.pop(t)
+                        lista[j] = mx.Pow(f.args[0], mx.Num(2))
+                        lista.pop(i)
+                        continue
+                    vistos[t] = i
+                i += 1
+        # |u| arriba y abajo se cancelan
+        for f in list(nums):
+            if es_abs(f):
+                for g in dens:
+                    if mx.text(g) == mx.text(f):
+                        nums.remove(f)
+                        dens.remove(g)
+                        break
+        return LM._reconstruye(nums, dens)
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_pares_abs(a) for a in e.args))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_pares_abs(e.base), e.exponent)
+    return e
+
+
+def _abs_signo(e: mx.Expr) -> mx.Expr:
+    """sign(u)/abs(u) = 1/u y sign(u)·abs(u) = u (identidades donde u ≠ 0)."""
+    if isinstance(e, mx.Div) and isinstance(e.left, mx.Call) and e.left.name == "sign" \
+            and isinstance(e.right, mx.Call) and e.right.name == "abs" \
+            and e.left.args == e.right.args:
+        return mx.Div(mx.Num(1), e.left.args[0])
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        a, b = _abs_signo(e.left), _abs_signo(e.right)
+        if isinstance(e, mx.Mul) and isinstance(a, mx.Call) and isinstance(b, mx.Call) \
+                and a.name == b.name == "abs" and a.args == b.args:
+            return mx.Pow(a.args[0], mx.Num(2))            # |u|·|u| = u²
+        if isinstance(e, mx.Mul):
+            for x, y in ((a, b), (b, a)):
+                if isinstance(x, mx.Call) and x.name == "sign" and isinstance(y, mx.Call) \
+                        and y.name == "abs" and x.args == y.args:
+                    return x.args[0]
+        return type(e)(a, b)
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_abs_signo(e.arg))
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_abs_signo(x) for x in e.args))
+    if isinstance(e, mx.Pow):
+        k = mx.exact_integer(e.exponent)
+        if isinstance(e.base, mx.Call) and e.base.name == "abs" and k is not None and k % 2 == 0:
+            return mx.Pow(_abs_signo(e.base.args[0]), e.exponent)   # |u|^(2k) = u^(2k)
+        return mx.Pow(_abs_signo(e.base), e.exponent)
+    if isinstance(e, mx.Root):
+        return mx.Root(e.degree, _abs_signo(e.radicand))
+    return e
 
 
 def _poly_detail(p: P.Polynomial) -> str:

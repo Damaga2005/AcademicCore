@@ -1160,10 +1160,152 @@ def _tipo(e: mx.Expr, var: str, punto: str, lado: int) -> str:
     return ""
 
 
+def _ln_desarrolla(e: mx.Expr) -> mx.Expr:
+    if isinstance(e, mx.Mul):
+        return mx.Add(_ln_desarrolla(e.left), _ln_desarrolla(e.right))
+    if isinstance(e, mx.Div):
+        return mx.Sub(_ln_desarrolla(e.left), _ln_desarrolla(e.right))
+    if isinstance(e, mx.Pow):
+        if e.base == mx.Const("e"):
+            return e.exponent
+        return mx.Mul(e.exponent, _ln_desarrolla(e.base))
+    if isinstance(e, mx.Root):
+        return mx.Div(_ln_desarrolla(e.radicand), mx.Num(Fraction(e.degree)))
+    if isinstance(e, mx.Call) and e.name == "exp":
+        return e.args[0]
+    if e == mx.Const("e"):
+        return mx.Num(Fraction(1))
+    return mx.Call("ln", (e,))
+
+
+def _exp_separa(arg: mx.Expr, var: str) -> mx.Expr:
+    """e^(Σ) = Π: q·ln u (q racional) → u^q y las constantes salen como e^c."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    factores, resto = [], []
+
+    def terminos(t, sg):
+        if isinstance(t, mx.Add):
+            terminos(t.left, sg)
+            terminos(t.right, sg)
+        elif isinstance(t, mx.Sub):
+            terminos(t.left, sg)
+            terminos(t.right, -sg)
+        elif isinstance(t, mx.Neg):
+            terminos(t.arg, -sg)
+        else:
+            q, u = _coef_ln(t)
+            if u is not None:
+                factores.append(mx.Pow(u, mx.Num(q * sg)))
+            elif var not in mx.variables(t):
+                factores.append(mx.Call("exp", (t if sg > 0 else mx.Neg(t),)))
+            else:
+                resto.append(t if sg > 0 else mx.Neg(t))
+    terminos(arg, 1)
+    out = None
+    for f in factores:
+        out = f if out is None else mx.Mul(out, f)
+    if resto:
+        r = resto[0]
+        for t in resto[1:]:
+            r = mx.Add(r, t)
+        ex = mx.Call("exp", (r,))
+        out = ex if out is None else mx.Mul(out, ex)
+    return MI._limpio(out) if out is not None else mx.Num(Fraction(1))
+
+
+def _separa_cociente(q: mx.Expr) -> mx.Expr:
+    """N/D con D monomio: Σ (términos de N)/D, para que cada sumando del exponente se
+    simplifique solo (x·ln x/x = ln x)."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    if not isinstance(q, mx.Div):
+        return q
+    try:
+        N, D = P.as_poly(q.left), P.as_poly(q.right)
+    except Exception:  # noqa: BLE001
+        return q
+    if len(D) != 1:
+        return q
+    (md, cd), = D.items()
+    out = None
+    for m, c in N.items():
+        nm = P.mono_div(m, md)
+        if nm is not None:
+            t = P.to_expr({nm: c / cd})
+        else:
+            t = mx.Div(P.to_expr({m: c}), P.to_expr(D))
+        out = t if out is None else mx.Add(out, t)
+    return out if out is not None else q
+
+
+def _coef_ln(t):
+    if isinstance(t, mx.Call) and t.name == "ln":
+        return Fraction(1), t.args[0]
+    if isinstance(t, mx.Mul):
+        for a, b in ((t.left, t.right), (t.right, t.left)):
+            q = mx.exact_value(a)
+            if q is not None and not mx.variables(a) and isinstance(b, mx.Call) and b.name == "ln":
+                return Fraction(q), b.args[0]
+    return None, None
+
+
+def _potencias_variables(e: mx.Expr, var: str) -> mx.Expr:
+    """Cada f^g con f y g dependientes de la variable pasa a e^(g·ln f) desarrollado."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    cambio = [False]
+
+    def rec(n):
+        if isinstance(n, mx.Pow) and var in mx.variables(n.exponent) and \
+                var in mx.variables(n.base):
+            cambio[0] = True
+            g = MI._canon(mx.Mul(rec(n.exponent), _ln_desarrolla(rec(n.base))))
+            gr = MI._racional(g)
+            if gr is not None:
+                g = _separa_cociente(gr)
+            return _exp_separa(g, var)
+        if isinstance(n, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+            return type(n)(rec(n.left), rec(n.right))
+        if isinstance(n, mx.Neg):
+            return mx.Neg(rec(n.arg))
+        if isinstance(n, mx.Pow):
+            return mx.Pow(rec(n.base), rec(n.exponent))
+        if isinstance(n, mx.Root):
+            return mx.Root(n.degree, rec(n.radicand))
+        if isinstance(n, mx.Call):
+            return mx.Call(n.name, tuple(rec(a) for a in n.args))
+        return n
+    try:
+        out = rec(e)
+    except Exception:  # noqa: BLE001
+        return e
+    return out if cambio[0] else e
+
+
 def limite(expresion: mx.Expr, var: str, punto: str, lado: str = "",
            trace: Trace | None = None) -> Limite:
     """``lado`` = «+», «-» or «» (both sides when the point is finite)."""
     trace = trace if trace is not None else Trace()
+    nueva = _potencias_variables(expresion, var)
+    if nueva is not expresion:
+        try:
+            t2 = Trace()
+            r = _limite(nueva, var, punto, lado, t2)
+            tipo0 = _tipo(expresion, var, punto, 1 if lado != "-" else -1)
+            trace.regla("limite.exp_ln", f"f^g = e^(g·ln f): {mx.text(nueva)}",
+                        why="base y exponente variables: el exponente g·ln f se desarrolla "
+                            "exacto (ln de productos y potencias) antes de buscar órdenes")
+            for paso in t2:
+                trace.steps.append(paso)
+            return Limite(r.valor, r.expr, r.laterales, tipo0 or r.indeterminacion)
+        except (NoSe, UnsupportedError):
+            pass
+    return _limite(expresion, var, punto, lado, trace)
+
+
+def _limite(expresion: mx.Expr, var: str, punto: str, lado: str, trace: Trace) -> Limite:
     infinito = punto.strip().lstrip("+-") in ("oo", "inf", "∞")
     lados = [1] if infinito else ([1] if lado == "+" else [-1] if lado == "-" else [1, -1])
     tipo = _tipo(expresion, var, punto, lados[0])

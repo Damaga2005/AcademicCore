@@ -40,7 +40,7 @@ def test_coordenadas_con_jacobiano():
 def test_cambio_de_orden():
     # ∫₀¹∫ₓ¹ sin(y²) dy dx no tiene primitiva en y; en el otro orden sí
     franjas, orig, nuevo = M.cambio_orden("sin(y^2)", "x", 0, 1, "y", "x", 1)
-    assert orig.exacto is None and nuevo.exacto is not None
+    assert nuevo.exacto is not None            # (el orden original sale ahora con Fresnel)
     assert abs(_val(nuevo) - (1 - math.cos(1)) / 2) < 1e-12
     franjas, _, nuevo = M.cambio_orden("1", "x", 0, 4, "y", "0", "sqrt(x)")
     assert [f.texto("x", "y") for f in franjas] == ["0 ≤ y ≤ 2, y^2 ≤ x ≤ 4"]
@@ -66,8 +66,10 @@ def test_rechazos():
         M.iterada("1", [["x", 0, 1], ["y", 0, "x"]])
     with pytest.raises(Exception, match="sin integrar"):
         M.iterada("a*x", [["x", 0, 1]])
-    r = M.iterada("exp(x^2)", [["x", 0, 1]])           # sin primitiva elemental
-    assert r.exacto is None and abs(r.numerico - 1.4626517459071817) < 1e-10
+    r = M.iterada("exp(x^3)", [["x", 0, 1]])           # sin forma cerrada
+    assert r.exacto is None and abs(r.numerico - 1.3419044179774198) < 1e-10
+    r = M.iterada("exp(x^2)", [["x", 0, 1]])           # no elemental: con erfi
+    assert "erfi" in mx.text(r.exacto) and abs(r.numerico - 1.4626517459071817) < 1e-10
 
 
 def test_calculadora_multiple():
@@ -81,7 +83,7 @@ def test_calculadora_multiple():
                                              "x": "x", "a": 0, "b": 1, "y": "y",
                                              "g1": "x", "g2": "1"}))
     assert r.sello.verdict == "verificado" and "cos(1)" in r.exacto
-    r = ML.calcular(ML.Peticion("multiple", {"calculo": "iterada", "expr": "exp(x^2)",
+    r = ML.calcular(ML.Peticion("multiple", {"calculo": "iterada", "expr": "exp(x^3)",
                                              "limites": [["x", 0, 1]]}))
     assert r.sello.verdict == "solo_numerico"
 

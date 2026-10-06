@@ -72,22 +72,22 @@ CONSTANTS = ("pi", "e", "i")
 _FUNCTIONS: dict[str, tuple[tuple[str, ...], int | None]] = {
     "sin": (("sin", "sen"), 1),
     "cos": (("cos",), 1),
-    "tan": (("tan",), 1),
-    "cot": (("cot",), 1),
+    "tan": (("tan", "tg"), 1),
+    "cot": (("cot", "cotg", "ctg", "cotan"), 1),
     "sec": (("sec",), 1),
-    "csc": (("csc",), 1),
+    "csc": (("csc", "cosec"), 1),
     "asin": (("asin", "arcsen", "arcsin"), 1),
-    "acos": (("acos", "arccos", "arccos"), 1),
-    "atan": (("atan", "arctan", "arctan"), 1),
+    "acos": (("acos", "arccos", "arcos"), 1),
+    "atan": (("atan", "arctan", "arctg"), 1),
     "sinh": (("sinh", "senh"), 1),
     "cosh": (("cosh",), 1),
-    "tanh": (("tanh", "tanh"), 1),
+    "tanh": (("tanh", "tgh"), 1),
     "coth": (("coth",), 1),
     "sech": (("sech",), 1),
     "csch": (("csch",), 1),
-    "asinh": (("asinh", "arcsenh", "arsinh"), 1),
-    "acosh": (("acosh", "arccosh", "arccosh"), 1),
-    "atanh": (("atanh", "arctanh", "arctanh"), 1),
+    "asinh": (("asinh", "arcsenh", "arsinh", "argsenh", "argsinh"), 1),
+    "acosh": (("acosh", "arccosh", "argcosh"), 1),
+    "atanh": (("atanh", "arctanh", "arctgh", "argtanh"), 1),
     "exp": (("exp",), 1),
     "ln": (("ln",), 1),
     "log10": (("log10",), 1),
@@ -96,6 +96,17 @@ _FUNCTIONS: dict[str, tuple[tuple[str, ...], int | None]] = {
     "sign": (("sign", "signo"), 1),
     "floor": (("floor", "parte_entera"), 1),
     "ceil": (("ceil", "techo"), 1),
+    # funciones especiales: forma cerrada de primitivas no elementales y de
+    # ecuaciones como x·e^x = a (W de Lambert, ramas 0 y −1)
+    "W": (("W", "lambertw", "LambertW"), 1),
+    "Wm1": (("Wm1", "lambertwm1"), 1),
+    "erf": (("erf",), 1),
+    "erfi": (("erfi",), 1),
+    "Si": (("Si",), 1),
+    "Ci": (("Ci",), 1),
+    "Ei": (("Ei",), 1),
+    "FresnelS": (("FresnelS", "fresnels"), 1),
+    "FresnelC": (("FresnelC", "fresnelc"), 1),
 }
 
 #: two-argument root written ``raiz(x, n)`` / ``root(x, n)`` -> n-th root of x
@@ -406,8 +417,6 @@ class _Parser:
             elif tok.kind == "name":
                 # a reserved word that is not being called is pi, e or i; either
                 # way it is a factor, so the product continues
-                if tok.value in _SPELLING_TO_NAME and not self._is_call_ahead():
-                    return left
                 right = self.unary(depth + 1)
             else:
                 return left
@@ -469,6 +478,11 @@ class _Parser:
         return producto if producto is not None else Sym(name)
 
     def _args(self, tok: _Token, depth: int) -> list[Expr]:
+        if not self.at_op("("):
+            # «sen x», «ln x», «sen x^2», «2 sen x»: el argumento es la potencia que sigue
+            if self.peek() is None:
+                raise invalid("PARSE_ERROR", f"falta el argumento de «{tok.value}»")
+            return [self.power(depth + 1)]
         self.expect_op("(", f"después de «{tok.value}»")
         outer, self.in_args = self.in_args, True
         try:
@@ -515,6 +529,10 @@ class _Parser:
             return Root(degree, args[0])
         if name == "sqrt":
             return Root(2, args[0])
+        if name == "log" and len(args) == 1:
+            # log(x) con un argumento: logaritmo neperiano (convenio de los textos de
+            # cálculo universitarios en castellano); log10(x) y log(b, x) siguen igual
+            return Call("ln", tuple(args))
         arity = _FUNCTIONS[name][1]
         if arity is not None and len(args) != arity:
             raise invalid("PARSE_ERROR", f"«{name}» necesita {arity} argumento(s), recibió {len(args)}")
@@ -594,6 +612,72 @@ def _make_pow(base: Expr, exponent: Expr) -> Expr:
 STATEMENTS = ("integral", "int", "limite", "limit", "suma", "sum", "derivada", "diff")
 
 
+_SUPER = {"⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6",
+          "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-"}
+_SIMBOLOS = {"π": "pi", "·": "*", "⋅": "*", "×": "*", "÷": "/", "−": "-", "–": "-",
+             "∞": "oo", "\u00a0": " ", "ℯ": "e"}
+
+
+def normaliza_entrada(texto: str) -> str:
+    """La escritura de la pizarra a la del parser: π, ·, ×, ÷, el menos tipográfico,
+    superíndices (x² → x^(2)), raíz (√x, √(…)), barras de valor absoluto |…| y
+    llaves/corchetes como paréntesis."""
+    for a, b in _SIMBOLOS.items():
+        texto = texto.replace(a, b)
+    texto = texto.replace("[", "(").replace("]", ")").replace("{", "(").replace("}", ")")
+    # superíndices
+    out, i = [], 0
+    while i < len(texto):
+        if texto[i] in _SUPER:
+            j = i
+            while j < len(texto) and texto[j] in _SUPER:
+                j += 1
+            out.append("^(" + "".join(_SUPER[c] for c in texto[i:j]) + ")")
+            i = j
+        else:
+            out.append(texto[i])
+            i += 1
+    texto = "".join(out)
+    # raíces: ∛ y ∜ también
+    for simbolo, indice in (("√", None), ("∛", 3), ("∜", 4)):
+        while simbolo in texto:
+            k = texto.index(simbolo)
+            resto = texto[k + 1:].lstrip()
+            if resto.startswith("("):
+                nivel, j = 0, 0
+                for j, c in enumerate(resto):
+                    nivel += {"(": 1, ")": -1}.get(c, 0)
+                    if nivel == 0:
+                        break
+                arg, cola = resto[1:j], resto[j + 1:]
+            else:
+                m = re.match(r"[A-Za-z0-9_.]+", resto)
+                if not m:
+                    raise invalid("PARSE_ERROR", f"«{simbolo}» sin radicando")
+                arg, cola = m.group(0), resto[m.end():]
+            pref = f"sqrt({arg})" if indice is None else f"raiz({arg}, {indice})"
+            texto = texto[:k] + pref + cola
+    # |…| → abs(…): una barra abre si lo anterior es inicio, operador o «(»
+    if "|" in texto:
+        out, pila = [], 0
+        for k, c in enumerate(texto):
+            if c != "|":
+                out.append(c)
+                continue
+            previo = "".join(out).rstrip()
+            abre = not previo or previo[-1] in "+-*/^(,=" or pila == 0
+            if abre:
+                out.append("abs(")
+                pila += 1
+            else:
+                out.append(")")
+                pila -= 1
+        if pila != 0:
+            raise invalid("PARSE_ERROR", "barras de valor absoluto sin cerrar")
+        texto = "".join(out)
+    return texto
+
+
 def parse(source: str, *, reserved: frozenset[str] | None = None,
           nombres: frozenset[str] | set[str] | None = None) -> Expr:
     """Parse a formula typed by the student into an exact multivariate ``Expr``.
@@ -608,6 +692,7 @@ def parse(source: str, *, reserved: frozenset[str] | None = None,
     if len(source) > MAX_SOURCE:
         raise invalid("EXPRESSION_LIMIT", f"expresión de más de {MAX_SOURCE} caracteres")
     keep = frozenset(reserved) if reserved else frozenset()
+    source = normaliza_entrada(source)
     parser = _Parser(_tokenize(source), _RESERVED - keep, frozenset(nombres or ()))
     node = parser.expression(0)
     if parser.pos != len(parser.tokens):
@@ -907,7 +992,115 @@ def _reciproca(z: complex) -> complex:
     return 1 / z
 
 
+def _real(z: complex) -> float:
+    if abs(z.imag) > 1e-12 * max(1.0, abs(z.real)):
+        raise ValueError("función especial con argumento complejo")
+    return z.real
+
+
+def _lambert(a: float, rama: int) -> float:
+    lim = -1 / math.e
+    if a < lim - 1e-15 or (rama == -1 and not lim - 1e-15 <= a < 0):
+        raise ValueError("W fuera de su dominio real")
+    if abs(a - lim) < 1e-15:
+        return -1.0
+    if rama == 0:
+        w = math.log1p(a) if a > -0.3 else -1 + math.sqrt(2 * (1 + math.e * a))
+    else:
+        w = -1 - math.sqrt(2 * (1 + math.e * a)) if a < -0.25 else \
+            math.log(-a) - math.log(-math.log(-a))
+    for _ in range(100):
+        ew = math.exp(w)
+        f = w * ew - a
+        d = ew * (w + 1)
+        if d == 0:
+            break
+        nuevo = w - f / (d - (w + 2) * f / (2 * w + 2))
+        if abs(nuevo - w) < 1e-16 * max(1.0, abs(w)):
+            return nuevo
+        w = nuevo
+    return w
+
+
+def _integral_0(f, x: float, n: int = 2000) -> float:
+    """∫₀ˣ f por Simpson compuesto (para las especiales con |x| grande)."""
+    if x == 0:
+        return 0.0
+    h = x / n
+    s = f(0.0) + f(x)
+    for k in range(1, n):
+        s += (4 if k % 2 else 2) * f(k * h)
+    return s * h / 3
+
+
+def _serie(term, x: float, maximo: int = 400) -> float:
+    total, n = 0.0, 0
+    while n < maximo:
+        t = term(n, x)
+        total += t
+        if abs(t) < 1e-17 * max(1.0, abs(total)) and n > 3:
+            break
+        n += 1
+    return total
+
+
+_EULER_GAMMA = 0.5772156649015329
+
+
+def _erfi(x: float) -> float:
+    if abs(x) > 6:
+        return _integral_0(lambda t: 2 / math.sqrt(math.pi) * math.exp(t * t), x, 20000)
+    return 2 / math.sqrt(math.pi) * _serie(
+        lambda n, y: y ** (2 * n + 1) / (math.factorial(n) * (2 * n + 1)), x)
+
+
+def _si(x: float) -> float:
+    if abs(x) > 12:
+        return _integral_0(lambda t: math.sin(t) / t if t else 1.0, x, max(2000, int(abs(x) * 60)))
+    return _serie(lambda n, y: (-1) ** n * y ** (2 * n + 1) /
+                  ((2 * n + 1) * math.factorial(2 * n + 1)), x)
+
+
+def _ci(x: float) -> float:
+    if x <= 0:
+        raise ValueError("Ci solo para x > 0")
+    if x > 12:
+        return _EULER_GAMMA + math.log(x) + _integral_0(
+            lambda t: (math.cos(t) - 1) / t if t else 0.0, x, max(2000, int(x * 60)))
+    return _EULER_GAMMA + math.log(x) + _serie(
+        lambda n, y: 0.0 if n == 0 else (-1) ** n * y ** (2 * n) / (2 * n * math.factorial(2 * n)), x)
+
+
+def _ei(x: float) -> float:
+    if x == 0:
+        raise ValueError("Ei(0) no existe")
+    if abs(x) > 40:
+        raise ValueError("Ei fuera de rango numérico")
+    return _EULER_GAMMA + math.log(abs(x)) + _serie(
+        lambda n, y: 0.0 if n == 0 else y ** n / (n * math.factorial(n)), x)
+
+
+def _fresnel(x: float, seno: bool) -> float:
+    if abs(x) > 5:
+        return _integral_0(lambda t: math.sin(t * t) if seno else math.cos(t * t), x,
+                           max(4000, int(x * x * 80)))
+    if seno:
+        return _serie(lambda n, y: (-1) ** n * y ** (4 * n + 3) /
+                      (math.factorial(2 * n + 1) * (4 * n + 3)), x)
+    return _serie(lambda n, y: (-1) ** n * y ** (4 * n + 1) /
+                  (math.factorial(2 * n) * (4 * n + 1)), x)
+
+
 _FN_NUMERIC = {
+    "W": lambda z: complex(_lambert(_real(z), 0)),
+    "Wm1": lambda z: complex(_lambert(_real(z), -1)),
+    "erf": lambda z: complex(math.erf(_real(z))),
+    "erfi": lambda z: complex(_erfi(_real(z))),
+    "Si": lambda z: complex(_si(_real(z))),
+    "Ci": lambda z: complex(_ci(_real(z))),
+    "Ei": lambda z: complex(_ei(_real(z))),
+    "FresnelS": lambda z: complex(_fresnel(_real(z), True)),
+    "FresnelC": lambda z: complex(_fresnel(_real(z), False)),
     "sin": cmath.sin, "cos": cmath.cos, "tan": cmath.tan,
     # cot, sec and csc are reciprocals, and the trig engine produces them: a
     # verification that could not evaluate them would silently check nothing.

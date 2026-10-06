@@ -1195,6 +1195,119 @@ def _convencion(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
 
 
+def _con_de_moivre(texto: str) -> tuple[mx.Expr, str]:
+    """n! → √(2πn)·(n/e)ⁿ (De Moivre) cuando los factoriales solo multiplican o dividen:
+    en un cociente o producto la equivalencia asintótica conserva el límite."""
+    from academic_core.domain.engineering.mathlab import series_numericas as SN
+
+    T = SN.leer(texto, "n")
+    var = (sorted(mx.variables(T.expr) - {f"F_{i}" for i in range(len(T.factoriales))})
+           or ["n"])[0]
+    expr = T.expr
+    for i, a in enumerate(T.factoriales):
+        nombre = f"F_{i}"
+        if not _solo_multiplicativo(expr, nombre):
+            raise C.error("UNSUPPORTED", "un factorial sumado a otra cosa: De Moivre no conserva "
+                          "el límite; agrupa los factoriales en un cociente")
+        st = mx.parse(f"sqrt(2*pi*({mx.text(a)}))*(({mx.text(a)})/e)^({mx.text(a)})")
+        expr = mx.substitute(expr, nombre, st)
+    return expr, f"De Moivre: k! ~ √(2πk)·(k/e)^k ({len(T.factoriales)} factorial(es))"
+
+
+def _ln_expande(e: mx.Expr) -> mx.Expr:
+    """ln de un producto/cociente/potencia como suma (para límites de De Moivre)."""
+    if isinstance(e, mx.Mul):
+        return mx.Add(_ln_expande(e.left), _ln_expande(e.right))
+    if isinstance(e, mx.Div):
+        return mx.Sub(_ln_expande(e.left), _ln_expande(e.right))
+    if isinstance(e, mx.Pow):
+        if e.base == mx.Const("e"):
+            return e.exponent
+        return mx.Mul(e.exponent, _ln_expande(e.base))
+    if isinstance(e, mx.Root):
+        return mx.Div(_ln_expande(e.radicand), mx.Num(Fraction(e.degree)))
+    if isinstance(e, mx.Call) and e.name == "exp":
+        return e.args[0]
+    return mx.Call("ln", (e,))
+
+
+def _limite_por_logaritmo(expr, var, punto, lado, trace):
+    """lím f = exp(lím ln f) con ln f desarrollado en suma (f > 0)."""
+    from academic_core.domain.engineering.mathlab import limite as LM
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    L = MI._limpio(_ln_expande(expr))
+    trace.regla("limite.logaritmo", f"ln f = {mx.text(L)}",
+                why="los factores de De Moivre se combinan mejor como suma de logaritmos")
+    try:
+        rl = LM.limite(L, var, punto, lado, trace)
+    except LM.NoSe as exc:
+        raise C.unsupported(f"{C.NO_EXACT}: {exc}") from None
+    v = str(rl.valor)
+    if "+∞" in v or v in ("oo", "+oo"):
+        return LM.Limite("+∞", None, (), "")
+    if "−∞" in v or "-oo" in v or "-∞" in v:
+        return LM.Limite("0", mx.Num(Fraction(0)), (), "")
+    val = MI._limpio(mx.Call("exp", (rl.expr,)))
+    return LM.Limite(mx.text(val), val, (), "")
+
+
+def _comprueba_factoriales(texto, var, r) -> tuple[bool, str]:
+    """El término original con lgamma en n = 10³, 10⁴, 10⁵ frente al límite."""
+    import math as _m
+
+    from academic_core.domain.engineering.mathlab import series_numericas as SN
+
+    T = SN.leer(texto, var)
+    vals = []
+    for n in (1000, 10000, 100000):
+        lg = 0.0
+        e = mx.substitute(T.expr, var, mx.Num(Fraction(n)))
+        signo = 1
+        for i, a in enumerate(T.factoriales):
+            av = float(mx.valor_real(mx.substitute(a, var, mx.Num(Fraction(n))), {}))
+            # el factorial entra como e^(lgamma): se sustituye por una variable y se
+            # trabaja en logaritmos
+            e = mx.substitute(e, f"F_{i}", mx.Call("exp", (mx.Sym(f"L_{i}"),)))
+            lg = lg  # noqa: PLW0127
+            vals_i = _m.lgamma(av + 1)
+            e = mx.substitute(e, f"L_{i}", mx.Num(Fraction(vals_i)))
+        try:
+            from academic_core.domain.engineering.mathlab import multiple as MI
+
+            lnv = mx.valor_real(MI._limpio(_ln_expande(e)), {})
+        except Exception:  # noqa: BLE001
+            lnv = None
+        vals.append(lnv)
+        _ = signo
+    if any(v is None for v in vals):
+        return False, "no se pudo evaluar"
+    destino = str(r.valor)
+    if "+∞" in destino:
+        ok = vals[2] > vals[1] > vals[0] and vals[2] > 5
+    elif destino == "0":
+        ok = vals[2] < vals[1] < vals[0] and vals[2] < -8   # ln → −∞, no solo decrece
+    else:
+        objetivo = _m.log(abs(float(mx.valor_real(r.expr, {}))))
+        ok = abs(vals[2] - objetivo) < abs(vals[0] - objetivo) + 1e-12 and \
+            abs(vals[2] - objetivo) < 1e-3
+    return ok, "ln|término| en n = 10³, 10⁴, 10⁵: " + ", ".join(f"{v:.6g}" for v in vals)
+
+
+def _solo_multiplicativo(e: mx.Expr, nombre: str) -> bool:
+    if nombre not in mx.variables(e):
+        return True
+    if isinstance(e, mx.Sym):
+        return True
+    if isinstance(e, (mx.Mul, mx.Div)):
+        return _solo_multiplicativo(e.left, nombre) and _solo_multiplicativo(e.right, nombre)
+    if isinstance(e, mx.Pow):
+        return nombre not in mx.variables(e.exponent) and _solo_multiplicativo(e.base, nombre)
+    if isinstance(e, mx.Neg):
+        return _solo_multiplicativo(e.arg, nombre)
+    return False
+
+
 def _calc_limite(peticion: C.Peticion) -> C.Resultado:
     """ML-2 (T3): ``{"expr": "sin(x)/x", "var": "x", "punto": "0", "lado": "+"|"-"|""}``;
     ``punto`` may be ``oo`` or ``-oo``."""
@@ -1203,10 +1316,24 @@ def _calc_limite(peticion: C.Peticion) -> C.Resultado:
     e = peticion.entrada
     if not isinstance(e, dict) or "punto" not in e:
         raise C.error("BAD_INPUT", "se espera {'expr': ..., 'punto': ..., 'lado': ...}")
-    expr = _expresion_de(e, "expr", "f")
+    texto_expr = str(e.get("expr") or e.get("f") or "")
+    moivre = None
+    if "!" in texto_expr:
+        expr, moivre = _con_de_moivre(texto_expr)
+    else:
+        expr = _expresion_de(e, "expr", "f")
     var = str(e.get("var") or (sorted(mx.variables(expr)) or ["x"])[0])
     punto, lado = str(e["punto"]).replace(" ", ""), str(e.get("lado", ""))
+    # «0+», «2-», «0^+»: el lado escrito en el punto
+    for marca, l in (("^+", "+"), ("^-", "-"), ("+", "+"), ("-", "-")):
+        if punto.endswith(marca) and punto[:-len(marca)] not in ("", "oo", "+oo", "-oo"):
+            punto, lado = punto[:-len(marca)], l
+            break
     trace = Trace()
+    if moivre:
+        trace.regla("limite.moivre", moivre,
+                    why="en productos y cocientes, sustituir por un equivalente no cambia el "
+                        "límite (lím a/b = lím a′/b′ si a ~ a′ y b ~ b′)")
     if e.get("parametro"):
         alfa = str(e["parametro"])
         if not e.get("var"):
@@ -1239,7 +1366,15 @@ def _calc_limite(peticion: C.Peticion) -> C.Resultado:
     try:
         r = LM.limite(expr, var, punto, lado, trace)
     except LM.NoSe as exc:
-        raise C.unsupported(f"{C.NO_EXACT}: {exc}") from None
+        if not moivre:
+            raise C.unsupported(f"{C.NO_EXACT}: {exc}") from None
+        r = _limite_por_logaritmo(expr, var, punto, lado, trace)
+    if moivre:
+        ok, detalle = _comprueba_factoriales(texto_expr, var, r)
+        sello = (V.Seal(V.VERIFIED, "factoriales evaluados con lgamma en n creciente", detalle)
+                 if ok else V.Seal(V.DISCREPANT, "factoriales con lgamma", detalle))
+        trace.verificacion("limite.lgamma", detalle)
+        return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
     infinito = punto.lstrip("+-") in ("oo", "inf", "∞")
     lados = [1] if infinito or lado == "+" else [-1] if lado == "-" else [1, -1]
     if r.valor.startswith("no existe"):
@@ -1441,6 +1576,9 @@ def _taylor(peticion: C.Peticion) -> C.Resultado:
         if e.get("intervalo"):
             lo, hi = e["intervalo"]
             intervalo = (_expr(str(lo)), _expr(str(hi)))
+        if x0 is None and intervalo is None:
+            texto, sello = _taylor_polinomio(f, var, a, int(e.get("orden", 3)), trace)
+            return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
         r = TL.aproximar(f, var, a, int(e.get("orden", 3)), x0, intervalo, trace)
     if x0 is not None:
         real = TL.error_real(f, var, r, x0)
@@ -1452,6 +1590,37 @@ def _taylor(peticion: C.Peticion) -> C.Resultado:
     else:
         sello = V.Seal(V.VERIFIED, "coeficientes exactos; M por Weierstrass", "")
     return _finalizar(peticion, trace, r.texto(var), aproximado=None, sello=sello)
+
+
+def _taylor_polinomio(f, var, a, n, trace):
+    """Pₙ y el resto de Lagrange en forma simbólica (sin punto donde acotarlo);
+    segundo camino: lím (f − Pₙ)/(x − a)ⁿ = 0, exacto."""
+    from academic_core.domain.engineering.mathlab import limite as LM
+    from academic_core.domain.engineering.mathlab import taylor_lagrange as TL
+
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    P = MI._limpio(TL.polinomio(f, var, a, n))
+    trace.regla("taylor.polinomio", f"P_{n}({var}) = {mx.text(P)}",
+                why="coeficientes f⁽ᵏ⁾(a)/k! exactos")
+    h = mx.Sym(var) if mx.exact_value(a) == 0 else mx.Sub(mx.Sym(var), a)
+    ht = mx.text(h) if isinstance(h, mx.Sym) else f"({mx.text(h)})"
+    resto = (f"R_{n}({var}) = f^({n + 1})(ξ)/{n + 1}!·{ht}^{n + 1}, "
+             f"ξ entre {mx.text(a)} y {var}")
+    trace.regla("taylor.resto", resto, why="forma de Lagrange del resto")
+    pa = mx.text(a)
+    try:
+        lim = LM.limite(mx.Div(mx.Sub(f, P), mx.Pow(h, mx.Num(Fraction(n)))), var, pa)
+        ok = lim.valor == "0"
+    except Exception:  # noqa: BLE001
+        ok = False
+    if ok:
+        trace.verificacion("taylor.contacto", f"lím (f − P_{n})/{mx.text(h)}^{n} = 0: contacto de "
+                           f"orden {n} comprobado", why="definición de polinomio de Taylor")
+        sello = V.Seal(V.VERIFIED, "f − Pₙ = o((x − a)ⁿ) comprobado con el límite exacto", "")
+    else:
+        sello = V.Seal(V.NUMERIC_ONLY, "coeficientes exactos sin comprobación por límite", "")
+    return f"P_{n}({var}) = {mx.text(P)}; {resto}", sello
 
 
 def _tfc(peticion: C.Peticion) -> C.Resultado:
@@ -2444,15 +2613,13 @@ def _integrar(peticion: C.Peticion) -> C.Resultado:
     if bounds[0] is None and bounds[1] is None:
         exacto, verificado = _primitiva(integrando, var, trace, peticion)
         if exacto is None:
-            # the general engine has no rule: √(quadratic) by a trigonometric or hyperbolic
-            # substitution, written and verified by differentiation
-            from academic_core.domain.engineering.mathlab import primitivas as PR
+            # el motor E0.1 no tiene regla: partes, cambio de variable, sustitución
+            # trigonométrica y funciones especiales, cada uno comprobado derivando
+            from academic_core.domain.engineering.mathlab import integracion as IN
 
             try:
-                exacto = _primitiva_por_metodo(integrando, var, "sustitucion", trace)
-                ok, detalle = PR.comprueba(exacto, integrando, var)
-                verificado = V.Seal(V.VERIFIED if ok else V.DISCREPANT,
-                                    "derivando la primitiva", detalle)
+                exacto = IN.primitiva(integrando, var, trace)
+                verificado = V.verify_by_derivative(exacto, integrando, var, D.differentiate)
             except Exception:  # noqa: BLE001 - keep the original refusal
                 exacto = None
         _objetivo_declarado(trace, "integrar")
@@ -2537,6 +2704,24 @@ def _integral_definida(integrando: mx.Expr, var: str, bounds, trace: Trace,
     rounded out of a float.
     """
     low, high = bounds
+    # camino general primero: primitiva (E0.1 ampliado: partes, cambio, especiales,
+    # |u| a trozos) + Barrow simbólico, contrastado con cuadratura independiente
+    try:
+        from academic_core.domain.engineering.mathlab import multiple as _MI
+
+        res = _MI.iterada(integrando, [[var, low, high]], trace)
+        if res.exacto is not None and res.coincide:
+            valor = mx.valor_real(res.exacto, {})
+            trace.verificacion("integral.cuadratura",
+                               f"cuadratura tanh-sinh independiente: {res.numerico:.12g}",
+                               why="segundo camino: no usa la primitiva")
+            sello = V.Seal(V.VERIFIED, "primitiva comprobada derivando y cuadratura "
+                           "tanh-sinh independiente", f"{mx.text(res.exacto)} ≈ "
+                           f"{res.numerico:.12g}")
+            return (res.exacto, complex(valor if valor is not None else res.numerico), sello,
+                    None, None)
+    except Exception:  # noqa: BLE001 - el camino de siempre sigue debajo
+        pass
     lo_exacto = mx.exact_value(low)
     hi_exacto = mx.exact_value(high)
     if lo_exacto is not None and hi_exacto is not None:
