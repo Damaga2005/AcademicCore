@@ -558,6 +558,43 @@ def _modular(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
 
 
+
+def _lineal(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: linear algebra with the field as a parameter (ℚ or GF(p)).
+
+    ``{"calculo": "rango"|"determinante"|"inversa"|"nucleo"|"sistema",
+    "matriz": [[...]], "b": [...], "cuerpo": "Q"|"GF(p)"}``.
+    """
+    from academic_core.domain.engineering.mathlab import lineal as L
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e or "matriz" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., 'matriz': ..., 'cuerpo': ...}; "
+                      "cálculos: rango, determinante, inversa, nucleo, sistema")
+    K = L.cuerpo(e.get("cuerpo"))
+    A = L.matriz(e["matriz"], K)
+    trace = Trace()
+    calculo = str(e["calculo"])
+    if calculo == "rango":
+        texto = f"rango = {L.rango(A, K, trace)}"
+    elif calculo == "determinante":
+        texto = f"det = {K.texto(L.determinante(A, K, trace))}"
+    elif calculo == "inversa":
+        texto = L.texto_matriz(L.inversa(A, K, trace), K)
+    elif calculo == "nucleo":
+        base = L.nucleo(A, K, trace)
+        texto = ("núcleo = {0}" if not base else "núcleo = ⟨" + ", ".join(
+            "(" + ", ".join(K.texto(v) for v in u) + ")" for u in base) + "⟩")
+    elif calculo == "sistema":
+        if "b" not in e:
+            raise C.error("BAD_INPUT", "falta el dato 'b' para «sistema»")
+        texto = L.resolver_sistema(A, [K.de(v) for v in e["b"]], K, trace).texto(K)
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino",
+                   "Laplace, A·A⁻¹ = I, A·v = 0 o sustitución según el cálculo")
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2083,6 +2120,7 @@ C.registrar("gradiente", _gradiente)
 C.registrar("simplificar", _simplificar)
 C.registrar("transformar", _transformar)
 C.registrar("modular", _modular)
+C.registrar("lineal", _lineal)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)

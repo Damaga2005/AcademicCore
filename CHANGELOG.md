@@ -4,6 +4,7 @@
 
 - **T-24 cumplido:** los ocho objetivos de reescritura llegan a la calculadora (`transformar`); productos a suma con argumentos plegados y potencias bajadas hasta primer grado (`sen³x = 3/4·sen x − 1/4·sen 3x`).
 - **ML-12, aritmética entera con trazas:** `enteros.py`, operación `modular`.
+- **ML-12, motor lineal con el cuerpo como parámetro:** `lineal.py`, operación `lineal`; ℚ y GF(p): rango, determinante, inversa, núcleo, sistemas, con trazas.
 - **ML-12, racionales multivariable:** `racional.py`, operación `racional`; mcd multivariable, forma normal, polos y ceros con parámetros, discusión por casos.
 
 ## 2026-10-06 — Lo que quedaba: soluciones numéricas certificadas, π en el motor, raíces exactas

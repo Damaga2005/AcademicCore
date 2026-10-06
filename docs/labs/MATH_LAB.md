@@ -379,7 +379,9 @@ Respaldo **E**: Electromagnetismo (9 exámenes revisados; el mismo problema de l
 
 **Fracciones racionales multivariable** (`mathlab/racional.py`, operación `racional`): mcd de polinomios en varias variables (contenido y parte primitiva recursivos, sucesión de pseudorrestos primitivos), forma normal en términos mínimos —`(s² − a²)/(s − a) = s + a`—, ganancia, ceros y polos en la variable elegida: grado 1 y 2 con coeficientes simbólicos (raíz exacta del discriminante cuando es un cuadrado de polinomio, `K/(s(s+a))` → polos `0` y `−a`), polos complejos conjugados, cúbicas y bicuadradas numéricas por el buscador de ecuaciones. **Discusión por casos** del discriminante con el factor positivo apartado: en `1/(LCs² + RCs + 1)` decide el signo de `C·R² − 4·L`. Comprobado contra `sympy.cancel` en 144 funciones aleatorias y contra `sympy.gcd` en 145 pares.
 
-Queda de ML-12: cuerpo como parámetro del motor lineal, distribuciones con área, contrato con otros laboratorios y plug-ins, convenciones declaradas, análisis dimensional, verificador de gradientes, simulador de eventos, árboles y grafos.
+**Motor lineal con el cuerpo como parámetro** (`mathlab/lineal.py`, operación `lineal`): Gauss-Jordan con cada operación de fila escrita, rango, determinante, inversa, núcleo y sistemas por Rouché–Frobenius sobre ℚ y GF(p) (`p` primo comprobado; GF(4) se rechaza). Segundo camino: Laplace para el determinante (n ≤ 6), `A·A⁻¹ = I`, `A·v = 0` y sustitución. Contrastado con SymPy sobre ℚ y con recuento exhaustivo del núcleo sobre GF(2), GF(3) y GF(5), sin discrepancias. Ejemplo: `[[2,1],[1,2]]` tiene det 3 en ℚ y es singular en GF(3). Aún no: ℝ (coma flotante con pivoteo), ℂ y GF(2ᵐ).
+
+Queda de ML-12: ℝ, ℂ y GF(2ᵐ) en el motor lineal, distribuciones con área, contrato con otros laboratorios y plug-ins, convenciones declaradas, análisis dimensional, verificador de gradientes, simulador de eventos, árboles y grafos.
 
 ## 5. El motor matemático
 
