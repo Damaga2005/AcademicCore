@@ -34,7 +34,8 @@ from academic_core.domain.engineering.mathlab import verify as V
 from academic_core.domain.engineering.mathlab.trace import Trace
 from academic_core.errors import ValidationError
 
-DIGITOS = "0123456789ABCDEF"
+#: digits 0-9 then A-Z: every base from 2 to 36 (it stopped at 16, F)
+DIGITOS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 MAX_BITS = 64
 MAX_CIFRAS = 64
 MAX_HOSTS = 2 ** 24
@@ -63,8 +64,8 @@ def a_base(n: object, base: int, trace: Trace | None = None) -> str:
     """Represent ``n`` in ``base`` by repeated division, one step per digit."""
     trace = trace if trace is not None else Trace()
     valor = _entero(n, "el número")
-    if not 2 <= base <= 16:
-        raise _error("BAD_BASE", f"la base debe estar entre 2 y 16, no {base}")
+    if not 2 <= base <= 36:
+        raise _error("BAD_BASE", f"la base debe estar entre 2 y 36, no {base}")
     if valor == 0:
         trace.metodo("base.cero", "el cero se escribe 0 en cualquier base",
                      why="es el único número cuyo resto en la división por la base es 0",
@@ -102,8 +103,8 @@ def de_base(texto: str, base: int, trace: Trace | None = None) -> int:
     trace = trace if trace is not None else Trace()
     if not isinstance(texto, str) or not texto.strip():
         raise _error("BAD_INPUT", "expresión vacía en base " + str(base))
-    if not 2 <= base <= 16:
-        raise _error("BAD_BASE", f"la base debe estar entre 2 y 16, no {base}")
+    if not 2 <= base <= 36:
+        raise _error("BAD_BASE", f"la base debe estar entre 2 y 36, no {base}")
     limpio = texto.strip().upper()
     signo = 1
     if limpio[:1] == "-":

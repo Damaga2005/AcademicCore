@@ -691,3 +691,13 @@ def test_la_lectura_del_polinomio_explica_la_representacion():
     PO.desde_texto("2x^2+x", "x", traza)
     paso = [s for s in traza.steps if s.rule == "polinomio.lectura"][0]
     assert "coeficientes" in paso.why
+
+
+def test_las_bases_llegan_a_36():
+    """0-9 y A-Z: de 2 a 36 (antes se paraba en 16), contrastado con int()."""
+    from academic_core.domain.engineering.mathlab import bases as B
+
+    for base in (17, 20, 32, 36):
+        for n in (0, 35, 12345678, -999):
+            texto = B.a_base(n, base)
+            assert int(texto, base) == n and B.de_base(texto, base) == n
