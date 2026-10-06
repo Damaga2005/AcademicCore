@@ -276,7 +276,9 @@ class Peticion:
 # ---------------------------------------------------------------------------
 
 _operaciones: dict[str, Callable[[Peticion], Resultado]] = {}
-_verificadores: dict[str, Callable[[Resultado], tuple[bool, str]]] = {}
+_verificadores: dict[str, Callable[[Resultado], tuple[bool, str] | None]] = {}
+#: the operations each plug-in checks (None = every operation)
+_ambito: dict[str, frozenset[str] | None] = {}
 
 
 def registrar(nombre: str, funcion: Callable[[Peticion], Resultado]) -> None:
@@ -287,13 +289,21 @@ def registrar(nombre: str, funcion: Callable[[Peticion], Resultado]) -> None:
 
 
 def registrar_verificador(laboratorio: str,
-                          funcion: Callable[[Resultado], tuple[bool, str]]) -> None:
-    """Register another lab's engine as an independent second path (§5.9)."""
+                          funcion: Callable[[Resultado], tuple[bool, str] | None],
+                          operaciones: tuple[str, ...] | None = None) -> None:
+    """Register another lab's engine as an independent second path (§5.9).
+
+    ``operaciones`` limits it to the operations it knows how to check (CIRCUITS_LAB's
+    Bode checker has nothing to say about a derivative). The function may also
+    return ``None`` for «does not apply to this result».
+    """
     _verificadores[laboratorio] = funcion
+    _ambito[laboratorio] = None if operaciones is None else frozenset(operaciones)
 
 
 def withdraw_verificador(laboratorio: str) -> None:
     _verificadores.pop(laboratorio, None)
+    _ambito.pop(laboratorio, None)
 
 
 def verificadores() -> tuple[str, ...]:
@@ -324,50 +334,48 @@ def calcular(peticion: Peticion) -> Resultado:
 
 
 def _con_plug_ins(resultado: Resultado, peticion: Peticion) -> Resultado:
-    if not _verificadores:
-        if resultado.sello.verdict == V.VERIFIED:
-            return resultado  # already exact; no plug-in needed
-        return _rebaixar(resultado, "no hay ningún verificador externo registrado")
-    veredictos: list[str] = []
-    for nombre in sorted(_verificadores):
+    """Pass the result through the plug-ins that apply to its operation.
+
+    - one that disagrees makes it ``discrepa`` (the caller cannot present it);
+    - one that agrees adds its name to the seal but never upgrades the verdict: a
+      numeric-only answer confirmed by another numeric engine is still numeric;
+    - one that breaks, or says «does not apply», is a gap, recorded as a warning;
+    - with no applicable plug-in, a non-exact seal is lowered with the reason.
+    """
+    aplicables = [n for n in sorted(_verificadores)
+                  if _ambito.get(n) is None or resultado.operacion in _ambito[n]]
+    coinciden: list[str] = []
+    huecos: list[str] = []
+    for nombre in aplicables:
         try:
-            ok, detalle = _verificadores[nombre](resultado)
+            veredicto = _verificadores[nombre](resultado)
         except Exception as exc:  # a plug-in that breaks is a gap, not a crash
-            veredictos.append(f"{nombre}: no se pudo ejecutar ({exc})")
+            huecos.append(f"{nombre}: no se pudo ejecutar ({exc})")
             continue
-        veredictos.append(f"{nombre}: {'coincide' if ok else 'discrepa'} — {detalle}")
+        if veredicto is None:
+            continue
+        ok, detalle = veredicto
         if not ok:
-            return Resultado(
-                operacion=resultado.operacion,
-                exacto=resultado.exacto,
-                exacto_expr=resultado.exacto_expr,
-                aproximado=resultado.aproximado,
-                error_acotado=resultado.error_acotado,
-                cifras=resultado.cifras,
-                traza=resultado.traza,
-                sello=V.Seal(V.DISCREPANT, nombre, detalle),
-                grafica=resultado.grafica,
-                convenciones=resultado.convenciones,
-                hipotesis=resultado.hipotesis,
-                version=CONTRACT_VERSION,
-                avisos=resultado.avisos + tuple(veredictos),
-            )
-    return Resultado(
-        operacion=resultado.operacion,
-        exacto=resultado.exacto,
-        exacto_expr=resultado.exacto_expr,
-        aproximado=resultado.aproximado,
-        error_acotado=resultado.error_acotado,
-        cifras=resultado.cifras,
-        traza=resultado.traza,
-        sello=V.Seal(V.VERIFIED, resultado.sello.method or "varios motores",
-                     "; ".join(veredictos)),
-        grafica=resultado.grafica,
-        convenciones=resultado.convenciones,
-        hipotesis=resultado.hipotesis,
-        version=CONTRACT_VERSION,
-        avisos=resultado.avisos,
-    )
+            return _con(resultado, sello=V.Seal(V.DISCREPANT, nombre, detalle),
+                        avisos=resultado.avisos + tuple(huecos)
+                        + (f"{nombre}: discrepa — {detalle}",))
+        coinciden.append(f"{nombre}: coincide — {detalle}")
+    if not coinciden:
+        if resultado.sello.verdict == V.VERIFIED:
+            return _con(resultado, avisos=resultado.avisos + tuple(huecos))
+        motivo = "no hay ningún verificador externo aplicable"
+        return _con(_rebaixar(resultado, motivo), avisos=resultado.avisos + tuple(huecos))
+    sello = resultado.sello
+    return _con(resultado,
+                sello=V.Seal(sello.verdict, sello.method or "varios motores",
+                             "; ".join([sello.detail] * bool(sello.detail) + coinciden)),
+                avisos=resultado.avisos + tuple(huecos))
+
+
+def _con(resultado: Resultado, **cambios) -> Resultado:
+    import dataclasses
+
+    return dataclasses.replace(resultado, version=CONTRACT_VERSION, **cambios)
 
 
 def _rebaixar(resultado: Resultado, motivo: str) -> Resultado:
@@ -399,6 +407,38 @@ def comprobar_version(version: str) -> None:
             f"el consumidor declara la versión {version} y este motor habla la "
             f"{CONTRACT_VERSION}",
         )
+
+
+def validar_forma(resultado: Resultado) -> list[str]:
+    """The contract test of §5.9: what a consumer lab checks — the SHAPE of the
+    result (version, seal, trace kinds, serialisable trace), never its text.
+    Returns the list of problems; empty means the result honours the contract."""
+    from academic_core.domain.engineering.mathlab.trace import KINDS
+
+    problemas = []
+    if not isinstance(resultado, Resultado):
+        return ["no es un Resultado"]
+    if resultado.version.split(".")[0] != CONTRACT_VERSION.split(".")[0]:
+        problemas.append(f"versión {resultado.version}")
+    if resultado.sello.verdict not in (V.VERIFIED, V.NUMERIC_ONLY, V.DISCREPANT):
+        problemas.append(f"sello desconocido {resultado.sello.verdict!r}")
+    if resultado.exacto is None and resultado.aproximado is None:
+        problemas.append("sin valor exacto ni aproximado")
+    if resultado.aproximado is not None and resultado.sello.verdict == V.VERIFIED \
+            and resultado.exacto is None:
+        problemas.append("un valor solo aproximado no puede estar «verificado»")
+    if not len(resultado.traza):
+        problemas.append("traza vacía")
+    for paso in resultado.traza:
+        if paso.kind not in KINDS:
+            problemas.append(f"paso de tipo desconocido {paso.kind!r}")
+    texto = resultado.traza.to_text()
+    if Trace.from_text(texto).to_text() != texto:
+        problemas.append("la traza no sobrevive a serializar y leer")
+    for nombre, valor in resultado.convenciones.valores:
+        if nombre not in CONVENTIONS or valor not in CONVENTIONS[nombre]:
+            problemas.append(f"convención inválida {nombre} = {valor}")
+    return problemas
 
 
 #: what a consumer must declare

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-06 — ML-12 completo
+
+- **Motor lineal:** ℝ (pivoteo parcial, sello «solo numérico»), ℂ exacto y GF(2ᵐ) con irreducibilidad comprobada; «R» ya no se confunde con ℚ.
+- **Distribuciones con área** (`distribucion`), **análisis dimensional** (`dimensional`), **verificador de gradientes** (`comprobar_gradiente`), **simulador sembrado** (`markov`, `cola_mm1`), **árboles y grafos** (`grafo`, `huffman`), **convenciones** resueltas también con la contraria (`convencion`).
+- **Contrato:** plug-ins con ámbito y sin ascender sellos numéricos; `validar_forma` probado sobre todas las operaciones; la traza serializada escapa sus campos (versión 1.1). `ramas` con un nombre desconocido da un error de validación, no un `ValueError` suelto.
+
 ## 2026-10-06 — Trigonometría cerrada; ML-12 empieza
 
 - **T-24 cumplido:** los ocho objetivos de reescritura llegan a la calculadora (`transformar`); productos a suma con argumentos plegados y potencias bajadas hasta primer grado (`sen³x = 3/4·sen x − 1/4·sen 3x`).

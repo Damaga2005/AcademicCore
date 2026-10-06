@@ -54,7 +54,7 @@ from typing import Iterable
 from academic_core.errors import ValidationError
 
 #: contract version of §5.9; a consumer declares the one it was built against
-TRACE_VERSION = "1.0"
+TRACE_VERSION = "1.1"   # 1.1: values escaped (\\, \n, \r, \p for |, \e for =)
 
 #: detail levels, coarse to fine (§5.2)
 RESUMEN = "resumen"
@@ -75,6 +75,31 @@ CONVENCION = "convencion"  # a declared convention (§5.11)
 VERIFICACION = "verificacion"
 AVISO = "aviso"
 KINDS = (REGLA, METODO, CAMBIO, HIPOTESIS, CONVENCION, VERIFICACION, AVISO)
+
+
+_ESCAPES = (("\\", "\\\\"), ("\n", "\\n"), ("\r", "\\r"), ("|", "\\p"), ("=", "\\e"))
+
+
+def _esc(value: str) -> str:
+    """One line, no bare separators: a field survives any content (found 2026-10-06:
+    a label ending in a space, or holding a newline, did not read back)."""
+    for raw, escaped in _ESCAPES:
+        value = value.replace(raw, escaped)
+    return value
+
+
+def _unesc(value: str) -> str:
+    out, i = [], 0
+    back = {"\\": "\\", "n": "\n", "r": "\r", "p": "|", "e": "="}
+    while i < len(value):
+        ch = value[i]
+        if ch == "\\" and i + 1 < len(value) and value[i + 1] in back:
+            out.append(back[value[i + 1]])
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _invalid(reason: str, message: str) -> ValidationError:
@@ -133,13 +158,13 @@ class Step:
             ("index", str(self.index)),
             ("kind", self.kind),
             ("rule", self.rule),
-            ("label", self.label),
-            ("before", self.before),
-            ("after", self.after),
-            ("piece", self.piece),
-            ("conditions", "|".join(self.conditions)),
-            ("why", self.why),
-            ("alternatives", "|".join(f"{m}={r}" for m, r in self.alternatives)),
+            ("label", _esc(self.label)),
+            ("before", _esc(self.before)),
+            ("after", _esc(self.after)),
+            ("piece", _esc(self.piece)),
+            ("conditions", "|".join(_esc(c) for c in self.conditions)),
+            ("why", _esc(self.why)),
+            ("alternatives", "|".join(f"{_esc(m)}={_esc(r)}" for m, r in self.alternatives)),
             ("detail", self.detail),
             ("uses", ",".join(str(u) for u in self.uses)),
         ]
@@ -150,19 +175,19 @@ class Step:
         data = dict(pairs)
         try:
             alternatives = tuple(
-                (m, r) for part in data.get("alternatives", "").split("|") if part
+                (_unesc(m), _unesc(r)) for part in data.get("alternatives", "").split("|") if part
                 for m, r in [part.split("=", 1)]
             )
             return cls(
                 index=int(data.get("index", "0")),
                 kind=data.get("kind", REGLA),
                 rule=data.get("rule", ""),
-                label=data.get("label", ""),
-                before=data.get("before", ""),
-                after=data.get("after", ""),
-                piece=data.get("piece", ""),
-                conditions=tuple(c for c in data.get("conditions", "").split("|") if c),
-                why=data.get("why", ""),
+                label=_unesc(data.get("label", "")),
+                before=_unesc(data.get("before", "")),
+                after=_unesc(data.get("after", "")),
+                piece=_unesc(data.get("piece", "")),
+                conditions=tuple(_unesc(c) for c in data.get("conditions", "").split("|") if c),
+                why=_unesc(data.get("why", "")),
                 alternatives=alternatives,
                 detail=data.get("detail", PASO),
                 uses=tuple(int(u) for u in data.get("uses", "").split(",") if u),
@@ -328,7 +353,8 @@ class Trace:
                     block = []
                 continue
             key, _, value = line.partition(":")
-            block.append((key.strip(), value.strip()))
+            # exactly one space follows the colon; the value keeps its own spaces
+            block.append((key.strip(), value[1:] if value.startswith(" ") else value))
         if block:
             raise _invalid("TRACE_CORRUPT", "el último paso está incompleto")
         for i, s in enumerate(trace.steps):

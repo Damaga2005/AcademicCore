@@ -219,7 +219,10 @@ def ramas(nombre: str, var: str = "x") -> tuple[Rama, ...]:
     if nombre == "atanh(tanh)":
         return (Rama(x, D.Intervalo(None, None),
                       "la tangente hiperbólica es inyectiva: una sola rama"),)
-    raise ValueError(f"no hay ramas conocidas para «{nombre}»")
+    from academic_core.errors import ValidationError
+
+    raise ValidationError(f"BAD_INPUT: no hay ramas conocidas para «{nombre}» "
+                          "(se escriben como «asin(sin)», «acos(cos)»…)")
 
 
 def periodo_de_ramas(nombre: str) -> Fraction | None:
