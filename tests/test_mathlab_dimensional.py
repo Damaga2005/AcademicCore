@@ -54,3 +54,15 @@ def test_dimension_de_una_constante(ecuacion, incognita, dims, esperado):
 def test_falta_una_dimension():
     with pytest.raises(Exception, match="MISSING_DIMENSION"):
         _calc(ecuacion="P = V*I", dimensiones={"P": "W", "V": "V"})
+
+
+def test_nombres_de_varias_letras_no_se_parten():
+    dims = {"Vcc": "V", "Rc": "Ω", "Ic": "A", "Lb": "H", "tau": "s"}
+    assert _calc(ecuacion="Ic = Vcc/Rc", dimensiones=dims).exacto.startswith("homogénea")
+    assert _calc(ecuacion="tau = Lb/Rc", dimensiones=dims).exacto.startswith("homogénea")
+    assert _calc(ecuacion="F = G*m1*m2/r^2", incognita="G",
+                 dimensiones={"F": "N", "m1": "kg", "m2": "kg", "r": "m"}).exacto == \
+        "[G] = M⁻¹·L³·T⁻²"
+    # undeclared, «xy» still means x·y
+    import academic_core.domain.engineering.mathlab.mvexpr as mx
+    assert mx.variables(mx.parse("xy")) == {"x", "y"}

@@ -315,10 +315,13 @@ def _tokenize(source: str) -> list[_Token]:
 class _Parser:
     """Recursive descent. Products may be implicit (§8.1 convenience)."""
 
-    def __init__(self, tokens: list[_Token], reserved: frozenset[str]):
+    def __init__(self, tokens: list[_Token], reserved: frozenset[str],
+                 nombres: frozenset[str] = frozenset()):
         self.tokens = tokens
         self.pos = 0
         self.reserved = reserved
+        #: declared multi-letter variable names, never split into products
+        self.nombres = nombres
         # inside a call's argument list, ',' separates arguments (never a decimal)
         self.in_args = False
 
@@ -462,7 +465,7 @@ class _Parser:
             )
         if len(name) > 32:
             raise invalid("PARSE_ERROR", f"nombre de variable demasiado largo en la posición {tok.pos + 1}")
-        producto = _split_letters(name)
+        producto = None if name in self.nombres else _split_letters(name)
         return producto if producto is not None else Sym(name)
 
     def _args(self, tok: _Token, depth: int) -> list[Expr]:
@@ -591,18 +594,21 @@ def _make_pow(base: Expr, exponent: Expr) -> Expr:
 STATEMENTS = ("integral", "int", "limite", "limit", "suma", "sum", "derivada", "diff")
 
 
-def parse(source: str, *, reserved: frozenset[str] | None = None) -> Expr:
+def parse(source: str, *, reserved: frozenset[str] | None = None,
+          nombres: frozenset[str] | set[str] | None = None) -> Expr:
     """Parse a formula typed by the student into an exact multivariate ``Expr``.
 
     ``reserved`` optionally removes names from the constant/function set so a
     variable may be called ``i`` or ``e`` (``reserved=...`` is *added* to).
+    ``nombres`` declares multi-letter variables (``Lb``, ``m1``, ``Vcc``) that must
+    stay whole instead of reading as the implicit product ``L·b``.
     """
     if not isinstance(source, str) or not source.strip():
         raise invalid("PARSE_ERROR", "expresión vacía")
     if len(source) > MAX_SOURCE:
         raise invalid("EXPRESSION_LIMIT", f"expresión de más de {MAX_SOURCE} caracteres")
     keep = frozenset(reserved) if reserved else frozenset()
-    parser = _Parser(_tokenize(source), _RESERVED - keep)
+    parser = _Parser(_tokenize(source), _RESERVED - keep, frozenset(nombres or ()))
     node = parser.expression(0)
     if parser.pos != len(parser.tokens):
         tok = parser.peek()

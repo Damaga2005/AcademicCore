@@ -2,6 +2,8 @@
 
 ## 2026-10-06 — ML-12 completo
 
+- **Limitaciones resueltas:** distribuciones con `δ′` y derivadas superiores (Leibniz), `δ(g(t))` sobre raíces simples con posiciones exactas irracionales, `u(g(t))` no lineal, productos de escalones y `δ·u` con `u(0)` declarable; nombres de variable de varias letras declarados (`mvexpr.parse(..., nombres=)`) en el análisis dimensional.
+
 - **Motor lineal:** ℝ (pivoteo parcial, sello «solo numérico»), ℂ exacto y GF(2ᵐ) con irreducibilidad comprobada; «R» ya no se confunde con ℚ.
 - **Distribuciones con área** (`distribucion`), **análisis dimensional** (`dimensional`), **verificador de gradientes** (`comprobar_gradiente`), **simulador sembrado** (`markov`, `cola_mm1`), **árboles y grafos** (`grafo`, `huffman`), **convenciones** resueltas también con la contraria (`convencion`).
 - **Contrato:** plug-ins con ámbito y sin ascender sellos numéricos; `validar_forma` probado sobre todas las operaciones; la traza serializada escapa sus campos (versión 1.1). `ramas` con un nombre desconocido da un error de validación, no un `ValueError` suelto.

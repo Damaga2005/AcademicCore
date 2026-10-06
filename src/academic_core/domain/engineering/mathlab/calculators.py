@@ -626,7 +626,8 @@ def _distribucion(peticion: C.Peticion) -> C.Resultado:
         return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
     if "expr" not in e:
         raise C.error("BAD_INPUT", "falta 'expr'")
-    D = DS.leer(str(e["expr"]), var, trace)
+    u0 = _fraccion(e, "u0") if e.get("u0") is not None else None
+    D = DS.leer(str(e["expr"]), var, trace, u0=u0)
     if calculo == "leer":
         texto = D.texto()
         sello = V.Seal(V.VERIFIED, "cribado y escala de δ", "áreas evaluadas en t₀")
@@ -665,12 +666,16 @@ def _sello_derivada_distribucion(D, dD, trace: Trace) -> V.Seal:
     from academic_core.domain.engineering.mathlab import distribuciones as DS
 
     cortes = [t.hasta for t in D.tramos if t.hasta is not None]
+    cortes += [i.posicion for i in D.impulsos]
     if not cortes:
         return V.Seal(V.VERIFIED, "sin saltos: derivada ordinaria", "")
-    a, b = min(cortes) - Fraction(1, 3), max(cortes) + Fraction(1, 3)
+    a = min(cortes, key=lambda p: p.x).mas(Fraction(-1, 3))
+    b = max(cortes, key=lambda p: p.x).mas(Fraction(1, 3))
+    # impulses of D become δ⁽ᵏ⁺¹⁾ in D′, whose integral is 0 strictly inside (a, b):
+    # the identity ∫ D′ = D(b) − D(a) still holds with the ordinary values at a and b
     try:
-        incremento = mx.Sub(mx.substitute(D.ordinaria(b), D.var, mx.num(b)),
-                            mx.substitute(D.ordinaria(a), D.var, mx.num(a)))
+        incremento = mx.Sub(mx.substitute(D.ordinaria(b), D.var, b.expr),
+                            mx.substitute(D.ordinaria(a), D.var, a.expr))
         integral = DS.integral(dD, a, b)
     except Exception as exc:  # noqa: BLE001 - no second path is a lower seal
         return V.Seal(V.NUMERIC_ONLY, "sin segundo camino", str(exc))

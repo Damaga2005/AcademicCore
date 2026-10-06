@@ -200,11 +200,14 @@ def dimension_de(e: mx.Expr, dims: dict[str, Dimension], trace: Trace | None = N
     raise _error("UNSUPPORTED", f"no sé la dimensión de «{mx.text(e)}»")
 
 
-def _lados(ecuacion: str) -> tuple[mx.Expr, mx.Expr]:
+def _lados(ecuacion: str, nombres=()) -> tuple[mx.Expr, mx.Expr]:
+    """Multi-letter names with a declared dimension (``Vcc``, ``m1``, ``Lb``) stay
+    whole: without the declaration, the parser reads ``Lb`` as the product ``L·b``."""
     if ecuacion.count("=") != 1:
         raise _error("BAD_INPUT", "una ecuación lleva exactamente un «=»")
     izq, der = ecuacion.split("=")
-    return mx.parse(izq), mx.parse(der)
+    nombres = frozenset(nombres)
+    return mx.parse(izq, nombres=nombres), mx.parse(der, nombres=nombres)
 
 
 @dataclass(frozen=True)
@@ -224,7 +227,7 @@ class Comprobacion:
 def comprobar(ecuacion: str, dims: dict[str, Dimension], trace: Trace | None = None
               ) -> Comprobacion:
     trace = trace if trace is not None else Trace()
-    izq, der = _lados(ecuacion)
+    izq, der = _lados(ecuacion, dims)
     try:
         a = dimension_de(izq, dims, trace)
         b = dimension_de(der, dims, trace)
@@ -252,7 +255,7 @@ def dimension_necesaria(ecuacion: str, incognita: str, dims: dict[str, Dimension
     dimensions, then ``[incognita] = ([otro lado] / R)^(1/k)``. Checked by substitution.
     """
     trace = trace if trace is not None else Trace()
-    izq, der = _lados(ecuacion)
+    izq, der = _lados(ecuacion, set(dims) | {incognita})
     lado, otro = (izq, der) if incognita in mx.variables(izq) else (der, izq)
     if incognita in mx.variables(otro):
         raise _error("UNSUPPORTED", f"«{incognita}» aparece en los dos lados")
