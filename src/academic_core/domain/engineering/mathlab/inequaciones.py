@@ -1554,3 +1554,99 @@ def _metodo() -> tuple[str, ...]:
         "no una aproximación: una función continua sin ceros ni polos en un hueco "
         "no puede cambiar de signo dentro de él",
     )
+
+
+# ---------------------------------------------------------------------------
+# numeric sign chart, for the calculator, when the zeros have no closed form
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SolucionNumerica:
+    """One period of a periodic inequality, with numeric (certified) ends.
+
+    Used only when :func:`resolver_inequidad` refuses because the zeros cannot be
+    written exactly. Every end that is a zero is bracketed by bisection (Bolzano)
+    and carries its error; the ends that are poles come from the zeros of the
+    expression's denominators and arguments. ``intervalos`` are
+    ``(izq, der, cerrado_izq, cerrado_der)`` inside ``[0, periodo)``.
+    """
+
+    intervalos: tuple[tuple[float, float, bool, bool], ...]
+    periodo: float
+    error: float
+    operador: str
+
+    def texto(self) -> str:
+        if not self.intervalos:
+            return "no hay soluciones"
+        partes = [("[" if ci else "(") + f"{a:.10g}, {b:.10g}" + ("]" if cd else ")")
+                  for a, b, ci, cd in self.intervalos]
+        return (" ∪ ".join(partes) + f"   y se repite cada {self.periodo:.10g}"
+                f"   (extremos numéricos, error < {self.error:.1g})")
+
+    @property
+    def vacia(self) -> bool:
+        return not self.intervalos
+
+    def contiene_valor(self, x: float) -> bool:
+        r = x % self.periodo
+        for a, b, ci, cd in self.intervalos:
+            if (a < r < b) or (ci and abs(r - a) < 1e-12) or (cd and abs(r - b) < 1e-12):
+                return True
+        return False
+
+
+def resolver_inequidad_numerica(texto_inequidad: str, var: str = "x"
+                                ) -> SolucionNumerica | None:
+    """The sign chart of one period with numeric critical points, or ``None``.
+
+    ``None`` when the expression is not periodic (there is no single period to
+    describe the whole answer with).
+    """
+    from academic_core.domain.engineering.mathlab import continuidad as K
+
+    operador, izquierda, derecha = _separa(texto_inequidad)
+    g = mx.Sub(_parse(izquierda, var), _parse(derecha, var))
+    periodo = D.periodo_minimo(g, var)
+    if periodo is None:
+        return None
+    T = float(periodo) * math.pi
+    raices = [K.raiz_certificada(g, var, c) for c in K.ceros_numericos(g, var, 0.0, T)]
+    polos = sorted({round(c, 12) for d in K.peligros(g, var)
+                    for c in K.ceros(d, var, 0.0, T)
+                    if K._valor(g, var, c) is None or K.es_singular(g, var, c)})
+    criticos = sorted({0.0, T, *[r.valor for r in raices], *polos})
+    es_raiz = {r.valor for r in raices}
+
+    def cumple(x: float) -> bool | None:
+        v = K._valor(g, var, x)
+        if v is None:
+            return None
+        return {">": v > 0, ">=": v >= 0, "<": v < 0, "<=": v <= 0, "=": v == 0}[operador]
+
+    intervalos: list[list] = []
+    inclusivo = operador in (">=", "<=")
+    for a, b in zip(criticos, criticos[1:]):
+        if b - a < 1e-12:
+            continue
+        if operador == "=":
+            continue
+        if cumple((a + b) / 2):
+            ci = inclusivo and a in es_raiz
+            cd = inclusivo and b in es_raiz
+            if a == 0.0 and a not in es_raiz and 0.0 not in polos:
+                # 0 is only where the period starts: closed when the point is in
+                # the set, which is what the chart would say of any interior point
+                ci = bool(cumple(0.0))
+            if intervalos and abs(intervalos[-1][1] - a) < 1e-12 and \
+                    (intervalos[-1][3] or a not in polos):
+                intervalos[-1][1], intervalos[-1][3] = b, cd
+            else:
+                intervalos.append([a, b, ci, cd])
+    if operador == "=":
+        intervalos = [[r.valor, r.valor, True, True] for r in raices]
+    # the poles are bisected to the last bit as well; the floor says so
+    error = max([r.error for r in raices] + [1e-15])
+    return SolucionNumerica(tuple(tuple(i) for i in intervalos), T, error, operador)
+

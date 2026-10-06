@@ -460,7 +460,22 @@ def _resolver_inequidad(peticion: C.Peticion) -> C.Resultado:
         ),
         before=texto_ineq,
     )
-    solucion = I.resolver_inequidad(texto_ineq, var)
+    try:
+        solucion = I.resolver_inequidad(texto_ineq, var)
+    except UnsupportedError as exc:
+        if "no se saben" not in str(exc):
+            raise
+        numerica = I.resolver_inequidad_numerica(texto_ineq, var)
+        if numerica is None:
+            raise
+        # the zeros have no closed form: the chart is drawn with certified numeric
+        # ends instead of refusing — the same answer an equation of that kind gets
+        trace.aviso("resolver_inequidad.numerica",
+                    f"los ceros no tienen forma exacta aquí ({exc}); los extremos se "
+                    "dan numéricos, encerrados por bisección con su error")
+        return _finalizar(peticion, trace, numerica.texto(), aproximado=None,
+                          sello=_sello_numerico_de_conjunto(texto_ineq, var, numerica),
+                          avisos=(C.NO_EXACT,))
     for h in solucion.hipotesis:
         trace.hipotesis("resolver_inequidad.condicion", h, "aplica")
     sello = _sello_de_conjunto(texto_ineq, var, solucion)
@@ -469,6 +484,27 @@ def _resolver_inequidad(peticion: C.Peticion) -> C.Resultado:
                       aproximado=None, sello=sello,
                       avisos=("solución vacía" if solucion.vacia else "") and
                       ("solución vacía",) or ())
+
+
+def _sello_numerico_de_conjunto(texto_ineq: str, var: str, solucion) -> V.Seal:
+    """Seeded points away from the ends: the set and the inequality must agree."""
+    import math as _m
+    from academic_core.domain.engineering.mathlab import inequaciones as I
+
+    operador, izquierda, derecha = I._separa(texto_ineq)
+    g = mx.Sub(mx.parse(izquierda), mx.parse(derecha))
+    malos = 0
+    for x in V.sample_values(count=64):
+        v = mx.valor_real(g, {var: x})
+        if v is None or abs(v) < 1e-6:
+            continue
+        esperado = {">": v > 0, ">=": v >= 0, "<": v < 0, "<=": v <= 0}.get(operador)
+        if esperado is not None and solucion.contiene_valor(x) != esperado:
+            malos += 1
+    if malos:
+        return V.Seal(V.DISCREPANT, "muestreo sembrado", f"{malos} puntos en desacuerdo")
+    return V.Seal(V.NUMERIC_ONLY, "carta de signos con extremos numéricos",
+                  "contrastada en puntos sembrados")
 
 
 def _sello_de_conjunto(texto_ineq: str, var: str, solucion) -> V.Seal:
