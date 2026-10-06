@@ -765,7 +765,7 @@ def test_el_paso_de_la_potencia_no_se_lee_como_otra_expresion():
     from academic_core.domain.engineering.symbolic import steps as St
 
     log = St.StepLog()
-    Dv.derivative(mx.to_symbolic(mx.parse("sqrt(x^2 + 1)")), "x", log)
+    Dv.derivative(mx.to_symbolic(mx.parse("(x^2 + 1)^(1/2)")), "x", log)
     potencias = [s for s in log.steps if "regla de la potencia" in s.rule
                  and s.before.startswith("u")]
     assert potencias
