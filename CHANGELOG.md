@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-06 — ML-6 integración múltiple; ML-3/ML-5 corregidos y ampliados
+
+- **Autovalores (bugs reales):** los complejos perdían el factor √ (`[[2,−1],[3,0]]` daba 1 ± i, ahora 1 ± √2·i); en 3×3 el espectro salía incompleto sin aviso si había raíces irracionales o complejas; los dobles se clasificaban como irracionales (`[[1,1],[0,1]]`) y los racionales repetidos en 3×3 fallaban (la simétrica con 4, 1, 1 no diagonalizaba). Ahora: característico n×n exacto (Faddeev-Leverrier, hasta 6×6), raíces racionales con multiplicidad por Ruffini, factor cuadrático restante exacto (ℚ(√r) o par complejo) y, si queda un factor irreducible de grado ≥ 3, rechazo exacto + valores numéricos (Durand-Kerner) con sello solo numérico. 600 matrices aleatorias contra SymPy: 0 errores.
+- **Pseudoinversa de Moore-Penrose de cualquier rango** por factorización A = C·R, con las cuatro condiciones de Penrose comprobadas (200 casos contra SymPy).
+- **Puntos críticos y Lagrange no lineales** (`sistemas.py`): bases de Gröbner en orden lex, raíces por Sturm (exactas racionales o con √, numéricas si no), filtro por sustitución exacta; factor exp(·) común descartado; varias ligaduras; aviso de puntos singulares de la ligadura; soluciones no aisladas dichas. Silla en n > 2 por Descartes; silla con menor nulo y det ≠ 0. Batería de 150 funciones aleatorias: los 39 discrepantes son puntos que el `solve` de SymPy pierde (confirmados con `nsolve`).
+- **Extremos en regiones {g ≤ 0}** acotadas: interior + Lagrange en la frontera + puntos singulares.
+- **ML-6 (`multiple.py`, operación `multiple`):** iteradas exactas con límites variables y segundo camino tanh-sinh, polares/cilíndricas/esféricas con jacobiano, cambio de orden con los dos órdenes comparados, masa y centro de masas. 120 iteradas aleatorias contra SymPy: 0 errores (8 numéricas por e^(x²), sin primitiva elemental).
+
 ## 2026-10-06 — Espacios vectoriales verificados contra TODOS los exámenes
 
 - **Verificación exhaustiva** de los 26 PDFs de la carpeta (Parciales 2018-2022, Segundo Parcial 2018-2022, Finales 2020-2024 y 07-17): F por ecuaciones + G por generadores con Grassmann, cambios de base, S = Col(M) con S⊥ y proyección, núcleo/imagen, φ con parámetro e invariantes, coordenadas en subespacios de ℝ⁴ y polinomios, antiimágenes, Im f + F. Todos resueltos por la calculadora `espacios` con sello verificado.

@@ -3214,6 +3214,65 @@ def _grafica_area(integrando: mx.Expr, var: str, low, high,
     )
 
 
+def _multiple(peticion: C.Peticion) -> C.Resultado:
+    """ML-6: integración múltiple.
+
+    ``{"calculo": "iterada"|"coordenadas"|"cambio_orden"|"masa"|"centro_masas",
+    "expr", "limites": [[var, desde, hasta], ...] (de dentro hacia fuera),
+    "sistema": "polares"|"cilindricas"|"esfericas", y para cambio_orden
+    "x", "a", "b", "y", "g1", "g2"}``.
+    """
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., ...}; cálculos: iterada, "
+                      "coordenadas, cambio_orden, masa, centro_masas")
+    calculo = str(e["calculo"])
+    trace = Trace()
+    sistema = str(e.get("sistema", "cartesianas"))
+    expr = e.get("expr", e.get("densidad", "1"))
+
+    def _lims():
+        L = e.get("limites")
+        if not isinstance(L, list) or not L:
+            raise C.error("BAD_INPUT", f"falta 'limites' [[var, desde, hasta], ...] para «{calculo}»")
+        return L
+    resultados = []
+    if calculo == "iterada":
+        r = MI.iterada(expr, _lims(), trace)
+        texto, resultados = r.texto(), [r]
+    elif calculo == "coordenadas":
+        r = MI.en_coordenadas(expr, sistema, _lims(), trace)
+        texto, resultados = r.texto(), [r]
+    elif calculo == "masa":
+        r = MI.masa(expr, _lims(), sistema, trace)
+        texto, resultados = "M = " + r.texto(), [r]
+    elif calculo == "centro_masas":
+        M, cs = MI.centro_masas(expr, _lims(), sistema, trace)
+        texto = "M = " + M.texto() + "; centro = (" + ", ".join(c.texto() for c in cs) + ")"
+        resultados = [M, *cs]
+    elif calculo == "cambio_orden":
+        faltan = [k for k in ("x", "a", "b", "y", "g1", "g2") if k not in e]
+        if faltan:
+            raise C.error("BAD_INPUT", f"faltan {', '.join(faltan)} para «cambio_orden»")
+        franjas, orig, nuevo = MI.cambio_orden(expr, str(e["x"]), e["a"], e["b"], str(e["y"]),
+                                               e["g1"], e["g2"], trace)
+        texto = (" ∪ ".join("{" + fr.texto(str(e["x"]), str(e["y"])) + "}" for fr in franjas)
+                 + f"; valor = {nuevo.texto() if nuevo.exacto is not None else orig.texto()}")
+        resultados = [orig if nuevo.exacto is None else nuevo]
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    if all(r.exacto is not None for r in resultados):
+        sello = V.Seal(V.VERIFIED, "primitivas comprobadas derivando y cuadratura tanh-sinh "
+                       "independiente", texto)
+        return _finalizar(peticion, trace, texto, aproximado=resultados[0].numerico,
+                          sello=sello)
+    sello = V.Seal(V.NUMERIC_ONLY, "cuadratura tanh-sinh anidada", texto)
+    return _finalizar(peticion, trace, texto, aproximado=resultados[0].numerico, sello=sello,
+                      avisos=("sin primitiva exacta en algún paso: valor numérico",))
+
+
 # ---------------------------------------------------------------------------
 # registration
 # ---------------------------------------------------------------------------
@@ -3225,6 +3284,7 @@ C.registrar("transformar", _transformar)
 C.registrar("modular", _modular)
 C.registrar("lineal", _lineal)
 C.registrar("multivar", _multivar)
+C.registrar("multiple", _multiple)
 C.registrar("algebra", _algebra)
 C.registrar("espacios", _espacios)
 C.registrar("gamma", _gamma_calc)
