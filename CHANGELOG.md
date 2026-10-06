@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-06 — ML-2 completo
+
+- **Operaciones nuevas:** `limite` (con parámetro), `estudio`, `extremos_absolutos`, `soluciones`, `impropia`, `serie`, `taylor`, `primitiva`, `tfc`, `inversa`, `a_trozos`, `teorema`, `riemann`, `aplicacion_integral`, `metodo_numerico`; `resolver_inequidad` y `integrar` amplían su alcance (no periódicas; √(cuadrática)).
+- **Módulos:** `limite.py` (escala asintótica y series de Laurent exactas), `raices.py` (Sturm), `estudio.py`, `impropia.py`, `series_numericas.py`, `taylor_lagrange.py`, `primitivas.py`, `calculo_extra.py`.
+- **Distribuciones:** `δ⁽ᵏ⁾(g)` con g no lineal y posiciones sin forma exacta (Sturm), marcadas como aproximadas.
+- **Plegado de constantes:** aritmética exacta en ℚ(√r), valores notables de arcsen/arccos/arctan, `ln(eᵏ)`, `|c|`.
+
 ## 2026-10-06 — ML-12 completo
 
 - **Limitaciones resueltas:** distribuciones con `δ′` y derivadas superiores (Leibniz), `δ(g(t))` sobre raíces simples con posiciones exactas irracionales, `u(g(t))` no lineal, productos de escalones y `δ·u` con `u(0)` declarable; nombres de variable de varias letras declarados (`mvexpr.parse(..., nombres=)`) en el análisis dimensional.
