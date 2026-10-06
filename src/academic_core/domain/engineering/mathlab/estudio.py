@@ -529,3 +529,72 @@ def numero_de_soluciones(e: mx.Expr, var: str, a: mx.Expr | None = None,
         trace.regla("bolzano.tramo", linea, why="Bolzano da existencia; la monotonía estricta, "
                                                 "unicidad")
     return Soluciones(len(raices), tuple(raices), tuple(justificacion), completo)
+
+
+
+# ---------------------------------------------------------------------------
+# inequalities by sign chart (T1)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Conjunto:
+    tramos: tuple[Tramo, ...]
+    puntos: tuple[RZ.Raiz, ...]
+    completo: bool
+
+    def texto(self) -> str:
+        partes = [t.texto() for t in self.tramos] + ["{" + _texto_punto(p) + "}" for p in self.puntos]
+        if not partes:
+            return "∅"
+        t = " ∪ ".join(partes)
+        return "ℝ" if t == "(−∞, +∞)" else t
+
+    def contiene(self, x: float) -> bool:
+        return Dominio(self.tramos, self.puntos, True, ()).contiene(x)
+
+
+def desigualdad(g: mx.Expr, var: str, operador: str, trace: Trace | None = None) -> Conjunto:
+    """{x : g(x) op 0} with op in <, ≤, >, ≥: domain pieces cut at the zeros of g,
+    one test point per piece (every boundary and zero is known), the zeros added
+    for ≤ and ≥."""
+    trace = trace if trace is not None else Trace()
+    dom = dominio(g, var, trace)
+    tabla, ceros, completo, _ = _tabla(g, var, dom)
+    quiere = {"<": -1, "<=": -1, "≤": -1, ">": 1, ">=": 1, "≥": 1}[operador]
+    con_igual = operador in ("<=", ">=", "≤", "≥")
+    tramos: list[Tramo] = []
+    for ts in tabla:
+        if ts.signo != quiere:
+            continue
+        t = ts.tramo
+        ca = t.cerrado_a or (con_igual and t.a is not None and _valor(g, var, t.a.x) == 0
+                             if t.a is not None and _valor(g, var, t.a.x) is not None else False)
+        cb = t.cerrado_b or (con_igual and t.b is not None and _valor(g, var, t.b.x) == 0
+                             if t.b is not None and _valor(g, var, t.b.x) is not None else False)
+        # a closed end must still satisfy the inequality
+        if ca and t.a is not None:
+            v = _valor(g, var, t.a.x)
+            ca = v is not None and (abs(v) < 1e-12 and con_igual or v * quiere > 0)
+        if cb and t.b is not None:
+            v = _valor(g, var, t.b.x)
+            cb = v is not None and (abs(v) < 1e-12 and con_igual or v * quiere > 0)
+        nuevo = Tramo(t.a, t.b, ca, cb)
+        if tramos and tramos[-1].b is not None and t.a is not None and \
+                abs(tramos[-1].b.x - t.a.x) < 1e-12 and (tramos[-1].cerrado_b or ca):
+            prev = tramos.pop()
+            nuevo = Tramo(prev.a, t.b, prev.cerrado_a, cb)
+        tramos.append(nuevo)
+    puntos = []
+    if con_igual:
+        for r in ceros:
+            if not dom.contiene(r.x):
+                continue
+            dentro = any((t.a is None or t.a.x < r.x or (t.cerrado_a and abs(t.a.x - r.x) < 1e-12))
+                         and (t.b is None or r.x < t.b.x or (t.cerrado_b and abs(t.b.x - r.x) < 1e-12))
+                         for t in tramos)
+            if not dentro:
+                puntos.append(r)
+    trace.regla("inecuacion.signos", "signo de g en cada tramo entre ceros y bordes del dominio",
+                why="g continua en cada tramo y sin ceros dentro: no cambia de signo")
+    return Conjunto(tuple(tramos), tuple(puntos), completo)

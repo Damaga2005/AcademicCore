@@ -1404,6 +1404,8 @@ def _resolver_inequidad(peticion: C.Peticion) -> C.Resultado:
     try:
         solucion = I.resolver_inequidad(texto_ineq, var)
     except UnsupportedError as exc:
+        if "no es periódica" in str(exc):
+            return _inecuacion_no_periodica(peticion, texto_ineq, var, trace)
         if "no se saben" not in str(exc):
             raise
         numerica = I.resolver_inequidad_numerica(texto_ineq, var)
@@ -1425,6 +1427,31 @@ def _resolver_inequidad(peticion: C.Peticion) -> C.Resultado:
                       aproximado=None, sello=sello,
                       avisos=("solución vacía" if solucion.vacia else "") and
                       ("solución vacía",) or ())
+
+
+def _inecuacion_no_periodica(peticion, texto_ineq: str, var: str, trace: Trace) -> C.Resultado:
+    """ML-2 (T1): polynomial, rational, |·|, exp/ln inequalities by an exact sign chart."""
+    from academic_core.domain.engineering.mathlab import estudio as ES
+    from academic_core.domain.engineering.mathlab import inequaciones as I
+
+    operador, izquierda, derecha = I._separa(texto_ineq)
+    g = mx.Sub(mx.parse(izquierda), mx.parse(derecha))
+    trace.metodo("inecuacion.tabla", "tabla de signos de g = izquierda − derecha",
+                 why="no es periódica: los ceros y los bordes del dominio son finitos y se "
+                     "conocen todos, y entre ellos el signo es constante")
+    conjunto = ES.desigualdad(g, var, operador, trace)
+    # second path: seeded points, each must satisfy the inequality iff it is in the set
+    malos = 0
+    for x in V.sample_values(count=64) + [k / 7 for k in range(-70, 71)]:
+        v = mx.valor_real(g, {var: x})
+        if v is None or abs(v) < 1e-9:
+            continue
+        cumple = {"<": v < 0, "<=": v < 0, "≤": v < 0, ">": v > 0, ">=": v > 0, "≥": v > 0}[operador]
+        if cumple != conjunto.contiene(x):
+            malos += 1
+    sello = V.Seal(V.DISCREPANT if malos else (V.VERIFIED if conjunto.completo else V.NUMERIC_ONLY),
+                   "puntos de prueba frente a la desigualdad", f"{malos} discrepancias")
+    return _finalizar(peticion, trace, conjunto.texto(), aproximado=None, sello=sello)
 
 
 def _sello_numerico_de_conjunto(texto_ineq: str, var: str, solucion) -> V.Seal:
