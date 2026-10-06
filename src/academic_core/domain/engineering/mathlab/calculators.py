@@ -681,6 +681,34 @@ def _sello_derivada_distribucion(D, dD, trace: Trace) -> V.Seal:
                        f"∫ de {a} a {b} de D′ = D({b}) − D({a}) contando las deltas")
     return V.Seal(V.VERIFIED, "∫ D′ = incremento de D, con las deltas", mx.text(integral))
 
+
+def _dimensional(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: dimensional analysis (§5.10.5).
+
+    ``{"ecuacion": "P = V^2/R", "dimensiones": {"P": "W", "V": "V", "R": "Ω"},
+    "incognita": "G"}`` — without ``incognita`` it checks homogeneity; with it, it
+    finds the dimension that constant must have.
+    """
+    from academic_core.domain.engineering.mathlab import dimensional as DM
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "ecuacion" not in e:
+        raise C.error("BAD_INPUT", "se espera {'ecuacion': ..., 'dimensiones': {...}}")
+    dims = {str(k): DM.leer(v) for k, v in (e.get("dimensiones") or {}).items()}
+    trace = Trace()
+    for nombre, d in sorted(dims.items()):
+        trace.hipotesis(f"dim.{nombre}", f"[{nombre}] = {d.texto()}", "declarada")
+    if e.get("incognita"):
+        d = DM.dimension_necesaria(str(e["ecuacion"]), str(e["incognita"]), dims, trace)
+        texto = f"[{e['incognita']}] = {d.texto()}"
+        sello = V.Seal(V.VERIFIED, "sustitución: la ecuación queda homogénea", texto)
+    else:
+        r = DM.comprobar(str(e["ecuacion"]), dims, trace)
+        texto = r.texto()
+        sello = V.Seal(V.VERIFIED, "recorrido de la expresión con exponentes exactos", texto)
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello,
+                      avisos=(DM.NO_SUFICIENTE,))
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2208,6 +2236,7 @@ C.registrar("transformar", _transformar)
 C.registrar("modular", _modular)
 C.registrar("lineal", _lineal)
 C.registrar("distribucion", _distribucion)
+C.registrar("dimensional", _dimensional)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
