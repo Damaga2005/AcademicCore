@@ -757,3 +757,16 @@ def test_el_contrato_no_necesita_interfaz_para_funcionar():
     assert r.exacto == "2·x"
     nuevos = set(sys.modules) - antes
     assert not [m for m in nuevos if m.startswith("PySide6")], nuevos
+
+
+def test_el_paso_de_la_potencia_no_se_lee_como_otra_expresion():
+    """«u^1/2» se lee (u^1)/2; el paso tiene que escribir u^(1/2) (2026-10-06)."""
+    from academic_core.domain.engineering.symbolic import derive as Dv
+    from academic_core.domain.engineering.symbolic import steps as St
+
+    log = St.StepLog()
+    Dv.derivative(mx.to_symbolic(mx.parse("sqrt(x^2 + 1)")), "x", log)
+    potencias = [s for s in log.steps if "regla de la potencia" in s.rule
+                 and s.before.startswith("u")]
+    assert potencias
+    assert all("^(" in s.before for s in potencias), [s.before for s in potencias]

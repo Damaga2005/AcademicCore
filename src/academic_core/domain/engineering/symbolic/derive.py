@@ -178,9 +178,11 @@ def _power(e: Pow, var: str, log: StepLog) -> tuple[Expr, int]:
         return out, log.add(OP, "regla de la potencia", f"d/d{var}[{text(e)}]", text(out),
                             substitution=f"n = {text(n)}", explanation=f"d/d{var} {var}^n = n·{var}^(n-1)")
     s0 = log.add(OP, "regla de la cadena: identificar función exterior e interior", text(e),
-                 f"exterior: u^{text(n)}; interior: u = {text(base)}", explanation="(f(g))' = f'(g)·g'")
+                 f"exterior: {text(Pow(Sym('u'), n))}; interior: u = {text(base)}", explanation="(f(g))' = f'(g)·g'")
     outer = Mul(n, Pow(base, Sub(n, ONE)))
-    s1 = log.add(OP, "derivar la exterior (regla de la potencia)", f"u^{text(n)}", f"{text(n)}*u^({text(n)} - 1)",
+    # printed by the printer, not by hand: «u^1/2» read as (u^1)/2 (found 2026-10-06)
+    s1 = log.add(OP, "derivar la exterior (regla de la potencia)", text(Pow(Sym("u"), n)),
+                 text(Mul(n, Pow(Sym("u"), Sub(n, ONE)))),
                  substitution=f"n = {text(n)}", explanation="d/du u^n = n·u^(n-1)")
     dg, s2 = differentiate(base, var, log)
     out = Mul(outer, dg)
