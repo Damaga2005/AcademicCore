@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-06 — Lo que quedaba: soluciones numéricas certificadas, π en el motor, raíces exactas
+
+| Antes | Ahora |
+|---|---|
+| ~⅓ de las ecuaciones trigonométricas mixtas: «no se resuelve todavía» | todas sus soluciones de un periodo, exactas o encerradas por bisección (Bolzano) con su error; «sin soluciones reales» certificado con una cota de la derivada |
+| inecuaciones con ceros sin forma cerrada: rechazo | carta de signos con extremos certificados (calculadora) |
+| `cos(x + π/6)` no se podía derivar ni integrar (π no cruzaba al motor de una variable) | π viaja como constante; también `∫e^(πx)`, `∫cos(πx)`, `∫πˣ` |
+| `∫₀^π sen x` = 2 «con error 4e-16» | 2 exacto; `∫₀^√3 dx/(1+x²)` = π/3 |
+| `∫₀⁴ √x` no devolvía nada (ya en `main`) | 16/3 |
+| integrales impropias: rechazo | `∫₀¹ dx/√x` = 2, `∫₋₁¹ x^(−2/3)` = 6; las divergentes se dicen divergentes |
+| `∫dx/√(1−x²)` sin regla | arcsen, argsenh y argcosh completando el cuadrado |
+| `x³ − 2`, `x³ − 3x + 1`, `x⁴ − 5x² + 6`: sin ceros exactos | `∛2`, `2cos(2π/9)`… (Viète), `±√2, ±√3` |
+| `x^(1/3)` sin derivada; `x^(2/3)` complejo para x < 0 | raíces impares reales |
+| pasos: `u^1/2`; impresión `√x² + 1`, `x-¹` | `u^(1/3)`, `√(x² + 1)`, `x⁻¹` |
+| bases 2–16 | 2–36 |
+
+Siete pruebas fijaban rechazos de casos que ahora se resuelven; cada respuesta
+nueva se contrastó por muestreo antes de cambiar la prueba, y la prueba usa ahora
+una expresión que el motor de verdad no sabe resolver.
+
 ## 2026-10-05 — Auditoría de MathLab contra referencias externas: catorce defectos corregidos
 
 Cada módulo se contrastó con algo que no comparte código con él —SymPy, mpmath a
