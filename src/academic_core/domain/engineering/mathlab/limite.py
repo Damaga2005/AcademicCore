@@ -275,6 +275,9 @@ def _pliega(e: mx.Expr) -> mx.Expr:
                     return _pliega(args[0] if valor >= 0 else mx.Neg(args[0]))
             except (_NoCuadratico, ZeroDivisionError):
                 pass
+            valor = mx.valor_real(args[0], {})
+            if valor is not None and abs(valor) > 1e-12:
+                return args[0] if valor > 0 else _pliega(mx.Neg(args[0]))
         # ln(e^k) = k, e^(ln k) = k (k > 0)
         if e.name in ("ln", "log") and len(args) == 1 and isinstance(args[0], mx.Call) \
                 and args[0].name == "exp":

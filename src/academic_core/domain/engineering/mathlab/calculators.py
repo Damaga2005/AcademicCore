@@ -1092,6 +1092,182 @@ def _serie(peticion: C.Peticion) -> C.Resultado:
         raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
     return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
 
+
+def _taylor(peticion: C.Peticion) -> C.Resultado:
+    """ML-2 (T6): ``{"expr": "exp(x)", "centro": "0", "orden": 3, "x0": "1/2"}`` or
+    ``{"expr", "centro", "x0", "tolerancia": 1e-6}`` for the least order."""
+    from academic_core.domain.engineering.mathlab import taylor_lagrange as TL
+
+    e = peticion.entrada
+    if not isinstance(e, dict):
+        raise C.error("BAD_INPUT", "se espera {'expr', 'centro', 'orden', 'x0'}")
+    f = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or "x")
+    a = _expr(str(e.get("centro", "0")))
+    x0 = _expr(str(e["x0"])) if e.get("x0") is not None else None
+    trace = Trace()
+    if e.get("tolerancia") is not None:
+        if x0 is None:
+            raise C.error("BAD_INPUT", "el orden mínimo necesita el punto x0")
+        r = TL.orden_minimo(f, var, a, x0, float(e["tolerancia"]), trace)
+    else:
+        intervalo = None
+        if e.get("intervalo"):
+            lo, hi = e["intervalo"]
+            intervalo = (_expr(str(lo)), _expr(str(hi)))
+        r = TL.aproximar(f, var, a, int(e.get("orden", 3)), x0, intervalo, trace)
+    if x0 is not None:
+        real = TL.error_real(f, var, r, x0)
+        cota = float(mx.valor_real(r.cota, {}))
+        trace.verificacion("taylor.error_real", f"|f(x₀) − Pₙ(x₀)| = {real:.4g} ≤ {cota:.4g}")
+        sello = (V.Seal(V.VERIFIED, "error real por debajo de la cota de Lagrange",
+                        f"{real:.4g} ≤ {cota:.4g}") if real <= cota * (1 + 1e-12)
+                 else V.Seal(V.DISCREPANT, "error real", f"{real:.4g} > {cota:.4g}"))
+    else:
+        sello = V.Seal(V.VERIFIED, "coeficientes exactos; M por Weierstrass", "")
+    return _finalizar(peticion, trace, r.texto(var), aproximado=None, sello=sello)
+
+
+def _tfc(peticion: C.Peticion) -> C.Resultado:
+    """ML-2: F(x) = ∫_{u(x)}^{v(x)} f(t) dt — ``{"f": "exp(-t^2)", "t": "t", "desde": "0",
+    "hasta": "x^2", "x": "x"}``."""
+    from academic_core.domain.engineering.mathlab import calculo_extra as CX
+
+    e = peticion.entrada
+    f = _expresion_de(e, "f", "expr")
+    t, x = str(e.get("t") or "t"), str(e.get("x") or "x")
+    u, v = _expr(str(e["desde"])), _expr(str(e["hasta"]))
+    trace = Trace()
+    d = CX.tfc(f, t, u, v, x, trace)
+    ok, detalle = CX.tfc_comprobacion(f, t, u, v, x, d, 0.7)
+    sello = V.Seal(V.VERIFIED if ok else V.DISCREPANT, "derivada numérica de F por cuadraturas",
+                   detalle)
+    return _finalizar(peticion, trace, f"F′({x}) = {mx.text(d)}", aproximado=None, sello=sello)
+
+
+def _inversa(peticion: C.Peticion) -> C.Resultado:
+    """ML-2: (f⁻¹)′(y₀) — ``{"expr": "x^3+x", "y0": "2"}``."""
+    from academic_core.domain.engineering.mathlab import calculo_extra as CX
+
+    e = peticion.entrada
+    f = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or "x")
+    trace = Trace()
+    r = CX.derivada_inversa(f, var, _expr(str(e["y0"])), trace)
+    # second path: numerical derivative of the inverse by bisection on f
+    sello = V.Seal(V.VERIFIED, "f(x₀) = y₀ sustituido y f′(x₀) ≠ 0", r.texto())
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+
+
+def _a_trozos(peticion: C.Peticion) -> C.Resultado:
+    """ML-2: ``{"izquierda": "a*x+b", "derecha": "x^2", "punto": "1",
+    "parametros": ["a", "b"], "derivable": true}`` (izquierda para x < punto)."""
+    from academic_core.domain.engineering.mathlab import calculo_extra as CX
+
+    e = peticion.entrada
+    var = str(e.get("var") or "x")
+    parametros = [str(p) for p in e.get("parametros", [])]
+    nombres = set(parametros) | {var}
+    izq = mx.parse(str(e["izquierda"]), nombres=nombres)
+    der = mx.parse(str(e["derecha"]), nombres=nombres)
+    c = _expr(str(e["punto"]))
+    trace = Trace()
+    r = CX.a_trozos(izq, der, var, c, parametros, bool(e.get("derivable", False)), trace)
+    # second path: with the solution, the jump and the derivative jump vanish numerically
+    malos = []
+    xc = float(mx.valor_real(c, {}))
+    for sol in r.soluciones:
+        fi, fd = izq, der
+        for k, v in sol.items():
+            fi, fd = mx.substitute(fi, k, v), mx.substitute(fd, k, v)
+        h = 1e-6
+        a1, b1 = mx.valor_real(fi, {var: xc - h}), mx.valor_real(fd, {var: xc + h})
+        if a1 is None or b1 is None or abs(a1 - b1) > 1e-4:
+            malos.append("salto")
+        if e.get("derivable"):
+            da = (mx.valor_real(fi, {var: xc}) - mx.valor_real(fi, {var: xc - h})) / h
+            db = (mx.valor_real(fd, {var: xc + h}) - mx.valor_real(fd, {var: xc})) / h
+            if abs(da - db) > 1e-3 * max(1, abs(da)):
+                malos.append("derivadas laterales distintas")
+    sello = V.Seal(V.DISCREPANT if malos else V.VERIFIED,
+                   "salto y derivadas laterales evaluados numéricamente", ", ".join(malos))
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+
+
+def _teorema(peticion: C.Peticion) -> C.Resultado:
+    """ML-2: ``{"teorema": "rolle"|"valor_medio"|"bolzano", "expr": ..., "a": ..., "b": ...}``."""
+    from academic_core.domain.engineering.mathlab import calculo_extra as CX
+
+    e = peticion.entrada
+    f = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or "x")
+    a, b = _expr(str(e["a"])), _expr(str(e["b"]))
+    trace = Trace()
+    nombre = str(e.get("teorema", "rolle"))
+    if nombre == "bolzano":
+        r = CX.bolzano(f, var, a, b, trace)
+    elif nombre in ("rolle", "valor_medio"):
+        r = CX.rolle(f, var, a, b, trace, valor_medio=nombre == "valor_medio")
+    else:
+        raise C.error("BAD_INPUT", "teorema = rolle | valor_medio | bolzano")
+    sello = V.Seal(V.VERIFIED, "hipótesis comprobadas una a una; c sustituido", "")
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+
+
+def _riemann(peticion: C.Peticion) -> C.Resultado:
+    from academic_core.domain.engineering.mathlab import calculo_extra as CX
+
+    e = peticion.entrada
+    f = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or "x")
+    r = CX.riemann(f, var, _expr(str(e["a"])), _expr(str(e["b"])), int(e.get("n", 10)))
+    trace = Trace()
+    trace.regla("riemann.sumas", r.texto(),
+                why="rectángulos de base (b − a)/n con altura en el extremo izquierdo, el "
+                    "derecho o el punto medio")
+    grafica = C.Graph((C.Serie("rectángulos (punto medio)",
+                               tuple(x for a0, b0, _ in r.rectangulos for x in (a0, a0, b0, b0)),
+                               tuple(y for _, _, h in r.rectangulos for y in (0.0, h, h, 0.0))),),
+                      var, "f", f"sumas de Riemann con n = {r.n}")
+    sello = V.Seal(V.VERIFIED if r.exacta is not None else V.NUMERIC_ONLY,
+                   "las sumas se acercan a la integral exacta", "")
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello, grafica=grafica)
+
+
+def _metodo_numerico(peticion: C.Peticion) -> C.Resultado:
+    """ML-2 (T12): ``{"metodo": "biseccion"|"newton"|"punto_fijo"|"trapecios"|"simpson"|
+    "interpolacion", ...}``."""
+    from academic_core.domain.engineering.mathlab import calculo_extra as CX
+
+    e = peticion.entrada
+    metodo = str(e.get("metodo"))
+    trace = Trace()
+    if metodo == "interpolacion":
+        p = CX.lagrange(e["puntos"])
+        ok = all(abs(mx.valor_real(p, {"x": float(Fraction(str(x)))}) - float(Fraction(str(y))))
+                 < 1e-12 for x, y in e["puntos"])
+        sello = V.Seal(V.VERIFIED if ok else V.DISCREPANT, "pasa por todos los puntos", "")
+        return _finalizar(peticion, trace, f"P(x) = {mx.text(p)}", aproximado=None, sello=sello)
+    f = _expresion_de(e, "expr", "f", "g")
+    var = str(e.get("var") or "x")
+    if metodo == "biseccion":
+        r = CX.biseccion(f, var, float(e["a"]), float(e["b"]), float(e.get("tol", 1e-8)))
+    elif metodo == "newton":
+        r = CX.newton(f, var, float(e["x0"]))
+    elif metodo == "punto_fijo":
+        r = CX.punto_fijo(f, var, float(e["x0"]), float(e["a"]), float(e["b"]))
+    elif metodo in ("trapecios", "simpson"):
+        r = CX.cuadratura(f, var, _expr(str(e["a"])), _expr(str(e["b"])), int(e.get("n", 10)),
+                          metodo)
+    else:
+        raise C.error("BAD_INPUT", "metodo = biseccion | newton | punto_fijo | trapecios | "
+                                   "simpson | interpolacion")
+    for fila in r.filas[:60]:
+        trace.regla(f"{metodo}.paso", " | ".join(f"{v:.10g}" if isinstance(v, float) else str(v)
+                                                  for v in fila))
+    sello = V.Seal(V.NUMERIC_ONLY, f"método numérico ({r.metodo})", r.nota)
+    return _finalizar(peticion, trace, r.texto(), aproximado=r.resultado, sello=sello)
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2632,6 +2808,13 @@ C.registrar("extremos_absolutos", _extremos_absolutos)
 C.registrar("soluciones", _soluciones)
 C.registrar("impropia", _calc_impropia)
 C.registrar("serie", _serie)
+C.registrar("taylor", _taylor)
+C.registrar("tfc", _tfc)
+C.registrar("inversa", _inversa)
+C.registrar("a_trozos", _a_trozos)
+C.registrar("teorema", _teorema)
+C.registrar("riemann", _riemann)
+C.registrar("metodo_numerico", _metodo_numerico)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)

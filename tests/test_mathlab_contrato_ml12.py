@@ -41,6 +41,14 @@ EJEMPLOS = {
     "soluciones": {"expr": "x^3+x-1"},
     "impropia": {"expr": "1/x^2", "a": "1", "b": "oo"},
     "serie": {"calculo": "convergencia", "termino": "1/n^2"},
+    "taylor": {"expr": "exp(x)", "centro": "0", "orden": 3, "x0": "1/2"},
+    "tfc": {"f": "exp(-t^2)", "desde": "0", "hasta": "x^2"},
+    "inversa": {"expr": "x^3+x", "y0": "2"},
+    "a_trozos": {"izquierda": "a*x+b", "derecha": "x^2", "punto": "1",
+                 "parametros": ["a", "b"], "derivable": True},
+    "teorema": {"teorema": "rolle", "expr": "x^2-4*x", "a": "0", "b": "4"},
+    "riemann": {"expr": "x^2", "a": "0", "b": "1", "n": 10},
+    "metodo_numerico": {"metodo": "newton", "expr": "x^2-2", "x0": 1},
 }
 
 
