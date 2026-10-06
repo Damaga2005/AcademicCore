@@ -781,6 +781,60 @@ def _cola_mm1(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello,
                       avisos=(aviso,))
 
+
+def _grafo(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: graph algorithms with steps (§5.10.6).
+
+    ``{"calculo": "bfs"|"dfs"|"dijkstra"|"kruskal"|"topologico"|"componentes",
+    "aristas": [["A", "B", 4], ...], "dirigido": false, "origen": "A"}``.
+    """
+    from academic_core.domain.engineering.mathlab import grafos as GR
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e or "aristas" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., 'aristas': [[a, b, peso], ...]}")
+    g = GR.grafo(e["aristas"], bool(e.get("dirigido", False)), e.get("nodos", ()))
+    trace = Trace()
+    calculo = str(e["calculo"])
+    origen = str(e.get("origen", g.nodos[0] if g.nodos else ""))
+    segundo = "por construcción"
+    if calculo == "bfs":
+        texto = " → ".join(GR.bfs(g, origen, trace))
+    elif calculo == "dfs":
+        texto = " → ".join(GR.dfs(g, origen, trace))
+    elif calculo == "dijkstra":
+        texto = GR.dijkstra(g, origen, trace).texto()
+        segundo = "Bellman–Ford da las mismas distancias"
+    elif calculo == "kruskal":
+        aristas, total = GR.kruskal(g, trace)
+        texto = ", ".join(f"{a}–{b} ({w})" for a, b, w in aristas) + f"; peso total {total}"
+        segundo = "Prim da el mismo peso"
+    elif calculo == "topologico":
+        texto = " → ".join(GR.topologico(g, trace))
+        segundo = "cada arista apunta hacia delante"
+    elif calculo == "componentes":
+        texto = "; ".join("{" + ", ".join(c) + "}" for c in GR.componentes(g))
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    sello = V.Seal(V.VERIFIED, segundo, texto)
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
+
+def _huffman(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: Huffman code, its tree as drawable data, L, H and the checks."""
+    from academic_core.domain.engineering.mathlab import grafos as GR
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "probabilidades" not in e:
+        raise C.error("BAD_INPUT", "se espera {'probabilidades': {'a': '1/2', ...}}")
+    trace = Trace()
+    h = GR.huffman(e["probabilidades"], trace)
+    sello = V.Seal(V.VERIFIED, "L = Σ nodos internos, Kraft = 1, H ≤ L < H + 1", h.texto())
+    aviso = ("el código de Huffman no es único (los empates se rompen por orden de "
+             "entrada), pero su longitud media sí lo es")
+    return _finalizar(peticion, trace, h.texto(), aproximado=None, sello=sello,
+                      avisos=(aviso,))
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2312,6 +2366,8 @@ C.registrar("dimensional", _dimensional)
 C.registrar("comprobar_gradiente", _comprobar_gradiente)
 C.registrar("markov", _markov)
 C.registrar("cola_mm1", _cola_mm1)
+C.registrar("grafo", _grafo)
+C.registrar("huffman", _huffman)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
