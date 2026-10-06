@@ -4,9 +4,10 @@
 Límites por caminos (la no existencia por dos caminos distintos ES una prueba;
 la coincidencia en N caminos es un indicio, y se dice), derivada direccional,
 jacobiana, regla de la cadena con equivalencia exacta, función implícita con
-la identidad Fx + Fy·y′ = 0, Hessiana con Sylvester (2×2 completa, n > 2 solo
-definida), Taylor de grado 2 sin cota inventada, Lagrange y extremos en
-rectángulos por Weierstrass (interior + 4 lados 1V + esquinas).
+la identidad Fx + Fy·y′ = 0, Hessiana con Sylvester (y Descartes sobre el característico para la
+silla en n > 2), puntos críticos y Lagrange también no lineales (bases de
+Gröbner en :mod:`sistemas`), Taylor de grado 2 sin cota inventada y extremos
+en rectángulos por Weierstrass (interior + 4 lados 1V + esquinas).
 
 Cada resultado lleva traza con «por qué» y un segundo camino independiente;
 lo que no sale exacto se rechaza con su motivo (§5.4).
@@ -160,29 +161,6 @@ def _lin(e: mx.Expr, incognitas: set[str]) -> tuple[dict[str, Fraction], Fractio
         else:
             return None
     return out, const
-
-
-def _resolver_lineal(ecuaciones: list[mx.Expr], incognitas: list[str],
-                     trace: Trace) -> dict[str, Fraction]:
-    """Sistema lineal exacto con solución única; si no, con su motivo."""
-    from academic_core.domain.engineering.mathlab import lineal as L
-
-    filas, rhs = [], []
-    for e in ecuaciones:
-        r = _lin(e, set(incognitas))
-        if r is None:
-            raise _no(f"«{mx.text(e)}» no es lineal en {', '.join(incognitas)}: "
-                      "el sistema no se resuelve exacto aquí")
-        filas.append([r[0].get(u, Fraction(0)) for u in incognitas])
-        rhs.append(-r[1])
-    K = L.cuerpo("Q")
-    sistema = L.resolver_sistema([[K.de(x) for x in f] for f in filas],
-                                 [K.de(x) for x in rhs], K, trace)
-    if sistema.particular is None:
-        raise _error("NO_SOLUTION", "el sistema es incompatible: no hay puntos")
-    if sistema.nucleo:
-        raise _no("el sistema tiene infinitas soluciones (puntos no aislados)")
-    return {u: Fraction(sistema.particular[i]) for i, u in enumerate(incognitas)}
 
 
 # ---------------------------------------------------------------------------
@@ -484,42 +462,125 @@ def _sylvester(M: list[list[Fraction]]) -> str:
         return "máximo"
     if n == 2 and menores[1] < 0:
         return "punto de silla"
-    if any(d == 0 for d in menores):
+    if n == 2 and menores[1] == 0:
         raise _no("menor principal nulo (semidefinida): el criterio de segundo orden "
                   "no decide")
     if n == 2:
         raise _no("Hessiana indefinida no silla en 2×2: caso imposible (error interno)")
-    raise _no("Hessiana indefinida en n > 2: sin autovalores no se clasifica")
+    # n > 2: H simétrica tiene todos sus autovalores reales, así que la regla de
+    # Descartes sobre det(λI − H) cuenta exactamente los positivos y los negativos
+    pos, neg = _signos_autovalores(M)
+    if pos and neg:
+        return "punto de silla"
+    raise _no("Hessiana semidefinida (autovalor nulo): el criterio de segundo orden "
+              "no decide")
+
+
+def _signos_autovalores(M: list[list[Fraction]]) -> tuple[int, int]:
+    from academic_core.domain.engineering.mathlab import algebra as AL
+
+    c = AL.polinomio_caracteristico(M)
+    while c and c[0] == 0:
+        c = c[1:]
+
+    def cambios(seq):
+        s = [x for x in seq if x != 0]
+        return sum(1 for a, b in zip(s, s[1:]) if (a > 0) != (b > 0))
+    pos = cambios(c)
+    neg = cambios([x * (-1) ** k for k, x in enumerate(c)])
+    return pos, neg
+
+
+def _coord(z):
+    """Valor de :mod:`sistemas` → Fraction si es racional, expresión si es exacto
+    irracional, float si solo se conoce numérico."""
+    q = z.fraccion
+    if q is not None:
+        return q
+    return z.expr if z.exacto else z.x
+
+
+def texto_coord(c) -> str:
+    if isinstance(c, Fraction):
+        return str(c)
+    if isinstance(c, float):
+        return f"≈ {c:.10g}"
+    return mx.text(c)
+
+
+def _float(c) -> float:
+    if isinstance(c, (Fraction, float, int)):
+        return float(c)
+    return float(mx.valor_real(c, {}))
+
+
+def _clasifica(f: mx.Expr, vars: list[str], punto: tuple, trace: Trace) -> str:
+    if all(isinstance(c, Fraction) for c in punto):
+        try:
+            return hessiana(f, vars, dict(zip(vars, punto)), trace)[1]
+        except UnsupportedError:
+            return "sin clasificar (segundo orden no decide)"
+    # coordenadas irracionales o numéricas: la Hessiana se evalúa en coma flotante
+    env = {v: _float(c) for v, c in zip(vars, punto)}
+    H = [[float(mx.valor_real(_d(_d(f, a), b), env)) for b in vars] for a in vars]
+    n = len(vars)
+    escala = max(1.0, max(abs(h) for fila in H for h in fila))
+    menores = [_det_float([fila[:k] for fila in H[:k]]) for k in range(1, n + 1)]
+    tol = 1e-9 * escala ** n
+    if any(abs(d) <= tol for d in menores):
+        return "sin clasificar (menor casi nulo en coma flotante)"
+    if all(d > 0 for d in menores):
+        clase = "mínimo"
+    elif all(((-1) ** (k + 1)) * menores[k] > 0 for k in range(n)):
+        clase = "máximo"
+    else:
+        clase = "punto de silla"
+    trace.regla("mv.sylvester_num", f"Hessiana evaluada en coma flotante → {clase}",
+                why="punto con coordenadas irracionales: signo de menores con margen")
+    return clase
+
+
+def _det_float(M: list[list[float]]) -> float:
+    M = [list(f) for f in M]
+    n, det = len(M), 1.0
+    for k in range(n):
+        piv = max(range(k, n), key=lambda i: abs(M[i][k]))
+        if M[piv][k] == 0:
+            return 0.0
+        if piv != k:
+            M[k], M[piv] = M[piv], M[k]
+            det = -det
+        det *= M[k][k]
+        for i in range(k + 1, n):
+            r = M[i][k] / M[k][k]
+            for j in range(k, n):
+                M[i][j] -= r * M[k][j]
+    return det
 
 
 def puntos_criticos(f: mx.Expr, vars: list[str],
-                    trace: Trace | None = None) -> list[tuple[tuple[Fraction, ...], str]]:
-    """∇f = 0 exacto cuando es lineal; cada punto clasificado por la Hessiana."""
+                    trace: Trace | None = None) -> list[tuple[tuple, str]]:
+    """Todos los puntos críticos aislados (∇f = 0, también no lineal) y su clase
+    por la Hessiana; coordenadas exactas (racionales o con √) o numéricas."""
+    from academic_core.domain.engineering.mathlab import sistemas as S
 
     trace = trace if trace is not None else Trace()
     if not vars:
         raise _error("BAD_INPUT", "se necesita al menos una variable")
     grad = [_d(f, v, trace) for v in vars]
-    try:
-        sol = _resolver_lineal(grad, vars, trace)
-    except UnsupportedError as exc:
-        raise _no(f"el gradiente no es lineal en ({', '.join(vars)}): {exc}".replace(
-            "UNSUPPORTED: ", "")) from None
-    except ValidationError as exc:
-        if str(exc).startswith("NO_SOLUTION"):
-            trace.regla("mv.criticos", "∇f = 0 incompatible: f no tiene puntos críticos",
-                        why="el sistema lineal no tiene solución")
-            return []
-        raise
-    punto = tuple(sol[v] for v in vars)
-    trace.regla("mv.criticos", f"∇f = 0 en ({', '.join(str(sol[v]) for v in vars)})",
-                why="sistema lineal exacto por Gauss sobre ℚ")
-    penv = {v: sol[v] for v in vars}
-    try:
-        _, clase = hessiana(f, vars, penv, trace)
-    except UnsupportedError:
-        clase = "sin clasificar (segundo orden no decide)"
-    return [(punto, clase)]
+    trace.metodo("mv.criticos", "∇f = 0: sistema polinómico por bases de Gröbner",
+                 why="los extremos interiores anulan el gradiente")
+    sols = S.resolver(grad, list(vars), trace)
+    if not sols:
+        trace.regla("mv.criticos", "∇f = 0 no tiene solución real: sin puntos críticos")
+        return []
+    out = []
+    for s in sols:
+        punto = tuple(_coord(s[v]) for v in vars)
+        clase = _clasifica(f, vars, punto, trace)
+        trace.regla("mv.criticos", f"({', '.join(texto_coord(c) for c in punto)}): {clase}")
+        out.append((punto, clase))
+    return out
 
 
 def taylor2(f: mx.Expr, vars: list[str], centro: dict[str, mx.Expr],
@@ -584,47 +645,87 @@ def _verifica_taylor2(f, vars, a, P, trace) -> None:
 # ---------------------------------------------------------------------------
 
 
-def lagrange(f: mx.Expr, g: mx.Expr, vars: list[str],
-             trace: Trace | None = None) -> list[tuple[tuple[Fraction, ...], Fraction]]:
-    """∇f = λ∇g, g = 0 exacto cuando es lineal en (vars, λ); valor de f en cada uno."""
+def lagrange(f: mx.Expr, g, vars: list[str],
+             trace: Trace | None = None) -> list[tuple[tuple, object]]:
+    """∇f = Σλᵢ∇gᵢ, gᵢ = 0 (una o varias ligaduras); todos los candidatos aislados
+    con el valor de f en cada uno (exacto si las coordenadas lo son)."""
     from academic_core.domain.engineering.mathlab import limite as LM
+    from academic_core.domain.engineering.mathlab import sistemas as S
 
     trace = trace if trace is not None else Trace()
     if not vars:
         raise _error("BAD_INPUT", "se necesita al menos una variable")
-    lam = "lam"
-    while lam in vars:
-        lam += "_"
-    incognitas = list(vars) + [lam]
+    gs = list(g) if isinstance(g, (list, tuple)) else [g]
+    if not gs or len(gs) >= len(vars):
+        raise _error("BAD_INPUT", "hacen falta entre 1 y n − 1 ligaduras")
+    lams = []
+    for k in range(len(gs)):
+        nombre = "lam" + ("" if len(gs) == 1 else str(k + 1))
+        while nombre in vars:
+            nombre += "_"
+        lams.append(nombre)
     ecuaciones = []
     for v in vars:
-        df = _d(f, v, trace)
-        dg = _d(g, v)
-        ecuaciones.append(LM._limpio(mx.Sub(df, mx.Mul(mx.Sym(lam), dg))))
-    ecuaciones.append(g)
-    trace.metodo("mv.lagrange", "∇f = λ∇g más la ligadura, sistema exacto",
-                 why="los extremos condicionados anulan el gradiente del lagrangiano")
+        e = _d(f, v, trace)
+        for lam, gi in zip(lams, gs):
+            e = mx.Sub(e, mx.Mul(mx.Sym(lam), _d(gi, v)))
+        ecuaciones.append(LM._limpio(e))
+    ecuaciones.extend(gs)
+    trace.metodo("mv.lagrange", "∇f = Σλᵢ∇gᵢ más las ligaduras, por bases de Gröbner",
+                 why="los extremos condicionados regulares anulan el gradiente del "
+                     "lagrangiano")
+    sols = S.resolver(ecuaciones, list(vars) + lams, trace)
+    _avisa_singulares(gs, vars, trace)
+    out = []
+    for s in sols:
+        punto = tuple(_coord(s[v]) for v in vars)
+        valor = _valor_f(f, vars, punto)
+        trace.regla("mv.lagrange", f"({', '.join(texto_coord(c) for c in punto)}): "
+                                   f"f = {texto_coord(valor)}")
+        out.append((punto, valor))
+    if not out:
+        trace.regla("mv.lagrange", "sistema sin solución real: sin candidatos")
+    return out
+
+
+def _valor_f(f: mx.Expr, vars: list[str], punto: tuple):
+    from academic_core.domain.engineering.mathlab import limite as LM
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    if all(isinstance(c, Fraction) for c in punto):
+        v = _eval_exacta(f, dict(zip(vars, punto)))
+        if v is not None:
+            return Fraction(v)
+    if all(not isinstance(c, float) for c in punto):
+        e = f
+        for v, c in zip(vars, punto):
+            e = mx.substitute(e, v, _a_num(c))
+        e = LM._limpio(T.simplify(e))
+        q = mx.exact_value(e)
+        return Fraction(q) if q is not None else e
+    return float(mx.valor_real(f, {v: _float(c) for v, c in zip(vars, punto)}))
+
+
+def _avisa_singulares(gs, vars, trace) -> None:
+    """Lagrange exige ∇g ≠ 0 (o rango completo) en la ligadura: se comprueba si hay
+    puntos de la ligadura donde falla, que serían candidatos extra."""
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    if len(gs) != 1:
+        trace.hipotesis("mv.lagrange_regular", "rango completo de la jacobiana de las "
+                        "ligaduras", "no comprobado con varias ligaduras")
+        return
     try:
-        sol = _resolver_lineal(ecuaciones, incognitas, trace)
-    except UnsupportedError as exc:
-        raise _no(f"el sistema de Lagrange no es lineal en ({', '.join(incognitas)}): "
-                  f"{exc}".replace("UNSUPPORTED: ", "")) from None
-    except ValidationError as exc:
-        if str(exc).startswith("NO_SOLUTION"):
-            trace.regla("mv.lagrange", "sistema incompatible: sin candidatos",
-                        why="∇f = λ∇g y g = 0 no tienen solución común")
-            return []
-        raise
-    punto = tuple(sol[v] for v in vars)
-    penv = {v: sol[v] for v in vars}
-    valor = _eval_exacta(f, penv)
-    if valor is None:
-        raise _no("f no es exacta en el candidato")
-    for e in ecuaciones:
-        if _eval_exacta(e, {**penv, lam: sol[lam]}) != 0:
-            raise _error("INTERNAL", "el candidato no cumple el sistema")
-    trace.verificacion("mv.lagrange_sub", "candidato sustituido en ∇f = λ∇g y en g = 0")
-    return [(punto, Fraction(valor))]
+        sing = S.resolver([gs[0]] + [_d(gs[0], v) for v in vars], list(vars), Trace())
+    except UnsupportedError:
+        sing = None
+    if sing:
+        trace.aviso("mv.lagrange_singular", "la ligadura tiene puntos con ∇g = 0: " + "; ".join(
+            "(" + ", ".join(texto_coord(_coord(s[v])) for v in vars) + ")" for s in sing) +
+            " — son candidatos que Lagrange no ve; evalúa f en ellos")
+    else:
+        trace.verificacion("mv.lagrange_regular", "∇g ≠ 0 en toda la ligadura"
+                           if sing == [] else "regularidad de la ligadura no decidida")
 
 
 @dataclass(frozen=True)
@@ -633,7 +734,8 @@ class Recinto:
     maximo: tuple[str, object]
 
     def texto(self) -> str:
-        return f"mínimo {self.minimo[1]} en {self.minimo[0]}; máximo {self.maximo[1]} en {self.maximo[0]}"
+        return (f"mínimo {texto_coord(self.minimo[1])} en {self.minimo[0]}; "
+                f"máximo {texto_coord(self.maximo[1])} en {self.maximo[0]}")
 
 
 def extremos_recinto(f: mx.Expr, vars: list[str], recinto: tuple,
@@ -643,10 +745,12 @@ def extremos_recinto(f: mx.Expr, vars: list[str], recinto: tuple,
     from academic_core.domain.engineering.mathlab import limite as LM
 
     trace = trace if trace is not None else Trace()
+    if isinstance(recinto, (tuple, list)) and len(recinto) == 2 and recinto[0] == "region":
+        return _extremos_region(f, vars, recinto[1], trace)
     if (not isinstance(recinto, (tuple, list)) or len(recinto) != 5
             or recinto[0] != "rectangulo"):
-        raise _no("solo rectángulos [a,b]×[c,d] como "
-                  "['rectangulo', a, b, c, d]: otro recinto no está implementado")
+        raise _no("recintos: ['rectangulo', a, b, c, d] o ['region', g] con g ≤ 0 "
+                  "compacto (disco, elipse…)")
     if len(vars) != 2:
         raise _no(f"el rectángulo es 2D: llegaron {len(vars)} variables")
     _, sa, sb, sc, sd = recinto
@@ -667,10 +771,9 @@ def extremos_recinto(f: mx.Expr, vars: list[str], recinto: tuple,
     for punto, _clase in puntos_criticos(f, vars, trace):
         px, py = punto
         if _dentro(px, sa, sb) and _dentro(py, sc, sd):
-            v = _eval_exacta(f, {x: px, y: py})
-            if v is not None:
-                candidatos.append((f"interior ({px}, {py})", Fraction(v),
-                                   float(Fraction(v))))
+            v = _valor_f(f, [x, y], punto)
+            candidatos.append((f"interior ({texto_coord(px)}, {texto_coord(py)})", v,
+                               _float(v)))
     lados = [(x, sa, sb, sc), (x, sa, sb, sd)]
     for var, ia, ib, val in lados:
         g = mx.substitute(f, y, mx.parse(str(val)))
@@ -710,9 +813,75 @@ def extremos_recinto(f: mx.Expr, vars: list[str], recinto: tuple,
     return Recinto((minimo[0], minimo[1]), (maximo[0], maximo[1]))
 
 
-def _dentro(v: Fraction, a, b) -> bool:
+def _extremos_region(f: mx.Expr, vars: list[str], g, trace: Trace) -> Recinto:
+    """Weierstrass en {g ≤ 0}: críticos con g < 0, Lagrange en g = 0 y los puntos
+    singulares de la frontera (∇g = 0), que Lagrange no ve."""
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    g = g if isinstance(g, mx.Expr) else mx.parse(str(g))
+    _acotada(g, vars, trace)
+    candidatos: list[tuple[str, object, float]] = []
+
+    def entra(desc, punto):
+        v = _valor_f(f, vars, punto)
+        candidatos.append((f"{desc} ({', '.join(texto_coord(c) for c in punto)})", v,
+                           _float(v)))
+    for punto, _clase in puntos_criticos(f, vars, trace):
+        gv = float(mx.valor_real(g, {v: _float(c) for v, c in zip(vars, punto)}))
+        if gv < -1e-12:
+            entra("interior", punto)
+    for punto, _ in lagrange(f, g, vars, trace):
+        entra("frontera", punto)
+    try:
+        sing = S.resolver([g] + [_d(g, v) for v in vars], list(vars), Trace())
+    except UnsupportedError:
+        sing = []
+    for s in sing:
+        entra("frontera singular", tuple(_coord(s[v]) for v in vars))
+    if not candidatos:
+        raise _no("sin candidatos: ¿el recinto {g ≤ 0} es vacío?")
+    minimo = min(candidatos, key=lambda c: c[2])
+    maximo = max(candidatos, key=lambda c: c[2])
+    trace.regla("mv.weierstrass", f"mínimo {texto_coord(minimo[1])} en {minimo[0]}; "
+                                  f"máximo {texto_coord(maximo[1])} en {maximo[0]}",
+                why="compacto y f continua: los extremos están entre los candidatos "
+                    "(interior + Lagrange en la frontera + puntos singulares)")
+    return Recinto((minimo[0], minimo[1]), (maximo[0], maximo[1]))
+
+
+def _acotada(g: mx.Expr, vars: list[str], trace: Trace) -> None:
+    """{g ≤ 0} acotado: g → +∞ en todas las direcciones (muestreo en un círculo
+    grande; si g es polinómico, por su parte de mayor grado definida positiva)."""
+    from academic_core.domain.engineering.mathlab import poly as Pm
+
+    try:
+        p = Pm.as_poly(g)
+    except Exception:  # noqa: BLE001
+        p = None
+    if p is None or Pm.atoms_of(p) or len(vars) != 2:
+        raise _no("['region', g] necesita g polinómica en 2 variables")
+    d = max(Pm.mono_degree(m) for m in p)
+    top = {m: c for m, c in p.items() if Pm.mono_degree(m) == d}
+    x, y = vars
+    malos = []
+    for k in range(720):
+        t = 2 * math.pi * k / 720
+        u = (math.cos(t), math.sin(t))
+        val = sum(float(c) * u[0] ** Pm.mono_exp(m, x) * u[1] ** Pm.mono_exp(m, y)
+                  for m, c in top.items())
+        if val <= 1e-9:
+            malos.append(t)
+    if d % 2 or malos:
+        raise _no("{g ≤ 0} no es acotado (la parte de mayor grado de g no es definida "
+                  "positiva): Weierstrass no aplica")
+    trace.hipotesis("weierstrass_mv", "{g ≤ 0} compacto",
+                    "cerrado (g continua) y acotado (parte de mayor grado de g > 0 en "
+                    "toda dirección)")
+
+
+def _dentro(v, a, b) -> bool:
     fa = mx.valor_real(mx.parse(str(a)), {})
     fb = mx.valor_real(mx.parse(str(b)), {})
     if fa is None or fb is None:
         return False
-    return fa < float(v) < fb
+    return fa < _float(v) < fb

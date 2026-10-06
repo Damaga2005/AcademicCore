@@ -627,6 +627,7 @@ def _multivar(peticion: C.Peticion) -> C.Resultado:
         return dict(p)
 
     trace = Trace()
+    numerico = False
     if calculo == "limites":
         r = MV.limites_direccionales(_expresion_de(e, "expr", "f"), vars, _punto(), trace)
         sello = (V.Seal(V.VERIFIED, "dos caminos con distinto valor: no existe", r.texto())
@@ -657,21 +658,32 @@ def _multivar(peticion: C.Peticion) -> C.Resultado:
                  + f" → {clase}")
     elif calculo == "criticos":
         pts = MV.puntos_criticos(_expresion_de(e, "expr", "f"), vars, trace)
-        texto = "; ".join(f"({', '.join(str(c) for c in p)}): {c2}" for p, c2 in pts)
+        numerico = any(isinstance(c, float) for p, _ in pts for c in p)
+        texto = "; ".join(f"({', '.join(MV.texto_coord(c) for c in p)}): {c2}"
+                          for p, c2 in pts) or "sin puntos críticos"
     elif calculo == "taylor2":
         texto = mx.text(MV.taylor2(_expresion_de(e, "expr", "f"), vars,
                                    {str(k): mx.parse(str(v))
                                     for k, v in dict(e.get("centro", {})).items()},
                                    trace))
     elif calculo == "lagrange":
-        pts = MV.lagrange(_expresion_de(e, "expr", "f"), _expresion_de(e, "ligadura", "g"),
-                          vars, trace)
-        texto = "; ".join(f"({', '.join(str(c) for c in p)}): f = {v}" for p, v in pts)
+        lig = e.get("ligadura")
+        gs = ([_expresion_de({"g": t}, "g", "g") for t in lig] if isinstance(lig, list)
+              else _expresion_de(e, "ligadura", "g"))
+        pts = MV.lagrange(_expresion_de(e, "expr", "f"), gs, vars, trace)
+        numerico = any(isinstance(c, float) for p, _ in pts for c in p)
+        texto = "; ".join(f"({', '.join(MV.texto_coord(c) for c in p)}): "
+                          f"f = {MV.texto_coord(v)}" for p, v in pts) or "sin candidatos"
     elif calculo == "extremos":
         rec = tuple(e.get("recinto", ["rectangulo", "-1", "1", "-1", "1"]))
         texto = MV.extremos_recinto(_expresion_de(e, "expr", "f"), vars, rec, trace).texto()
     else:
         raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    if calculo in ("criticos", "lagrange") and numerico:
+        sello = V.Seal(V.NUMERIC_ONLY, "raíces aisladas por Sturm y sustituidas",
+                       "alguna coordenada solo se conoce en coma flotante")
+        return _finalizar(peticion, trace, texto, aproximado=None, sello=sello,
+                          avisos=("coordenadas numéricas: sin forma exacta sencilla",))
     sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino",
                    "sustitución, equivalencia exacta, simetría o diferencias según el cálculo")
     return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
@@ -794,7 +806,7 @@ def _algebra(peticion: C.Peticion) -> C.Resultado:
     "minimos"|"pseudoinversa", "matriz": [[...]], "b": [...]}``.
     """
     from academic_core.domain.engineering.mathlab import algebra as AL
-    from academic_core.domain.engineering.mathlab import mvexpr as _mx
+    from academic_core.errors import UnsupportedError
 
     e = peticion.entrada
     if not isinstance(e, dict) or "calculo" not in e or "matriz" not in e:
@@ -812,15 +824,24 @@ def _algebra(peticion: C.Peticion) -> C.Resultado:
     def _txt(v) -> str:
         if isinstance(v, Fraction):
             return str(v)
-        if isinstance(v, tuple):
-            return f"{v[0]} ± {v[1]}i"
-        return _mx.text(v)
+        return AL.texto_autovalor(v)
 
     A = [[_ent(v, "la matriz") for v in fila] for fila in e["matriz"]]
     trace = Trace()
     calculo = str(e["calculo"])
     if calculo == "autovalores":
-        vals = AL.autovalores(A, trace)
+        try:
+            vals = AL.autovalores(A, trace)
+        except UnsupportedError:
+            zs = AL.autovalores_numericos(A)
+            texto = "λ ≈ " + ", ".join(f"{z.real:.10g}" if abs(z.imag) < 1e-12 else
+                                       f"{z.real:.10g} {'+' if z.imag > 0 else '−'} "
+                                       f"{abs(z.imag):.10g}i" for z in zs)
+            trace.aviso("algebra.numerico", "factor irreducible de grado ≥ 3: Durand-Kerner")
+            sello = V.Seal(V.NUMERIC_ONLY, "Durand-Kerner sobre el característico exacto",
+                           texto)
+            return _finalizar(peticion, trace, texto, aproximado=None, sello=sello,
+                              avisos=("sin forma exacta: valores numéricos",))
         texto = "λ = " + ", ".join(_txt(v) for v in vals)
     elif calculo == "diagonalizar":
         P, D = AL.diagonalizar(A, trace)

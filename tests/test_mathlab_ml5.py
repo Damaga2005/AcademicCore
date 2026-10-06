@@ -108,8 +108,11 @@ def test_extremos_recinto():
 def test_rechazos_honestos():
     from academic_core.domain.engineering.mathlab import varias as MV
 
-    with pytest.raises(Exception, match="no (es lineal|decide|diagonaliza|vale)"):
-        MV.puntos_criticos(mx.parse("x^3-3*x*y^2"), ["x", "y"])
+    # silla de mono: (0, 0) es el único crítico y la Hessiana nula no decide
+    pts = MV.puntos_criticos(mx.parse("x^3-3*x*y^2"), ["x", "y"])
+    assert pts == [((Fraction(0), Fraction(0)), "sin clasificar (segundo orden no decide)")]
+    with pytest.raises(Exception, match="no están aisladas"):
+        MV.puntos_criticos(mx.parse("(x-y)^2"), ["x", "y"])
     with pytest.raises(Exception, match="[Dd]iscriminante|no decide|semidefinida"):
         MV.hessiana(mx.parse("x^4+y^4"), ["x", "y"])
 
@@ -185,3 +188,94 @@ def test_bordes_robustos():
     # hessiana 3x3 definida
     _, c = MV.hessiana(mx.parse("x^2+y^2+z^2"), ["x", "y", "z"])
     assert c == "mínimo"
+
+
+# ---------------------------------------------------------------------------
+# no lineales (bases de Gröbner) y autovalores corregidos
+# ---------------------------------------------------------------------------
+
+
+def test_criticos_no_lineales():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    pts = dict(MV.puntos_criticos(mx.parse("x^3-3*x+y^2"), ["x", "y"]))
+    assert pts == {(Fraction(-1), Fraction(0)): "punto de silla",
+                   (Fraction(1), Fraction(0)): "mínimo"}
+    pts = MV.puntos_criticos(mx.parse("x*y*exp(-x^2-y^2)"), ["x", "y"])
+    clases = sorted((round(MV._float(p[0]), 6), round(MV._float(p[1]), 6), c)
+                    for p, c in pts)
+    r = round(2 ** -0.5, 6)
+    assert clases == [(-r, -r, "máximo"), (-r, r, "mínimo"), (0.0, 0.0, "punto de silla"),
+                      (r, -r, "mínimo"), (r, r, "máximo")]
+    # 3 variables con silla decidida por Descartes (Hessiana diag(2, −2, 2))
+    pts = MV.puntos_criticos(mx.parse("x^2-y^2+z^2"), ["x", "y", "z"])
+    assert pts == [((Fraction(0),) * 3, "punto de silla")]
+    # coordenada sin forma exacta: numérica, no inventada
+    pts = MV.puntos_criticos(mx.parse("x^4/4-2*x+y^2"), ["x", "y"])
+    assert len(pts) == 1 and isinstance(pts[0][0][0], float)
+    assert abs(pts[0][0][0] - 2 ** (1 / 3)) < 1e-9 and pts[0][1] == "mínimo"
+
+
+def test_lagrange_no_lineal():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    pts = MV.lagrange(mx.parse("x+y"), mx.parse("x^2+y^2-1"), ["x", "y"])
+    valores = sorted(MV._float(v) for _, v in pts)
+    assert [round(v, 9) for v in valores] == [round(-2 ** 0.5, 9), round(2 ** 0.5, 9)]
+    pts = MV.lagrange(mx.parse("x*y*z"), mx.parse("x^2+y^2+z^2-3"), ["x", "y", "z"])
+    assert len(pts) == 14
+    assert max(MV._float(v) for _, v in pts) == 1 and min(MV._float(v) for _, v in pts) == -1
+    # dos ligaduras: plano ∩ cilindro
+    pts = MV.lagrange(mx.parse("z"), [mx.parse("x+y+z-1"), mx.parse("x^2+y^2-1")],
+                      ["x", "y", "z"])
+    assert sorted(round(MV._float(v), 9) for _, v in pts) == [
+        round(1 - 2 ** 0.5, 9), round(1 + 2 ** 0.5, 9)]
+
+
+def test_lagrange_aviso_ligadura_singular():
+    from academic_core.domain.engineering.mathlab import varias as MV
+    from academic_core.domain.engineering.mathlab.trace import Trace
+
+    t = Trace()
+    MV.lagrange(mx.parse("x"), mx.parse("y^2-x^3"), ["x", "y"], t)   # cúspide en (0,0)
+    assert "mv.lagrange_singular" in t.to_text()   # (0, 0): el mínimo que Lagrange no ve
+
+
+def test_autovalores_corregidos():
+    from academic_core.domain.engineering.mathlab import algebra as AL
+
+    F = Fraction
+    assert [AL.texto_autovalor(v) for v in AL.autovalores([[2, -1], [3, 0]])] == [
+        "1 + sqrt(2)·i", "1 − sqrt(2)·i"]
+    assert AL.autovalores([[0, -1, 0], [1, 0, 0], [0, 0, 2]]) == [F(2), (F(0), F(1)),
+                                                                  (F(0), F(-1))]
+    assert AL.autovalores([[1, 1], [0, 1]]) == [F(1), F(1)]
+    with pytest.raises(Exception, match="no diagonaliza"):
+        AL.diagonalizar([[1, 1], [0, 1]])
+    P, D = AL.diagonalizar([[2, 1, 1], [1, 2, 1], [1, 1, 2]])
+    assert sorted(D) == [F(1), F(1), F(4)]
+    # 4×4 por bloques y raíces cúbicas irreducibles: numéricas, nunca incompletas
+    assert len(AL.autovalores([[1, 0, 0, 0], [0, 2, 0, 0], [0, 0, 0, -1], [0, 0, 1, 0]])) == 4
+    with pytest.raises(Exception, match="sin forma exacta"):
+        AL.autovalores([[0, 1, 0], [0, 0, 1], [2, 0, 0]])
+    z = AL.autovalores_numericos([[0, 1, 0], [0, 0, 1], [2, 0, 0]])
+    assert len(z) == 3 and all(abs(w ** 3 - 2) < 1e-9 for w in z)
+
+
+def test_extremos_en_region():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    r = MV.extremos_recinto(mx.parse("x^2+y^2-x"), ["x", "y"], ("region", "x^2+y^2-1"))
+    assert r.minimo[1] == Fraction(-1, 4) and r.maximo[1] == Fraction(2)
+    r = MV.extremos_recinto(mx.parse("x*y"), ["x", "y"], ("region", "x^2+4*y^2-8"))
+    assert (r.minimo[1], r.maximo[1]) == (Fraction(-2), Fraction(2))
+    with pytest.raises(Exception, match="no es acotado"):
+        MV.extremos_recinto(mx.parse("x"), ["x", "y"], ("region", "y^2-x^3"))
+
+
+def test_pseudoinversa_rango_deficiente():
+    from academic_core.domain.engineering.mathlab import algebra as AL
+
+    F = Fraction
+    assert AL.pseudoinversa([[1, 1], [1, 1]]) == [[F(1, 4), F(1, 4)], [F(1, 4), F(1, 4)]]
+    assert AL.pseudoinversa([[0, 0]]) == [[F(0)], [F(0)]]
