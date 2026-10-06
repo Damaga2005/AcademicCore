@@ -34,7 +34,10 @@ def test_la_primitiva_que_salta_se_corrige_por_tramos(texto, esperado, antes):
     esperado = -q if esperado is None else esperado
     assert r.aproximado is not None
     assert abs(r.aproximado.real - esperado) < 1e-9, (texto, r.aproximado, antes)
-    assert r.sello.verdict != V.VERIFIED
+    # an exact value is fine (sin·sin now integrates by product-to-sum, without
+    # jumps, and π is exact); a jump-corrected value is never presented as exact
+    if "tramos" in r.sello.method:
+        assert r.sello.verdict != V.VERIFIED
 
 
 @pytest.mark.parametrize("texto,antes", [

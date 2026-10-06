@@ -92,4 +92,6 @@ def test_lo_que_no_sabe_resolver_lo_dice_y_no_publica_familias_falsas(ecuacion):
     for m in _miembros(resolucion):
         assert abs(mx.valor_real(g, {"x": m})) < 1e-9, (ecuacion, m)
     if not resolucion.familias:
-        assert resolucion.refusos
+        # numeric solutions, a certified «no real solutions», or a declared refusal
+        assert (resolucion.aproximadas or resolucion.sin_soluciones_reales
+                or resolucion.refusos)

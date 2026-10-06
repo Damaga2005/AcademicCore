@@ -54,8 +54,14 @@ def _evaluable(e: Expr) -> Expr:
     return type(e)(_evaluable(e.left), _evaluable(e.right))
 
 
+_PI = Decimal("3.14159265358979323846264338327950288419716939937510")
+
+
 def value(e: Expr, env: dict[str, Decimal]) -> Decimal | None:
     """Decimal value via the certified evaluator, or None (unbound symbol / domain error)."""
+    if "pi" in symbols(e) and "pi" not in env:
+        # the constant pi arrives from the multivariate layer as a symbol
+        env = {**env, "pi": _PI}
     if not symbols(e) <= set(env):
         return None
     try:

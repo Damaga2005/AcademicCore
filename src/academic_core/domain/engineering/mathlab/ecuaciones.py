@@ -99,6 +99,15 @@ class Familia:
         return mx.Add(self.base, mx.Mul(mx.Num(Fraction(k)), self.paso))
 
 
+def _texto_aproximada(raiz, periodo: float | None, var: str) -> str:
+    base = f"{var} ≈ {raiz.valor:.12g}"
+    cota = (f" (error < {raiz.error:.1g})" if raiz.certificada
+            else f" (raíz doble, error estimado {raiz.error:.1g})")
+    if periodo:
+        return f"{base} + {periodo:.12g}·k{cota},  k ∈ ℤ"
+    return base + cota
+
+
 @dataclass(frozen=True)
 class Resolucion:
     """The families found, how, and what was thrown away on the way."""
@@ -108,13 +117,24 @@ class Resolucion:
     hipotesis: tuple[str, ...] = ()
     espurias: tuple[str, ...] = ()
     refusos: tuple[str, ...] = ()
+    #: solutions with no closed form here, each bracketed with its error, and the
+    #: period they repeat with. An equation like tg(3x + pi/6) + cos(3x)^2 = 0 has
+    #: no elementary solution at all; these are its answer, labelled numeric.
+    aproximadas: tuple = ()
+    periodo: float | None = None
+    #: True when a derivative bound shows there is no real solution at all
+    sin_soluciones_reales: bool = False
 
     def texto(self, var: str) -> str:
+        partes = [f.texto(var) for f in self.familias]
+        partes += [_texto_aproximada(r, self.periodo, var) for r in self.aproximadas]
+        if partes:
+            return "   ó   ".join(partes)
+        if self.sin_soluciones_reales:
+            return "no hay soluciones reales"
         if self.refusos:
             return "no se resuelve todavía: " + self.refusos[0]
-        if not self.familias:
-            return "no hay soluciones"
-        return "   ó   ".join(f.texto(var) for f in self.familias)
+        return "no hay soluciones"
 
     @property
     def vacia(self) -> bool:
@@ -250,38 +270,34 @@ def _pi() -> mx.Expr:
 # ---------------------------------------------------------------------------
 
 
-def _aviso_de_completitud(f: mx.Expr, familias, var: str) -> str | None:
-    """A sentence when the families miss a root that a numeric scan finds.
+def _numericas(f: mx.Expr, familias, var: str):
+    """``(aproximadas, periodo, sin_soluciones_reales)`` over one period.
 
     Each case answers the equations of its shape, and an equation of a mixed shape
-    can be answered only in part: ``cos(x)/2 + 2·tg(2x) = -1/2`` published
-    ``x = pi + 2k·pi`` alone and nothing said the list stopped there (found
-    2026-10-05). One period is scanned; every root found there must be a member of
-    some family, and the ones that are not are named with their approximate value,
-    because «faltan soluciones» without saying where is not much of an answer.
+    can be answered only in part, or not at all: ``cos(x)/2 + 2·tg(2x) = -1/2``
+    published ``x = pi + 2k·pi`` alone (found 2026-10-05). One period is scanned;
+    every root there that no exact family covers is bracketed and returned with its
+    error, so the answer is complete even where it is not exact.
     """
     from academic_core.domain.engineering.mathlab import continuidad as K
 
     periodo = D.periodo_minimo(f, var)
     if periodo is None:
-        return None
-    longitud = float(periodo) * 3.141592653589793
-    raices = K.ceros_numericos(f, var, 0.0, longitud)
+        return [], None, False
+    longitud = float(periodo) * math.pi
     valores = []
     for familia in familias:
         base = mx.valor_real(familia.miembro(0, var), {})
         siguiente = mx.valor_real(familia.miembro(1, var), {})
         if base is None or siguiente is None:
-            return None        # a family that cannot be evaluated: no claim either way
+            return [], longitud, False   # no claim either way
         valores.append((base, siguiente - base))
+    raices = K.ceros_numericos(f, var, 0.0, longitud)
     faltan = K.no_cubiertos(raices, valores)
-    if not faltan:
-        return None
-    lista = ", ".join(f"x ≈ {r:.6g}" for r in faltan[:8])
-    return ("la lista de soluciones está INCOMPLETA: en un periodo, [0, "
-            f"{longitud:.6g}), hay soluciones que ninguna familia exacta cubre "
-            f"({lista}); se dan como aproximaciones numéricas, y se repiten con el "
-            "periodo")
+    aproximadas = [K.raiz_certificada(f, var, r) for r in faltan]
+    sin_reales = (not familias and not raices
+                  and K.sin_ceros_en(f, var, 0.0, longitud))
+    return aproximadas, longitud, sin_reales
 
 
 def separar(ecuacion: str) -> tuple[str, str]:
@@ -342,13 +358,24 @@ def resolver(ecuacion: str, var: str = "x") -> Resolucion:
         if not validas:
             hipotesis.append(MOTIVO_SIN_CASO)
     familias = validas
-    aviso = _aviso_de_completitud(original, familias, var)
-    if aviso:
-        hipotesis = list(hipotesis) + [aviso]
+    aproximadas, periodo, sin_reales = _numericas(original, familias, var)
+    if aproximadas:
+        hipotesis = list(hipotesis) + [
+            f"{len(aproximadas)} solución(es) por periodo no tienen forma exacta "
+            "aquí: se dan encerradas por bisección en un intervalo donde la función "
+            "cambia de signo (teorema de Bolzano), con su cota de error, y se "
+            "repiten con el periodo"]
+    if sin_reales:
+        hipotesis = [h for h in hipotesis if MOTIVO_SIN_CASO not in h] + [
+            "no hay soluciones reales: en un periodo completo |f| se mantiene por "
+            "encima de lo que su derivada le permite bajar entre dos nodos de la "
+            "malla, así que no llega a anularse"]
     refusos = tuple(h for h in hipotesis if MOTIVO_SIN_CASO in h)
     return Resolucion(tuple(familias), hipotesis=tuple(h for h in hipotesis
                                                        if h not in refusos),
-                      espurias=tuple(espurias), refusos=refusos)
+                      espurias=tuple(espurias), refusos=refusos,
+                      aproximadas=tuple(aproximadas), periodo=periodo,
+                      sin_soluciones_reales=sin_reales)
 
 
 def _casos(f: mx.Expr, var: str):

@@ -1190,7 +1190,16 @@ def _integral_definida(integrando: mx.Expr, var: str, bounds, trace: Trace,
         return rechazo
     primitiva, sello = _primitiva(integrando, var, trace, peticion)
     if primitiva is None:
-        return None, None, sello, None, None
+        # no antiderivative: the same numeric fallback the rational-limit path has.
+        # Without it ∫_0^pi e^(x²) returned nothing at all (found 2026-10-06).
+        aproximacion = _simpson(integrando, var, lim_a.real, lim_b.real, trace)
+        if aproximacion is None:
+            return None, None, sello, None, None
+        valor, error = aproximacion
+        sello = V.Seal(V.NUMERIC_ONLY, "cuadratura de Gauss–Kronrod con error estimado",
+                       f"{valor:.12g} con error {error:.3g}")
+        grafica = _grafica_area(integrando, var, low, high, valor, error)
+        return None, complex(valor), sello, grafica, error
     arriba = mx.evaluate(mx.substitute(primitiva, var, high))
     abajo = mx.evaluate(mx.substitute(primitiva, var, low))
     if arriba is None or abajo is None:
@@ -1219,7 +1228,123 @@ def _integral_definida(integrando: mx.Expr, var: str, bounds, trace: Trace,
     trace.verificacion("integral.definida.verificacion", sello.method,
                        after=f"valor {valor_num:.12g}, error {error:.3g}")
     grafica = _grafica_area(integrando, var, low, high, valor_num, error)
+    if discrepa is None and not corregido:
+        exacto = _diferencia_exacta(primitiva, var, low, high, valor_num)
+        if exacto is not None:
+            # ∫_0^pi sen x is 2, not «2 con error 4e-16»: F(pi) - F(0) simplifies
+            # exactly, and the decimal value already checked against the
+            # quadrature is what licenses showing it
+            trace.verificacion(
+                "integral.definida.exacta",
+                "F(b) − F(a) se simplifica a un valor exacto",
+                before=f"F({mx.text(high)}) − F({mx.text(low)})", after=mx.text(exacto),
+                why=("los límites no son racionales, pero los valores notables de F "
+                     "en ellos sí son exactos; el valor coincide con el decimal ya "
+                     "contrastado con la cuadratura"))
+            sello = V.Seal(V.VERIFIED, "Barrow con valores exactos en los límites",
+                           mx.text(exacto))
+            racional = mx.exact_value(exacto)
+            return (mx.num(racional) if racional is not None else exacto,
+                    complex(valor_num), sello, grafica, None)
     return None, complex(valor_num), sello, grafica, error
+
+
+def _diferencia_exacta(primitiva: mx.Expr, var: str, a: mx.Expr, b: mx.Expr,
+                       decimal: float) -> mx.Expr | None:
+    """``F(b) - F(a)`` simplified to a closed exact value, or ``None``.
+
+    Accepted only when nothing transcendental is left except ``pi`` and radicals,
+    and when it agrees with the decimal value to 1e-12.
+    """
+    from academic_core.domain.engineering.mathlab import poly as P
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    try:
+        diferencia = mx.Sub(mx.substitute(primitiva, var, b),
+                            mx.substitute(primitiva, var, a))
+        simple = T.simplify(P.to_expr(P.as_poly(pliega_constante(diferencia))))
+    except Exception:  # noqa: BLE001
+        return None
+    if not _cerrado(simple):
+        return None
+    valor = mx.valor_real(simple, {})
+    if valor is None or abs(valor - decimal) > 1e-12 * max(1.0, abs(decimal)):
+        return None
+    return simple
+
+
+def pliega_constante(e: mx.Expr) -> mx.Expr:
+    """A closed expression with every argument folded before its function.
+
+    ``trig.simplify`` reads ``sin(2·(2·pi))`` with the argument as written and does
+    not reduce it; folding the argument to ``4·pi`` first lets the notable value
+    appear. The inverse functions take their PRINCIPAL value at notable points
+    (``atan(sqrt(3)) = pi/3``, ``atan(-1) = -pi/4``), checked against the float.
+    """
+    import math as _m
+
+    from academic_core.domain.engineering.mathlab import ecuaciones as E
+    from academic_core.domain.engineering.mathlab import poly as P
+    from academic_core.domain.engineering.mathlab import trig as T
+
+    def normal(x: mx.Expr) -> mx.Expr:
+        try:
+            return T.simplify(P.to_expr(P.as_poly(x)))
+        except Exception:  # noqa: BLE001
+            return T.simplify(x)
+
+    if isinstance(e, mx.Call):
+        args = tuple(pliega_constante(a) for a in e.args)
+        directa = {"asin": ("sin", _m.asin), "acos": ("cos", _m.acos),
+                   "atan": ("tan", _m.atan)}.get(e.name)
+        if directa and len(args) == 1 and not mx.variables(args[0]):
+            valor = mx.valor_real(args[0], {})
+            if valor is not None and (e.name == "atan" or abs(valor) <= 1):
+                angulo, multiplo, _nota = E._inversa(directa[0], args[0])
+                if multiplo:
+                    principal = directa[1](valor)
+                    for candidato in (angulo, mx.Sub(angulo, mx.PI),
+                                      mx.Sub(mx.PI, angulo), mx.Neg(angulo)):
+                        v = mx.valor_real(candidato, {})
+                        if v is not None and abs(v - principal) < 1e-12:
+                            return normal(candidato)
+        if len(args) == 1 and not mx.variables(args[0]):
+            valor = mx.valor_real(args[0], {})
+            if e.name == "abs" and valor is not None and valor != 0:
+                return args[0] if valor > 0 else normal(mx.Neg(args[0]))
+            if e.name == "ln" and mx.exact_value(args[0]) == 1:
+                return mx.ZERO
+            if e.name == "exp" and mx.exact_value(args[0]) == 0:
+                return mx.ONE
+        return T.simplify(mx.Call(e.name, args))
+    if isinstance(e, mx.Neg):
+        return normal(mx.Neg(pliega_constante(e.arg)))
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return normal(type(e)(pliega_constante(e.left), pliega_constante(e.right)))
+    if isinstance(e, mx.Pow):
+        return normal(mx.Pow(pliega_constante(e.base), pliega_constante(e.exponent)))
+    if isinstance(e, mx.Root):
+        return normal(mx.Root(e.degree, pliega_constante(e.radicand)))
+    return e
+
+
+def _cerrado(e: mx.Expr) -> bool:
+    """A closed exact constant: rationals, pi, radicals, and functions of those."""
+    if isinstance(e, mx.Call):
+        return all(_cerrado(a) for a in e.args)
+    if isinstance(e, mx.Num):
+        return True
+    if isinstance(e, mx.Const):
+        return e.name == "pi"
+    if isinstance(e, mx.Root):
+        return _cerrado(e.radicand)
+    if isinstance(e, mx.Neg):
+        return _cerrado(e.arg)
+    if isinstance(e, mx.Pow):
+        return _cerrado(e.base) and mx.exact_value(e.exponent) is not None
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return _cerrado(e.left) and _cerrado(e.right)
+    return False
 
 
 def _singularidad_en(integrando: mx.Expr, var: str, a: float, b: float,
@@ -1433,6 +1558,21 @@ def _barrow(integrando: mx.Expr, var: str, a, b, trace: Trace,
                        "de la primitiva", f"{comprobado:.12g} con error {error:.3g}")
         grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b), comprobado, error)
         return None, complex(comprobado), sello, grafica, error
+    if not isinstance(diferencia, Fraction):
+        exacto = _diferencia_exacta(mx.from_symbolic(_F), var, mx.num(a), mx.num(b),
+                                    comprobado)
+        if exacto is not None:
+            # atan(1) - atan(-1) is pi/2, not 1.5707963267948966
+            trace.verificacion(
+                "integral.definida.exacta", "F(b) − F(a) se simplifica a un valor exacto",
+                before=detalle, after=mx.text(exacto),
+                why="el valor coincide con el decimal ya contrastado con la cuadratura")
+            grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b), comprobado, 0.0)
+            racional = mx.exact_value(exacto)
+            return (mx.num(racional) if racional is not None else exacto,
+                    complex(comprobado),
+                    V.Seal(V.VERIFIED, "Barrow con valores exactos en los límites",
+                           mx.text(exacto)), grafica, None)
     sello = V.Seal(V.VERIFIED if isinstance(diferencia, Fraction) else V.NUMERIC_ONLY,
                    metodo, detalle)
     grafica = _grafica_area(integrando, var, mx.num(a), mx.num(b),

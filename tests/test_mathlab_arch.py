@@ -174,11 +174,13 @@ def test_el_puente_al_motor_e01_es_explicito():
     # e^x must cross the bridge as exp(x), not as exp(1)^x: the latter has no
     # rule in E0.1 and would be a dead end.
     assert texto_e01(mx.to_symbolic(mx.parse("e^x"))) == "exp(x)"
-    # pi and i have no form in a one-variable engine: said, not guessed
-    for source in ("pi", "i^2"):
-        with pytest.raises(UnsupportedError) as exc:
-            mx.to_symbolic(mx.parse(source))
-        assert "«" in str(exc.value)
+    # pi crosses as a reserved symbol that the rules treat as a constant and that
+    # comes back as the constant (2026-10-06: cos(x + pi/6) could not be derived)
+    assert mx.from_symbolic(mx.to_symbolic(mx.parse("pi"))) == mx.PI
+    # i has no form in a one-variable engine: said, not guessed
+    with pytest.raises(UnsupportedError) as exc:
+        mx.to_symbolic(mx.parse("i^2"))
+    assert "«" in str(exc.value)
 
 
 def test_la_calculadora_se_puede_llamar_sin_interfaz():

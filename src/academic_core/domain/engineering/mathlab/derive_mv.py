@@ -147,7 +147,7 @@ def differentiate(expr: mx.Expr, var: str, trace: Trace | None = None) -> mx.Exp
 
 def _expressible(e: mx.Expr) -> bool:
     """Can E0.1 represent this? ``pi``, ``i`` and calculus objects cannot."""
-    if mx.constants(e) & {"pi", "i"}:
+    if mx.constants(e) & {"i"}:
         return False
     return not _has_calculus(e)
 

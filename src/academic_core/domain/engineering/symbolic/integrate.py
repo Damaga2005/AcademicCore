@@ -2129,7 +2129,16 @@ def _substitution(e: Expr, var: str, log: StepLog, depth: int) -> tuple[Expr, in
         scratch = StepLog()
         _raw, dg, _s = derivative(g, var, scratch)
         k = constant_ratio(_product(rest), dg, var)
-        if k is None or k == 0:
+        k_simbolico = None
+        if k is None:
+            # The ratio may be a constant that is not a NUMBER: ∫exp(pi·x) has
+            # rest = 1 and g' = pi, so the factor is 1/pi. It is just as constant,
+            # and refusing it refused ∫cos(pi·x) and ∫exp(y·x) (found 2026-10-06).
+            cociente, _r = simplify(Div(_product(rest), dg), var)
+            if depends(cociente, var) or text(cociente) in ("0",):
+                continue
+            k, k_simbolico = 1, cociente
+        if k == 0:
             continue
         uname = _fresh(e, var)
         u = Sym(uname)
@@ -2141,16 +2150,22 @@ def _substitution(e: Expr, var: str, log: StepLog, depth: int) -> tuple[Expr, in
         s1 = log.add(OP, "cambio de variable: diferencial", f"{uname} = {text(g)}", f"d{uname} = {text(dg)} d{var}",
                      explanation=f"d{uname} = g'({var}) d{var}", uses=(s0, sd))
         integrand = outer(u)
-        rewritten = _integral(integrand, uname) if k == 1 else f"{k}·{_integral(integrand, uname)}"
+        factor = text(k_simbolico) if k_simbolico is not None else (None if k == 1 else str(k))
+        rewritten = _integral(integrand, uname) if factor is None else f"{factor}·{_integral(integrand, uname)}"
         s2 = log.add(OP, "cambio de variable: reescribir en u", _integral(e, var), rewritten,
-                     substitution=f"{text(_product(rest))} d{var} = " + (f"d{uname}" if k == 1 else f"{k}·d{uname}"),
+                     substitution=f"{text(_product(rest))} d{var} = " + (f"d{uname}" if factor is None else f"{factor}·d{uname}"),
                      explanation="El resto del integrando es una constante por g'(x): la integral queda sólo en u.",
                      uses=(s1,))
         fu, si = integrate(integrand, uname, log, depth + 1)
         back = substitute(fu, uname, g)
         out = back if k == 1 else Mul(_k(k), back)
+        if k_simbolico is not None:
+            out = Mul(k_simbolico, out)
+        antes = fu if k == 1 else Mul(_k(k), fu)
+        if k_simbolico is not None:
+            antes = Mul(k_simbolico, antes)
         return out, log.add(OP, "cambio de variable: deshacer el cambio",
-                            text(fu if k == 1 else Mul(_k(k), fu)), text(out),
+                            text(antes), text(out),
                             substitution=f"{uname} = {text(g)}", explanation="Se sustituye u por g(x).",
                             uses=(s2, si))
     return None

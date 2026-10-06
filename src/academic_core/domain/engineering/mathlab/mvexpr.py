@@ -1216,6 +1216,10 @@ def preview(source: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: the name pi takes inside the one-variable engine (see _to_symbolic)
+PI_SIMBOLICO = "pi"
+
+
 def to_symbolic(e: Expr):
     """Convert to ``symbolic.expr.Expr`` to reuse derive/integrate/solve/normal.
 
@@ -1234,6 +1238,14 @@ def _to_symbolic(e: Expr, sx, seen: set[str]):
     if isinstance(e, Sym):
         return sx.Sym(e.name)
     if isinstance(e, Const):
+        if e.name == "pi":
+            # pi travels as a symbol: the rules treat it as the constant it is (it
+            # does not depend on the variable), symbolic.numeric gives it its value,
+            # and from_symbolic turns it back into the constant. The parser never
+            # produces a VARIABLE called «pi», so the name cannot collide. Without
+            # this, cos(x + pi/6) could be neither differentiated nor integrated
+            # (found 2026-10-06).
+            return sx.Sym(PI_SIMBOLICO)
         raise no_rule(
             f"«{e.name}» solo se puede pasar al motor de una variable dentro de una potencia "
             f"como e^x, no suelto"
@@ -1253,7 +1265,11 @@ def _to_symbolic(e: Expr, sx, seen: set[str]):
         # exponente variables"), so a literal exp(1) would be a dead end.
         if isinstance(e.base, Const) and e.base.name == "e":
             return sx.Fn("exp", _to_symbolic(e.exponent, sx, seen))
-        if isinstance(e.base, Const):
+        if isinstance(e.base, Const) and e.base.name == "pi" and variables(e.exponent):
+            # pi^u = exp(u·ln pi): the a^x rule of E0.1 wants a numeric base
+            return sx.Fn("exp", sx.Mul(_to_symbolic(e.exponent, sx, seen),
+                                       sx.Fn("log", sx.Sym(PI_SIMBOLICO))))
+        if isinstance(e.base, Const) and e.base.name != "pi":
             raise no_rule(f"«{e.base.name}» elevado a algo no tiene forma en el motor de una variable")
         return sx.Pow(_to_symbolic(e.base, sx, seen), _to_symbolic(e.exponent, sx, seen))
     if isinstance(e, Root):
@@ -1278,7 +1294,7 @@ def from_symbolic(sxe):
         if isinstance(e, sx.Num):
             return Num(e.value)
         if isinstance(e, sx.Sym):
-            return Sym(e.name)
+            return PI if e.name == PI_SIMBOLICO else Sym(e.name)
         if isinstance(e, sx.Neg):
             return Neg(conv(e.arg))
         if isinstance(e, sx.Fn):

@@ -204,6 +204,82 @@ def ceros_numericos(f: mx.Expr, var: str, a: float, b: float) -> list[float]:
     return salida
 
 
+@dataclass(frozen=True)
+class RaizNumerica:
+    """A root known to lie in ``[valor - error, valor + error]``.
+
+    ``certificada`` is True when that interval comes from a sign change of a
+    continuous function — Bolzano then guarantees a root inside it, and the
+    bisection narrows it to the last bit. A double root (the curve touches 0
+    without crossing) has no sign change; it is found by minimising ``|f|`` and
+    its ``error`` is an estimate, said as such.
+    """
+
+    valor: float
+    error: float
+    certificada: bool
+
+
+def raiz_certificada(f: mx.Expr, var: str, c: float, ancho: float = 1e-3) -> RaizNumerica:
+    """Bracket and bisect around an approximate root ``c``."""
+    lo, hi = c - ancho, c + ancho
+    flo, fhi = _valor(f, var, lo), _valor(f, var, hi)
+    for _ in range(12):
+        if flo is not None and fhi is not None and flo * fhi < 0:
+            break
+        ancho /= 4
+        lo, hi = c - ancho, c + ancho
+        flo, fhi = _valor(f, var, lo), _valor(f, var, hi)
+    if flo is None or fhi is None or flo * fhi >= 0:
+        return RaizNumerica(c, max(1e-8, abs(c) * 1e-8), False)
+    for _ in range(200):
+        medio = (lo + hi) / 2
+        if medio in (lo, hi):
+            break
+        fm = _valor(f, var, medio)
+        if fm is None:
+            break
+        if fm == 0:
+            lo = hi = medio
+            break
+        if (fm < 0) == (flo < 0):
+            lo, flo = medio, fm
+        else:
+            hi = medio
+    return RaizNumerica((lo + hi) / 2, max((hi - lo) / 2, 1e-16 * max(1.0, abs(lo))), True)
+
+
+def sin_ceros_en(f: mx.Expr, var: str, a: float, b: float) -> bool:
+    """Whether ``f`` has no zero on ``[a, b]``, by a bound on its derivative.
+
+    On a grid of step ``h`` every point is within ``h/2`` of a node, so if
+    ``min|f(node)| > M·h/2`` with ``M`` a bound on ``|f'|``, ``f`` cannot reach 0.
+    ``M`` is the largest sampled ``|f'|`` on a grid four times finer, doubled. It
+    is only claimed where ``f`` is defined on the whole interval.
+    """
+    from academic_core.domain.engineering.mathlab import derive_mv as Dv
+
+    try:
+        derivada = Dv.differentiate(f, var)
+    except Exception:  # noqa: BLE001
+        return False
+    n = 4000
+    h = (b - a) / n
+    minimo = math.inf
+    for i in range(n + 1):
+        v = _valor(f, var, a + i * h)
+        if v is None:
+            return False
+        minimo = min(minimo, abs(v))
+    pendiente = 0.0
+    for i in range(4 * n + 1):
+        d = _valor(derivada, var, a + i * h / 4)
+        if d is None:
+            return False
+        pendiente = max(pendiente, abs(d))
+    return minimo > 2 * pendiente * h / 2 + 1e-12
+
+
 def no_cubiertos(raices: list[float], valores: list[tuple[float, float]],
                  tolerancia: float = 1e-6) -> list[float]:
     """The roots not of the form ``base + k·paso`` for any ``(base, paso)`` given."""

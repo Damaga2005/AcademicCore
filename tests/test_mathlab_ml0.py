@@ -648,11 +648,20 @@ def test_una_integral_definida_exacta_no_lleva_error():
 
 def test_un_limite_no_racional_no_se_redondea_a_una_fraccion():
     """A float must never be dressed up as an exact fraction (§5.1)."""
-    r = C.calcular(C.Peticion("integrar", {"integrando": "sin(x)", "var": "x",
+    r = C.calcular(C.Peticion("integrar", {"integrando": "e^(x^2)", "var": "x",
                                            "desde": "0", "hasta": "pi"}))
-    assert r.exacto is None                 # pi is not rational
+    assert r.exacto is None                 # no closed form: a decimal stays one
     assert r.error_acotado is not None
     assert r.sello.verdict == V.NUMERIC_ONLY
+
+
+def test_un_limite_no_racional_con_valor_exacto_lo_da_exacto():
+    """∫_0^pi sen x is exactly 2: F(pi) - F(0) simplifies, it is not rounded."""
+    r = C.calcular(C.Peticion("integrar", {"integrando": "sin(x)", "var": "x",
+                                           "desde": "0", "hasta": "pi"}))
+    assert r.exacto == "2"
+    assert r.sello.method == "Barrow con valores exactos en los límites"
+    assert any(s.rule == "integral.definida.exacta" for s in r.traza.steps)
 
 
 def test_una_solicitud_ambigua_pide_claridad():
