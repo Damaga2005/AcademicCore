@@ -605,6 +605,28 @@ def _por_factores(e: mx.Expr, var: str, ventana) -> Ceros:
             return ceros(e.base, var, ventana)
     if isinstance(e, mx.Root):
         return ceros(e.radicand, var, ventana)
+    if isinstance(e, mx.Call) and e.name in ("sin", "cos") and len(e.args) == 1:
+        lineal = _polinomio_de(e.args[0], var)
+        if lineal is not None and len(_recorta(lineal)) == 2:
+            # sin(m·x + q) = 0 ⇔ m·x + q = kπ;  cos: = π/2 + kπ — exact, inside the window
+            q, m = lineal[0], lineal[1]
+            desfase = Fraction(0) if e.name == "sin" else Fraction(1, 2)
+            raices = []
+            a, b = ventana
+            kmin = math.floor((m * a + q) / math.pi - 1) if m > 0 else math.floor((m * b + q) / math.pi - 1)
+            kmax = math.ceil((m * b + q) / math.pi + 1) if m > 0 else math.ceil((m * a + q) / math.pi + 1)
+            for k in range(kmin, kmax + 1):
+                # x = ((k + desfase)·π − q)/m
+                expr = mx.Div(mx.Sub(mx.Mul(_num(k + desfase), mx.Const("pi")), _num(q)), _num(m))
+                from academic_core.domain.engineering.mathlab import limite as LM
+
+                expr = LM._limpio(expr)
+                x = (float(k + desfase) * math.pi - float(q)) / float(m)
+                if a <= x <= b:
+                    raices.append(Raiz(expr, x))
+            aviso = (f"«{mx.text(e)}» tiene infinitos ceros (periódica): se dan los de "
+                     f"[{a:g}, {b:g}]")
+            return Ceros(tuple(raices), False, (aviso,))
     if isinstance(e, mx.Call):
         if e.name == "exp":
             return Ceros((), True)

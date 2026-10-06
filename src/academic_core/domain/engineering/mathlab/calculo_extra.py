@@ -543,3 +543,112 @@ def lagrange(puntos: list[tuple]) -> mx.Expr:
             total = mx.Add(total, t) if c > 0 else mx.Sub(total, t)
     del RZ
     return total if total is not None else mx.Num(Fraction(0))
+
+
+# ---------------------------------------------------------------------------
+# applications of the definite integral (T9)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Aplicacion:
+    tipo: str
+    planteamiento: str
+    exacto: mx.Expr | None
+    aproximado: float
+
+    def texto(self) -> str:
+        valor = (f"{mx.text(self.exacto)} ≈ {self.aproximado:.10g}" if self.exacto is not None
+                 else f"≈ {self.aproximado:.10g} (sin primitiva elemental)")
+        return f"{self.tipo}: {self.planteamiento} = {valor}"
+
+
+def _definida(f: mx.Expr, var: str, a: mx.Expr, b: mx.Expr) -> tuple[mx.Expr | None, float]:
+    import academic_core.domain.engineering.mathlab as ML
+
+    xa, xb = _v(a), _v(b)
+
+    def seguro(x: float) -> float:
+        # at a removable point (x/(2√x) at 0) step a hair inside the interval
+        v = _v(f, {var: x})
+        if v is None:
+            paso = 1e-10 * max(1.0, abs(x))
+            v = _v(f, {var: x + paso if x <= (xa + xb) / 2 else x - paso})
+        return v or 0.0
+
+    numerico = _simpson(seguro, xa, xb, 4000)
+    try:
+        r = ML.calcular(ML.Peticion("integrar", {"integrando": f, "var": var,
+                                                 "desde": mx.text(a), "hasta": mx.text(b)}))
+        if isinstance(r.exacto_expr, mx.Expr) and r.sello.verdict != "discrepa":
+            return r.exacto_expr, numerico
+    except Exception:  # noqa: BLE001
+        pass
+    # √(quadratic): the trigonometric/hyperbolic substitution, then Barrow
+    from academic_core.domain.engineering.mathlab import primitivas as PR
+
+    try:
+        F = PR.sustitucion_trigonometrica(f, var)
+        valor = LM._limpio(mx.Sub(mx.substitute(F, var, b), mx.substitute(F, var, a)))
+        if _v(valor) is not None:
+            return valor, numerico
+    except Exception:  # noqa: BLE001
+        pass
+    return None, numerico
+
+
+def area_entre(f: mx.Expr, g: mx.Expr, var: str, a: mx.Expr, b: mx.Expr,
+               trace: Trace | None = None) -> Aplicacion:
+    """∫ₐᵇ |f − g|: cut at the crossings, each piece with its sign."""
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    trace = trace if trace is not None else Trace()
+    h = LM._limpio(mx.Sub(f, g))
+    xa, xb = _v(a), _v(b)
+    cortes = [r for r in RZ.ceros(h, var, (xa, xb)).raices if xa < r.x < xb]
+    bordes = [a] + [r.valor if r.exacta else mx.Num(Fraction(r.x)) for r in cortes] + [b]
+    total: mx.Expr = mx.Num(Fraction(0))
+    exacto, aprox, partes = True, 0.0, []
+    for lo, hi in zip(bordes, bordes[1:]):
+        medio = (_v(lo) + _v(hi)) / 2
+        signo = 1 if (_v(h, {var: medio}) or 0) >= 0 else -1
+        pieza = h if signo > 0 else LM._limpio(mx.Neg(h))
+        partes.append(f"∫_{mx.text(lo)}^{mx.text(hi)} ({mx.text(pieza)})")
+        e, n = _definida(pieza, var, lo, hi)
+        aprox += n
+        if e is None:
+            exacto = False
+        else:
+            total = mx.Add(total, e)
+    trace.regla("area.cortes", "cortes de las curvas en " + (", ".join(r.texto() for r in cortes)
+                                                            or "ninguno dentro del intervalo"),
+                why="el área es ∫|f − g|: en cada tramo entre cortes el signo de f − g es fijo")
+    return Aplicacion("área", " + ".join(partes), LM._limpio(total) if exacto else None, aprox)
+
+
+def volumen_revolucion(f: mx.Expr, var: str, a: mx.Expr, b: mx.Expr, eje: str = "x",
+                       trace: Trace | None = None) -> Aplicacion:
+    trace = trace if trace is not None else Trace()
+    if eje == "x":
+        integrando = LM._limpio(mx.Mul(mx.Const("pi"), mx.Pow(f, mx.Num(Fraction(2)))))
+        plan = f"π·∫_{mx.text(a)}^{mx.text(b)} ({mx.text(f)})² d{var} (discos)"
+    else:
+        if (_v(a) or 0) < 0:
+            raise _error("BAD_INPUT", "por capas alrededor del eje Y hace falta a ≥ 0")
+        integrando = LM._limpio(mx.Mul(mx.Mul(mx.Num(Fraction(2)), mx.Const("pi")),
+                                       mx.Mul(mx.Sym(var), f)))
+        plan = f"2π·∫_{mx.text(a)}^{mx.text(b)} {var}·({mx.text(f)}) d{var} (capas cilíndricas)"
+    trace.regla("volumen.formula", plan, why="discos de radio f(x) o capas de radio x y altura f(x)")
+    e, n = _definida(integrando, var, a, b)
+    return Aplicacion("volumen", plan, e, n)
+
+
+def longitud_arco(f: mx.Expr, var: str, a: mx.Expr, b: mx.Expr,
+                  trace: Trace | None = None) -> Aplicacion:
+    trace = trace if trace is not None else Trace()
+    d = _d(f, var)
+    integrando = LM._limpio(mx.Root(2, mx.Add(mx.Num(Fraction(1)), mx.Pow(d, mx.Num(Fraction(2))))))
+    plan = f"∫_{mx.text(a)}^{mx.text(b)} √(1 + ({mx.text(d)})²) d{var}"
+    trace.regla("arco.formula", plan, why="L = ∫ √(1 + f′²): longitud de la poligonal en el límite")
+    e, n = _definida(integrando, var, a, b)
+    return Aplicacion("longitud de arco", plan, e, n)

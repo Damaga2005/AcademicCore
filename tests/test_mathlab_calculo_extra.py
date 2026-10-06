@@ -86,3 +86,18 @@ def test_metodos_de_raices():
     with pytest.raises(Exception, match="HYPOTHESIS"):
         X.punto_fijo(P("2*x"), "x", 0.5, 0, 1)
     assert mx.text(X.lagrange([(0, 1), (1, 3), (2, 7)])) == "x^2 + x + 1"
+
+
+@pytest.mark.parametrize("entrada,valor", [
+    ({"tipo": "area", "f": "x^2", "g": "x", "a": "0", "b": "2"}, 1.0),
+    ({"tipo": "area", "f": "sin(x)", "a": "0", "b": "2*pi"}, 4.0),
+    ({"tipo": "volumen", "f": "sqrt(x)", "a": "0", "b": "4"}, 8 * math.pi),
+    ({"tipo": "volumen", "f": "x^2", "a": "0", "b": "1", "eje": "y"}, math.pi / 2),
+    ({"tipo": "longitud", "f": "x^(3/2)", "a": "0", "b": "4"}, 8 / 27 * (10 ** 1.5 - 1)),
+    ({"tipo": "longitud", "f": "x^2", "a": "0", "b": "1"}, math.sqrt(5) / 2 + math.asinh(2) / 4),
+])
+def test_aplicaciones_de_la_integral(entrada, valor):
+    r = ML.calcular(ML.Peticion("aplicacion_integral", entrada))
+    assert r.sello.verdict == "verificado"
+    numero = float(r.exacto.split("≈")[-1].split()[0])
+    assert abs(numero - valor) < 1e-6 * max(1, valor)

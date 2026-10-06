@@ -1332,6 +1332,36 @@ def _primitiva_metodo_op(peticion: C.Peticion) -> C.Resultado:
     sello = V.Seal(V.VERIFIED if ok else V.DISCREPANT, "derivando la primitiva", detalle)
     return _finalizar(peticion, trace, F, aproximado=None, sello=sello)
 
+
+def _aplicacion_integral(peticion: C.Peticion) -> C.Resultado:
+    """ML-2 (T9): ``{"tipo": "area"|"volumen"|"longitud", "f": ..., "g": ..., "a", "b",
+    "eje": "x"|"y"}``."""
+    from academic_core.domain.engineering.mathlab import calculo_extra as CX
+
+    e = peticion.entrada
+    tipo = str(e.get("tipo", "area"))
+    f = _expresion_de(e, "f", "expr")
+    var = str(e.get("var") or "x")
+    a, b = _expr(str(e["a"])), _expr(str(e["b"]))
+    trace = Trace()
+    if tipo == "area":
+        g = _expr(str(e.get("g", "0")))
+        r = CX.area_entre(f, g, var, a, b, trace)
+    elif tipo == "volumen":
+        r = CX.volumen_revolucion(f, var, a, b, str(e.get("eje", "x")), trace)
+    elif tipo == "longitud":
+        r = CX.longitud_arco(f, var, a, b, trace)
+    else:
+        raise C.error("BAD_INPUT", "tipo = area | volumen | longitud")
+    if r.exacto is None:
+        sello = V.Seal(V.NUMERIC_ONLY, "Simpson con 4000 subintervalos", r.texto())
+    else:
+        exacto = float(mx.valor_real(r.exacto, {}))
+        ok = abs(exacto - r.aproximado) < 1e-7 * max(1.0, abs(exacto))
+        sello = V.Seal(V.VERIFIED if ok else V.DISCREPANT, "Barrow frente a Simpson",
+                       f"{exacto:.10g} / {r.aproximado:.10g}")
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2919,6 +2949,7 @@ C.registrar("a_trozos", _a_trozos)
 C.registrar("teorema", _teorema)
 C.registrar("riemann", _riemann)
 C.registrar("metodo_numerico", _metodo_numerico)
+C.registrar("aplicacion_integral", _aplicacion_integral)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)

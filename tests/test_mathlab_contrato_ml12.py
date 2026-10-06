@@ -50,6 +50,7 @@ EJEMPLOS = {
     "teorema": {"teorema": "rolle", "expr": "x^2-4*x", "a": "0", "b": "4"},
     "riemann": {"expr": "x^2", "a": "0", "b": "1", "n": 10},
     "metodo_numerico": {"metodo": "newton", "expr": "x^2-2", "x0": 1},
+    "aplicacion_integral": {"tipo": "area", "f": "x^2", "g": "x", "a": "0", "b": "2"},
 }
 
 
