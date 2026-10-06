@@ -94,7 +94,9 @@ def _d(f: mx.Expr, v: str, trace: Trace | None = None) -> mx.Expr:
     from academic_core.domain.engineering.mathlab import derive_mv as DM
     from academic_core.domain.engineering.mathlab import limite as LM
 
-    return LM._limpio(DM.differentiate(f, v, trace))
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    return MI._bonito(LM._limpio(DM.differentiate(f, v, trace)))
 
 
 def _es_cero_racional(e: mx.Expr) -> bool:
@@ -442,10 +444,31 @@ def hessiana(f: mx.Expr, vars: list[str], punto: dict | None = None,
     if any(v is None for fila in M for v in fila):
         raise _no("la Hessiana no es exacta en el punto")
     M = [[Fraction(v) for v in fila] for fila in M]
-    clase = _sylvester(M)
+    donde = (" en (" + ", ".join(str(punto[v]) for v in vars) + ")") if punto else ""
+    menores = _menores(M)
+    trace.regla("mv.hessiana_valor",
+                f"H{donde} = [" + "; ".join(", ".join(str(x) for x in fila) for fila in M) + "]; "
+                + ", ".join(f"Δ{k + 1} = {d}" for k, d in enumerate(menores)),
+                why="menores principales de la esquina superior izquierda")
+    try:
+        clase = _sylvester(M)
+    except UnsupportedError:
+        trace.regla("mv.sylvester", "el criterio de segundo orden no decide",
+                    why="algún menor es nulo y no hay autovalores de signos opuestos")
+        raise
     trace.regla("mv.sylvester", f"menores principales → {clase}",
-                why="Sylvester: signo de los menores decide definida/indefinida")
+                why={"mínimo": "todos los Δk > 0: definida positiva",
+                     "máximo": "Δk alternan empezando por Δ1 < 0: definida negativa"}.get(
+                    clase, "hay autovalores de los dos signos: indefinida"))
     return H, clase
+
+
+def _menores(M: list[list[Fraction]]) -> list[Fraction]:
+    from academic_core.domain.engineering.mathlab import lineal as L
+
+    K = L.cuerpo("Q")
+    return [Fraction(L.determinante([[K.de(M[i][j]) for j in range(k)] for i in range(k)], K))
+            for k in range(1, len(M) + 1)]
 
 
 def _sylvester(M: list[list[Fraction]]) -> str:
@@ -527,6 +550,11 @@ def _clasifica(f: mx.Expr, vars: list[str], punto: tuple, trace: Trace) -> str:
     escala = max(1.0, max(abs(h) for fila in H for h in fila))
     menores = [_det_float([fila[:k] for fila in H[:k]]) for k in range(1, n + 1)]
     tol = 1e-9 * escala ** n
+    trace.regla("mv.hessiana_valor",
+                "H en (" + ", ".join(texto_coord(c) for c in punto) + ") ≈ [" + "; ".join(
+                    ", ".join(f"{x:.6g}" for x in fila) for fila in H) + "]; " + ", ".join(
+                    f"Δ{k + 1} ≈ {d:.6g}" for k, d in enumerate(menores)),
+                why="coordenadas con raíces: la Hessiana se evalúa en coma flotante")
     if abs(menores[-1]) <= tol:
         return "sin clasificar (Hessiana casi singular en coma flotante)"
     if any(abs(d) <= tol for d in menores):
@@ -570,8 +598,11 @@ def puntos_criticos(f: mx.Expr, vars: list[str],
     if not vars:
         raise _error("BAD_INPUT", "se necesita al menos una variable")
     grad = [_d(f, v, trace) for v in vars]
-    trace.metodo("mv.criticos", "∇f = 0: sistema polinómico por bases de Gröbner",
-                 why="los extremos interiores anulan el gradiente")
+    trace.regla("mv.sistema", "∇f = 0: " + "; ".join(
+        f"∂f/∂{v} = {mx.text(g)} = 0" for v, g in zip(vars, grad)),
+        why="un extremo interior de una función diferenciable anula el gradiente")
+    trace.metodo("mv.criticos", "el sistema se resuelve por bases de Gröbner",
+                 why="eliminación exacta: no se pierde ninguna solución ni se inventa")
     sols = S.resolver(grad, list(vars), trace)
     if not sols:
         trace.regla("mv.criticos", "∇f = 0 no tiene solución real: sin puntos críticos")
@@ -652,6 +683,7 @@ def lagrange(f: mx.Expr, g, vars: list[str],
     """∇f = Σλᵢ∇gᵢ, gᵢ = 0 (una o varias ligaduras); todos los candidatos aislados
     con el valor de f en cada uno (exacto si las coordenadas lo son)."""
     from academic_core.domain.engineering.mathlab import limite as LM
+    from academic_core.domain.engineering.mathlab import multiple as MI
     from academic_core.domain.engineering.mathlab import sistemas as S
 
     trace = trace if trace is not None else Trace()
@@ -671,12 +703,26 @@ def lagrange(f: mx.Expr, g, vars: list[str],
         e = _d(f, v, trace)
         for lam, gi in zip(lams, gs):
             e = mx.Sub(e, mx.Mul(mx.Sym(lam), _d(gi, v)))
-        ecuaciones.append(LM._limpio(e))
+        ecuaciones.append(MI._bonito(MI._canon(LM._limpio(e))))
     ecuaciones.extend(gs)
+    trace.regla("mv.sistema", "L = f − " + " − ".join(f"{l}·({mx.text(gi)})"
+                                                     for l, gi in zip(lams, gs)) +
+                "; ∇L = 0: " + "; ".join(f"{mx.text(e)} = 0" for e in ecuaciones),
+                why="en un extremo condicionado regular ∇f es combinación de los ∇gᵢ")
     trace.metodo("mv.lagrange", "∇f = Σλᵢ∇gᵢ más las ligaduras, por bases de Gröbner",
                  why="los extremos condicionados regulares anulan el gradiente del "
                      "lagrangiano")
-    sols = S.resolver(ecuaciones, list(vars) + lams, trace)
+    try:
+        sols = S.resolver(ecuaciones, list(vars) + lams, trace)
+    except UnsupportedError as exc:
+        c = _constante_en_ligadura(f, gs, vars)
+        if c is None:
+            raise
+        trace.regla("mv.lagrange_constante", f"f vale {texto_coord(c)} en toda la ligadura",
+                    why="los candidatos no están aislados porque f es constante sobre la "
+                        "ligadura: todo punto es a la vez máximo y mínimo condicionado")
+        raise _no(f"f es constante (= {texto_coord(c)}) sobre la ligadura: todos sus "
+                  "puntos son extremos, no hay candidatos aislados") from exc
     _avisa_singulares(gs, vars, trace)
     out = []
     for s in sols:
@@ -687,7 +733,50 @@ def lagrange(f: mx.Expr, g, vars: list[str],
         out.append((punto, valor))
     if not out:
         trace.regla("mv.lagrange", "sistema sin solución real: sin candidatos")
+        return out
+    vmax = max(out, key=lambda c: _float(c[1]))
+    vmin = min(out, key=lambda c: _float(c[1]))
+    acotada = len(vars) == 2 and len(gs) == 1 and _es_acotada(gs[0], vars)
+    trace.regla("mv.lagrange_resumen",
+                f"mayor valor {texto_coord(vmax[1])} en ({', '.join(texto_coord(c) for c in vmax[0])}); "
+                f"menor {texto_coord(vmin[1])} en ({', '.join(texto_coord(c) for c in vmin[0])})",
+                why=("la ligadura es compacta (Weierstrass): son el máximo y el mínimo absolutos"
+                     " (más los puntos singulares avisados, si los hay)") if acotada else
+                    "comparación de candidatos; sin compacidad comprobada no se afirma que "
+                    "sean extremos absolutos")
     return out
+
+
+def _es_acotada(g, vars) -> bool:
+    try:
+        _acotada(g, vars, Trace())
+        return True
+    except (UnsupportedError, ValidationError):
+        return False
+
+
+def _constante_en_ligadura(f, gs, vars):
+    """Valor de f si es el mismo en muchos puntos de la ligadura (2 variables, una
+    ligadura polinómica: se cortan rectas y = cte y se resuelve en x)."""
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    if len(vars) != 2 or len(gs) != 1:
+        return None
+    x, y = vars
+    valores = []
+    for k in range(-20, 21):
+        y0 = Fraction(k, 7)
+        coefs = RZ._polinomio_de(mx.substitute(gs[0], y, _num(y0)), x)
+        if coefs is None or len(RZ._recorta(coefs)) < 2:
+            continue
+        for r in RZ.raices_polinomio(coefs).raices:
+            v = mx.valor_real(f, {x: r.x, y: float(y0)})
+            if v is not None:
+                valores.append(float(v))
+    if len(valores) < 4 or max(valores) - min(valores) > 1e-9 * max(1.0, abs(valores[0])):
+        return None
+    q = Fraction(valores[0]).limit_denominator(10 ** 6)
+    return q if abs(float(q) - valores[0]) < 1e-12 else valores[0]
 
 
 def _valor_f(f: mx.Expr, vars: list[str], punto: tuple):
@@ -770,16 +859,16 @@ def extremos_recinto(f: mx.Expr, vars: list[str], recinto: tuple,
                     "se comprueba lado a lado (cada lado 1V exige su tramo) y en el "
                     "interior f es diferenciable donde existe el gradiente")
     candidatos: list[tuple[str, Fraction | mx.Expr, float]] = []
-    for punto, _clase in puntos_criticos(f, vars, trace):
-        px, py = punto
-        if _dentro(px, sa, sb) and _dentro(py, sc, sd):
-            v = _valor_f(f, [x, y], punto)
-            candidatos.append((f"interior ({texto_coord(px)}, {texto_coord(py)})", v,
-                               _float(v)))
+    caja = [(float(mx.valor_real(mx.parse(str(sa)), {})), float(mx.valor_real(mx.parse(str(sb)), {}))),
+            (float(mx.valor_real(mx.parse(str(sc)), {})), float(mx.valor_real(mx.parse(str(sd)), {})))]
+
+    def dentro_rect(p):
+        return _dentro(p[0], sa, sb) and _dentro(p[1], sc, sd)
+    candidatos.extend(_criticos_interiores(f, vars, dentro_rect, caja, trace))
     lados = [(x, sa, sb, sc), (x, sa, sb, sd)]
     for var, ia, ib, val in lados:
         g = mx.substitute(f, y, mx.parse(str(val)))
-        edge = ES.extremos_absolutos(g, var, mx.parse(str(ia)), mx.parse(str(ib)), trace)
+        edge = _extremos_lado(g, var, ia, ib, trace)
         for t, vy in edge.candidatos:
             vf = float(mx.valor_real(vy, {}))
             desc = f"lado {y} = {val}, {var} = {t}"
@@ -788,7 +877,7 @@ def extremos_recinto(f: mx.Expr, vars: list[str], recinto: tuple,
     lados_v = [(y, sc, sd, sa), (y, sc, sd, sb)]
     for var, ia, ib, val in lados_v:
         g = mx.substitute(f, x, mx.parse(str(val)))
-        edge = ES.extremos_absolutos(g, var, mx.parse(str(ia)), mx.parse(str(ib)), trace)
+        edge = _extremos_lado(g, var, ia, ib, trace)
         for t, vy in edge.candidatos:
             vf = float(mx.valor_real(vy, {}))
             desc = f"lado {x} = {val}, {var} = {t}"
@@ -828,12 +917,28 @@ def _extremos_region(f: mx.Expr, vars: list[str], g, trace: Trace) -> Recinto:
         v = _valor_f(f, vars, punto)
         candidatos.append((f"{desc} ({', '.join(texto_coord(c) for c in punto)})", v,
                            _float(v)))
-    for punto, _clase in puntos_criticos(f, vars, trace):
-        gv = float(mx.valor_real(g, {v: _float(c) for v, c in zip(vars, punto)}))
-        if gv < -1e-12:
-            entra("interior", punto)
-    for punto, _ in lagrange(f, g, vars, trace):
-        entra("frontera", punto)
+    caja = _caja_region(g, vars)
+
+    def dentro_reg(p):
+        return float(mx.valor_real(g, {v: _float(c) for v, c in zip(vars, p)})) < -1e-12
+    candidatos.extend(_criticos_interiores(f, vars, dentro_reg, caja, trace))
+    try:
+        for punto, _ in lagrange(f, g, vars, trace):
+            entra("frontera", punto)
+    except UnsupportedError as exc:
+        c = _constante_en_ligadura(f, [g], vars)
+        if c is not None:
+            candidatos.append(("toda la frontera (f constante en ella)", c, _float(c)))
+        else:
+            from academic_core.domain.engineering.mathlab import limite as LM
+
+            lam = "lam"
+            ecs = [LM._limpio(mx.Sub(_d(f, v), mx.Mul(mx.Sym(lam), _d(g, v)))) for v in vars]
+            vals = _valores_no_aislados(ecs + [g], list(vars) + [lam], f, vars,
+                                        lambda p: True, caja, trace)
+            if not vals:
+                raise exc
+            candidatos.extend(("frontera (arco de candidatos)", v, _float(v)) for _, v in vals)
     try:
         sing = S.resolver([g] + [_d(g, v) for v in vars], list(vars), Trace())
     except UnsupportedError:
@@ -879,6 +984,133 @@ def _acotada(g: mx.Expr, vars: list[str], trace: Trace) -> None:
     trace.hipotesis("weierstrass_mv", "{g ≤ 0} compacto",
                     "cerrado (g continua) y acotado (parte de mayor grado de g > 0 en "
                     "toda dirección)")
+
+
+def _extremos_lado(g, var, ia, ib, trace):
+    """Extremos de f en un lado; si f es constante en él, sus dos extremos."""
+    from academic_core.domain.engineering.mathlab import estudio as ES
+
+    a, b = mx.parse(str(ia)), mx.parse(str(ib))
+    if var not in mx.variables(g) or _es_cero_racional(_d(g, var)):
+        v = _valor_f(g, [var], (_a_frac(a, "lado"),)) if mx.exact_value(a) is not None else g
+        trace.regla("mv.lado_constante", f"f es constante en este lado: {texto_coord(v)}")
+
+        @dataclass(frozen=True)
+        class _Lado:
+            candidatos: tuple
+
+        return _Lado(((mx.text(a), _a_num(v) if isinstance(v, Fraction) else v),))
+    return ES.extremos_absolutos(g, var, a, b, trace)
+
+
+def _caja_region(g: mx.Expr, vars: list[str]) -> list[tuple[float, float]]:
+    """Caja que contiene {g ≤ 0} (acotado): por cada dirección, el radio más lejano
+    con g ≤ 0 en un barrido logarítmico y luego bisección."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    gc = MI.compilar(g, list(vars))
+    if gc is None:
+        return [(-10.0, 10.0), (-10.0, 10.0)]
+
+    def val(px, py):
+        try:
+            return gc([px, py])
+        except (ValueError, ZeroDivisionError, OverflowError):
+            return None
+    xs, ys = [0.0], [0.0]
+    for k in range(180):
+        th = 2 * math.pi * k / 180
+        cx, cy = math.cos(th), math.sin(th)
+        radios = [0.01 * 1.15 ** j for j in range(80)]
+        dentro = [r for r in radios if (v := val(r * cx, r * cy)) is not None and v <= 0]
+        if not dentro:
+            continue
+        lo = max(dentro)
+        hi = lo * 1.15
+        for _ in range(40):
+            m = (lo + hi) / 2
+            v = val(m * cx, m * cy)
+            if v is not None and v <= 0:
+                lo = m
+            else:
+                hi = m
+        xs.append(lo * cx)
+        ys.append(lo * cy)
+    return [(min(xs) - 1e-6, max(xs) + 1e-6), (min(ys) - 1e-6, max(ys) + 1e-6)]
+
+
+def _criticos_interiores(f, vars, dentro, caja, trace) -> list[tuple[str, object, float]]:
+    """Candidatos interiores: puntos críticos aislados dentro, o, si forman curvas,
+    los valores críticos (finitos) que se alcanzan dentro."""
+    out = []
+    try:
+        pts = puntos_criticos(f, vars, trace)
+    except UnsupportedError as exc:
+        if "no están aisladas" not in str(exc):
+            raise
+        trace.aviso("mv.criticos_curva", "los puntos críticos forman curvas: f es constante "
+                    "en cada una, así que bastan sus valores")
+        grad = [_d(f, v) for v in vars]
+        for desc, v in _valores_no_aislados(grad, list(vars), f, vars, dentro, caja, trace):
+            out.append((desc, v, _float(v)))
+        return out
+    for punto, _clase in pts:
+        if dentro(punto):
+            v = _valor_f(f, vars, punto)
+            out.append((f"interior ({', '.join(texto_coord(c) for c in punto)})", v, _float(v)))
+    return out
+
+
+def _valores_no_aislados(ecs, incognitas, f, vars, dentro, caja, trace) -> list[tuple[str, object]]:
+    """Valores de f en un conjunto crítico no aislado: el ideal (ecs, f − w) eliminado
+    hasta w da un polinomio cuyas raíces son TODOS los valores críticos (Sard); cada
+    uno se acepta si algún punto crítico con ese valor cae dentro (cortes x = c, y = c)."""
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    w = "w__"
+    polis = [S.a_polinomio(e, incognitas, Trace()) for e in ecs]
+    polis.append(S.a_polinomio(mx.Sub(f, mx.Sym(w)), incognitas + [w], Trace()))
+    orden = list(incognitas) + [w]
+    G = S.grobner([S._a_exp(p, orden) for p in polis if p])
+    solo_w = [g for g in G if all(e == 0 for e in S._lider(g)[:-1])]
+    if not solo_w:
+        raise _no("conjunto crítico con infinitos valores: no se puede comparar")
+    gw = solo_w[0]
+    uni = [Fraction(0)] * (S._lider(gw)[-1] + 1)
+    for e, c in gw.items():
+        uni[e[-1]] = c
+    valores = S.raices_exactas(uni)
+    trace.regla("mv.valores_criticos", "valores críticos posibles: " + ", ".join(
+        mx.text(z.expr) if z.exacto else f"≈ {z.x:.10g}" for z in valores),
+        why="eliminando las variables de (∇f = 0, f = w) queda un polinomio en w")
+    out = []
+    for z in valores:
+        w0 = z.expr if z.exacto else mx.Num(Fraction(z.x))
+        base = list(ecs) + [mx.Sub(f, w0)]
+        hallado = None
+        for k, v in enumerate(vars):
+            lo, hi = caja[k]
+            for i in range(41):
+                c = Fraction(lo + (hi - lo) * i / 40).limit_denominator(1000)
+                try:
+                    sols = S.resolver(base + [mx.Sub(mx.Sym(v), _num(c))], list(incognitas),
+                                      Trace())
+                except UnsupportedError:
+                    continue
+                for s in sols:
+                    p = tuple(_coord(s[u]) for u in vars)
+                    if dentro(p):
+                        hallado = p
+                        break
+                if hallado:
+                    break
+            if hallado:
+                break
+        if hallado:
+            valor = z.fraccion if z.fraccion is not None else (z.expr if z.exacto else z.x)
+            out.append((f"curva crítica por ({', '.join(texto_coord(c) for c in hallado)})",
+                        valor))
+    return out
 
 
 def _dentro(v, a, b) -> bool:

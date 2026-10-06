@@ -54,9 +54,72 @@ def _limpio(e: mx.Expr) -> mx.Expr:
 
     e = _pitagoras(_logexp(e))
     try:
-        return LM._limpio(T.simplify(e))
+        e = LM._limpio(T.simplify(e))
     except Exception:  # noqa: BLE001 - se queda sin simplificar, sigue siendo exacta
+        pass
+    return _bonito(_canon(e))
+
+
+def _neg_de(e: mx.Expr) -> mx.Expr | None:
+    """u si e = −u (Neg, número negativo o producto con coeficiente negativo)."""
+    if isinstance(e, mx.Neg):
+        return e.arg
+    if isinstance(e, mx.Num) and e.value < 0:
+        return mx.Num(-e.value)
+    if isinstance(e, mx.Mul):
+        u = _neg_de(e.left)
+        if u is not None:
+            return u if mx.exact_value(u) == 1 else mx.Mul(u, e.right)
+    if isinstance(e, mx.Div):
+        u = _neg_de(e.left)
+        if u is not None:
+            return mx.Div(u, e.right)
+    return None
+
+
+def _bonito(e: mx.Expr) -> mx.Expr:
+    """a + −b → a − b, a − −b → a + b, 1·u → u (solo presentación)."""
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        a, b = _bonito(e.left), _bonito(e.right)
+        if isinstance(e, mx.Mul):
+            if mx.exact_value(a) == 1 and not mx.variables(a) and isinstance(a, mx.Num):
+                return b
+            if mx.exact_value(b) == 1 and isinstance(b, mx.Num):
+                return a
+            return mx.Mul(a, b)
+        if isinstance(e, mx.Div):
+            return mx.Div(a, b)
+        u = _neg_de(b)
+        if u is not None:
+            return mx.Sub(a, u) if isinstance(e, mx.Add) else mx.Add(a, u)
+        return type(e)(a, b)
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_bonito(e.arg))
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_bonito(x) for x in e.args))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_bonito(e.base), e.exponent)
+    return e
+
+
+def _canon(e: mx.Expr) -> mx.Expr:
+    """Forma normal polinómica sobre átomos (agrupa «a − −b», términos repetidos);
+    se queda la más corta. Los nombres largos se protegen del re-parseo."""
+    from academic_core.domain.engineering.mathlab import poly as P
+
+    largos = sorted(v for v in mx.variables(e) if len(v) > 1)
+    libres = [c for c in "ABCDFGHJKLMNOPQRSTUVW" if c not in mx.variables(e)]
+    ida = dict(zip(largos, libres))
+    f = e
+    for v, c in ida.items():
+        f = mx.substitute(f, v, mx.Sym(c))
+    try:
+        g = P.to_expr(P.as_poly(f))
+    except Exception:  # noqa: BLE001
         return e
+    for v, c in ida.items():
+        g = mx.substitute(g, c, mx.Sym(v))
+    return g if len(mx.text(g)) <= 1.25 * len(mx.text(e)) else e
 
 
 def _logexp(e: mx.Expr) -> mx.Expr:
@@ -188,6 +251,7 @@ def primitiva(f: mx.Expr, var: str, trace: Trace) -> mx.Expr:
         bien = _deriva_bien_numerica(F, f, var)
     if not bien:
         raise _no(f"la primitiva de {mx.text(f)} en d{var} no se verifica derivando")
+    F = _limpio(F)
     trace.regla("multiple.primitiva", f"∫ {mx.text(f)} d{var} = {mx.text(F)}",
                 why="las demás variables son constantes en esta integración (Fubini)")
     return F
@@ -335,12 +399,17 @@ def iterada(f, limites, trace: Trace | None = None) -> Resultado:
     try:
         for v, lo, hi in L:
             F = primitiva(exacto, v, trace)
-            exacto = _limpio(mx.Sub(mx.substitute(F, v, hi), mx.substitute(F, v, lo)))
-            trace.regla("multiple.barrow", f"[{mx.text(F)}]_{{{v}={mx.text(lo)}}}^{{{mx.text(hi)}}}"
-                        f" = {mx.text(exacto)}", why="regla de Barrow con límites simbólicos")
+            arriba = _limpio(mx.substitute(F, v, hi))
+            abajo = _limpio(mx.substitute(F, v, lo))
+            exacto = _limpio(mx.Sub(arriba, abajo))
+            trace.regla("multiple.barrow",
+                        f"[{mx.text(F)}] de {v} = {mx.text(lo)} a {v} = {mx.text(hi)}: "
+                        f"({mx.text(arriba)}) − ({mx.text(abajo)}) = {mx.text(exacto)}",
+                        why="regla de Barrow: F(límite superior) − F(límite inferior)")
     except UnsupportedError as exc:
-        trace.aviso("multiple.sin_exacta", f"sin forma exacta: {exc}")
-        exacto = None
+        exacto = _otro_orden(f, L, trace)
+        if exacto is None:
+            trace.aviso("multiple.sin_exacta", f"sin forma exacta: {exc}")
     if exacto is None:
         return Resultado(None, num, False)
     try:
@@ -349,12 +418,48 @@ def iterada(f, limites, trace: Trace | None = None) -> Resultado:
         val = math.nan
     coincide = abs(val - num) <= 1e-7 * max(1.0, abs(num))
     if coincide:
-        trace.verificacion("multiple.gauss", f"Gauss-Legendre anidado da {num:.12g}: coincide",
+        trace.verificacion("multiple.gauss", f"cuadratura tanh-sinh anidada da {num:.12g}: coincide",
                            why="segundo camino independiente de las primitivas")
     else:
         trace.aviso("multiple.discrepa", f"exacto {val:.12g} frente a numérico {num:.12g}: "
                     "¿discontinuidad o singularidad en la región? se da el numérico")
     return Resultado(exacto if coincide else None, num, coincide)
+
+
+def _otro_orden(f: mx.Expr, L, trace: Trace) -> mx.Expr | None:
+    """Con todos los límites constantes (rectángulo o caja) el orden es libre
+    (Fubini): si uno no tiene primitiva exacta se prueban los demás."""
+    import itertools
+
+    if len(L) < 2 or any(mx.variables(lo) | mx.variables(hi) for _, lo, hi in L):
+        return None
+    for orden in itertools.permutations(L):
+        if list(orden) == list(L):
+            continue
+        t = Trace()
+        exacto = f
+        try:
+            for v, lo, hi in orden:
+                F = primitiva(exacto, v, t)
+                exacto = _limpio(mx.Sub(_limpio(mx.substitute(F, v, hi)),
+                                        _limpio(mx.substitute(F, v, lo))))
+        except UnsupportedError:
+            continue
+        trace.regla("multiple.otro_orden", "se cambia al orden " + " ".join(
+            f"d{v}" for v, _, _ in orden) + ", donde sí hay primitivas exactas",
+            why="límites constantes: Fubini permite integrar en cualquier orden")
+        exacto = f
+        for v, lo, hi in orden:                      # se repite con la traza buena
+            F = primitiva(exacto, v, trace)
+            arriba = _limpio(mx.substitute(F, v, hi))
+            abajo = _limpio(mx.substitute(F, v, lo))
+            exacto = _limpio(mx.Sub(arriba, abajo))
+            trace.regla("multiple.barrow",
+                        f"[{mx.text(F)}] de {v} = {mx.text(lo)} a {v} = {mx.text(hi)}: "
+                        f"({mx.text(arriba)}) − ({mx.text(abajo)}) = {mx.text(exacto)}",
+                        why="regla de Barrow: F(límite superior) − F(límite inferior)")
+        return exacto
+    return None
 
 
 _FUNCIONES = {"sin": "math.sin", "cos": "math.cos", "tan": "math.tan", "exp": "math.exp",
@@ -489,9 +594,10 @@ def en_coordenadas(f, sistema: str, limites, trace: Trace | None = None) -> Resu
     trace.regla("multiple.cambio", ", ".join(f"{v} = {e}" for v, e in cambio.items()) +
                 f"; |J| = {jac}", why=f"{sistema}: la simetría de la región lo aconseja; el "
                 "jacobiano es el factor de escala del elemento de volumen")
+    donde = {"polares": "el origen (r = 0)", "cilindricas": "el eje z (r = 0)",
+             "esfericas": "el eje z (rho = 0 o sen phi = 0)"}[sistema]
     trace.hipotesis("multiple.cambio_valido", "cambio inyectivo y J ≠ 0 salvo medida nula",
-                    "falla solo en el eje (r = 0) o en los polos (sen phi = 0), que no "
-                    "aportan a la integral")
+                    f"solo falla en {donde}, de medida nula: no cambia la integral")
     trace.regla("multiple.integrando", f"f·|J| = {mx.text(g)}")
     return iterada(g, limites, trace)
 

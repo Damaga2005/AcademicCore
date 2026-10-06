@@ -268,16 +268,37 @@ def resolver(ecuaciones: list[mx.Expr], incognitas: list[str],
             return []
         solo_v = [g for g in G if all(x == 0 for x in _lider(g)[:-1])]
         if not solo_v:
-            raise _no(f"no hay ecuación solo en {v} en la base de Gröbner: las soluciones "
-                      "no están aisladas (hay una curva o superficie de soluciones)")
+            from academic_core.domain.engineering.mathlab import multiple as MI
+
+            def a_expr(g):
+                return MI._bonito(P.to_expr({tuple((n, e) for n, e in zip(orden, ex) if e): c
+                                             for ex, c in g.items()}))
+            # x^k = 0 ⇔ x = 0: con un monomio puro en una variable basta esa variable,
+            # y las ecuaciones que ya se anulan con ella sobran
+            ceros = {i for g in G if len(g) == 1 for ex in g
+                     if sum(1 for e in ex if e) == 1 for i, e in enumerate(ex) if e}
+            G2 = [{tuple(1 if i == j else 0 for j in range(len(orden))): Fraction(1)}
+                  for i in sorted(ceros)]
+            G2 += [g for g in G if not any(all(ex[i] > 0 for ex in g) for i in ceros)]
+            desc = "; ".join(f"{mx.text(a_expr(g))} = 0" for g in G2)
+            trace.regla("sistema.no_aislado", f"conjunto de soluciones: {desc}",
+                        why="base de Gröbner reducida: describe el mismo conjunto, y no "
+                            "tiene ninguna ecuación en una sola variable")
+            raise _no(f"las soluciones no están aisladas (hay una curva o superficie de "
+                      f"soluciones): {desc}")
         g = solo_v[0]
         uni = [Fraction(0)] * (_lider(g)[-1] + 1)
         for e, c in g.items():
             uni[e[-1]] = c
         sin_rep = RZ._divmod(uni, RZ._mcd(uni, RZ._deriv(uni)))[0] if len(uni) > 2 else uni
         candidatas[v] = raices_exactas(sin_rep)
+        from academic_core.domain.engineering.mathlab import poly as Pm
+
+        from academic_core.domain.engineering.mathlab import multiple as MI
+
+        poli_v = MI._bonito(Pm.to_expr({((v, k),) if k else (): c for k, c in enumerate(sin_rep) if c}))
         trace.regla("sistema.eliminacion",
-                    f"eliminando {', '.join(orden[:-1]) or 'nada'}: "
+                    f"eliminando {', '.join(orden[:-1]) or 'nada'}: {mx.text(poli_v)} = 0 → "
                     f"{v} ∈ {{" + ", ".join(mx.text(z.expr) if z.exacto else f"≈ {z.x:.10g}"
                                            for z in candidatas[v]) + "}",
                     why="base de Gröbner lex: su elemento en una sola variable genera la "

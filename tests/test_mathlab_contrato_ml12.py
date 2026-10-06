@@ -54,6 +54,7 @@ EJEMPLOS = {
     "algebra": {"calculo": "autovalores", "matriz": [[2, 1], [1, 2]]},
     "gamma": {"expr": "5"},
     "multivar": {"calculo": "criticos", "expr": "x^2+x*y+y^2", "vars": ["x", "y"]},
+    "vectorial": {"calculo": "potencial", "campo": ["2*x*y", "x^2"]},
     "multiple": {"calculo": "iterada", "expr": "x*y", "limites": [["y", "0", "x"], ["x", "0", "1"]]},
     "espacios": {"calculo": "suma_interseccion",
                  "F": [[1, 0, 1, 0], [0, 1, 0, 1]],

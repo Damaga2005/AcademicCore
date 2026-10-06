@@ -78,3 +78,15 @@ def test_calculadora_multiple():
     r = ML.calcular(ML.Peticion("multiple", {"calculo": "iterada", "expr": "exp(x^2)",
                                              "limites": [["x", 0, 1]]}))
     assert r.sello.verdict == "solo_numerico"
+
+
+def test_otro_orden_automatico_y_pasos():
+    r = M.iterada("u*exp(u*v)", [["u", 0, 1], ["v", 0, 1]])   # en du no hay primitiva
+    assert r.exacto is not None and abs(_val(r) - (math.e - 2)) < 1e-12
+    from academic_core.domain.engineering.mathlab.trace import Trace
+
+    t = Trace()
+    M.en_coordenadas("z^2", "esfericas", [["rho", 0, 1], ["phi", 0, "pi/2"],
+                                          ["theta", 0, "2*pi"]], t)
+    texto = t.to_text()
+    assert "rho^2*sin(phi)" in texto and "− −" not in texto and "- -" not in texto

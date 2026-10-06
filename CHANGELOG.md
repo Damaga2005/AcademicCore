@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-06 — ML-7 (línea, superficie, Green/Stokes/Gauss) y revisión a fondo de ML-5/ML-6
+
+- **ML-7 (`vectorial.py`, operación `vectorial`):** circulación y ∫ f ds, potencial (rot F = 0, integración sucesiva, ∇φ = F comprobado), flujo y ∬ f dS, rotacional y divergencia; Green, Stokes y Gauss por los dos lados. Batería de 60 campos aleatorios contra SymPy (circulación por curvas polinómicas, flujo por gráficas, Gauss en el cubo con sus 6 caras): 0 errores.
+- **Huecos encontrados y cerrados:** extremos en recintos cuando los críticos forman curvas (x²y) o f es constante en un lado o en la frontera: valores críticos por eliminación (Sard) y comprobación dentro del recinto (80 recintos aleatorios contra fuerza bruta: 0 errores, antes 21 rechazos); Lagrange con f constante en la ligadura se explica; el conjunto crítico no aislado se describe con su base de Gröbner (x²y → x = 0); iteradas con límites constantes cambian solas de orden si uno no tiene primitiva (u·e^(uv)).
+- **Pasos completos:** sistema ∇f = 0 y lagrangiano escritos, polinomio eliminado en cada variable, Hessiana evaluada con sus menores, resumen de máximo y mínimo en Lagrange (absolutos si la ligadura es compacta), Barrow con F(sup) − F(inf) y formas limpias (sin «− −», «+ −» ni «·1»), cuadratura tanh-sinh (tolera singularidades en los extremos).
+- **Baterías:** 150 Lagrange aleatorios sobre elipses contra muestreo denso: 0 errores.
+
 ## 2026-10-06 — ML-6 integración múltiple; ML-3/ML-5 corregidos y ampliados
 
 - **Autovalores (bugs reales):** los complejos perdían el factor √ (`[[2,−1],[3,0]]` daba 1 ± i, ahora 1 ± √2·i); en 3×3 el espectro salía incompleto sin aviso si había raíces irracionales o complejas; los dobles se clasificaban como irracionales (`[[1,1],[0,1]]`) y los racionales repetidos en 3×3 fallaban (la simétrica con 4, 1, 1 no diagonalizaba). Ahora: característico n×n exacto (Faddeev-Leverrier, hasta 6×6), raíces racionales con multiplicidad por Ruffini, factor cuadrático restante exacto (ℚ(√r) o par complejo) y, si queda un factor irreducible de grado ≥ 3, rechazo exacto + valores numéricos (Durand-Kerner) con sello solo numérico. 600 matrices aleatorias contra SymPy: 0 errores.

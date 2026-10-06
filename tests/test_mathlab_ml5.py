@@ -279,3 +279,33 @@ def test_pseudoinversa_rango_deficiente():
     F = Fraction
     assert AL.pseudoinversa([[1, 1], [1, 1]]) == [[F(1, 4), F(1, 4)], [F(1, 4), F(1, 4)]]
     assert AL.pseudoinversa([[0, 0]]) == [[F(0)], [F(0)]]
+
+
+def test_recinto_con_curva_de_criticos_y_lado_constante():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    # x²y: los críticos son la recta x = 0 (valor 0); extremos en el borde
+    r = MV.extremos_recinto(mx.parse("x^2*y"), ["x", "y"], ("rectangulo", "-1", "1", "-1", "1"))
+    assert (r.minimo[1], r.maximo[1]) == (Fraction(-1), Fraction(1))
+    # −2x − 2xy es constante (= 0) en el lado y = −1
+    r = MV.extremos_recinto(mx.parse("-2*x-2*x*y"), ["x", "y"],
+                            ("rectangulo", "-1", "1", "-1", "1"))
+    assert (r.minimo[1], r.maximo[1]) == (Fraction(-4), Fraction(4))
+    # f constante en la frontera del disco
+    r = MV.extremos_recinto(mx.parse("x^2+y^2"), ["x", "y"], ("region", "x^2+y^2-2"))
+    assert (r.minimo[1], r.maximo[1]) == (Fraction(0), Fraction(2))
+
+
+def test_pasos_visibles():
+    import academic_core.domain.engineering.mathlab as ML
+
+    r = ML.calcular(ML.Peticion("multivar", {"calculo": "criticos", "expr": "x^3-3*x+y^2"}))
+    t = r.como_texto()
+    assert "∂f/∂x = 3*x^2 - 3 = 0" in t and "x^2 - 1 = 0" in t
+    assert "H en (1, 0) = [6, 0; 0, 2]; Δ1 = 6, Δ2 = 12" in t
+    r = ML.calcular(ML.Peticion("multivar", {"calculo": "lagrange", "expr": "x+y",
+                                             "ligadura": "x^2+y^2-1"}))
+    assert "mayor valor sqrt(2)" in r.como_texto()
+    with pytest.raises(Exception, match="x = 0"):
+        MV_ = __import__("academic_core.domain.engineering.mathlab.varias", fromlist=["x"])
+        MV_.puntos_criticos(mx.parse("x^2*y"), ["x", "y"])

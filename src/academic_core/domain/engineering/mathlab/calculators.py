@@ -3273,6 +3273,85 @@ def _multiple(peticion: C.Peticion) -> C.Resultado:
                       avisos=("sin primitiva exacta en algún paso: valor numérico",))
 
 
+def _vectorial_calc(peticion: C.Peticion) -> C.Resultado:
+    """ML-7: integrales de línea y de superficie, potencial y teoremas.
+
+    ``{"calculo": "circulacion"|"linea_escalar"|"potencial"|"rotacional"|
+    "divergencia"|"flujo"|"superficie_escalar"|"green"|"stokes"|"gauss", "campo",
+    "f", "curva", "superficie", "region", "sistema", "borde", "superficies"}``.
+    """
+    from academic_core.domain.engineering.mathlab import vectorial as VE
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., ...}; cálculos: circulacion, "
+                      "linea_escalar, potencial, rotacional, divergencia, flujo, "
+                      "superficie_escalar, green, stokes, gauss")
+    calculo = str(e["calculo"])
+    trace = Trace()
+
+    def dato(k):
+        if k not in e:
+            raise C.error("BAD_INPUT", f"falta '{k}' para «{calculo}»")
+        return e[k]
+    valores = []
+    if calculo == "circulacion":
+        v = VE.circulacion(dato("campo"), dato("curva"), trace)
+        texto, valores = "∫ F·dr = " + v.texto(), [v]
+        try:
+            w = VE.circulacion_por_potencial(e["campo"], e["curva"], Trace())
+            if abs(w.numerico - v.numerico) <= 1e-7 * max(1.0, abs(v.numerico)):
+                trace.verificacion("vect.potencial_coincide",
+                                   "φ(final) − φ(inicio) da lo mismo (campo conservativo)")
+        except (ValidationError, UnsupportedError):
+            pass
+    elif calculo == "linea_escalar":
+        v = VE.linea_escalar(e.get("f", "1"), dato("curva"), trace)
+        texto, valores = "∫ f ds = " + v.texto(), [v]
+    elif calculo == "potencial":
+        phi = VE.potencial(dato("campo"), trace)
+        sello = V.Seal(V.VERIFIED, "∇φ = F comprobado", mx.text(phi))
+        return _finalizar(peticion, trace, "φ = " + mx.text(phi) + " + C", aproximado=None,
+                          sello=sello)
+    elif calculo in ("rotacional", "divergencia"):
+        r = (VE.rotacional(dato("campo"), trace) if calculo == "rotacional"
+             else [VE.divergencia(dato("campo"), trace)])
+        texto = "(" + ", ".join(mx.text(c) for c in r) + ")" if len(r) > 1 else mx.text(r[0])
+        sello = V.Seal(V.VERIFIED, "derivadas exactas", texto)
+        return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+    elif calculo == "flujo":
+        v = VE.flujo(dato("campo"), dato("superficie"), trace)
+        texto, valores = "∬ F·dS = " + v.texto(), [v]
+    elif calculo == "superficie_escalar":
+        v = VE.superficie_escalar(e.get("f", "1"), dato("superficie"), trace)
+        texto, valores = "∬ f dS = " + v.texto(), [v]
+    elif calculo in ("green", "stokes", "gauss"):
+        if calculo == "green":
+            T = VE.green(dato("campo"), dato("region"), str(e.get("sistema", "cartesianas")),
+                         e.get("borde"), trace)
+        elif calculo == "stokes":
+            T = VE.stokes(dato("campo"), dato("superficie"), e.get("borde"), trace)
+        else:
+            T = VE.gauss(dato("campo"), dato("region"), str(e.get("sistema", "cartesianas")),
+                         e.get("superficies"), trace)
+        texto = T.texto()
+        valores = [T.lado_a[1]] + ([T.lado_b[1]] if T.lado_b else [])
+        if T.coinciden is False:
+            sello = V.Seal(V.DISCREPANT, "los dos lados del teorema no coinciden", texto)
+            return _finalizar(peticion, trace, texto, aproximado=T.lado_a[1].numerico,
+                              sello=sello, avisos=("revisa orientación e hipótesis",))
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    if all(v.exacto is not None for v in valores):
+        sello = V.Seal(V.VERIFIED, "primitivas comprobadas y cuadratura independiente"
+                       + ("; los dos lados del teorema coinciden" if len(valores) > 1 else ""),
+                       texto)
+        return _finalizar(peticion, trace, texto, aproximado=valores[0].numerico, sello=sello)
+    sello = V.Seal(V.NUMERIC_ONLY, "cuadratura tanh-sinh", texto)
+    return _finalizar(peticion, trace, texto, aproximado=valores[0].numerico, sello=sello,
+                      avisos=("sin primitiva exacta en algún paso: valor numérico",))
+
+
 # ---------------------------------------------------------------------------
 # registration
 # ---------------------------------------------------------------------------
@@ -3285,6 +3364,7 @@ C.registrar("modular", _modular)
 C.registrar("lineal", _lineal)
 C.registrar("multivar", _multivar)
 C.registrar("multiple", _multiple)
+C.registrar("vectorial", _vectorial_calc)
 C.registrar("algebra", _algebra)
 C.registrar("espacios", _espacios)
 C.registrar("gamma", _gamma_calc)
