@@ -1016,6 +1016,42 @@ def _soluciones(peticion: C.Peticion) -> C.Resultado:
         "fuera del intervalo estudiado no se ha buscado",)
     return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello, avisos=avisos)
 
+
+def _calc_impropia(peticion: C.Peticion) -> C.Resultado:
+    """ML-2 (T10): ``{"expr": "x^a/(1+x^2)", "a": "0", "b": "oo", "parametro": "a"}``."""
+    from academic_core.domain.engineering.mathlab import impropia as IM
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "a" not in e or "b" not in e:
+        raise C.error("BAD_INPUT", "se espera {'expr': ..., 'a': ..., 'b': ...}")
+    f = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or "x")
+    a, b = str(e["a"]), str(e["b"])
+    trace = Trace()
+    alfa = e.get("parametro")
+    if alfa:
+        r = IM.con_parametro(f, var, a, b, str(alfa), trace)
+        sello = V.Seal(V.NUMERIC_ONLY, "criterio de comparación exacto en cada valor del barrido",
+                       "fronteras comprobadas exactamente en el valor y a ambos lados")
+        return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello,
+                          avisos=(f"barrido de {alfa} en [{r.rango[0]}, {r.rango[1]}]",))
+    trace.metodo("impropia.comparacion", "criterio de comparación en el límite",
+                 why="el término principal cerca de cada punto impropio decide: e^(qw), w^p "
+                     "y las integrales de Bertrand son las referencias")
+    r = IM.convergencia(f, var, a, b, trace)
+    if r.valor is None:
+        sello = V.Seal(V.VERIFIED, "comparación en el límite (exacta)", r.texto())
+        return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+    ok, detalle = IM.comprobacion_numerica(f, var, a, b, r.valor)
+    trace.verificacion("impropia.cuadratura", detalle)
+    if ok is None:
+        sello = V.Seal(V.NUMERIC_ONLY, "valor por Barrow con límites exactos", detalle)
+    elif ok:
+        sello = V.Seal(V.VERIFIED, "Barrow con límites exactos y cuadratura tanh-sinh", detalle)
+    else:
+        sello = V.Seal(V.DISCREPANT, "cuadratura tanh-sinh", detalle)
+    return _finalizar(peticion, trace, r.texto(), aproximado=mx.evaluate(r.valor), sello=sello)
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2554,6 +2590,7 @@ C.registrar("limite", _calc_limite)
 C.registrar("estudio", _estudio)
 C.registrar("extremos_absolutos", _extremos_absolutos)
 C.registrar("soluciones", _soluciones)
+C.registrar("impropia", _calc_impropia)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)

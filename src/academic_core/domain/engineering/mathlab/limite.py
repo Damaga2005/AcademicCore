@@ -73,9 +73,13 @@ class Termino:
     p: Fraction = Fraction(0)
     q: Fraction = Fraction(0)
     r: Fraction = Fraction(0)
+    #: ±1 for e^(±g) with g growing faster than linear (e^(−w²)): beyond every e^(qw)
+    sup: int = 0
 
     @property
     def escala(self) -> tuple[Fraction, Fraction, Fraction]:
+        if self.sup:
+            return (Fraction(self.sup * 10 ** 9), Fraction(0), Fraction(0))
         return (self.q, self.p, self.r)
 
     @property
@@ -108,6 +112,28 @@ class Oscila(Acotada):
 
 
 OSCILA = Oscila()
+
+
+def _pi_por(q: Fraction) -> mx.Expr:
+    pi = mx.Const("pi")
+    if q == 0:
+        return mx.Num(Fraction(0))
+    base = pi if abs(q) == 1 else (mx.Div(pi, mx.Num(Fraction(abs(q).denominator)))
+                                     if abs(q).numerator == 1 else
+                                     mx.Mul(mx.Num(abs(q)), pi))
+    return mx.Neg(base) if q < 0 else base
+
+
+_NOTABLES = {
+    "asin": {Fraction(1): _pi_por(Fraction(1, 2)), Fraction(-1): _pi_por(Fraction(-1, 2)),
+             Fraction(1, 2): _pi_por(Fraction(1, 6)), Fraction(-1, 2): _pi_por(Fraction(-1, 6)),
+             Fraction(0): mx.Num(Fraction(0))},
+    "acos": {Fraction(1): mx.Num(Fraction(0)), Fraction(-1): _pi_por(Fraction(1)),
+             Fraction(0): _pi_por(Fraction(1, 2)), Fraction(1, 2): _pi_por(Fraction(1, 3)),
+             Fraction(-1, 2): _pi_por(Fraction(2, 3))},
+    "atan": {Fraction(1): _pi_por(Fraction(1, 4)), Fraction(-1): _pi_por(Fraction(-1, 4)),
+             Fraction(0): mx.Num(Fraction(0))},
+}
 
 
 class _NoCuadratico(Exception):
@@ -233,6 +259,10 @@ def _pliega(e: mx.Expr) -> mx.Expr:
         return mx.Root(e.degree, _pliega(e.radicand))
     if isinstance(e, mx.Call):
         args = tuple(_pliega(x) for x in e.args)
+        if e.name in _NOTABLES and not mx.variables(args[0]):
+            v = mx.exact_value(args[0])
+            if v is not None and v in _NOTABLES[e.name]:
+                return _NOTABLES[e.name][v]
         if e.name in ("abs", "valor_abs") and not mx.variables(args[0]):
             v = mx.exact_value(args[0])
             if v is not None:
@@ -304,11 +334,14 @@ def _identico_cero(e: mx.Expr) -> bool:
 
 
 def _mul(a: Termino, b: Termino) -> Termino:
-    return Termino(_limpio(mx.Mul(a.c, b.c)), a.p + b.p, a.q + b.q, a.r + b.r)
+    if a.sup and b.sup:
+        raise _no("producto de dos exponenciales de crecimiento superlineal: sus "
+                  "exponentes podrían compensarse y aquí no se comparan")
+    return Termino(_limpio(mx.Mul(a.c, b.c)), a.p + b.p, a.q + b.q, a.r + b.r, a.sup or b.sup)
 
 
 def _inv(a: Termino) -> Termino:
-    return Termino(_limpio(mx.Div(mx.Num(Fraction(1)), a.c)), -a.p, -a.q, -a.r)
+    return Termino(_limpio(mx.Div(mx.Num(Fraction(1)), a.c)), -a.p, -a.q, -a.r, -a.sup)
 
 
 # ---------------------------------------------------------------------------
@@ -564,7 +597,7 @@ def principal(e: mx.Expr) -> Termino | Acotada | None:
         a = principal(e.arg)
         if a is None or isinstance(a, Acotada):
             return a
-        return Termino(_limpio(mx.Neg(a.c)), a.p, a.q, a.r)
+        return Termino(_limpio(mx.Neg(a.c)), a.p, a.q, a.r, a.sup)
     if isinstance(e, (mx.Add, mx.Sub)):
         return _suma(e)
     if isinstance(e, mx.Mul):
@@ -602,7 +635,7 @@ def principal(e: mx.Expr) -> Termino | Acotada | None:
         c = _limpio(mx.Pow(a.c, _num(q)))
         if a.escala == (0, 0, 0) and q.denominator != 1:
             return Termino(c)
-        return Termino(c, a.p * q, a.q * q, a.r * q)
+        return Termino(c, a.p * q, a.q * q, a.r * q, (a.sup if q > 0 else -a.sup) if a.sup else 0)
     if isinstance(e, mx.Call):
         return _funcion(e)
     raise _no(f"no sé el comportamiento de {mx.text(e)}")
@@ -634,7 +667,7 @@ def _suma(e: mx.Expr) -> Termino | Acotada | None:
     a = principal(e.left)
     b = principal(e.right)
     if isinstance(e, mx.Sub) and isinstance(b, Termino):
-        b = Termino(_limpio(mx.Neg(b.c)), b.p, b.q, b.r)
+        b = Termino(_limpio(mx.Neg(b.c)), b.p, b.q, b.r, b.sup)
     if a is None:
         return b
     if b is None:
@@ -657,9 +690,11 @@ def _suma(e: mx.Expr) -> Termino | Acotada | None:
                   "también tiende a 0")
     if a.escala != b.escala:
         return a if a.escala > b.escala else b
+    if a.sup or b.sup:
+        raise _no(f"{mx.text(e)}: dos términos superexponenciales del mismo signo")
     c = _limpio(mx.Add(a.c, b.c))
     if not _cero(c):
-        return Termino(c, a.p, a.q, a.r)
+        return Termino(c, a.p, a.q, a.r, a.sup)
     # the principal terms cancel: the series of the whole sum decides
     if a.q != 0 or a.r != 0:
         raise _no(f"{mx.text(e)}: los términos principales se cancelan y hay exponenciales "
@@ -725,14 +760,16 @@ def _funcion(e: mx.Call) -> Termino | Acotada | None:
                 return Termino(c, Fraction(k))
         if a.escala < (0, 0, 1) and a.escala > (0, 0, 0):
             raise _no(f"exp({mx.text(arg)}) crece más lento que una potencia: no implementado")
-        raise _no(f"exp({mx.text(arg)}) crece más rápido que e^(c·w): fuera de la escala")
+        # e^(g) with g ~ c·w^p, p > 1 (or faster): beyond every exponential of the scale.
+        # Only its sign of growth matters for what it multiplies or is added to.
+        return Termino(mx.Num(Fraction(1)), sup=1 if a.valor_c > 0 else -1)
     if nombre in ("sqrt", "raiz", "raiz2"):
         return principal(mx.Pow(e.args[0], mx.Num(Fraction(1, 2))))
     if nombre in ("abs", "valor_abs"):
         a = principal(e.args[0])
         if a is None or isinstance(a, Acotada):
             return a
-        return Termino(_limpio(mx.Call("abs", (a.c,))), a.p, a.q, a.r)
+        return Termino(_limpio(mx.Call("abs", (a.c,))), a.p, a.q, a.r, a.sup)
     if nombre in _ANALITICAS:
         arg = e.args[0]
         a = principal(arg)
