@@ -563,7 +563,7 @@ def _lineal(peticion: C.Peticion) -> C.Resultado:
     """ML-12: linear algebra with the field as a parameter (ℚ or GF(p)).
 
     ``{"calculo": "rango"|"determinante"|"inversa"|"nucleo"|"sistema",
-    "matriz": [[...]], "b": [...], "cuerpo": "Q"|"GF(p)"}``.
+    "matriz": [[...]], "b": [...], "cuerpo": "Q"|"R"|"C"|"GF(p)"|"GF(2^m)"}``.
     """
     from academic_core.domain.engineering.mathlab import lineal as L
 
@@ -591,9 +591,15 @@ def _lineal(peticion: C.Peticion) -> C.Resultado:
         texto = L.resolver_sistema(A, [K.de(v) for v in e["b"]], K, trace).texto(K)
     else:
         raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
-    sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino",
-                   "Laplace, A·A⁻¹ = I, A·v = 0 o sustitución según el cálculo")
-    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+    detalle = "Laplace, A·A⁻¹ = I, A·v = 0 o sustitución según el cálculo"
+    if getattr(K, "exacto", True):
+        sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino", detalle)
+        return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+    aviso = (f"ℝ en coma flotante: pivoteo parcial y tolerancia {K.tolerancia:.2g}; el rango "
+             "es una decisión numérica, no exacta (para exactitud usa Q)")
+    trace.aviso("lineal.reales", aviso)
+    sello = V.Seal(V.NUMERIC_ONLY, "comprobado por un segundo camino con tolerancia", detalle)
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello, avisos=(aviso,))
 
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones

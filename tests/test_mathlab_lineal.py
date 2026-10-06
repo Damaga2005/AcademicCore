@@ -61,3 +61,37 @@ def test_la_calculadora(entrada, texto):
     r = ML.calcular(ML.Peticion("lineal", entrada))
     assert r.exacto == texto
     assert len(r.traza.steps) >= 1
+
+
+def test_complejos_exactos():
+    C = L.cuerpo("C")
+    A = L.matriz([["1+i", "2"], ["i", "1-i"]], C)
+    assert L.determinante(A, C) == (Fraction(2), Fraction(-2))
+    assert C.texto(L.inversa(A, C)[1][1]) == "(1/2)i"
+
+
+def test_reales_con_pivoteo_y_aviso():
+    r = ML.calcular(ML.Peticion("lineal", {"calculo": "inversa", "cuerpo": "R",
+                                          "matriz": [[1e-20, 1], [1, 1]]}))
+    assert r.exacto == "[-1, 1; 1, 0]"      # without pivoting 1e-20 would wreck it
+    assert r.sello.verdict == "solo_numerico" and r.avisos
+
+
+def test_gf2m_es_cuerpo_y_comprueba_irreducible():
+    for m in (2, 3, 4, 8):
+        G = L.cuerpo(f"GF(2^{m})")
+        assert all(G.mul(a, G.inv(a)) == 1 for a in range(1, 1 << m))
+    with pytest.raises(Exception, match="irreducible"):
+        L.cuerpo("GF(2^3, x^3+x^2+x+1)")
+    G = L.cuerpo("GF(2^2)")
+    for _ in range(30):
+        rng = random.Random(_)
+        A = [[rng.randrange(4) for _ in range(3)] for _ in range(2)]
+        M = L.matriz(A, G)
+        ceros = sum(1 for v in itertools.product(range(4), repeat=3)
+                    if all(L._dot(f, list(v), G) == 0 for f in M))
+        assert 4 ** (3 - L.rango(M, G)) == ceros
+
+
+def test_r_ya_no_se_confunde_con_q():
+    assert L.cuerpo("R").nombre == "ℝ" and L.cuerpo("Q").nombre == "ℚ"
