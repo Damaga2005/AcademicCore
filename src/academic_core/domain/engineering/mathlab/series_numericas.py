@@ -264,7 +264,7 @@ def _comparacion(b: mx.Expr, var: str) -> Veredicto | None:
         return None
     if t.valor_c < 0:
         t = LM.Termino(LM._limpio(mx.Neg(t.c)), t.p, t.q, t.r, t.sup)
-    q, p, r = t.escala
+    q, p, r = t.escala[:3]
     desc = f"aₙ ~ {LM._texto_termino(t, var, 'oo', 1)}"
     if q != 0:
         return Veredicto("converge absolutamente" if q < 0 else "diverge",
@@ -347,10 +347,94 @@ def convergencia(T: Termino, n0: int = 1, trace: Trace | None = None) -> Veredic
                               f"|aₙ| ≤ {mx.text(LM._limpio(cota))} (|sen|, |cos| ≤ 1), y "
                               + w.criterio)
     if v is None:
+        d = _dirichlet_serie(a, var)
+        if d is not None:
+            trace.regla("serie.dirichlet", d,
+                        why="sumas parciales de sin/cos acotadas y el otro factor "
+                            "tiende a 0 monótonamente: converge aunque no absolutamente")
+            return Veredicto("converge condicionalmente", d)
         raise _no("el término general oscila y no sé acotar |aₙ|")
     trace.regla("serie.comparacion", v.criterio,
                 why="comparación en el límite: misma convergencia que la serie de referencia")
     return v
+
+
+def _dirichlet_serie(a: mx.Expr, var: str) -> str | None:
+    """Dirichlet para Σ g(n)·h(n): g = sin/cos(au+b) con sumas parciales acotadas
+    (|Σ| ≤ 1/|sin(a/2)|) y h → 0 monótona (h′ de signo constante).
+
+    No cubre el caso uniformemente oscilante sin factor separable: entonces
+    devuelve None y el rechazo sigue siendo honesto.
+    """
+    from academic_core.domain.engineering.mathlab import derive_mv as DM
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    nums, _dens = _factores_serie(a)
+    hallado, resto = None, []
+    for factor in nums:
+        c = _seno_coseno_afin(factor, var)
+        if c is not None and hallado is None:
+            hallado = c
+        else:
+            resto.append(factor)
+    dens = list(_dens)
+    if hallado is None:
+        return None
+    nombre, aval, _b = hallado
+    if abs(math.sin(aval / 2)) < 1e-12:
+        return None
+    cota = 1.0 / abs(math.sin(aval / 2))
+    h = resto[0] if resto else mx.Num(Fraction(1))
+    for x in resto[1:]:
+        h = mx.Mul(h, x)
+    for x in dens:
+        h = mx.Div(h, mx.Call("abs", (x,)))
+    try:
+        lim = LM.limite(h, var, "oo")
+    except Exception:  # noqa: BLE001
+        return None
+    if lim.valor != "0":
+        return None
+    try:
+        dh = DM.differentiate(h, var)
+    except Exception:  # noqa: BLE001
+        return None
+    t = LM.principal(mx.substitute(dh, var, mx.Sym(LM.W)))
+    from academic_core.domain.engineering.mathlab.limite import Termino as _T
+
+    if not (isinstance(t, _T) and t.valor_c < 0):
+        return None
+    return (f"{nombre} con sumas parciales acotadas (≤ {cota:.4g}) y "
+            f"{mx.text(LM._limpio(h))} → 0 decreciente")
+
+
+def _factores_serie(e: mx.Expr) -> tuple[list, list]:
+    if isinstance(e, mx.Mul):
+        a1, b1 = _factores_serie(e.left)
+        a2, b2 = _factores_serie(e.right)
+        return a1 + a2, b1 + b2
+    if isinstance(e, mx.Div):
+        a1, b1 = _factores_serie(e.left)
+        a2, b2 = _factores_serie(e.right)
+        return a1 + b2, b1 + a2
+    if isinstance(e, mx.Neg):
+        n, d = _factores_serie(e.arg)
+        return n, d
+    return [e], []
+
+
+def _seno_coseno_afin(f: mx.Expr, var: str) -> tuple | None:
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    if not (isinstance(f, mx.Call) and f.name in ("sin", "cos") and len(f.args) == 1):
+        return None
+    p = RZ._polinomio_de(f.args[0], var)
+    if p is None:
+        return None
+    p = RZ._recorta(p) + [Fraction(0)] * 2
+    if any(c != 0 for c in p[2:]):
+        return None
+    return (f.name, float(p[1]), float(p[0]))
 
 
 def sin_factoriales(T: Termino) -> mx.Expr | None:
@@ -403,6 +487,422 @@ def _cociente(T: Termino, trace: Trace) -> Veredicto:
 # ---------------------------------------------------------------------------
 # power series
 # ---------------------------------------------------------------------------
+
+
+def suma_potencias(T: Termino, x: str = "x", n0: int = 1,
+                   trace: Trace | None = None) -> mx.Expr:
+    """Σ_{n≥n0} aₙ(x) en forma cerrada reconociendo la serie de Taylor.
+
+    Familias exactas (y = (x−x₀)^k con el signo de (−1)^n absorbido):
+    geométrica (delegada a :func:`suma`), −ln(1−y) = Σ y^n/n,
+    exp(y) = Σ y^n/n!, sin/cos por Σ (−1)^n B^{2n(+1)}/(2n(+1)!),
+    atan/atanh por Σ ±B^{2n+1}/(2n+1).
+    Con n0 > 1 se restan los primeros términos explícitos.
+    Lo demás se rechaza con su motivo; el valor se comprueba con sumas
+    parciales en un punto interior.
+    """
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    trace = trace if trace is not None else Trace()
+    n = T.var
+    if T.factoriales and any(not _es_afin_factorial(a, n) for a in T.factoriales):
+        raise _no("factorial de argumento no afín en n: no es una serie de Taylor")
+    alterna = _factor_alterno(T.expr, n)
+    base_expr = alterna[1] if alterna is not None else T.expr
+    alt = alterna[2] if alterna is not None else False
+    signo_const = alterna[0] if alterna is not None else 1
+    # potencias con exponente en n y base en x
+    potencias = _potencias_en_x(base_expr, x, n)
+    if not potencias:
+        raise _no(f"no es una serie de potencias en {x}: falta (x − x₀)^(k·n+m)")
+    (B, E) = potencias[0]
+    for (B2, E2) in potencias[1:]:
+        if mx.text(LM._limpio(mx.Sub(E2, E))) != "0" or \
+                mx.text(LM._limpio(mx.Div(B2, B))) not in ("1",):
+            raise _no("varias potencias con distinto (x − x₀) o exponente: no es una "
+                      "serie de Taylor de una sola función")
+    pE = RZ._polinomio_de(E, n)
+    if pE is None:
+        raise _no(f"el exponente no es afín en {n}")
+    pE = RZ._recorta(pE) + [Fraction(0)] * 2
+    if any(c != 0 for c in pE[2:]) or pE[1] <= 0 or pE[1].denominator != 1:
+        raise _no(f"el exponente tiene que ser k·{n} + m con k entero positivo")
+    k, m = int(pE[1]), pE[0]
+    # y^n·B^m fuera: y = ±B^k (signo de la alternancia absorbido)
+    Bk = mx.Pow(B, mx.Num(Fraction(k))) if k != 1 else B
+    Bm = mx.Pow(B, mx.Num(m)) if m != 0 else mx.Num(Fraction(1))
+    y = LM._limpio(mx.Neg(Bk) if alt else Bk)
+    # el resto se divide por la potencia SIN signo: base_expr ya no trae (−1)^n
+    yn = mx.Pow(Bk, mx.Sym(n))
+    resto = _resto_tras_potencias(base_expr, yn, Bm, m)
+    familia = _familia_taylor(resto, T, n, k, m, alt)
+    if familia is None:
+        raise _no("el coeficiente en n no es 1, 1/n, 1/(2n+1), 1/n!, 1/(2n)! ni "
+                  "1/(2n+1)!: no es una serie de Taylor de la tabla")
+    nombre, generadora, desde, k_resto = familia
+    # K es el signo constante por la constante del resto (2x^n/n → −2ln(1−x));
+    # B^m ya está dentro de sin/cos/atan/atanh, y la geométrica lo lleva dentro
+    K = LM._limpio(mx.Mul(mx.Num(Fraction(signo_const)), k_resto))
+    cerrada = LM._limpio(generadora(y, B, Bm, K))
+    if n0 != desde:
+        ajuste = _cola_inicial(T, x, n, n0, desde)
+        cerrada = LM._limpio(mx.Sub(cerrada, ajuste))
+    trace.regla("suma.taylor", f"Σ = {mx.text(cerrada)} ({nombre})",
+                why=f"el término es el de la serie de Taylor de {nombre} en y = {mx.text(y)}")
+    _verifica_suma_potencias(T, x, n, n0, cerrada, y, trace)
+    return cerrada
+
+
+def _resto_tras_potencias(base_expr: mx.Expr, yn: mx.Expr, Bm: mx.Expr,
+                          m: Fraction) -> mx.Expr:
+    """base_expr/(yn·Bm) cancelando los factores idénticos exactos.
+
+    Es la división que deja el coeficiente R(n): para x^n/n con y^n = x^n
+    da 1/n, no (x^n/n)/x^n. Solo cancela factores con el mismo texto, así
+    que nunca identifica lo que no es idéntico.
+    """
+    num, den = _num_den(_aplana(base_expr))
+    yn_num, yn_den = _num_den(yn)
+    extras_num = _como_factores(yn_den)
+    extras_den = _como_factores(yn_num)
+    if m != 0:
+        bm_num, bm_den = _num_den(Bm)
+        extras_num += _como_factores(bm_den)
+        extras_den += _como_factores(bm_num)
+    num, den = _cancela_listas(_como_factores(num) + extras_num,
+                               _como_factores(den) + extras_den)
+    return LM._limpio(mx.Div(num, den)) if mx.text(den) != "1" else LM._limpio(num)
+
+
+def _como_factores(e: mx.Expr) -> list:
+    if isinstance(e, mx.Mul):
+        return _como_factores(e.left) + _como_factores(e.right)
+    if mx.text(e) == "1":
+        return []
+    return [e]
+
+
+def _colapsa_potencia(e: mx.Expr) -> mx.Expr:
+    """(a^b)^c → a^(b·c): exacto para n entero (índice de la serie)."""
+    if isinstance(e, mx.Pow) and isinstance(e.base, mx.Pow):
+        return mx.Pow(e.base.base, _colapsa_potencia(mx.Mul(e.base.exponent, e.exponent)))
+    if isinstance(e, mx.Mul):
+        return mx.Mul(_colapsa_potencia(e.left), _colapsa_potencia(e.right))
+    if isinstance(e, mx.Div):
+        return mx.Div(_colapsa_potencia(e.left), _colapsa_potencia(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_colapsa_potencia(e.arg))
+    return e
+
+
+def _cancela_listas(lnum: list, lden: list) -> tuple[mx.Expr, mx.Expr]:
+    """Cancela factores entre dos listas: idénticos por texto, y potencias de la
+    misma base restando exponentes (Pow(Pow(a,b),c) colapsada antes)."""
+    lnum = [_colapsa_potencia(f) for f in lnum]
+    lden = [_colapsa_potencia(f) for f in lden]
+    pot_num: dict[str, tuple] = {}
+    resto_num = []
+    for f in lnum:
+        if isinstance(f, mx.Pow):
+            clave = mx.text(f.base)
+            base, exps = pot_num.get(clave, (f.base, []))
+            pot_num[clave] = (base, exps + [(1, f.exponent)])
+        else:
+            resto_num.append(f)
+    pot_den: dict[str, tuple] = {}
+    resto_den = []
+    for f in lden:
+        if isinstance(f, mx.Pow):
+            clave = mx.text(f.base)
+            base, exps = pot_den.get(clave, (f.base, []))
+            pot_den[clave] = (base, exps + [(1, f.exponent)])
+        else:
+            resto_den.append(f)
+    for clave in list(pot_num):
+        if clave not in pot_den:
+            continue
+        base, exps_n = pot_num.pop(clave)
+        _, exps_d = pot_den.pop(clave)
+        exp: mx.Expr = mx.Num(Fraction(0))
+        for _, e in exps_n:
+            exp = mx.Add(exp, e)
+        for _, e in exps_d:
+            exp = mx.Sub(exp, e)
+        exp = LM._limpio(exp)
+        if LM._identico_cero(exp):
+            continue
+        resto_num.append(mx.Pow(base, exp))
+    for clave, (base, pares) in pot_den.items():
+        for _, e in pares:
+            resto_num.append(mx.Pow(base, LM._limpio(mx.Neg(e))))
+    bolsa_den = list(resto_den)
+    bolsa_num = []
+    for f in resto_num:
+        for g in list(bolsa_den):
+            if mx.text(f) == mx.text(g) and not isinstance(f, mx.Pow):
+                bolsa_den.remove(g)
+                break
+        else:
+            bolsa_num.append(f)
+    n2: mx.Expr = mx.Num(Fraction(1))
+    for f in bolsa_num:
+        n2 = _mul1(n2, f)
+    d2: mx.Expr = mx.Num(Fraction(1))
+    for f in bolsa_den:
+        d2 = _mul1(d2, f)
+    return n2, d2
+
+
+def _cancela_bolsas(num: mx.Expr, den: mx.Expr, qnum: mx.Expr,
+                    qden: mx.Expr) -> tuple[mx.Expr, mx.Expr]:
+    """(num·qden)/(den·qnum) cancelando factores de idéntico texto uno a uno."""
+    bolsa_num = _como_factores(num) + _como_factores(qden)
+    bolsa_den = _como_factores(den) + _como_factores(qnum)
+    bolsa_num = [_colapsa_potencia(f) for f in bolsa_num]
+    bolsa_den = [_colapsa_potencia(f) for f in bolsa_den]
+    for f in list(bolsa_num):
+        for g in list(bolsa_den):
+            if mx.text(f) == mx.text(g):
+                bolsa_num.remove(f)
+                bolsa_den.remove(g)
+                break
+    n2: mx.Expr = mx.Num(Fraction(1))
+    for f in bolsa_num:
+        n2 = _mul1(n2, f)
+    d2: mx.Expr = mx.Num(Fraction(1))
+    for f in bolsa_den:
+        d2 = _mul1(d2, f)
+    return n2, d2
+
+
+def _mul1(a: mx.Expr, b: mx.Expr) -> mx.Expr:
+    if mx.text(a) == "1":
+        return b
+    if mx.text(b) == "1":
+        return a
+    return mx.Mul(a, b)
+
+
+def _aplana(e: mx.Expr) -> mx.Expr:
+    if isinstance(e, mx.Div):
+        a, b = _aplana(e.left), _aplana(e.right)
+        na, da = _num_den(a)
+        nb, db = _num_den(b)
+        return mx.Div(_mul1(na, db), _mul1(da, nb))
+    if isinstance(e, mx.Mul):
+        return mx.Mul(_aplana(e.left), _aplana(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_aplana(e.arg))
+    return e
+
+
+def _num_den(e: mx.Expr) -> tuple[mx.Expr, mx.Expr]:
+    if isinstance(e, mx.Div):
+        return e.left, e.right
+    return e, mx.Num(Fraction(1))
+
+
+def _es_afin_factorial(a: mx.Expr, n: str) -> bool:
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    p = RZ._polinomio_de(a, n)
+    if p is None:
+        return False
+    return len(RZ._recorta(p)) <= 2
+
+
+def _potencias_en_x(e: mx.Expr, x: str, n: str) -> list[tuple[mx.Expr, mx.Expr]]:
+    """[(base, exponente)] con la base en x y el exponente en n."""
+    if isinstance(e, mx.Pow) and mx.depends(e.base, x) and not mx.depends(e.base, n) \
+            and mx.depends(e.exponent, n) and not mx.depends(e.exponent, x):
+        return [(e.base, e.exponent)]
+    if isinstance(e, (mx.Mul, mx.Div, mx.Add, mx.Sub)):
+        return _potencias_en_x(e.left, x, n) + _potencias_en_x(e.right, x, n)
+    if isinstance(e, mx.Neg):
+        return _potencias_en_x(e.arg, x, n)
+    if isinstance(e, mx.Call):
+        salida: list = []
+        for a in e.args:
+            salida += _potencias_en_x(a, x, n)
+        return salida
+    return []
+
+
+def _familia_taylor(resto: mx.Expr, T: Termino, n: str, k: int, m: Fraction,
+                    alt: bool):
+    """(nombre, generadora(y, B), primer_n) o None.
+
+    El resto es K·R(n): constante en n por R(n) de la tabla. Los factoriales
+    de T ya están como F_0; aquí R = 1/F_0 con el argumento comprobado.
+    """
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    resto = LM._limpio(resto)
+    # sin factoriales: resto = K, K/n o K/(2n+1)
+    if not T.factoriales:
+        if not mx.depends(resto, n):
+            return ("la serie geométrica",
+                    lambda y, B, Bm, K: LM._limpio(mx.Div(mx.Mul(K, Bm),
+                                        mx.Sub(mx.Num(Fraction(1)), y))), 0,
+                    LM._limpio(resto))
+        for a_cand, b_cand in ((Fraction(1), Fraction(0)), (Fraction(2), Fraction(1))):
+            q = _igual_a_sobre(resto, n, a_cand, b_cand)
+            if q is not None:
+                if a_cand == 1 and k == 1 and m == 0 and not alt:
+                    return ("−ln(1 − y)",
+                            lambda y, B, Bm, K: LM._limpio(mx.Mul(
+                                K, mx.Neg(mx.Call("ln", (mx.Sub(
+                                    mx.Num(Fraction(1)), y),))))), 1, q)
+                if a_cand == 1 and k == 1 and m == 0 and alt:
+                    return ("−ln(1 + B) con y = −B",
+                            lambda y, B, Bm, K: LM._limpio(mx.Mul(
+                                K, mx.Neg(mx.Call("ln", (mx.Add(
+                                    mx.Num(Fraction(1)), B),))))), 1, q)
+                if a_cand == 2 and k == 2 and m == 1 and alt:
+                    return ("atan",
+                            lambda y, B, Bm, K: LM._limpio(mx.Mul(K, mx.Call("atan", (B,)))), 0,
+                            q)
+                if a_cand == 2 and k == 2 and m == 1 and not alt:
+                    return ("atanh",
+                            lambda y, B, Bm, K: LM._limpio(mx.Mul(
+                                K, mx.Mul(mx.Num(Fraction(1, 2)), mx.Call(
+                                    "ln", (mx.Div(mx.Add(mx.Num(Fraction(1)), B),
+                                                   mx.Sub(mx.Num(Fraction(1)), B)),))))), 0,
+                            q)
+        return None
+    # con un factorial: R = 1/F_0 con argumento afín comprobado
+    if len(T.factoriales) != 1:
+        return None
+    arg = T.factoriales[0]
+    p = RZ._polinomio_de(arg, n)
+    if p is None:
+        return None
+    p = RZ._recorta(p) + [Fraction(0)] * 2
+    if any(c != 0 for c in p[2:]):
+        return None
+    fa, fb = p[1], p[0]
+    # resto = K/F_0 con K constante en n (K(x) vale)
+    num = _constante_en_n(resto, n)
+    if num is None:
+        return None
+    if fa == 1 and fb == 0 and k == 1 and m == 0:
+        return ("exp", lambda y, B, Bm, K: LM._limpio(mx.Mul(K, mx.Call("exp", (y,)))), 0,
+                num)
+    if fa == 2 and fb == 0 and k == 2 and m == 0 and alt:
+        return ("cos", lambda y, B, Bm, K: LM._limpio(mx.Mul(K, mx.Call("cos", (B,)))), 0,
+                num)
+    if fa == 2 and fb == 1 and k == 2 and m == 1 and alt:
+        return ("sin", lambda y, B, Bm, K: LM._limpio(mx.Mul(K, mx.Call("sin", (B,)))), 0,
+                num)
+    return None
+
+
+def _igual_a_sobre(resto: mx.Expr, n: str, a: Fraction, b: Fraction):
+    """K si resto = K/(a·n + b) con K libre de n; None si no."""
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    num, den = _num_den(_aplana(resto))
+    if mx.depends(num, n):
+        return None
+    p = RZ._polinomio_de(den, n)
+    if p is None:
+        return None
+    pr = RZ._recorta(p)
+    if len(pr) > 2:
+        return None
+    pr = pr + [Fraction(0)] * (2 - len(pr))
+    if pr[1] != a or pr[0] != b:
+        # denominador proporcional: (a·n+b) con factor constante
+        if pr[1] == 0:
+            return None
+        coc = pr[1] / a
+        if pr[0] / coc != b:
+            return None
+        num = LM._limpio(mx.Div(num, mx.Num(coc)))
+    if mx.depends(num, n):
+        return None
+    return num
+
+
+def _constante_en_n(resto: mx.Expr, n: str):
+    """K(x) con resto = K/F_0 (F_0 el factorial); None si depende de n."""
+    e = mx.substitute(resto, "F_0", mx.Sym("_f0"))
+    # K = resto·F_0 evaluado en F_0 = 1 es K si K no depende de n
+    cand = LM._limpio(mx.substitute(resto, "F_0", mx.Num(Fraction(1))))
+    if mx.depends(cand, n):
+        return None
+    # y además resto·F_0 no depende de n
+    prod = LM._limpio(mx.Mul(resto, mx.Sym("F_0")))
+    prod = LM._limpio(mx.substitute(prod, "F_0", mx.Num(Fraction(1))))
+    if mx.text(prod) != mx.text(cand):
+        return None
+    return cand
+
+
+def _cola_inicial(T: Termino, x: str, n: str, n0: int, desde: int) -> mx.Expr:
+    """Σ_{j=desde}^{n0−1} a_j(x) explícita (vacía si n0 ≤ desde)."""
+    total = mx.Num(Fraction(0))
+    for j in range(desde, n0):
+        t = LM._limpio(mx.substitute(T.expr, n, mx.Num(Fraction(j))))
+        for k, arg in enumerate(T.factoriales):
+            v = LM._limpio(mx.substitute(arg, n, mx.Num(Fraction(j))))
+            q = mx.exact_value(v)
+            if q is None or q < 0 or q.denominator != 1 or int(q) > 170:
+                raise _no(f"el término inicial n = {j} no es evaluable exactamente")
+            t = mx.substitute(t, f"F_{k}", mx.Num(Fraction(math.factorial(int(q)))))
+        total = LM._limpio(mx.Add(total, t))
+    return total
+
+
+def _verifica_suma_potencias(T: Termino, x: str, n: str, n0: int, cerrada: mx.Expr,
+                             y: mx.Expr, trace: Trace) -> None:
+    """Segundo camino: suma parcial frente a la forma cerrada en un punto interior."""
+    punto = None
+    for t in (0.5, 0.25, 0.1, -0.5):
+        try:
+            vy = mx.valor_real(y, {x: t})
+        except (OverflowError, ValueError, ZeroDivisionError):
+            continue
+        if vy is None or not math.isfinite(vy):
+            continue
+        if "ln" in mx.text(cerrada) or "atan" in mx.text(cerrada):
+            if abs(vy) >= 1 - 1e-12:
+                continue
+        punto = {x: t}
+        break
+    if punto is None:
+        trace.verificacion("suma_taylor.sin_punto", "forma cerrada no evaluable en el punto")
+        return
+    objetivo = mx.valor_real(cerrada, punto)
+    parcial = 0.0
+    for j in range(n0, n0 + 500):
+        env = {**punto, n: float(j)}
+        for k, arg in enumerate(T.factoriales):
+            a = mx.valor_real(arg, {**punto, n: float(j)})
+            if a is None or a < 0 or a > 170:
+                parcial = None
+                break
+            env[f"F_{k}"] = math.gamma(a + 1)
+        if parcial is None:
+            break
+        try:
+            v = mx.valor_real(T.expr, env)
+        except (OverflowError, ValueError, ZeroDivisionError):
+            v = None
+        if v is None:
+            parcial = None
+            break
+        parcial += float(v)
+        if abs(float(v)) < 1e-14 * max(1.0, abs(parcial)):
+            break
+    if objetivo is None or parcial is None:
+        trace.verificacion("suma_taylor.sin_punto", "forma cerrada no evaluable en el punto")
+        return
+    if abs(parcial - float(objetivo)) > 1e-6 * max(1.0, abs(float(objetivo))):
+        raise _no("la forma cerrada no coincide con la suma parcial en el punto")
+    trace.verificacion("suma_taylor.parcial",
+                       f"S_N ≈ {parcial:.10g} frente a {float(objetivo):.10g} en "
+                       f"{x} = {list(punto.values())[0]}")
 
 
 @dataclass(frozen=True)

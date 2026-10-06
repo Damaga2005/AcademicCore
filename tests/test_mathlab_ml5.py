@@ -1,0 +1,187 @@
+# SPDX-License-Identifier: MIT
+"""ML-5 (varias variables): límites direccionales, derivada direccional,
+jacobiana, cadena, implícita, Hessiana/Sylvester, Taylor-2, Lagrange y
+extremos en recintos. Todo exacto con segundo camino; lo no exacto, con motivo.
+"""
+
+from __future__ import annotations
+
+from fractions import Fraction
+
+import pytest
+
+from academic_core.domain.engineering.mathlab import mvexpr as mx
+
+
+def test_limites_direccionales_no_existe():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    r = MV.limites_direccionales(mx.parse("x*y/(x^2+y^2)"), ["x", "y"],
+                                 {"x": "0", "y": "0"})
+    assert r.existe is False
+    assert "y = x" in r.texto() and "y = 0" in r.texto()
+
+
+def test_limites_direccionales_indicio():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    r = MV.limites_direccionales(mx.parse("x^2+y^2"), ["x", "y"],
+                                 {"x": "0", "y": "0"})
+    assert r.existe is not False
+    assert "no prueba" in r.texto()
+
+
+def test_derivada_direccional():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    v = MV.derivada_direccional(mx.parse("x^2+y^2"), ["x", "y"],
+                                {"x": 1, "y": 1}, [1, 0])
+    assert v == Fraction(2)
+
+
+def test_jacobiana():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    J = MV.jacobiana([mx.parse("x^2+y"), mx.parse("x*y")], ["x", "y"])
+    assert mx.text(J[0][0]) == "2*x" and mx.text(J[1][1]) == "x"
+
+
+def test_cadena():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    d = MV.cadena(mx.parse("x^2*y"), {"x": mx.parse("t^2"), "y": mx.parse("t")}, "t")
+    assert mx.text(d) == "5*t^4"
+
+
+def test_implicita():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    d = MV.implicita(mx.parse("x^2+y^2-1"), "x", "y")
+    assert "x" in mx.text(d) and "y" in mx.text(d)
+
+
+def test_hessiana_minimo_y_silla():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    H, c = MV.hessiana(mx.parse("x^2+y^2"), ["x", "y"])
+    assert c == "mínimo" and H[0][0] == mx.Num(Fraction(2))
+    _, c2 = MV.hessiana(mx.parse("x^2-y^2"), ["x", "y"])
+    assert c2 == "punto de silla"
+    # H no constante: sin punto no decide; con punto sí
+    with pytest.raises(Exception, match="no decide|depende del punto"):
+        MV.hessiana(mx.parse("x^3+y^3"), ["x", "y"])
+    _, c3 = MV.hessiana(mx.parse("x^3+y^3"), ["x", "y"], {"x": 1, "y": 1})
+    assert c3 == "mínimo"
+
+
+def test_puntos_criticos():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    pts = MV.puntos_criticos(mx.parse("x^2+x*y+y^2"), ["x", "y"])
+    assert len(pts) == 1 and pts[0][0] == (Fraction(0), Fraction(0))
+    assert pts[0][1] == "mínimo"
+
+
+def test_taylor2():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    p = MV.taylor2(mx.parse("exp(x+y)"), ["x", "y"],
+                   {"x": mx.Num(Fraction(0)), "y": mx.Num(Fraction(0))})
+    assert p is not None
+
+
+def test_lagrange():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    pts = MV.lagrange(mx.parse("x^2+y^2"), mx.parse("x+y-1"), ["x", "y"])
+    assert (Fraction(1, 2), Fraction(1, 2)) in [p for p, _ in pts]
+
+
+def test_extremos_recinto():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    r = MV.extremos_recinto(mx.parse("x^2+y^2"), ["x", "y"],
+                            ("rectangulo", "-1", "1", "-1", "1"))
+    assert r.minimo[1] == Fraction(0) and r.maximo[1] == Fraction(2)
+
+
+def test_rechazos_honestos():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    with pytest.raises(Exception, match="no (es lineal|decide|diagonaliza|vale)"):
+        MV.puntos_criticos(mx.parse("x^3-3*x*y^2"), ["x", "y"])
+    with pytest.raises(Exception, match="[Dd]iscriminante|no decide|semidefinida"):
+        MV.hessiana(mx.parse("x^4+y^4"), ["x", "y"])
+
+
+def test_calculadora_multivar():
+    import academic_core.domain.engineering.mathlab as ML
+
+    r = ML.calcular(ML.Peticion("multivar", {"calculo": "limites", "expr": "x*y/(x^2+y^2)",
+                                             "vars": ["x", "y"],
+                                             "punto": {"x": "0", "y": "0"}}))
+    assert r.sello.verdict == "verificado" and "no existe" in r.exacto
+    r = ML.calcular(ML.Peticion("multivar", {"calculo": "lagrange", "expr": "x^2+y^2",
+                                             "ligadura": "x+y-1", "vars": ["x", "y"]}))
+    assert r.sello.verdict == "verificado" and "1/2" in r.exacto
+    r = ML.calcular(ML.Peticion("multivar", {"calculo": "extremos", "expr": "x^2+y^2",
+                                             "vars": ["x", "y"],
+                                             "recinto": ["rectangulo", "-1", "1",
+                                                         "-1", "1"]}))
+    assert r.sello.verdict == "verificado"
+    casos = [
+        {"calculo": "direccional", "expr": "x^2+y^2", "vars": ["x", "y"],
+         "punto": {"x": 1, "y": 1}, "direccion": [1, 0]},
+        {"calculo": "jacobiana", "fs": ["x^2+y", "x*y"], "vars": ["x", "y"]},
+        {"calculo": "cadena", "expr": "x^2*y", "sust": {"x": "t^2", "y": "t"}, "t": "t"},
+        {"calculo": "implicita", "expr": "x^2+y^2-1", "x": "x", "y": "y"},
+        {"calculo": "hessiana", "expr": "x^2+y^2", "vars": ["x", "y"]},
+        {"calculo": "hessiana", "expr": "x^3+y^3", "vars": ["x", "y"],
+         "punto": {"x": "1", "y": "1"}},
+        {"calculo": "criticos", "expr": "x^2+x*y+y^2", "vars": ["x", "y"]},
+        {"calculo": "taylor2", "expr": "exp(x+y)", "vars": ["x", "y"],
+         "centro": {"x": "0", "y": "0"}},
+    ]
+    for entrada in casos:
+        r = ML.calcular(ML.Peticion("multivar", entrada))
+        assert r.sello.verdict == "verificado", (entrada["calculo"], r.exacto)
+
+
+def test_errores_de_entrada_honestos():
+    import academic_core.domain.engineering.mathlab as ML
+
+    with pytest.raises(Exception, match="punto"):
+        ML.calcular(ML.Peticion("multivar", {"calculo": "limites", "expr": "x"}))
+    with pytest.raises(Exception, match="fs"):
+        ML.calcular(ML.Peticion("multivar", {"calculo": "jacobiana", "vars": ["x"]}))
+    with pytest.raises(Exception, match="centro"):
+        ML.calcular(ML.Peticion("multivar", {"calculo": "taylor2", "expr": "x",
+                                             "vars": ["x"], "centro": {}}))
+    with pytest.raises(Exception, match="desconocido"):
+        ML.calcular(ML.Peticion("multivar", {"calculo": "volar"}))
+
+
+def test_bordes_robustos():
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    # sin puntos críticos: lista vacía, no error
+    assert MV.puntos_criticos(mx.parse("x+y^2"), ["x", "y"]) == []
+    # lagrange incompatible lineal: sin candidatos (1 = 0 en la 1.ª ecuación)
+    assert MV.lagrange(mx.parse("x"), mx.parse("y"), ["x", "y"]) == []
+    # recinto mal formado o vacío: motivo, no traceback suelto
+    with pytest.raises(Exception, match="rectángulo|recinto"):
+        MV.extremos_recinto(mx.parse("x"), ["x", "y"], ("disco", "0", "0", "1"))
+    with pytest.raises(Exception, match="a < b"):
+        MV.extremos_recinto(mx.parse("x"), ["x", "y"],
+                            ("rectangulo", "1", "-1", "-1", "1"))
+    # dirección nula o de dimensión errónea
+    with pytest.raises(Exception, match="nulo"):
+        MV.derivada_direccional(mx.parse("x"), ["x"], {"x": 0}, [0])
+    with pytest.raises(Exception, match="tantas componentes"):
+        MV.derivada_direccional(mx.parse("x+y"), ["x", "y"], {"x": 0, "y": 0}, [1])
+    # dirección no unitaria se normaliza igual
+    assert MV.derivada_direccional(mx.parse("x^2+y^2"), ["x", "y"],
+                                  {"x": 1, "y": 1}, [2, 0]) == Fraction(2)
+    # hessiana 3x3 definida
+    _, c = MV.hessiana(mx.parse("x^2+y^2+z^2"), ["x", "y", "z"])
+    assert c == "mínimo"

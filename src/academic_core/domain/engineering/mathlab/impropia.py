@@ -97,11 +97,19 @@ def _local(f: mx.Expr, var: str, punto: str, lado: str) -> Local:
     donde = f"en {'+∞' if inf > 0 else '−∞' if inf < 0 else punto + ('⁺' if lado == '+' else '⁻')}"
     if t is None or isinstance(t, LM._CeroAcotado):
         if isinstance(t, LM._CeroAcotado):
+            d = _dirichlet(f, var, punto, inf)
+            if d is not None:
+                return Local(punto, lado, True, f"{donde} converge condicionalmente por "
+                             f"Dirichlet: {d}")
             raise _no(f"el integrando oscila {donde}: haría falta el criterio de Dirichlet")
         return Local(punto, lado, True, f"{donde} el integrando es idénticamente 0")
     if isinstance(t, LM.Acotada):
+        d = _dirichlet(f, var, punto, inf)
+        if d is not None:
+            return Local(punto, lado, True, f"{donde} converge condicionalmente por "
+                         f"Dirichlet: {d}")
         raise _no(f"el integrando oscila {donde}: la comparación no decide")
-    q, p, r = t.escala
+    q, p, r = t.escala[:3]
     if q != 0:
         conv = q < 0
         razon = f"{donde} se comporta como e^({q}·w){'' if not p else f'·w^{p}'}: " + (
@@ -117,6 +125,137 @@ def _local(f: mx.Expr, var: str, punto: str, lado: str) -> Local:
                  + f": integral de Bertrand, {'converge' if conv else 'diverge'} (r "
                    f"{'<' if conv else '≥'} −1)")
     return Local(punto, lado, conv, razon)
+
+
+def _dirichlet(f: mx.Expr, var: str, punto: str, inf: int) -> str | None:
+    """Criterio de Dirichlet en ±∞: f = g·h con g = sin(ax+b)/cos(ax+b) de
+    primitiva acotada (|∫g| ≤ 2/|a|) y h → 0 monótona.
+
+    Devuelve la justificación o None si no aplica. Cada hipótesis se comprueba:
+    la forma afín del argumento, la acotación de la primitiva, el límite de h
+    y su monotonía (signo de h′ en muestras grandes más término principal).
+    """
+    if not inf:
+        return None
+    from academic_core.domain.engineering.mathlab import derive_mv as DM
+
+    g, h = _parte_oscilante(f, var)
+    if g is None or h is None:
+        return None
+    nombre, a = g[0], g[1]
+    if a == 0:
+        return None
+    cota_g = 2.0 / abs(a)
+    # h → 0 en el infinito correspondiente
+    try:
+        lh = LM.limite(h, var, "oo" if inf > 0 else "-oo")
+    except Exception:  # noqa: BLE001 - sin límite probado no hay Dirichlet
+        return None
+    if lh.valor != "0":
+        return None
+    # h monótona desde un punto: h′ con signo constante en muestras grandes y
+    # término principal que no cambia de signo
+    try:
+        dh = DM.differentiate(h, var)
+    except Exception:  # noqa: BLE001
+        return None
+    signos = []
+    for w0 in (10.0, 30.0, 100.0, 300.0, 1000.0):
+        x0 = w0 if inf > 0 else -w0
+        try:
+            v = mx.valor_real(dh, {var: x0})
+        except (OverflowError, ValueError, ZeroDivisionError):
+            return None
+        if v is None or v == 0:
+            return None
+        signos.append(1 if v > 0 else -1)
+    if any(s != signos[0] for s in signos):
+        return None
+    # valores de |h| decreciendo hacia 0 en las mismas muestras
+    modulos = []
+    for w0 in (10.0, 100.0, 1000.0, 10000.0):
+        x0 = w0 if inf > 0 else -w0
+        try:
+            v = mx.valor_real(h, {var: x0})
+        except (OverflowError, ValueError, ZeroDivisionError):
+            return None
+        if v is None:
+            return None
+        modulos.append(abs(float(v)))
+    if not all(b < a for a, b in zip(modulos, modulos[1:])):
+        return None
+    hv = mx.valor_real(h, {var: 10.0 if inf > 0 else -10.0})
+    sentido = "decrece" if (hv or 0) > 0 > signos[0] or (hv or 0) < 0 < signos[0] else \
+        "monótona"
+    prim = f"−cos({mx.text(_arg_afin(g, var))})/{a}" if nombre == "sin" else \
+        f"sin({mx.text(_arg_afin(g, var))})/{a}"
+    return (f"{nombre}({mx.text(_arg_afin(g, var))}) con primitiva acotada {prim} "
+            f"(|∫| ≤ {cota_g:.4g}) y {mx.text(h)} → 0 {sentido} (h′ con signo "
+            f"{'negativo' if signos[0] < 0 else 'positivo'} en 10..1000)")
+
+
+def _arg_afin(g, var: str) -> mx.Expr:
+    return g[3]
+
+
+def _parte_oscilante(f: mx.Expr, var: str) -> tuple | None:
+    """(nombre, a, b, arg) de sin(a·var+b)/cos(a·var+b) y el cofactor h.
+
+    Busca el factor oscilante en un producto/cociente; h es f con ese factor
+    puesto a 1 (en el numerador). Si no hay exactamente un seno o coseno de
+    argumento afín, devuelve (None, None).
+    """
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    nums, dens = _factores_mul_div(f)
+    hallado, indice = None, -1
+    for i, factor in enumerate(nums):
+        c = _es_seno_coseno(factor, var)
+        if c is not None:
+            if hallado is not None:
+                return None, None
+            hallado, indice = c, i
+    if hallado is None:
+        return None, None
+    resto = [x for j, x in enumerate(nums) if j != indice]
+    h = resto[0] if resto else mx.Num(Fraction(1))
+    for x in resto[1:]:
+        h = mx.Mul(h, x)
+    for x in dens:
+        h = mx.Div(h, x)
+    return hallado, LM._limpio(h)
+
+
+def _factores_mul_div(e: mx.Expr) -> tuple[list, list]:
+    if isinstance(e, mx.Mul):
+        a1, b1 = _factores_mul_div(e.left)
+        a2, b2 = _factores_mul_div(e.right)
+        return a1 + a2, b1 + b2
+    if isinstance(e, mx.Div):
+        a1, b1 = _factores_mul_div(e.left)
+        a2, b2 = _factores_mul_div(e.right)
+        return a1 + b2, b1 + a2
+    if isinstance(e, mx.Neg):
+        n, d = _factores_mul_div(e.arg)
+        return [mx.Neg(x) for x in n], d
+    return [e], []
+
+
+def _es_seno_coseno(f: mx.Expr, var: str) -> tuple | None:
+    """(nombre, a, b, arg) si f es sin/cos de argumento afín a·var + b."""
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    if not (isinstance(f, mx.Call) and f.name in ("sin", "cos") and len(f.args) == 1):
+        return None
+    arg = f.args[0]
+    p = RZ._polinomio_de(arg, var)
+    if p is None:
+        return None
+    p = RZ._recorta(p) + [Fraction(0)] * 2
+    if any(c != 0 for c in p[2:]):
+        return None
+    b, a = p[0], p[1]
+    return (f.name, float(a), float(b), arg)
 
 
 def puntos_singulares(f: mx.Expr, var: str, a: str, b: str) -> list[tuple[str, str]]:
@@ -187,7 +326,71 @@ def convergencia(f: mx.Expr, var: str, a: str, b: str, trace: Trace | None = Non
     valor = None
     if converge and con_valor:
         valor = _valor(f, var, a, b, singulares, trace)
+        if valor is None:
+            valor = _intenta_gamma(f, var, a, b, trace)
     return Convergencia(converge, tuple(locales), valor)
+
+
+def _intenta_gamma(f: mx.Expr, var: str, a: str, b: str, trace: Trace) -> mx.Expr | None:
+    """∫₀^∞ K·x^c·e^(−x) dx = K·Γ(c+1): el caso de la función gamma (T10).
+
+    Solo la forma exacta con c racional > −1 y K constante; si no encaja,
+    None (la primitiva ya lo intentó antes). El valor se verifica por
+    cuadratura en la calculadora como los demás.
+    """
+    from academic_core.domain.engineering.mathlab import gamma as G
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    if a.strip() != "0" or _es_inf(b) != 1:
+        return None
+    nums, dens = _factores_mul_div(f)
+    if dens:
+        return None
+    exp_ok, pot_c, resto = False, None, []
+    for factor in nums:
+        if isinstance(factor, mx.Call) and factor.name == "exp" and len(factor.args) == 1:
+            p = RZ._polinomio_de(factor.args[0], var)
+            if p is not None and RZ._recorta(p) == [Fraction(0), Fraction(-1)]:
+                if exp_ok:
+                    return None
+                exp_ok = True
+                continue
+        resto.append(factor)
+    if not exp_ok:
+        return None
+    K = mx.Num(Fraction(1))
+    for factor in resto:
+        if isinstance(factor, mx.Pow) and mx.text(factor.base) == var and \
+                not mx.depends(factor.exponent, var):
+            if pot_c is not None:
+                return None
+            c = mx.exact_value(factor.exponent)
+            if c is None:
+                return None
+            pot_c = Fraction(c)
+            continue
+        if mx.text(factor) == var:
+            if pot_c is not None:
+                return None
+            pot_c = Fraction(1)
+            continue
+        if mx.depends(factor, var):
+            return None
+        v = mx.exact_value(factor)
+        if v is None:
+            return None
+        K = mx.Mul(K, factor)
+    c = Fraction(0) if pot_c is None else pot_c
+    if c <= -1:
+        return None
+    try:
+        g = G.gamma(mx.Num(c + 1), trace)
+    except Exception:  # noqa: BLE001 - sin forma exacta: la cuadratura lo dirá
+        return None
+    valor = LM._limpio(mx.Mul(K, g))
+    trace.regla("impropia.gamma", f"∫₀^∞ x^{c}·e^(−x) dx = Γ({c + 1}): {mx.text(valor)}",
+                why="definición de la función gamma para c > −1")
+    return valor
 
 
 def _valor(f: mx.Expr, var: str, a: str, b: str, singulares, trace: Trace) -> mx.Expr | None:
@@ -343,11 +546,13 @@ def con_parametro(f: mx.Expr, var: str, a: str, b: str, alfa: str,
                   ) -> ConParametro:
     trace = trace if trace is not None else Trace()
     trace.metodo("impropia.barrido", f"barrido exacto en {alfa} con paso 1/4 en "
-                 f"[{rango[0]}, {rango[1]}] y bisección racional de cada frontera",
+                 f"[{rango[0]}, {rango[1]}] y malla geométrica hasta ±10⁶, "
+                 "con bisección racional de cada frontera",
                  why=("para cada valor del parámetro el criterio de comparación es exacto; "
                       "las fronteras se localizan donde cambia el veredicto y se comprueban "
-                      "en el propio valor y a ambos lados"))
+                      "en el propio valor y a ambos lados; las sondas no decididas se ignoran"))
     muestras = [Fraction(k, 4) for k in range(4 * rango[0], 4 * rango[1] + 1)]
+    alcance = _extiende_muestras_impropia(muestras, f, var, a, b, alfa)
     veredictos = [_veredicto(f, var, a, b, alfa, v) for v in muestras]
     if any(v is None for v in veredictos):
         malos = [str(m) for m, v in zip(muestras, veredictos) if v is None][:5]
@@ -395,7 +600,30 @@ def con_parametro(f: mx.Expr, var: str, a: str, b: str, alfa: str,
         trace.regla("impropia.frontera", f"{alfa} = {c}: "
                     f"{'converge' if _veredicto(f, var, a, b, alfa, c) else 'diverge'} en la "
                     "frontera", why="el caso frontera se decide aparte (p = −1)")
-    trace.aviso("impropia.rango", f"barrido en [{rango[0]}, {rango[1]}]: fuera de ese "
-                                  f"rango de {alfa} se supone el mismo veredicto que en sus "
+    trace.aviso("impropia.rango", f"barrido en [{rango[0]}, {rango[1]}] con malla "
+                                  f"geométrica decidida hasta ±{alcance:g}: fuera de ese "
+                                  f"alcance de {alfa} se supone el mismo veredicto que en sus "
                                   "extremos")
     return ConParametro(alfa, tuple(intervalos), tuple(fronteras), rango)
+
+
+def _extiende_muestras_impropia(muestras: list, f, var: str, a: str, b: str,
+                                alfa: str) -> float:
+    """Sondas geométricas ±10·2^k hasta ±10⁶; solo entran las decididas."""
+    alcance = 10.0
+    for signo in (-1, 1):
+        for k in range(1, 18):
+            m = Fraction(signo * 10 * 2 ** k)
+            if abs(m) > 10 ** 6:
+                break
+            try:
+                v = _veredicto(f, var, a, b, alfa, m)
+            except Exception:  # noqa: BLE001
+                continue
+            if v is None:
+                continue
+            if m not in muestras:
+                muestras.append(m)
+            alcance = max(alcance, float(abs(m)))
+    muestras.sort()
+    return alcance

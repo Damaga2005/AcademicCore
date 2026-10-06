@@ -51,6 +51,12 @@ EJEMPLOS = {
     "riemann": {"expr": "x^2", "a": "0", "b": "1", "n": 10},
     "metodo_numerico": {"metodo": "newton", "expr": "x^2-2", "x0": 1},
     "aplicacion_integral": {"tipo": "area", "f": "x^2", "g": "x", "a": "0", "b": "2"},
+    "algebra": {"calculo": "autovalores", "matriz": [[2, 1], [1, 2]]},
+    "gamma": {"expr": "5"},
+    "multivar": {"calculo": "criticos", "expr": "x^2+x*y+y^2", "vars": ["x", "y"]},
+    "espacios": {"calculo": "suma_interseccion",
+                 "F": [[1, 0, 1, 0], [0, 1, 0, 1]],
+                 "G": [[1, 1, 0, 0], [1, 0, 1, 0]]},
 }
 
 

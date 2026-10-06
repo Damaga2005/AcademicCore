@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-10-06 — Espacios vectoriales verificados contra TODOS los exámenes
+
+- **Verificación exhaustiva** de los 26 PDFs de la carpeta (Parciales 2018-2022, Segundo Parcial 2018-2022, Finales 2020-2024 y 07-17): F por ecuaciones + G por generadores con Grassmann, cambios de base, S = Col(M) con S⊥ y proyección, núcleo/imagen, φ con parámetro e invariantes, coordenadas en subespacios de ℝ⁴ y polinomios, antiimágenes, Im f + F. Todos resueltos por la calculadora `espacios` con sello verificado.
+- **Tests permanentes:** `test_examenes_reales` en `tests/test_mathlab_espacios.py` fija los casos de todos los exámenes (incluidos los detalles de F∩G ≠ {0} en Parcial 2018 y 2021).
+- **Suite completo:** 876 tests en verde, sin regresiones.
+
+## 2026-10-06 — Espacios vectoriales verificados contra la carpeta de exámenes
+
+- **Verificación con exámenes reales** (Parcial 2018, Segundo Parcial 2018): F por ecuaciones + G por generadores con Grassmann, cambio de base B₁→B₂, S = Col(M) con S⊥ y proyección, núcleo/imagen, φ con parámetro e invariantes, coordenadas en subespacios de ℝ⁴. Todos resueltos por la calculadora `espacios` con sello verificado.
+- **Tests permanentes:** `test_examenes_reales` en `tests/test_mathlab_espacios.py` fija los casos de la carpeta (incluido el detalle de que F∩G ≠ {0} en el Parcial 2018: el vector (0,−1,−2,1) está en ambos).
+- **Formato:** cartesianas separadas por `;` en vez de ` + `.
+
+## 2026-10-06 — Espacios vectoriales (carpeta de Álgebra Lineal)
+
+- **Módulo `espacios.py` + operación `espacios`:** base/dimensión, pertenencia y coordenadas, ecuaciones ↔ generadores (ida y vuelta), suma e intersección con Grassmann comprobado, cambio de base por la canónica, matriz en otra base (traza y det preservados), aplicación desde una base, núcleo/imagen con rango-nulidad, antiimágenes (particular + núcleo), proyección ortogonal con Gram-Schmidt interno, complemento ortogonal y distancia, invariantes, independencia con un parámetro (det interpolado exacto) y valores singulares exactos.
+- **Rechazos honestos:** ecuaciones no homogéneas o no lineales, bases que no lo son, vector fuera del subespacio, anti-imagen incompatible, más de un parámetro, ceros no racionales del determinante y determinante idénticamente nulo.
+- **Tests:** 18 en `tests/test_mathlab_espacios.py` (15 de motor + 13 de calculadora), casos de los exámenes de la carpeta.
+
+## 2026-10-06 — Lupa: autovalores reales irracionales y limpieza
+
+- **Bug real:** `autovalores` 2×2 con Δ > 0 no cuadrado caía en la rama compleja; ahora devuelve el par real exacto en ℚ(√r) con segundo camino numérico, y `diagonalizar` rechaza el espectro no racional con motivo (los autovectores exactos viven sobre ℚ).
+- **Limpieza:** fuera el stub `_combinar_exponentes`, el `valor_numerico` duplicado, las ramas duplicadas de la direccional y el `complex()` obsoleto del test de complejos (adiós `DeprecationWarning`); entradas de `algebra` validadas como números exactos.
+- **Entorno:** instalados `sympy` y `mpmath`: los tests que los importan ya corren aquí (antes ni se recogían).
+
+## 2026-10-06 — ML-5 robusto (rechazos honestos + cobertura total)
+
+- **Sin puntos/candidatos = lista vacía** (`x+y²` sin críticos; Lagrange incompatible lineal), no error.
+- **Entradas validadas:** punto obligatorio en `limites`/`direccional`, `fs` en `jacobiana`, `centro` completo en `taylor2`, recinto `['rectangulo', a, b, c, d]` con `a < b`, dirección no nula y de la dimensión de `vars` (se normaliza: `[2, 0]` vale lo mismo que `[1, 0]`); `lam` no colisiona con variables del usuario.
+- **Linealidad por forma normal de polinomio** (entiende `2*x^1+y*1`, `x/2`); esquinas no exactas avisadas, no comparadas en silencio; `limites` sin caminos decididos lo dice.
+- **Calculadora `multivar`:** los 10 cálculos probados (`limites`, `direccional`, `jacobiana`, `cadena`, `implicita`, `hessiana`, `criticos`, `taylor2`, `lagrange`, `extremos`) + 4 errores de entrada honestos.
+
+## 2026-10-06 — ML-5 (varias variables)
+
+- **Módulo `varias.py` + operación `multivar`:** límites por rectas y parábolas (dos valores distintos = no existe probado; coincidencia = indicio con aviso), derivada direccional con unitario exacto, jacobiana, cadena verificada contra la compuesta derivada, implícita con `Fx + Fy·y′ = 0` idéntico, Hessiana con Sylvester (2×2 completa; n > 2 solo definida), Taylor-2 sin cota inventada, críticos de gradiente lineal clasificados, Lagrange lineal y extremos absolutos en rectángulos (interior + 4 lados 1V + esquinas).
+- **Límites honestos:** gradiente no lineal, Hessiana semidefinida o dependiente del punto sin evaluar, ligaduras no lineales y recintos no rectangulares se rechazan con su motivo.
+
+## 2026-10-06 — ML-3 (núcleo) y los 5 huecos de ML-2 cerrados
+
+- **Hueco 1, crecimientos:** `e^(x²)·e^(−x²) = 1` por combinación exacta de exponentes; `3ⁿ·n!/nⁿ` por cociente reagrupado a `(1+1/n)^n → e`; escala `ln(ln x)` (4.ª componente de la escala de `limite.py`).
+- **Hueco 2, Dirichlet:** impropias `sin(x)/x` (primitiva acotada + `h → 0` monótona, todo comprobado) y series `sin(n)/n` (sumas parciales acotadas `1/|sin(a/2)|`); lo no afín (`sin(x²)/x`) se sigue rechazando con su motivo.
+- **Hueco 3, sumas Taylor:** `suma_potencias` (`−ln(1−x)`, `e^x`, `sin`, `cos`, `atan`, `atanh`, geométricas, `n0` arbitrario por resta explícita) con suma parcial como segundo camino; cálculo `suma_potencias` en la operación `serie`.
+- **Hueco 4, Γ y cuadrático repetido:** `gamma.py` (enteros, semienteros, recurrencia; polos como error) con operación `gamma`; `∫₀^∞x^c·e^(−x) = Γ(c+1)` en impropias; reducción `J_j → J_1` para `(Bx+C)/quad^j` (Δ > 0).
+- **Hueco 5, barrido:** malla geométrica decidida hasta ±10⁶ en `limite` e `impropia`; el método declara su alcance real (sello numérico, como antes).
+- **ML-3:** `algebra.py` (característico 2×2/3×3, autovalores exactos, autovectores por Gauss, diagonalización con `A·P = P·D`, Gram-Schmidt, Cramer, mínimos cuadrados, pseudoinversa con Moore-Penrose) y operación `algebra`.
+
 ## 2026-10-06 — ML-2 completo
 
 - **Operaciones nuevas:** `limite` (con parámetro), `estudio`, `extremos_absolutos`, `soluciones`, `impropia`, `serie`, `taylor`, `primitiva`, `tfc`, `inversa`, `a_trozos`, `teorema`, `riemann`, `aplicacion_integral`, `metodo_numerico`; `resolver_inequidad` y `integrar` amplían su alcance (no periódicas; √(cuadrática)).

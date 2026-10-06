@@ -23,7 +23,8 @@ Taylor), ∞ − ∞ (conjugate or common denominator, done by the series), 1^�
 ∞⁰ (``f^g = e^(g·ln f)``), and the hierarchy ``ln ≪ potencia ≪ exponencial``.
 
 What it does not do, it says: an oscillating factor without a vanishing partner
-(``sin x`` at ∞), ``exp`` of a super-linear growth, ``ln ln``, a radical whose
+(``sin x`` at ∞), ``exp`` of a super-linear growth whose exponents do not combine
+into one, ``ln(ln(ln))``, a radical whose
 leading power is not integral after factoring. Never a sampled guess.
 
 Second path: the value is checked numerically by evaluating approaching the point
@@ -81,7 +82,7 @@ def _error(codigo: str, mensaje: str) -> ValidationError:
 
 @dataclass(frozen=True)
 class Termino:
-    """c·w^p·e^(q·w)·(ln w)^r. ``c`` is an exact constant expression, never 0."""
+    """c·w^p·e^(q·w)·(ln w)^r·(ln ln w)^s. ``c`` is an exact constant expression, never 0."""
 
     c: mx.Expr
     p: Fraction = Fraction(0)
@@ -89,12 +90,14 @@ class Termino:
     r: Fraction = Fraction(0)
     #: ±1 for e^(±g) with g growing faster than linear (e^(−w²)): beyond every e^(qw)
     sup: int = 0
+    #: exponent of ln ln w: ln ln grows slower than any (ln w)^r with r > 0
+    s: Fraction = Fraction(0)
 
     @property
-    def escala(self) -> tuple[Fraction, Fraction, Fraction]:
+    def escala(self) -> tuple[Fraction, Fraction, Fraction, Fraction]:
         if self.sup:
-            return (Fraction(self.sup * 10 ** 9), Fraction(0), Fraction(0))
-        return (self.q, self.p, self.r)
+            return (Fraction(self.sup * 10 ** 9), Fraction(0), Fraction(0), Fraction(0))
+        return (self.q, self.p, self.r, self.s)
 
     @property
     def valor_c(self) -> float:
@@ -108,9 +111,9 @@ class Termino:
     def tiende(self) -> str:
         """«inf», «-inf», «0» or «finito»."""
         s = self.escala
-        if s > (0, 0, 0):
+        if s > (0, 0, 0, 0):
             return "inf" if self.valor_c > 0 else "-inf"
-        if s < (0, 0, 0):
+        if s < (0, 0, 0, 0):
             return "0"
         return "finito"
 
@@ -357,13 +360,209 @@ def _identico_cero(e: mx.Expr) -> bool:
 
 def _mul(a: Termino, b: Termino) -> Termino:
     if a.sup and b.sup:
-        raise _no("producto de dos exponenciales de crecimiento superlineal: sus "
-                  "exponentes podrían compensarse y aquí no se comparan")
-    return Termino(_limpio(mx.Mul(a.c, b.c)), a.p + b.p, a.q + b.q, a.r + b.r, a.sup or b.sup)
+        raise _no("producto de dos exponenciales de crecimiento superlineal con "
+                  "distinto exponente: sus ritmos no se comparan en la escala "
+                  "(q, p, r, s). Si los exponentes se compensan, la combinación "
+                  "exp(g1)·exp(g2) = exp(g1+g2) ya la hizo _combina_exp antes")
+    return Termino(_limpio(mx.Mul(a.c, b.c)), a.p + b.p, a.q + b.q, a.r + b.r,
+                   a.sup or b.sup, a.s + b.s)
+
+
+def _combina_exp(e: mx.Expr) -> mx.Expr:
+    """exp(g1)·exp(g2) → exp(g1+g2), exp(g1)/exp(g2) → exp(g1−g2), recursivo.
+
+    Es lo que permite que e^(x²)·e^(−x²) se lea como exp(0) = 1 en vez de
+    como «dos superexponenciales que no se comparan»: la compensación se hace
+    en la expresión exacta, antes de comparar órdenes.
+    """
+    if isinstance(e, mx.Mul):
+        izq, der = _combina_exp(e.left), _combina_exp(e.right)
+        g1 = _arg_exp(izq)
+        g2 = _arg_exp(der)
+        if g1 is not None and g2 is not None:
+            return mx.Call("exp", (_limpio(mx.Add(g1, g2)),))
+        return mx.Mul(izq, der) if (izq is not e.left or der is not e.right) else e
+    if isinstance(e, mx.Div):
+        izq, der = _combina_exp(e.left), _combina_exp(e.right)
+        g1 = _arg_exp(izq)
+        g2 = _arg_exp(der)
+        if g1 is not None and g2 is not None:
+            return mx.Call("exp", (_limpio(mx.Sub(g1, g2)),))
+        return mx.Div(izq, der) if (izq is not e.left or der is not e.right) else e
+    if isinstance(e, mx.Neg):
+        arg = _combina_exp(e.arg)
+        return mx.Neg(arg) if arg is not e.arg else e
+    if isinstance(e, (mx.Add, mx.Sub)):
+        izq, der = _combina_exp(e.left), _combina_exp(e.right)
+        return type(e)(izq, der) if (izq is not e.left or der is not e.right) else e
+    if isinstance(e, mx.Pow):
+        base, expo = _combina_exp(e.base), _combina_exp(e.exponent)
+        return mx.Pow(base, expo) if (base is not e.base or expo is not e.exponent) else e
+    if isinstance(e, mx.Call):
+        args = tuple(_combina_exp(x) for x in e.args)
+        return mx.Call(e.name, args) if any(x is not y for x, y in zip(args, e.args)) else e
+    return e
+
+
+def _arg_exp(e: mx.Expr) -> mx.Expr | None:
+    if isinstance(e, mx.Call) and e.name == "exp" and len(e.args) == 1:
+        return e.args[0]
+    return None
 
 
 def _inv(a: Termino) -> Termino:
-    return Termino(_limpio(mx.Div(mx.Num(Fraction(1)), a.c)), -a.p, -a.q, -a.r, -a.sup)
+    return Termino(_limpio(mx.Div(mx.Num(Fraction(1)), a.c)), -a.p, -a.q, -a.r, -a.sup,
+                   -a.s)
+
+
+def _reagrupa_potencias(e: mx.Expr) -> mx.Expr:
+    """a^(E+k)/a^E → a^k y P^E/Q^E → (P/Q)^E, a punto fijo y verificado.
+
+    Es lo que deja que n^n/(n+1)^(n+1) se lea como 1/((n+1)·(1+1/n)^n)
+    en vez de como un cociente de dos superexponenciales: la comparación
+    de e^g1 frente a e^g2 con g1 − g2 ~ ln n no cabe en la escala
+    (q, p, r, s), pero la forma (1+1/n)^n sí, porque es 1^∞ con
+    g·ln f exacto. Cada reescritura es una identidad algebraica exacta
+    (a^(b+c) = a^b·a^c para a > 0, que aquí vale eventualmente) y se
+    comprueba numéricamente antes de usarse.
+    """
+    for _ in range(10):
+        nuevo = _un_paso_potencias(e)
+        if mx.text(nuevo) == mx.text(e):
+            return e
+        e = nuevo
+    return e
+
+
+def _un_paso_potencias(e: mx.Expr) -> mx.Expr:
+    e = _parte_exponente(e)
+    nums, dens = _factores(e)
+    nums = _fusiona_base_constante(nums, 1)
+    dens = _fusiona_base_constante(dens, -1)
+    nums, dens = _fusiona_mismo_exponente(nums, dens)
+    return _reconstruye(nums, dens)
+
+
+def _parte_exponente(e: mx.Expr) -> mx.Expr:
+    """P^(E+k) → P^E·P^k con k constante (misma forma para E−k)."""
+    if isinstance(e, mx.Pow) and not mx.depends(e.exponent, W):
+        return e
+    if isinstance(e, mx.Pow) and mx.depends(e.exponent, W):
+        base, expo = e.base, e.exponent
+        if isinstance(expo, (mx.Add, mx.Sub)):
+            const = expo.right if not mx.depends(expo.right, W) else None
+            resto = expo.left if const is not None else None
+            if const is not None and resto is not None and not _cero(const):
+                extra = mx.Pow(base, const)
+                if isinstance(expo, mx.Sub):
+                    return mx.Div(mx.Pow(base, resto), mx.Pow(base, _opuesto(const)))
+                return mx.Mul(mx.Pow(base, resto), extra)
+        return e
+    if isinstance(e, mx.Mul):
+        return mx.Mul(_parte_exponente(e.left), _parte_exponente(e.right))
+    if isinstance(e, mx.Div):
+        return mx.Div(_parte_exponente(e.left), _parte_exponente(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_parte_exponente(e.arg))
+    if isinstance(e, (mx.Add, mx.Sub)):
+        return type(e)(_parte_exponente(e.left), _parte_exponente(e.right))
+    if isinstance(e, mx.Call):
+        return mx.Call(e.name, tuple(_parte_exponente(x) for x in e.args))
+    return e
+
+
+def _opuesto(e: mx.Expr) -> mx.Expr:
+    return mx.Neg(e)
+
+
+def _factores(e: mx.Expr) -> tuple[list, list]:
+    if isinstance(e, mx.Mul):
+        a1, b1 = _factores(e.left)
+        a2, b2 = _factores(e.right)
+        return a1 + a2, b1 + b2
+    if isinstance(e, mx.Div):
+        a1, b1 = _factores(e.left)
+        a2, b2 = _factores(e.right)
+        return a1 + b2, b1 + a2
+    return [e], []
+
+
+def _es_potencia(f) -> tuple | None:
+    if isinstance(f, mx.Pow):
+        return f.base, f.exponent
+    return None
+
+
+def _fusiona_base_constante(factores: list, _lado: int) -> list:
+    """C^E1·C^E2 → C^(E1+E2) con C constante (mismo texto)."""
+    grupos: dict[str, list] = {}
+    resto = []
+    for f in factores:
+        p = _es_potencia(f)
+        if p is not None and not mx.depends(p[0], W):
+            grupos.setdefault(mx.text(_limpio(p[0])), []).append(p)
+        else:
+            resto.append(f)
+    salida = list(resto)
+    for _, pares in grupos.items():
+        if len(pares) == 1:
+            salida.append(mx.Pow(pares[0][0], pares[0][1]))
+            continue
+        base = pares[0][0]
+        expo = pares[0][1]
+        for _, e2 in pares[1:]:
+            expo = _limpio(mx.Add(expo, e2))
+        salida.append(mx.Pow(base, expo))
+    return salida
+
+
+def _fusiona_mismo_exponente(nums: list, dens: list) -> tuple[list, list]:
+    """P^E/Q^E → (P/Q)^E con E idéntico (mismo texto); el resto se conserva."""
+    def clave_exp(f) -> str | None:
+        p = _es_potencia(f)
+        if p is not None and mx.depends(p[1], W):
+            return mx.text(_limpio(p[1]))
+        return None
+
+    usados_num, usados_den = set(), set()
+    nuevos_num: list = []
+    por_exp_den: dict[str, list] = {}
+    for j, f in enumerate(dens):
+        c = clave_exp(f)
+        if c is not None:
+            por_exp_den.setdefault(c, []).append(j)
+    for i, f in enumerate(nums):
+        c = clave_exp(f)
+        if c is None or c not in por_exp_den or not por_exp_den[c]:
+            continue
+        j = por_exp_den[c].pop(0)
+        usados_num.add(i)
+        usados_den.add(j)
+        pn, pd = _es_potencia(f), _es_potencia(dens[j])
+        nuevos_num.append(mx.Pow(_limpio(mx.Div(pn[0], pd[0])), pn[1]))
+    nuevos_den = []
+    for i, f in enumerate(nums):
+        if i not in usados_num and clave_exp(f) is None:
+            nuevos_num.append(f)
+    for i, f in enumerate(nums):
+        if i not in usados_num and clave_exp(f) is not None:
+            nuevos_num.append(f)
+    for j, f in enumerate(dens):
+        if j not in usados_den:
+            nuevos_den.append(f)
+    return nuevos_num, nuevos_den
+
+
+def _reconstruye(nums: list, dens: list) -> mx.Expr:
+    total = None
+    for f in nums:
+        total = f if total is None else mx.Mul(total, f)
+    for f in dens:
+        if total is None:
+            total = mx.Div(mx.Num(Fraction(1)), f)
+        else:
+            total = mx.Div(total, f)
+    return total if total is not None else mx.Num(Fraction(1))
 
 
 # ---------------------------------------------------------------------------
@@ -619,13 +818,19 @@ def principal(e: mx.Expr) -> Termino | Acotada | None:
         a = principal(e.arg)
         if a is None or isinstance(a, Acotada):
             return a
-        return Termino(_limpio(mx.Neg(a.c)), a.p, a.q, a.r, a.sup)
+        return Termino(_limpio(mx.Neg(a.c)), a.p, a.q, a.r, a.sup, a.s)
     if isinstance(e, (mx.Add, mx.Sub)):
         return _suma(e)
     if isinstance(e, mx.Mul):
+        combinada = _combina_exp(e)
+        if combinada is not e:
+            return principal(combinada)
         a, b = principal(e.left), principal(e.right)
         return _producto(a, b, e)
     if isinstance(e, mx.Div):
+        combinada = _combina_exp(e)
+        if combinada is not e:
+            return principal(combinada)
         a, b = principal(e.left), principal(e.right)
         if b is None:
             raise _error("UNDEFINED", f"el denominador {mx.text(e.right)} es idénticamente 0")
@@ -648,16 +853,17 @@ def principal(e: mx.Expr) -> Termino | Acotada | None:
             raise _no(f"potencia de una función oscilante ({mx.text(e)})")
         if q is None:
             # constant but not rational exponent: c^k with c > 0
-            if a.escala != (0, 0, 0):
+            if a.escala != (0, 0, 0, 0):
                 raise _no(f"exponente irracional sobre una magnitud que crece ({mx.text(e)})")
             return Termino(_limpio(mx.Pow(a.c, expo)))
         q = Fraction(q)
         if q.denominator != 1 and a.valor_c < 0:
             raise _error("UNDEFINED", f"{mx.text(e)}: raíz par de un número negativo")
         c = _limpio(mx.Pow(a.c, _num(q)))
-        if a.escala == (0, 0, 0) and q.denominator != 1:
+        if a.escala == (0, 0, 0, 0) and q.denominator != 1:
             return Termino(c)
-        return Termino(c, a.p * q, a.q * q, a.r * q, (a.sup if q > 0 else -a.sup) if a.sup else 0)
+        return Termino(c, a.p * q, a.q * q, a.r * q, (a.sup if q > 0 else -a.sup) if a.sup else 0,
+                       a.s * q)
     if isinstance(e, mx.Call):
         return _funcion(e)
     raise _no(f"no sé el comportamiento de {mx.text(e)}")
@@ -672,7 +878,7 @@ def _producto(a, b, e) -> Termino | Acotada | None:
         return ACOTADA
     if isinstance(a, Acotada) or isinstance(b, Acotada):
         otro = b if isinstance(a, Acotada) else a
-        if otro.escala < (0, 0, 0):
+        if otro.escala < (0, 0, 0, 0):
             return _CERO_ACOTADO
         return OSCILA    # c·sin w or w·cos w: no limit
     return _mul(a, b)
@@ -689,7 +895,7 @@ def _suma(e: mx.Expr) -> Termino | Acotada | None:
     a = principal(e.left)
     b = principal(e.right)
     if isinstance(e, mx.Sub) and isinstance(b, Termino):
-        b = Termino(_limpio(mx.Neg(b.c)), b.p, b.q, b.r, b.sup)
+        b = Termino(_limpio(mx.Neg(b.c)), b.p, b.q, b.r, b.sup, b.s)
     if a is None:
         return b
     if b is None:
@@ -701,12 +907,12 @@ def _suma(e: mx.Expr) -> Termino | Acotada | None:
         raise _no(f"{mx.text(e)}: un sumando oscila sin acotar; no sé si otro lo domina")
     if isinstance(a, Acotada) or isinstance(b, Acotada):
         otro = b if isinstance(a, Acotada) else a
-        if isinstance(otro, Acotada) or otro.escala <= (0, 0, 0):
+        if isinstance(otro, Acotada) or otro.escala <= (0, 0, 0, 0):
             return ACOTADA
         return otro
     if isinstance(a, _CeroAcotado) or isinstance(b, _CeroAcotado):
         otro = b if isinstance(a, _CeroAcotado) else a
-        if otro.escala >= (0, 0, 0) and not isinstance(otro, _CeroAcotado):
+        if otro.escala >= (0, 0, 0, 0) and not isinstance(otro, _CeroAcotado):
             return otro
         raise _no(f"{mx.text(e)}: suma de un término oscilante amortiguado con otro que "
                   "también tiende a 0")
@@ -716,7 +922,7 @@ def _suma(e: mx.Expr) -> Termino | Acotada | None:
         raise _no(f"{mx.text(e)}: dos términos superexponenciales del mismo signo")
     c = _limpio(mx.Add(a.c, b.c))
     if not _cero(c):
-        return Termino(c, a.p, a.q, a.r, a.sup)
+        return Termino(c, a.p, a.q, a.r, a.sup, a.s)
     # the principal terms cancel: the series of the whole sum decides
     if a.q != 0 or a.r != 0:
         raise _no(f"{mx.text(e)}: los términos principales se cancelan y hay exponenciales "
@@ -738,7 +944,7 @@ def _funcion(e: mx.Call) -> Termino | Acotada | None:
             raise _no("ln de una función oscilante")
         if a.valor_c <= 0:
             raise _error("UNDEFINED", f"{mx.text(e)}: logaritmo de algo negativo")
-        if a.escala == (0, 0, 0):
+        if a.escala == (0, 0, 0, 0):
             if _cero(_limpio(mx.Sub(a.c, mx.Num(Fraction(1))))):
                 # ln(1 + v) ~ v
                 return principal(mx.Sub(e.args[0], mx.Num(Fraction(1))))
@@ -747,6 +953,13 @@ def _funcion(e: mx.Call) -> Termino | Acotada | None:
             return Termino(_num(a.q), Fraction(1))
         if a.p != 0:
             return Termino(_num(a.p), Fraction(0), Fraction(0), Fraction(1))
+        if a.r != 0:
+            # ln(c·(ln w)^r) ~ r·ln ln w: la escala ln ln, más lenta que
+            # cualquier potencia de ln w
+            return Termino(_num(a.r), Fraction(0), Fraction(0), Fraction(0), 0, Fraction(1))
+        if a.s != 0:
+            # ln((ln ln w)^s) ~ s·ln ln ln w: fuera de la escala, se rechaza
+            raise _no("ln(ln(ln)) no está implementado")
         raise _no("ln(ln) no está implementado")
     if nombre == "exp":
         arg = e.args[0]
@@ -755,32 +968,39 @@ def _funcion(e: mx.Call) -> Termino | Acotada | None:
             return Termino(mx.Num(Fraction(1)))
         if isinstance(a, Acotada):
             raise _no("exp de una función oscilante")
-        if a.escala < (0, 0, 0) or a.escala == (0, 0, 0):
-            if a.escala == (0, 0, 0):
+        if a.escala < (0, 0, 0, 0) or a.escala == (0, 0, 0, 0):
+            if a.escala == (0, 0, 0, 0):
                 return Termino(_limpio(mx.Call("exp", (a.c,))))
             return Termino(mx.Num(Fraction(1)))
-        if a.escala == (0, 1, 0):
+        if a.escala == (0, 1, 0, 0):
             resto = mx.Sub(arg, mx.Mul(a.c, mx.Sym(W)))
             k = mx.exact_value(a.c)
             if k is None:
                 # 2^x = e^(x·ln 2): an irrational rate, compared by its value
                 k = Fraction(a.valor_c)
             b = principal(resto)
-            if b is None or b.escala < (0, 0, 0):
+            if b is None or b.escala < (0, 0, 0, 0):
                 return Termino(mx.Num(Fraction(1)), Fraction(0), Fraction(k))
-            if b.escala == (0, 0, 0):
+            if b.escala == (0, 0, 0, 0):
                 return Termino(_limpio(mx.Call("exp", (b.c,))), Fraction(0), Fraction(k))
             raise _no(f"exp({mx.text(arg)}): el resto tras la parte lineal no tiende a un número")
-        if a.escala == (0, 0, 1):
+        if a.escala == (0, 0, 1, 0):
             # exp(k·ln w + resto) = w^k·e^resto
             resto = mx.Sub(arg, mx.Mul(a.c, mx.Call("ln", (mx.Sym(W),))))
             k = mx.exact_value(a.c)
             b = principal(resto)
-            if k is not None and (b is None or b.escala <= (0, 0, 0)):
-                c = mx.Num(Fraction(1)) if b is None or b.escala < (0, 0, 0) else \
+            if k is not None and (b is None or b.escala <= (0, 0, 0, 0)):
+                c = mx.Num(Fraction(1)) if b is None or b.escala < (0, 0, 0, 0) else \
                     _limpio(mx.Call("exp", (b.c,)))
                 return Termino(c, Fraction(k))
-        if a.escala < (0, 0, 1) and a.escala > (0, 0, 0):
+            # exp(r·ln ln w) = (ln w)^r con r exacto: la escala ln ln entra
+            # en la escala de potencias de ln w
+            if k is not None and b is not None and b.escala == (0, 0, 0, 1):
+                kr = mx.exact_value(b.c)
+                if kr is not None:
+                    return Termino(_limpio(mx.Call("exp", (b.c,))), Fraction(0),
+                                   Fraction(0), Fraction(kr))
+        if a.escala < (0, 0, 1, 0) and a.escala > (0, 0, 0, 0):
             raise _no(f"exp({mx.text(arg)}) crece más lento que una potencia: no implementado")
         # e^(g) with g ~ c·w^p, p > 1 (or faster): beyond every exponential of the scale.
         # Only its sign of growth matters for what it multiplies or is added to.
@@ -791,13 +1011,13 @@ def _funcion(e: mx.Call) -> Termino | Acotada | None:
         a = principal(e.args[0])
         if a is None or isinstance(a, Acotada):
             return a
-        return Termino(_limpio(mx.Call("abs", (a.c,))), a.p, a.q, a.r, a.sup)
+        return Termino(_limpio(mx.Call("abs", (a.c,))), a.p, a.q, a.r, a.sup, a.s)
     if nombre in _ANALITICAS:
         arg = e.args[0]
         a = principal(arg)
         if isinstance(a, Acotada):
             raise _no(f"{nombre} de una función oscilante")
-        if a is not None and a.escala > (0, 0, 0):
+        if a is not None and a.escala > (0, 0, 0, 0):
             if nombre in ("sin", "cos"):
                 return ACOTADA
             if nombre == "atan":
@@ -811,7 +1031,7 @@ def _funcion(e: mx.Call) -> Termino | Acotada | None:
             if nombre == "tanh":
                 return Termino(_num(1 if a.valor_c > 0 else -1))
             raise _no(f"{nombre} de algo que crece: sin límite o fuera del dominio")
-        limite = mx.Num(Fraction(0)) if a is None or a.escala < (0, 0, 0) else a.c
+        limite = mx.Num(Fraction(0)) if a is None or a.escala < (0, 0, 0, 0) else a.c
         valor = _limpio(mx.Call(nombre, (limite,)))
         if mx.evaluate(valor) is None:
             raise _error("UNDEFINED", f"{nombre}({mx.text(limite)}) no existe")
@@ -856,6 +1076,34 @@ def _a_w(e: mx.Expr, var: str, punto: str, lado: int) -> mx.Expr:
     a = mx.parse(punto)
     paso = mx.Div(mx.Num(Fraction(1)), w)
     return mx.substitute(e, var, mx.Add(a, paso) if lado > 0 else mx.Sub(a, paso))
+
+
+def _normaliza_antes(e: mx.Expr, trace: Trace) -> mx.Expr:
+    """Reagrupación exacta de potencias antes de comparar órdenes.
+
+    Solo se usa si coincide numéricamente con la original en puntos grandes:
+    una reescritura que no se comprueba es una hipótesis disfrazada de álgebra.
+    """
+    try:
+        reescrita = _reagrupa_potencias(e)
+    except Exception:  # noqa: BLE001 - ante la duda, la forma original
+        return e
+    if mx.text(reescrita) == mx.text(e):
+        return e
+    for w0 in (50.0, 200.0, 1000.0):
+        try:
+            a = mx.valor_real(e, {W: w0})
+            b = mx.valor_real(reescrita, {W: w0})
+        except (OverflowError, ValueError, ZeroDivisionError):
+            continue
+        if a is None or b is None:
+            continue
+        if abs(a - b) > 1e-9 * max(1.0, abs(a), abs(b)):
+            return e
+    trace.regla("limite.potencias", f"reagrupado: {mx.text(reescrita)[:120]}",
+                why="a^(E+k) = a^E·a^k y P^E/Q^E = (P/Q)^E: el cociente de dos "
+                    "crecimientos superexponenciales se lee como 1^∞")
+    return reescrita
 
 
 def _valor(t: Termino | Acotada | None) -> tuple[str, mx.Expr | None]:
@@ -932,6 +1180,7 @@ def limite(expresion: mx.Expr, var: str, punto: str, lado: str = "",
     resultados = []
     for s in lados:
         w = _a_w(expresion, var, punto, s)
+        w = _normaliza_antes(w, trace)
         t = principal(w)
         texto, valor = _valor(t)
         if isinstance(t, Termino) and not isinstance(t, _CeroAcotado):
@@ -972,6 +1221,8 @@ def _texto_termino(t: Termino, var: str, punto: str, lado: int) -> str:
         partes.append(f"e^({q}·{base})")
     if t.r:
         partes.append(f"ln({base})" + ("" if t.r == 1 else f"^{t.r}"))
+    if t.s:
+        partes.append(f"ln(ln({base}))" + ("" if t.s == 1 else f"^{t.s}"))
     return "·".join(partes)
 
 
@@ -1140,8 +1391,15 @@ def _fusiona(casos: list[Caso], parametro: str) -> list[Caso]:
 
 def _barrido(expresion, var, punto, lado, parametro, en, num) -> list[Caso]:
     """A parameter the symbolic engine cannot carry (an exponent): exact limits on a
-    scan of rational values, each change of result bisected to a simple rational."""
+    scan of rational values, each change of result bisected to a simple rational.
+
+    Malla densa con paso 1/4 en [−10, 10] más malla geométrica (±20, ±40, …
+    hasta ±10⁶) a ambos lados: lo que antes se suponía fuera de [−10, 10] ahora
+    se muestrea; las sondas no decididas se ignoran y el método declara el
+    alcance real.
+    """
     muestras = [Fraction(k, 4) for k in range(-40, 41)]
+    alcance = _extiende_muestras(muestras, en, num)
     valores = [en(num(m)) for m in muestras]
     # groups of equal results, and the boundary between each pair bisected
     grupos = [[muestras[0], valores[0]]]
@@ -1188,5 +1446,28 @@ def _barrido(expresion, var, punto, lado, parametro, en, num) -> list[Caso]:
             casos.append(Caso(f"{parametro} > {izquierda}" if izquierda is not None
                               else f"para todo {parametro}", valor))
     casos = list(dict.fromkeys(casos))
-    casos.append(Caso("método", "barrido exacto en el parámetro con paso 1/4 en [−10, 10]"))
+    casos.append(Caso("método", "barrido exacto en el parámetro con paso 1/4 en [−10, 10]"
+                               f" y malla geométrica hasta ±{alcance:g}"))
     return casos
+
+
+def _extiende_muestras(muestras: list, en, num) -> float:
+    """Sondas geométricas ±10·2^k (k = 1..17, hasta ±10⁶) decididas que se añaden
+    a la malla; devuelve el alcance máximo con sonda decidida (10 si ninguna)."""
+    alcance = 10.0
+    for signo in (-1, 1):
+        for k in range(1, 18):
+            m = Fraction(signo * 10 * 2 ** k)
+            if abs(m) > 10 ** 6:
+                break
+            try:
+                v = en(num(m))
+            except Exception:  # noqa: BLE001 - la sonda no decide: se ignora
+                continue
+            if isinstance(v, str) and v.startswith("no lo sé"):
+                continue
+            if m not in muestras:
+                muestras.append(m)
+            alcance = max(alcance, float(abs(m)))
+    muestras.sort()
+    return alcance

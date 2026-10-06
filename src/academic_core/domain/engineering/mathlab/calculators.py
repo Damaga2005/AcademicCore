@@ -602,6 +602,276 @@ def _lineal(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, texto, aproximado=None, sello=sello, avisos=(aviso,))
 
 
+def _multivar(peticion: C.Peticion) -> C.Resultado:
+    """ML-5: varias variables exactas donde son exactas.
+
+    ``{"calculo": "limites"|"direccional"|"jacobiana"|"cadena"|"implicita"|
+    "hessiana"|"criticos"|"taylor2"|"lagrange"|"extremos", ...}`` con `expr`,
+    `vars`, `punto`, `direccion`, `fs`, `sust`+`t`, `ligadura`, `centro`,
+    `recinto` según el cálculo.
+    """
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., ...}; cálculos: limites, "
+                      "direccional, jacobiana, cadena, implicita, hessiana, criticos, "
+                      "taylor2, lagrange, extremos")
+    calculo = str(e["calculo"])
+    vars = [str(v) for v in e.get("vars", ["x", "y"])]
+
+    def _punto() -> dict:
+        p = e.get("punto")
+        if not isinstance(p, dict) or any(v not in p for v in vars):
+            raise C.error("BAD_INPUT", f"falta el 'punto' con {', '.join(vars)} para «{calculo}»")
+        return dict(p)
+
+    trace = Trace()
+    if calculo == "limites":
+        r = MV.limites_direccionales(_expresion_de(e, "expr", "f"), vars, _punto(), trace)
+        sello = (V.Seal(V.VERIFIED, "dos caminos con distinto valor: no existe", r.texto())
+                 if r.existe is False else
+                 V.Seal(V.NUMERIC_ONLY, "indicio en varios caminos, no prueba", r.texto()))
+        return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+    if calculo == "direccional":
+        v = MV.derivada_direccional(_expresion_de(e, "expr", "f"), vars, _punto(),
+                                    list(e.get("direccion", [1, 0])), trace)
+        texto = str(v) if isinstance(v, Fraction) else mx.text(v)
+    elif calculo == "jacobiana":
+        fs = [_expresion_de({"expr": t}, "expr", "f") for t in e.get("fs", [])]
+        if not fs:
+            raise C.error("BAD_INPUT", "falta la lista 'fs' para «jacobiana»")
+        J = MV.jacobiana(fs, vars, trace)
+        texto = "[" + "; ".join(", ".join(mx.text(h) for h in fila) for fila in J) + "]"
+    elif calculo == "cadena":
+        sust = {str(k): mx.parse(str(v)) for k, v in dict(e.get("sust", {})).items()}
+        texto = mx.text(MV.cadena(_expresion_de(e, "expr", "f"), sust, str(e.get("t", "t")),
+                                  trace))
+    elif calculo == "implicita":
+        texto = mx.text(MV.implicita(_expresion_de(e, "expr", "f"), str(e.get("x", "x")),
+                                     str(e.get("y", "y")), trace))
+    elif calculo == "hessiana":
+        H, clase = MV.hessiana(_expresion_de(e, "expr", "f"), vars,
+                               dict(e["punto"]) if e.get("punto") else None, trace)
+        texto = ("[" + "; ".join(", ".join(mx.text(h) for h in fila) for fila in H) + "]"
+                 + f" → {clase}")
+    elif calculo == "criticos":
+        pts = MV.puntos_criticos(_expresion_de(e, "expr", "f"), vars, trace)
+        texto = "; ".join(f"({', '.join(str(c) for c in p)}): {c2}" for p, c2 in pts)
+    elif calculo == "taylor2":
+        texto = mx.text(MV.taylor2(_expresion_de(e, "expr", "f"), vars,
+                                   {str(k): mx.parse(str(v))
+                                    for k, v in dict(e.get("centro", {})).items()},
+                                   trace))
+    elif calculo == "lagrange":
+        pts = MV.lagrange(_expresion_de(e, "expr", "f"), _expresion_de(e, "ligadura", "g"),
+                          vars, trace)
+        texto = "; ".join(f"({', '.join(str(c) for c in p)}): f = {v}" for p, v in pts)
+    elif calculo == "extremos":
+        rec = tuple(e.get("recinto", ["rectangulo", "-1", "1", "-1", "1"]))
+        texto = MV.extremos_recinto(_expresion_de(e, "expr", "f"), vars, rec, trace).texto()
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino",
+                   "sustitución, equivalencia exacta, simetría o diferencias según el cálculo")
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
+
+def _espacios(peticion: C.Peticion) -> C.Resultado:
+    """ML-3: subespacios como en la carpeta de Álgebra Lineal.
+
+    ``{"calculo": "suma_interseccion"|"ecuaciones"|"cartesianas"|"cambio_base"|
+    "matriz_base"|"aplicacion"|"nucleo_imagen"|"antiimagen"|"proyeccion"|
+    "ortogonal"|"distancia"|"invariante"|"parametro"|"singulares", ...}``.
+    """
+    from academic_core.domain.engineering.mathlab import espacios as EV
+    from academic_core.domain.engineering.mathlab import mvexpr as _mx
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., ...}; cálculos: "
+                      "suma_interseccion, ecuaciones, cartesianas, cambio_base, "
+                      "matriz_base, aplicacion, nucleo_imagen, antiimagen, "
+                      "proyeccion, ortogonal, distancia, invariante, parametro, "
+                      "singulares")
+    calculo = str(e["calculo"])
+    trace = Trace()
+
+    def _vecs(clave):
+        v = e.get(clave)
+        if not isinstance(v, list) or not v:
+            raise C.error("BAD_INPUT", f"falta la lista '{clave}'")
+        return v
+
+    if calculo == "suma_interseccion":
+        F = _vecs("F")
+        G = _vecs("G")
+        r = EV.suma_interseccion(F, G, trace)
+        texto = r.texto()
+    elif calculo == "ecuaciones":
+        ecs = [str(x) for x in _vecs("ecuaciones")]
+        vars = [str(v) for v in e.get("vars", ["x", "y", "z"])]
+        base = EV.ecuaciones_a_generadores(ecs, vars, trace)
+        texto = "generadores = ⟨" + ", ".join("(" + ", ".join(str(x) for x in u) + ")"
+                                             for u in base) + "⟩"
+    elif calculo == "cartesianas":
+        gens = _vecs("generadores")
+        vars = [str(v) for v in e.get("vars", ["x", "y", "z"])]
+        ecs = EV.generadores_a_ecuaciones(gens, vars, trace)
+        texto = "; ".join(mx.text(ec) + " = 0" for ec in ecs) or "0 = 0 (todo el espacio)"
+    elif calculo == "cambio_base":
+        c1 = [Fraction(str(x)) for x in _vecs("coords")]
+        B1 = _vecs("B1")
+        B2 = _vecs("B2")
+        c2 = EV.cambio_base_coords(c1, B1, B2, trace)
+        texto = "(" + ", ".join(str(x) for x in c2) + ")"
+    elif calculo == "matriz_base":
+        A = _vecs("matriz")
+        P = _vecs("base")
+        B = EV.matriz_en_base(A, P, trace)
+        texto = "[" + "; ".join(", ".join(str(x) for x in f) for f in B) + "]"
+    elif calculo == "aplicacion":
+        ims = _vecs("imagenes")
+        B = _vecs("base") if e.get("base") else None
+        M = EV.aplicacion_desde_base(ims, B, trace)
+        texto = "[" + "; ".join(", ".join(str(x) for x in f) for f in M) + "]"
+    elif calculo == "nucleo_imagen":
+        M = _vecs("matriz")
+        ker, ima, rango = EV.nucleo_imagen(M, trace)
+        texto = (f"rango = {rango}; núcleo = ⟨" + ", ".join(
+            "(" + ", ".join(str(x) for x in u) + ")" for u in ker) + "⟩; imagen = ⟨" +
+            ", ".join("(" + ", ".join(str(x) for x in u) + ")" for u in ima) + "⟩")
+    elif calculo == "antiimagen":
+        M = _vecs("matriz")
+        w = [Fraction(str(x)) for x in _vecs("w")]
+        p, ker = EV.antiimagen(M, w, trace)
+        texto = ("particular = (" + ", ".join(str(x) for x in p) + "); núcleo = ⟨" +
+                 ", ".join("(" + ", ".join(str(x) for x in u) + ")" for u in ker) + "⟩")
+    elif calculo == "proyeccion":
+        v = [Fraction(str(x)) for x in _vecs("v")]
+        H = _vecs("H")
+        proy, comp, d2 = EV.proyeccion(v, H, trace)
+        texto = ("pr = (" + ", ".join(str(x) for x in proy) + "); resto = (" +
+                 ", ".join(str(x) for x in comp) + "); ‖resto‖² = " + str(d2))
+    elif calculo == "ortogonal":
+        H = _vecs("H")
+        base = EV.complemento_ortogonal(H, trace)
+        texto = "H⊥ = ⟨" + ", ".join("(" + ", ".join(str(x) for x in u) + ")"
+                                      for u in base) + "⟩"
+    elif calculo == "distancia":
+        v = [Fraction(str(x)) for x in _vecs("v")]
+        H = _vecs("H")
+        comp, d2 = EV.distancia(v, H, trace)
+        texto = "resto = (" + ", ".join(str(x) for x in comp) + "); d² = " + str(d2)
+    elif calculo == "invariante":
+        M = _vecs("matriz")
+        F = e.get("F")
+        if F is None:
+            raise C.error("BAD_INPUT", "falta 'F' (generadores o ecuaciones+vars)")
+        ok = EV.invariante(M, F, trace)
+        texto = "F es invariante" if ok else "F NO es invariante"
+    elif calculo == "parametro":
+        M = _vecs("matriz")
+        par = str(e.get("parametro", "a"))
+        casos = EV.discusion_parametro(M, par, trace)
+        texto = "; ".join(f"{cond}: rango {r}" for cond, r in casos)
+    elif calculo == "singulares":
+        A = _vecs("matriz")
+        sigmas = EV.valores_singulares(A, trace)
+        texto = "σ = " + ", ".join(_mx.text(s) for s in sigmas)
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino",
+                   "Grassmann, sustitución, ortogonalidad o traza/det según el cálculo")
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
+
+def _algebra(peticion: C.Peticion) -> C.Resultado:
+    """ML-3: autovalores, diagonalización, Gram-Schmidt, Cramer, mínimos
+    cuadrados y pseudoinversa — todo exacto sobre ℚ.
+
+    ``{"calculo": "autovalores"|"diagonalizar"|"gram_schmidt"|"cramer"|
+    "minimos"|"pseudoinversa", "matriz": [[...]], "b": [...]}``.
+    """
+    from academic_core.domain.engineering.mathlab import algebra as AL
+    from academic_core.domain.engineering.mathlab import mvexpr as _mx
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e or "matriz" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., 'matriz': ...}; cálculos: "
+                      "autovalores, diagonalizar, gram_schmidt, cramer, minimos, "
+                      "pseudoinversa")
+    from fractions import Fraction
+
+    def _ent(valor, que: str):
+        try:
+            return Fraction(str(valor))
+        except (ValueError, ZeroDivisionError, TypeError) as exc:
+            raise C.error("BAD_INPUT", f"«{valor}» no es un número exacto para {que}") from exc
+
+    def _txt(v) -> str:
+        if isinstance(v, Fraction):
+            return str(v)
+        if isinstance(v, tuple):
+            return f"{v[0]} ± {v[1]}i"
+        return _mx.text(v)
+
+    A = [[_ent(v, "la matriz") for v in fila] for fila in e["matriz"]]
+    trace = Trace()
+    calculo = str(e["calculo"])
+    if calculo == "autovalores":
+        vals = AL.autovalores(A, trace)
+        texto = "λ = " + ", ".join(_txt(v) for v in vals)
+    elif calculo == "diagonalizar":
+        P, D = AL.diagonalizar(A, trace)
+        texto = f"D = diag({', '.join(str(v) for v in D)})"
+    elif calculo == "gram_schmidt":
+        base = AL.gram_schmidt(A, trace)
+        texto = "⟨" + ", ".join("(" + ", ".join(str(v) for v in u) + ")" for u in base) + "⟩"
+    elif calculo == "cramer":
+        if "b" not in e:
+            raise C.error("BAD_INPUT", "falta el dato 'b' para «cramer»")
+        sol = AL.cramer(A, [_ent(v, "b") for v in e["b"]], trace)
+        texto = "x = (" + ", ".join(str(v) for v in sol) + ")"
+    elif calculo == "minimos":
+        if "b" not in e:
+            raise C.error("BAD_INPUT", "falta el dato 'b' para «minimos»")
+        x, r2 = AL.minimos_cuadrados(A, [_ent(v, "b") for v in e["b"]], trace)
+        texto = f"x̂ = ({', '.join(str(v) for v in x)}), ‖r‖² = {r2}"
+    elif calculo == "pseudoinversa":
+        P = AL.pseudoinversa(A, trace)
+        texto = "[" + "; ".join(", ".join(str(v) for v in f) for f in P) + "]"
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino",
+                   "A·v = λv, A·P = P·D, ortogonalidad, sustitución o Moore-Penrose")
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
+
+def _gamma_calc(peticion: C.Peticion) -> C.Resultado:
+    """ML-2 (T10): Γ exacta en enteros y semienteros; numérica si no, polo si es."""
+    from academic_core.domain.engineering.mathlab import gamma as G
+    from academic_core.errors import ValidationError
+
+    e = peticion.entrada
+    z = _expresion_de(e, "expr", "z")
+    trace = Trace()
+    try:
+        valor = G.gamma(z, trace)
+    except ValidationError:
+        raise
+    except Exception:
+        num = G.valor_numerico(z)
+        trace.aviso("gamma.numerica", "sin forma cerrada exacta: valor numérico")
+        sello = V.Seal(V.NUMERIC_ONLY, "math.gamma como comprobadora",
+                       f"Γ ≈ {num:.10g}")
+        return _finalizar(peticion, trace, f"Γ ≈ {num:.10g}", aproximado=num,
+                          sello=sello, avisos=("sin forma cerrada exacta",))
+    sello = V.Seal(V.VERIFIED, "recurrencia exacta Γ(z+1) = z·Γ(z)", mx.text(valor))
+    return _finalizar(peticion, trace, mx.text(valor),
+                      aproximado=mx.valor_real(valor, {}), sello=sello)
+
+
 def _distribucion(peticion: C.Peticion) -> C.Resultado:
     """ML-12: distributions with area (§5.1).
 
@@ -1083,7 +1353,7 @@ def _calc_impropia(peticion: C.Peticion) -> C.Resultado:
 
 
 def _serie(peticion: C.Peticion) -> C.Resultado:
-    """ML-2 (T11): ``{"calculo": "convergencia"|"potencias"|"suma", "termino": "1/n^2",
+    """ML-2 (T11): ``{"calculo": "convergencia"|"potencias"|"suma"|"suma_potencias", "termino": "1/n^2",
     "var": "n", "n0": 1, "x": "x"}``; factorials as ``n!`` or ``factorial(2*n)``."""
     from academic_core.domain.engineering.mathlab import series_numericas as SN
 
@@ -1117,6 +1387,12 @@ def _serie(peticion: C.Peticion) -> C.Resultado:
             trace.verificacion("serie.parcial", f"S_N ≈ {parcial:.10g} con N = n₀ + 10⁵")
         else:
             sello = V.Seal(V.DISCREPANT, "suma parcial de 10⁵ términos", f"S_N ≈ {parcial:.10g}")
+    elif calculo == "suma_potencias":
+        xv = str(e.get("x") or "x")
+        valor = SN.suma_potencias(T, xv, n0, trace)
+        texto = mx.text(valor)
+        sello = V.Seal(V.VERIFIED, "serie de Taylor reconocida y suma parcial",
+                       f"Σ = {texto}")
     else:
         raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
     return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
@@ -2927,6 +3203,10 @@ C.registrar("simplificar", _simplificar)
 C.registrar("transformar", _transformar)
 C.registrar("modular", _modular)
 C.registrar("lineal", _lineal)
+C.registrar("multivar", _multivar)
+C.registrar("algebra", _algebra)
+C.registrar("espacios", _espacios)
+C.registrar("gamma", _gamma_calc)
 C.registrar("distribucion", _distribucion)
 C.registrar("dimensional", _dimensional)
 C.registrar("comprobar_gradiente", _comprobar_gradiente)

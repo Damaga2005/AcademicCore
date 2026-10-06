@@ -57,5 +57,10 @@ def test_calculadora_y_segundo_camino():
 def test_no_impropia_y_oscilante():
     with pytest.raises(Exception, match="NOT_IMPROPER"):
         I.convergencia(mx.parse("x^2"), "x", "0", "1")
-    with pytest.raises(Exception, match="Dirichlet|oscila"):
-        I.convergencia(mx.parse("sin(x)/x"), "x", "1", "oo")
+    # Cerrado: sin(x)/x converge condicionalmente por Dirichlet (ML-3/ML-2 hueco 2)
+    r = I.convergencia(mx.parse("sin(x)/x"), "x", "1", "oo", con_valor=False)
+    assert r.converge and any("Dirichlet" in loc.razon for loc in r.locales)
+    # Lo que sigue sin decidirse: oscilación no afín (sin primitiva acotada
+    # demostrable), con su motivo
+    with pytest.raises(Exception, match="Dirichlet|oscila|comportamiento"):
+        I.convergencia(mx.parse("sin(x^2)/x"), "x", "1", "oo")

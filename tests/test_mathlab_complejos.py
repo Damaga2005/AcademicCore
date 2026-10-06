@@ -348,7 +348,8 @@ def test_seno_y_coseno_coinciden_con_la_definicion_exponencial(real, imag):
     x = mx.evaluate(numero.real).real
     y = mx.evaluate(numero.imag).real
     esperado = complex(math.sin(x) * math.cosh(y), math.cos(x) * math.sinh(y))
-    assert abs(complex(mx.evaluate(propio.real), mx.evaluate(propio.imag)) - esperado) < 1e-12
+    assert abs(complex(mx.evaluate(propio.real).real,
+                       mx.evaluate(propio.imag).real) - esperado) < 1e-12
 
 
 def test_las_identidades_de_uno_se_cumplen_sobre_complejos():

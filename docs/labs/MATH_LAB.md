@@ -1,6 +1,6 @@
 # Laboratorio de Matemáticas — Especificación de diseño
 
-Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos** (siguiente según §10: ML-3) · Fecha: 2026-10-06 (v1: 2026-09-30)
+Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales) y ML-5 (varias variables) completos** (siguiente según §10: ML-6) · Fecha: 2026-10-06 (v1: 2026-09-30)
 Ámbito: desde la aritmética básica hasta las integrales triples, de línea y de superficie, pasando por cálculo, álgebra lineal, ecuaciones diferenciales, transformadas y probabilidad. Cada tema con **ejercicios para resolver, gráficas y solución paso a paso**. **v2** añade la matemática de otras asignaturas del grado que no es de otro laboratorio: matemática discreta y cuerpos finitos, códigos y criptografía, teoría de la información, Markov y refuerzo, optimización y aprendizaje automático, finanzas, señales deterministas, detección y estimación, fasores y polarización, campos y ondas, y mecánica auxiliar (**bloques 8 a 19**). Lo que va a `SIGNALS_LAB.md` y a `CIRCUITS_LAB.md` está en la tabla «qué va dónde» (§16).
 Fuentes: guías docentes de GREELEC (UPC) en `guias_upc/` — Cálculo (230903), Álgebra Lineal (230904), Cálculo Vectorial (230908), Ecuaciones Diferenciales y Transformadas (230909), Probabilidad y Procesos Estocásticos (230914), Señales y Sistemas (230913). **v2:** cuatro informes de lectura de solo lectura en `Descargas/labs/math_catalog/` (`extra_senales.md`, `extra_electromagnetismo.md`, `extra_circuitos_control.md`, `extra_algoritmia_ia_codigos.md`), integrados con el **reparto decidido por el usuario** (D6, §13) y sin tocar el repositorio ni `guias_upc`.
 
@@ -415,7 +415,20 @@ Cada operación da pasos con «por qué», hipótesis comprobadas y un segundo c
 | Desigualdades (T1) | `resolver_inequidad` | Tabla de signos exacta (además del caso periódico de T-13) | Puntos de prueba |
 | Riemann, aplicaciones (T9) y métodos numéricos (T12) | `riemann`, `aplicacion_integral`, `metodo_numerico` | Sumas izquierda/derecha/punto medio/trapecio con rectángulos como datos; área entre curvas, volumen de revolución (discos o capas) y longitud de arco; bisección, Newton, punto fijo con contractividad comprobada, trapecios y Simpson con cota a priori, interpolación de Lagrange exacta | Barrow frente a Simpson |
 
-**Lo que no hace (y lo dice):** comparar dos crecimientos superexponenciales (`3ⁿ·n!/nⁿ`, `e^(x²)·e^(−x²)`), `ln(ln x)`, criterio de Dirichlet (integrales o series oscilantes que no convergen absolutamente), sumas de series de potencias por Taylor (`Σ xⁿ/n = −ln(1 − x)`), la función Γ, potencias de un cuadrático irreducible en fracciones simples. Con parámetro en un exponente el barrido cubre `[−10, 10]` con paso 1/4.
+**Huecos de ML-2 cerrados (2026-10-06, con segundo camino cada uno):** exponenciales
+superlineales que se compensan (`e^(x²)·e^(−x²) = 1` por combinación exacta de exponentes;
+`3ⁿ·n!/nⁿ` por el cociente reagrupado a `(1+1/n)^n → e`), escala `ln(ln x)`, criterio de
+Dirichlet en impropias (`sin x/x`) y series (`sin n/n`), sumas de Taylor (`Σxⁿ/n = −ln(1−x)`,
+`e^x`, `sin`, `cos`, `atan`, `atanh`, geométricas), Γ exacta (enteros, semienteros,
+recurrencia; valor `∫₀^∞x^c·e^(−x) = Γ(c+1)`) y reducción de potencias de cuadrático
+irreducible (Δ > 0), y barrido con parámetro ampliado a malla geométrica hasta ±10⁶.
+
+**Lo que sigue sin hacerse (y se dice):** `ln(ln(ln))`, Dirichlet con oscilación no afín
+(`sin(x²)/x`), series fuera de la tabla de Taylor, Γ fuera de enteros/semienteros en
+exacto, cuadráticas repetidas con Δ ≤ 0, sondas de barrido no decididas, espectro 3×3 no
+racional, autovectores de λ no racional y pseudoinversa sin rango columna completo.
+**ML-5:** gradiente no lineal (críticos, Lagrange), Hessiana semidefinida o indefinida
+en n > 2, Taylor-2 sin cota, recintos no rectangulares.
 
 ## 5. El motor matemático
 
@@ -977,9 +990,9 @@ Orden pensado para que lo **de más uso** llegue antes y cada fase sea demostrab
 | **ML-0** Cimientos | Expresiones con varias variables, entrada de texto con vista previa, traza de pasos, corrector por equivalencia, graficador 2D (la ampliación de v2, con racionales multivariable, cuerpo como parámetro y contrato, es **ML-12**) | L |
 | **ML-1** Aritmética y álgebra elemental | Bloque 0 completo, con sus ejercicios y generador | M |
 | **ML-2** Funciones y cálculo de una variable | Bloques 1 y 2: límites, derivadas, Taylor, estudio de funciones, primitivas, Riemann, impropias | XL |
-| **ML-3** Álgebra lineal | Complejos, matrices, espacios, autovalores; gráficas 2D y 3D básicas | L |
+| **ML-3** Álgebra lineal | Complejos, matrices, espacios, autovalores; gráficas 2D y 3D básicas. **Implementado (2026-10-06):** característico 2×2/3×3, autovalores exactos (complejos como par conjugado), autovectores por Gauss, diagonalización con A·P = P·D, Gram-Schmidt, Cramer, mínimos cuadrados y pseudoinversa con Moore-Penrose; **espacios vectoriales** (suma/intersección con Grassmann, cambios de base por la canónica, núcleo/imagen/antiimágenes, proyección ortogonal, complemento y distancia, invariantes, independencia con un parámetro, valores singulares); calculadoras `algebra`, `gamma` y `espacios` | L |
 | **ML-4** Series y métodos numéricos | Series, radio de convergencia, bisección, Newton, Simpson, EDO numéricas; **v2:** capa genérica (mínimos cuadrados no lineales, trascendentes con todas las raíces, Lambert W, EDO implícitas) | M |
-| **ML-5** Varias variables | Gradiente, extremos, Lagrange; curvas de nivel y visor 3D | L |
+| **ML-5** Varias variables | Gradiente, extremos, Lagrange; curvas de nivel y visor 3D. **Implementado (2026-10-06):** límites por caminos (no existencia probada; coincidencia = indicio declarado), derivada direccional, jacobiana, cadena con equivalencia exacta, implícita con identidad, Hessiana con Sylvester y Taylor-2, críticos lineales clasificados, Lagrange lineal y Weierstrass en rectángulos; calculadora `multivar` | L |
 | **ML-6** Integración múltiple | Dobles y triples, cambio de orden, jacobianos, regiones 3D | XL |
 | **ML-7** Línea, superficie y teoremas | Integrales de línea y de superficie, conservativos, Green, Stokes y Gauss, con comprobación por los dos lados | XL |
 | **ML-8** Ecuaciones diferenciales y transformadas | EDO, Laplace, Fourier, transformada z, plano de fases; **v2:** problemas de contorno 1D y Poisson 1D por tramos; **oscilador con Q y conducción de calor 1D (D12)** | XL |

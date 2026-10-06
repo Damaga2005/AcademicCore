@@ -251,7 +251,7 @@ def fracciones_simples(N: list[Fraction], D: list[Fraction], x: str,
             terminos.append(("cuadratico", (f.poli[0], f.poli[1]), j, valores[i], valores[i + 1]))
             i += 2
     terminos = [t for t in terminos if any(v != 0 for v in t[3:])]
-    primitiva = _integra(entera, terminos, x)
+    primitiva = _integra(entera, terminos, x, trace)
     frac = Fracciones(entera, terminos, primitiva)
     trace.regla("fracciones.descomposicion", f"integrando = {frac.descomposicion(x)}")
     trace.regla("fracciones.primitiva", f"∫ = {mx.text(primitiva)} + C",
@@ -259,7 +259,10 @@ def fracciones_simples(N: list[Fraction], D: list[Fraction], x: str,
     return frac
 
 
-def _integra(entera, terminos, x: str) -> mx.Expr:
+def _integra(entera, terminos, x: str, trace=None) -> mx.Expr:
+    from academic_core.domain.engineering.mathlab.trace import Trace as _Trace
+
+    trace = trace if trace is not None else _Trace()
     X = mx.Sym(x)
     total: mx.Expr = mx.Num(Fraction(0))
     # polynomial part
@@ -278,19 +281,19 @@ def _integra(entera, terminos, x: str) -> mx.Expr:
         else:
             _, (q0, q1), j, B, C = t
             if j != 1:
-                raise _no("potencias de un cuadrático irreducible: haría falta reducción "
-                          "(no implementada)")
-            quad = _poly_expr([q0, q1, Fraction(1)], x)
-            delta = 4 * q0 - q1 * q1
-            raiz = mx.Root(2, mx.Num(delta))
-            parte_ln = mx.Mul(_num(B / 2), mx.Call("ln", (quad,)))
-            k = C - B * q1 / 2
-            atan = mx.Mul(mx.Mul(_num(2 * k), mx.Div(mx.Num(Fraction(1)), raiz)),
-                          mx.Call("atan", (mx.Div(_desplaza(mx.Mul(mx.Num(Fraction(2)), X), -q1),
-                                                  raiz),)))
-            term = mx.Add(parte_ln, atan) if k != 0 else parte_ln
-            if B == 0:
-                term = atan
+                term = _integra_cuadratico_repetido(q0, q1, j, B, C, x, trace)
+            else:
+                quad = _poly_expr([q0, q1, Fraction(1)], x)
+                delta = 4 * q0 - q1 * q1
+                raiz = mx.Root(2, mx.Num(delta))
+                parte_ln = mx.Mul(_num(B / 2), mx.Call("ln", (quad,)))
+                k = C - B * q1 / 2
+                atan = mx.Mul(mx.Mul(_num(2 * k), mx.Div(mx.Num(Fraction(1)), raiz)),
+                              mx.Call("atan", (mx.Div(_desplaza(mx.Mul(mx.Num(Fraction(2)), X), -q1),
+                                                      raiz),)))
+                term = mx.Add(parte_ln, atan) if k != 0 else parte_ln
+                if B == 0:
+                    term = atan
         total = mx.Add(total, term)
     return LM._limpio(total)
 
@@ -390,6 +393,69 @@ def sustitucion_trigonometrica(f: mx.Expr, x: str, trace: Trace | None = None) -
                 why="se deshace el cambio con t = arcsen(u/m), argsenh(u/m) o argcosh(u/m)")
     del X
     return resultado
+
+
+def _integra_cuadratico_repetido(q0: Fraction, q1: Fraction, j: int, B: Fraction,
+                                  C: Fraction, x: str, trace) -> mx.Expr:
+    """∫(Bx+C)/(x²+q1·x+q0)^j con j > 1 y discriminante negativo.
+
+    Bx+C = (B/2)(2x+q1) + (C−Bq1/2): la primera parte es inmediata
+    −(B/2)/((j−1)·quad^{j−1}); la segunda usa la reducción
+    J_j = u/(2m²(j−1)·quad^{j−1}) + (2j−3)/(2m²(j−1))·J_{j−1} con
+    u = x+q1/2, m² = Δ/4, hasta J_1 = (2/√Δ)·atan((2x+q1)/√Δ).
+    Con Δ ≤ 0 se rechaza con su motivo (no es irreducible sobre ℝ).
+    """
+    delta = 4 * q0 - q1 * q1
+    if delta <= 0:
+        raise _no("potencia de una cuadrática con discriminante ≤ 0: no es irreducible "
+                  "sobre ℝ y la reducción con atan no vale")
+    quad = _poly_expr([q0, q1, Fraction(1)], x)
+    total: mx.Expr = mx.Num(Fraction(0))
+    if B != 0:
+        total = mx.Div(mx.Mul(_num(B / 2), mx.Num(Fraction(-1))),
+                       mx.Mul(mx.Num(Fraction(j - 1)),
+                              mx.Pow(quad, mx.Num(Fraction(j - 1)))))
+        trace.regla("fracciones.reduccion_directa",
+                    f"∫(B/2)(2x+q1)/quad^{j} = {mx.text(total)}",
+                    why="el numerador es la derivada del denominador salvo constante")
+    k2 = C - B * q1 / 2
+    if k2 != 0:
+        total = mx.Add(total, mx.Mul(_num(k2), _cadena_j(q0, q1, j, x, trace)))
+    return LM._limpio(total)
+
+
+def _cadena_j(q0: Fraction, q1: Fraction, j: int, x: str, trace) -> mx.Expr:
+    """J_j = ∫dx/quad^j por reducción hasta J_1 (atan).
+
+    J_nivel = a·u/quad^{nivel−1} + b·J_{nivel−1} con a = 1/(2m²(nivel−1)),
+    b = (2nivel−3)/(2m²(nivel−1)): se despliega de j hacia abajo acumulando
+    el producto de los b superiores.
+    """
+    X = mx.Sym(x)
+    delta = 4 * q0 - q1 * q1
+    m2 = delta / 4
+    raiz = mx.Root(2, mx.Num(delta))
+    u = _desplaza(X, -q1 / 2)
+    quad = _poly_expr([q0, q1, Fraction(1)], x)
+    j1 = mx.Mul(mx.Mul(_num(Fraction(2)), mx.Div(mx.Num(Fraction(1)), raiz)),
+                mx.Call("atan", (mx.Div(_desplaza(mx.Mul(mx.Num(Fraction(2)), X), -q1),
+                                                raiz),)))
+    if j == 1:
+        return j1
+    resto: mx.Expr = mx.Num(Fraction(0))
+    coef = Fraction(1)
+    for nivel in range(j, 1, -1):
+        a = Fraction(1, 2 * m2 * (nivel - 1))
+        b = Fraction(2 * nivel - 3, 2 * m2 * (nivel - 1))
+        termino_u = mx.Mul(_num(a * coef),
+                           mx.Div(u, mx.Pow(quad, mx.Num(Fraction(nivel - 1)))))
+        resto = mx.Add(resto, termino_u)
+        coef = coef * b
+    resultado = mx.Add(resto, mx.Mul(_num(coef), j1))
+    trace.regla("fracciones.reduccion", f"J_{j} reducido a J_1 con Δ = {delta}",
+                why="J_j = u/(2m²(j−1)·quad^{j−1}) + (2j−3)/(2m²(j−1))·J_{j−1}, "
+                    "exacto por derivación del producto")
+    return LM._limpio(resultado)
 
 
 def comprueba(primitiva: mx.Expr, integrando: mx.Expr, x: str) -> tuple[bool, str]:
