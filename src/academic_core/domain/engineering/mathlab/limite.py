@@ -52,6 +52,20 @@ class NoSe(UnsupportedError):
     pass
 
 
+class NecesitaSigno(Exception):
+    """The sign of a coefficient that depends on a parameter decides the limit."""
+
+    def __init__(self, coeficiente: mx.Expr):
+        super().__init__(mx.text(coeficiente))
+        self.coeficiente = coeficiente
+
+
+#: while a limit with parameters is computed: the parameters, and every coefficient
+#: that was ASSUMED non-zero (its zeros are the special cases)
+_PARAMETROS: set[str] = set()
+_SUPUESTOS: list[mx.Expr] = []
+
+
 def _no(mensaje: str) -> NoSe:
     return NoSe(f"UNSUPPORTED: {mensaje}")
 
@@ -84,6 +98,8 @@ class Termino:
 
     @property
     def valor_c(self) -> float:
+        if _PARAMETROS and mx.variables(self.c) & _PARAMETROS:
+            raise NecesitaSigno(self.c)
         v = mx.valor_real(self.c, {})
         if v is None:
             raise _no(f"el coeficiente {mx.text(self.c)} no es un número real")
@@ -307,6 +323,9 @@ def _num(q) -> mx.Expr:
 
 
 def _cero(e: mx.Expr) -> bool:
+    if _PARAMETROS and (mx.variables(e) & _PARAMETROS) and not (mx.variables(e) & {W, U}):
+        _SUPUESTOS.append(e)
+        return False
     v = mx.exact_value(e)
     if v is not None:
         return v == 0
@@ -859,7 +878,9 @@ def _tipo(e: mx.Expr, var: str, punto: str, lado: int) -> str:
     def clase(x):
         try:
             t = principal(_a_w(x, var, punto, lado))
-        except Exception:  # noqa: BLE001
+            if isinstance(t, Termino):
+                t.tiende()
+        except (Exception, NecesitaSigno):  # noqa: BLE001 - only a label
             return "?"
         if t is None or isinstance(t, _CeroAcotado):
             return "0"
@@ -1000,3 +1021,172 @@ def comprobacion_numerica(expresion: mx.Expr, var: str, punto: str, lado: int,
     err = min(abs(v2 - objetivo), abs(extrapolado - objetivo))
     tol = 1e-3 * max(1.0, abs(objetivo))
     return err < tol, f"f cerca del punto ≈ {v2:.8g} (extrapolado {extrapolado:.8g})"
+
+
+
+# ---------------------------------------------------------------------------
+# limits with parameters (exam type 8)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Caso:
+    condicion: str
+    valor: str
+
+
+def limite_con_parametro(expresion: mx.Expr, var: str, punto: str, parametro: str,
+                         lado: str = "", trace: Trace | None = None) -> tuple[Caso, ...]:
+    """The limit as a function of the parameter: generic case, the values of the
+    parameter that annul an assumed coefficient, and sign intervals when the sign of
+    a parametric coefficient decides ±∞."""
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    trace = trace if trace is not None else Trace()
+    _PARAMETROS.clear()
+    _PARAMETROS.add(parametro)
+    _SUPUESTOS.clear()
+    signo_de = None
+    generico = None
+    simbolico = True
+    try:
+        generico = limite(expresion, var, punto, lado, Trace())
+    except NecesitaSigno as exc:
+        signo_de = exc.coeficiente
+    except NoSe:
+        simbolico = False
+    finally:
+        supuestos = list(_SUPUESTOS)
+        _PARAMETROS.clear()
+        _SUPUESTOS.clear()
+
+    def en(v: mx.Expr) -> str:
+        try:
+            return limite(mx.substitute(expresion, parametro, v), var, punto, lado).texto()
+        except Exception as exc:  # noqa: BLE001
+            return f"no lo sé ({str(exc)[:60]})"
+
+    def num(q: Fraction) -> mx.Expr:
+        return mx.Num(q) if q >= 0 else mx.Neg(mx.Num(-q))
+
+    if not simbolico:
+        casos = _barrido(expresion, var, punto, lado, parametro, en, num)
+    else:
+        especiales: dict[float, mx.Expr] = {}
+        for c in supuestos + ([signo_de] if signo_de is not None else []):
+            try:
+                for r in RZ.ceros(c, parametro).raices:
+                    especiales[round(r.x, 10)] = r.valor if r.exacta else mx.Num(Fraction(r.x))
+            except Exception:  # noqa: BLE001
+                continue
+        puntos = sorted(especiales.items())
+        casos = []
+        if generico is not None:
+            excepto = ", ".join(f"{parametro} ≠ {mx.text(v)}" for _, v in puntos)
+            casos.append(Caso(excepto or "para todo " + parametro, generico.texto()))
+            for _, v in puntos:
+                casos.append(Caso(f"{parametro} = {mx.text(v)}", en(v)))
+        else:
+            bordes = [None] + [x for x, _ in puntos] + [None]
+            exprs = [None] + [v for _, v in puntos] + [None]
+            for i in range(len(bordes) - 1):
+                a, b = bordes[i], bordes[i + 1]
+                pruebas = ([b - 1, b - 2] if a is None and b is not None else
+                           [a + 1, a + 2] if b is None and a is not None else
+                           [0.0, 1.0] if a is None else [a + (b - a) / 3, a + 2 * (b - a) / 3])
+                valores = [en(num(Fraction(t).limit_denominator(1000))) for t in pruebas]
+                cond = ("para todo " + parametro if a is None and b is None else
+                        f"{parametro} < {mx.text(exprs[i + 1])}" if a is None else
+                        f"{parametro} > {mx.text(exprs[i])}" if b is None else
+                        f"{mx.text(exprs[i])} < {parametro} < {mx.text(exprs[i + 1])}")
+                if valores[0] != valores[1]:
+                    valores[0] = (f"un valor finito que depende de {parametro} "
+                                  f"(p. ej. {valores[0]} y {valores[1]})")
+                casos.append(Caso(cond, valores[0]))
+                if b is not None:
+                    casos.append(Caso(f"{parametro} = {mx.text(exprs[i + 1])}", en(exprs[i + 1])))
+            casos = _fusiona(casos, parametro)
+    for c in casos:
+        trace.regla("limite.caso", f"{c.condicion}: {c.valor}",
+                    why="un coeficiente que depende del parámetro decide el orden o el signo")
+    return tuple(casos)
+
+
+def _fusiona(casos: list[Caso], parametro: str) -> list[Caso]:
+    """Intervals and points in order: merge neighbours with the same value."""
+    salida: list[Caso] = []
+    for c in casos:
+        if salida and salida[-1].valor == c.valor:
+            prev = salida.pop()
+            izq = prev.condicion.split(" < ")[0] if " < " in prev.condicion and \
+                not prev.condicion.startswith(parametro) else None
+            der = c.condicion.split(" < ")[-1] if " < " in c.condicion else None
+            if c.condicion.startswith(f"{parametro} > "):
+                der = None
+            texto = (f"{izq} < {parametro}" if izq else parametro) + (f" < {der}" if der else "")
+            if not izq and not der:
+                texto = (prev.condicion if prev.condicion.startswith(f"{parametro} <") and
+                         not c.condicion.startswith(f"{parametro} >") else
+                         f"para todo {parametro}")
+                if c.condicion.startswith(f"{parametro} > ") and not prev.condicion.startswith(
+                        f"{parametro} <"):
+                    texto = f"{prev.condicion.split(' < ')[0]} < {parametro}" if " < " in \
+                        prev.condicion else c.condicion
+            salida.append(Caso(texto if texto != parametro else f"para todo {parametro}", c.valor))
+        else:
+            salida.append(c)
+    return salida
+
+
+def _barrido(expresion, var, punto, lado, parametro, en, num) -> list[Caso]:
+    """A parameter the symbolic engine cannot carry (an exponent): exact limits on a
+    scan of rational values, each change of result bisected to a simple rational."""
+    muestras = [Fraction(k, 4) for k in range(-40, 41)]
+    valores = [en(num(m)) for m in muestras]
+    # groups of equal results, and the boundary between each pair bisected
+    grupos = [[muestras[0], valores[0]]]
+    for m, v in zip(muestras[1:], valores[1:]):
+        if v != grupos[-1][1]:
+            grupos.append([m, v])
+    casos: list[Caso] = []
+    izquierda = None                      # text of the left end of the current piece
+    for g, (inicio, valor) in enumerate(grupos):
+        if g + 1 < len(grupos):
+            lo = muestras[muestras.index(grupos[g + 1][0]) - 1]
+            hi = grupos[g + 1][0]
+            for _ in range(30):
+                medio = (lo + hi) / 2
+                if en(num(medio)) == valor:
+                    lo = medio
+                else:
+                    hi = medio
+            c = None
+            for den in range(1, 64):
+                k = -(-lo.numerator * den // lo.denominator)
+                if Fraction(k, den) <= hi:
+                    c = Fraction(k, den)
+                    break
+            c = c if c is not None else hi
+            en_c = en(num(c))
+            if izquierda == str(c):
+                # a one-point group: its value lives only at c
+                casos.append(Caso(f"{parametro} = {c}", valor))
+                continue
+            cond = (f"{izquierda} < {parametro} < {c}" if izquierda is not None
+                    else f"{parametro} < {c}")
+            casos.append(Caso(cond, valor))
+            if en_c != valor and en_c != grupos[g + 1][1]:
+                casos.append(Caso(f"{parametro} = {c}", en_c))
+                izquierda = str(c)
+            elif en_c == valor:
+                casos[-1] = Caso(cond.replace(f" < {c}", f" ≤ {c}"), valor)
+                izquierda = str(c)
+            else:
+                izquierda = str(c)
+                casos.append(Caso(f"{parametro} = {c}", en_c))
+        else:
+            casos.append(Caso(f"{parametro} > {izquierda}" if izquierda is not None
+                              else f"para todo {parametro}", valor))
+    casos = list(dict.fromkeys(casos))
+    casos.append(Caso("método", "barrido exacto en el parámetro con paso 1/4 en [−10, 10]"))
+    return casos

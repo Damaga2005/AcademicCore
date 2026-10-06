@@ -73,3 +73,14 @@ def test_calculadora_con_segundo_camino():
     assert r.exacto == "+∞" and r.sello.verdict == "verificado"
     r = ML.calcular(ML.Peticion("limite", {"expr": "1/x", "punto": "0"}))
     assert r.exacto == "no existe: por la derecha +∞, por la izquierda −∞"
+
+
+@pytest.mark.parametrize("e,p,lado,texto", [
+    ("(sin(x)-a*x)/x^3", "0", "", "a < 1: +∞; a = 1: -1/6; a > 1: −∞"),
+    ("(a*x^2+x)/(x^2+1)", "oo", "", "a ≠ 0: a; a = 0: 0"),
+    ("(1-cos(x))/x^a", "0", "+", "a < 2: 0; a = 2: 1/2; a > 2: +∞"),
+])
+def test_limite_con_parametro(e, p, lado, texto):
+    r = ML.calcular(ML.Peticion("limite", {"expr": e, "punto": p, "lado": lado, "parametro": "a"}))
+    assert r.exacto.startswith(texto), r.exacto
+    assert r.sello.verdict != "discrepa"

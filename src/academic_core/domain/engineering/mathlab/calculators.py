@@ -916,6 +916,35 @@ def _calc_limite(peticion: C.Peticion) -> C.Resultado:
     var = str(e.get("var") or (sorted(mx.variables(expr)) or ["x"])[0])
     punto, lado = str(e["punto"]).replace(" ", ""), str(e.get("lado", ""))
     trace = Trace()
+    if e.get("parametro"):
+        alfa = str(e["parametro"])
+        if not e.get("var"):
+            # the variable is not the parameter, whatever the alphabet says
+            otras = sorted(mx.variables(mx.parse(str(e.get("expr") or e.get("f")),
+                                                 nombres={alfa})) - {alfa})
+            var = otras[0] if otras else "x"
+        expr = mx.parse(str(e.get("expr") or e.get("f")), nombres={alfa, var})
+        casos = LM.limite_con_parametro(expr, var, punto, alfa, lado, trace)
+        texto = "; ".join(f"{c.condicion}: {c.valor}" for c in casos)
+        barrido = any(c.condicion == "método" for c in casos)
+        malos = []
+        for c in casos:
+            if c.condicion.startswith(f"{alfa} = "):
+                v = mx.parse(c.condicion.split(" = ", 1)[1])
+                g = mx.substitute(expr, alfa, v)
+                try:
+                    r1 = LM.limite(g, var, punto, lado)
+                    ok, _ = LM.comprobacion_numerica(g, var, punto, 1 if lado != "-" else -1, r1)
+                    if not ok and not r1.valor.startswith("no existe"):
+                        malos.append(c.condicion)
+                except Exception:  # noqa: BLE001
+                    pass
+        sello = (V.Seal(V.DISCREPANT, "casos puntuales evaluados", ", ".join(malos)) if malos else
+                 V.Seal(V.NUMERIC_ONLY if barrido else V.VERIFIED,
+                        "barrido exacto en el parámetro" if barrido else
+                        "coeficientes que dependen del parámetro y sus ceros; casos comprobados "
+                        "numéricamente", ""))
+        return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
     try:
         r = LM.limite(expr, var, punto, lado, trace)
     except LM.NoSe as exc:
