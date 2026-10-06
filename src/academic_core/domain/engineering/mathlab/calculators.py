@@ -477,6 +477,59 @@ def _transformar(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, resultado, aproximado=None, sello=sello)
 
 
+def _modular(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: integer arithmetic in ℤₙ with every step written (§5.1).
+
+    ``{"calculo": "euclides", "a": 240, "b": 46}``, ``inverso`` (a, n), ``potencia``
+    (a, e, n), ``congruencia`` (a, b, n), ``chino`` (restos, modulos), ``phi`` (n),
+    ``orden`` (a, n), ``raiz_primitiva`` (n), ``cuerpo`` (n).
+    """
+    from academic_core.domain.engineering.mathlab import enteros as Z
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "calculo" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., ...}; cálculos: euclides, "
+                      "inverso, potencia, congruencia, chino, phi, orden, raiz_primitiva, cuerpo")
+    trace = Trace()
+    calculo = str(e["calculo"])
+    try:
+        if calculo == "euclides":
+            r = Z.euclides_extendido(e["a"], e["b"], trace)
+            valor, texto = r.d, r.texto()
+        elif calculo == "inverso":
+            valor = Z.inverso_modular(e["a"], e["n"], trace)
+            texto = f"{e['a']}⁻¹ ≡ {valor} (mod {e['n']})"
+        elif calculo == "potencia":
+            valor = Z.potencia_modular(e["a"], e["e"], e["n"], trace)
+            texto = f"{e['a']}^{e['e']} ≡ {valor} (mod {e['n']})"
+        elif calculo == "congruencia":
+            r = Z.congruencia_lineal(e["a"], e["b"], e["n"], trace)
+            valor, texto = list(r.soluciones), r.texto()
+        elif calculo == "chino":
+            r = Z.teorema_chino(e["restos"], e["modulos"], trace)
+            valor, texto = r.resto, r.texto()
+        elif calculo == "phi":
+            valor = Z.phi(e["n"], trace)
+            texto = f"φ({e['n']}) = {valor}"
+        elif calculo == "orden":
+            valor = Z.orden(e["a"], e["n"], trace)
+            texto = f"ord_{e['n']}({e['a']}) = {valor}"
+        elif calculo == "raiz_primitiva":
+            valor = Z.raiz_primitiva(e["n"], trace)
+            texto = (f"{valor} es raíz primitiva módulo {e['n']}" if valor is not None
+                     else f"ℤ_{e['n']}* no tiene raíces primitivas")
+        elif calculo == "cuerpo":
+            valor = Z.es_cuerpo(e["n"], trace)
+            texto = f"ℤ_{e['n']} {'es' if valor else 'no es'} un cuerpo"
+        else:
+            raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    except KeyError as falta:
+        raise C.error("BAD_INPUT", f"falta el dato {falta} para «{calculo}»") from None
+    sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino",
+                   "Bézout, a·a⁻¹ ≡ 1, pow(), sustitución o recuento según el cálculo")
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2001,6 +2054,7 @@ C.registrar("derivar", _derivar)
 C.registrar("gradiente", _gradiente)
 C.registrar("simplificar", _simplificar)
 C.registrar("transformar", _transformar)
+C.registrar("modular", _modular)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
 C.registrar("integrar", _integrar)
