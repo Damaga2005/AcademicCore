@@ -62,7 +62,7 @@ from academic_core.domain.engineering.symbolic.expr import (
 from academic_core.domain.engineering.symbolic.normal import _poly, constant_ratio, linear_parts, simplify
 from academic_core.domain.engineering.symbolic.numeric import symbols, value
 from academic_core.domain.engineering.symbolic.steps import StepLog
-from academic_core.errors import UnsupportedError
+from academic_core.errors import UnsupportedError, ValidationError
 
 OP = "integral"
 MAX_DEPTH = 8
@@ -2208,7 +2208,11 @@ def _substitution(e: Expr, var: str, log: StepLog, depth: int) -> tuple[Expr, in
             # The ratio may be a constant that is not a NUMBER: ∫exp(pi·x) has
             # rest = 1 and g' = pi, so the factor is 1/pi. It is just as constant,
             # and refusing it refused ∫cos(pi·x) and ∫exp(y·x) (found 2026-10-06).
-            cociente, _r = simplify(Div(_product(rest), dg), var)
+            try:
+                cociente, _r = simplify(Div(_product(rest), dg), var)
+            except (UnsupportedError, ValidationError):
+                # g' is 0 (g = 2x/x is a constant): there is nothing to substitute
+                continue
             if depends(cociente, var) or text(cociente) in ("0",):
                 continue
             k, k_simbolico = 1, cociente

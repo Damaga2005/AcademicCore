@@ -67,3 +67,30 @@ def test_la_inecuacion_sin_ceros_exactos_se_resuelve_numericamente(texto):
             continue
         assert s.contiene_valor(x) == {">": v > 0, ">=": v >= 0,
                                        "<": v < 0, "<=": v <= 0}[op], (texto, x, v)
+
+
+def test_una_raiz_en_el_inicio_del_periodo_no_se_escapa_y_sale_exacta():
+    """x = 0 cambia de signo justo a la izquierda de 0 en coma flotante; 0 y pi
+    son exactas y se prueban sustituyendo (2026-10-06)."""
+    r = E.resolver("tan(3*x-pi/4)+sin(x) = -1")
+    textos = [f.texto("x") for f in r.familias]
+    assert any(t.startswith("x = 0 ") for t in textos), textos
+    assert any(t.startswith("x = π ") for t in textos), textos
+    assert all(abs(a.valor) > 1e-6 and abs(a.valor - math.pi) > 1e-6 for a in r.aproximadas)
+
+
+def test_dos_senoidales_que_se_cancelan_suman_cero():
+    from academic_core.domain.engineering.mathlab import fasores as Fa
+
+    texto, _h = Fa.sumar_senoidales((1, mx.parse("0"), 50), (1, mx.PI, 50))
+    assert texto == "0"
+
+
+@pytest.mark.parametrize("texto,valor", [
+    ("int(sin(2*x/x), x, 3, 13)", 10 * math.sin(2)),
+    ("int(atan(x^2-x^2), x, -3, 3)", 0.0),
+    ("int(ln(x/(2*x)), x, 3, 5)", 2 * math.log(0.5)),
+])
+def test_un_integrando_constante_disfrazado_no_rompe_la_calculadora(texto, valor):
+    r = ML.calcular(ML.Peticion("integrar", texto))
+    assert abs(r.aproximado.real - valor) < 1e-12

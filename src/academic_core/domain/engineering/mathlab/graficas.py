@@ -505,7 +505,13 @@ def ceros_exactos_en_la_rejilla(expresion: mx.Expr, var: str,
                 continue
             punto = D.punto_pi(Fraction(k, q))
             try:
-                valor = T.simplify(mx.substitute(expresion, var, punto.expr()))
+                from academic_core.domain.engineering.mathlab.calculators import (
+                    pliega_constante,
+                )
+
+                # the argument is folded first: tan(3·pi - pi/4) only shows its
+                # notable value once 3·pi - pi/4 has become 11/4·pi
+                valor = pliega_constante(mx.substitute(expresion, var, punto.expr()))
             except Exception:  # noqa: BLE001 - no proof, no claim
                 continue
             if _es_cero_exacto(valor):

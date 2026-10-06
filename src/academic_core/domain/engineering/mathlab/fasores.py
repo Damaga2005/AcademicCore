@@ -94,6 +94,8 @@ class Fasor:
         ``arctan(4/3)`` is not one of them — so most phasors are *not* exact in
         both halves, and saying so is more useful than returning a decimal quietly.
         """
+        if mx.exact_value(self.magnitud) == 0:
+            return True                     # the zero signal: exact, no phase needed
         return (mx.exact_value(self.magnitud) is not None
                 and _es_multiplo_de_pi(self.fase))
 
@@ -142,6 +144,11 @@ class Fasor:
         ``A·cos(ωt + φ)``, and a module that only ever prints the phasor leaves
         the reader to undo the trick by hand.
         """
+        if mx.exact_value(self.magnitud) == 0:
+            # two sinusoids that cancel (cos t + cos(t + pi)) sum to the zero
+            # signal; the zero phasor has no phase, and asking for one raised
+            # ZeroDivisionError instead of answering 0 (found 2026-10-06)
+            return "0"
         omega = self.frecuencia if self.frecuencia is not None else mx.ZERO
         angulo = _normaliza(mx.Add(mx.Mul(omega, mx.Sym(variable)), self.fase))
         return f"{mx.text(self.magnitud)}·cos({mx.text(angulo)})"
@@ -243,6 +250,9 @@ def _seno(angulo: mx.Expr) -> mx.Expr:
 
 def a_senoidal(fasor: Fasor, variable: str = "t") -> tuple[str, tuple[str, ...]]:
     """The phasor → ``(A·cos(ωt + φ), hipótesis)``, with the caveats attached."""
+    if mx.exact_value(fasor.magnitud) == 0:
+        return "0", ("las senoidales se cancelan: la suma es la señal nula, cuyo "
+                     "fasor es 0 y no tiene fase",)
     hipotesis = [f"la amplitud es el valor pico: el fasor representa "
                  f"{fasor.a_texto(variable)}"]
     if not fasor.es_exacto:

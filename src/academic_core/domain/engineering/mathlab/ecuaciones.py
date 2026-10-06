@@ -334,21 +334,43 @@ def _numericas(f: mx.Expr, familias, var: str):
 
     periodo = D.periodo_minimo(f, var)
     if periodo is None:
-        return [], None, False
+        return [], None, False, []
     longitud = float(periodo) * math.pi
     valores = []
     for familia in familias:
         base = mx.valor_real(familia.miembro(0, var), {})
         siguiente = mx.valor_real(familia.miembro(1, var), {})
         if base is None or siguiente is None:
-            return [], longitud, False   # no claim either way
+            return [], longitud, False, []   # no claim either way
         valores.append((base, siguiente - base))
-    raices = K.ceros_numericos(f, var, 0.0, longitud)
+    # a root exactly at 0 (tg(3x - pi/4) + sen x = -1) changes sign just LEFT of 0
+    # in floating point, so the scan starts a little before and folds back
+    crudas = K.ceros_numericos(f, var, -longitud / 1000, longitud)
+    raices: list[float] = []
+    plegadas = []
+    for c in crudas:
+        r = c % longitud
+        plegadas.append(0.0 if (longitud - r < 1e-9 * longitud or r == 0) else r)
+    for r in sorted(plegadas):
+        if not raices or abs(r - raices[-1]) > 1e-9 * max(1.0, longitud):
+            raices.append(r)
+    if len(raices) > 1 and abs(raices[0] + longitud - raices[-1]) < 1e-9 * longitud:
+        raices.pop()
     faltan = K.no_cubiertos(raices, valores)
+    # a missing root that is exactly k·pi/q is proved by substitution and goes
+    # out as an EXACT family: x = pi is no «3.14159265359»
+    from academic_core.domain.engineering.mathlab import graficas as G
+    exactas = {round(mx.valor_real(p.expr(), {}), 9): p
+               for p in G.ceros_exactos_en_la_rejilla(f, var, faltan)}
+    nuevas = [Familia(mx.ZERO if (p.es_pi and p.coeficiente == 0) else p.expr(),
+                      D.punto_pi(periodo).expr(),
+                      "valor exacto hallado por barrido y comprobado sustituyendo")
+              for p in exactas.values()]
+    faltan = [r for r in faltan if round(r, 9) not in exactas]
     aproximadas = [K.raiz_certificada(f, var, r) for r in faltan]
     sin_reales = (not familias and not raices
                   and K.sin_ceros_en(f, var, 0.0, longitud))
-    return aproximadas, longitud, sin_reales
+    return aproximadas, longitud, sin_reales, nuevas
 
 
 def separar(ecuacion: str) -> tuple[str, str]:
@@ -409,7 +431,8 @@ def resolver(ecuacion: str, var: str = "x") -> Resolucion:
         if not validas:
             hipotesis.append(MOTIVO_SIN_CASO)
     familias = validas
-    aproximadas, periodo, sin_reales = _numericas(original, familias, var)
+    aproximadas, periodo, sin_reales, exactas_nuevas = _numericas(original, familias, var)
+    familias = list(familias) + exactas_nuevas
     if aproximadas:
         hipotesis = list(hipotesis) + [
             f"{len(aproximadas)} solución(es) por periodo no tienen forma exacta "
