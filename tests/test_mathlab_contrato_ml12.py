@@ -40,6 +40,7 @@ EJEMPLOS = {
     "extremos_absolutos": {"expr": "x^2", "a": "-1", "b": "2"},
     "soluciones": {"expr": "x^3+x-1"},
     "impropia": {"expr": "1/x^2", "a": "1", "b": "oo"},
+    "serie": {"calculo": "convergencia", "termino": "1/n^2"},
 }
 
 

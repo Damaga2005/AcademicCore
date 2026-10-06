@@ -944,7 +944,8 @@ def _texto_termino(t: Termino, var: str, punto: str, lado: int) -> str:
     if t.p:
         partes.append(base if t.p == 1 else f"{base}^{t.p}")
     if t.q:
-        partes.append(f"e^({t.q}·{base})")
+        q = t.q if t.q.denominator < 10 ** 4 else f"{float(t.q):.6g}"
+        partes.append(f"e^({q}·{base})")
     if t.r:
         partes.append(f"ln({base})" + ("" if t.r == 1 else f"^{t.r}"))
     return "·".join(partes)

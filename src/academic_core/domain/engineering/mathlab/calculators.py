@@ -1052,6 +1052,46 @@ def _calc_impropia(peticion: C.Peticion) -> C.Resultado:
         sello = V.Seal(V.DISCREPANT, "cuadratura tanh-sinh", detalle)
     return _finalizar(peticion, trace, r.texto(), aproximado=mx.evaluate(r.valor), sello=sello)
 
+
+def _serie(peticion: C.Peticion) -> C.Resultado:
+    """ML-2 (T11): ``{"calculo": "convergencia"|"potencias"|"suma", "termino": "1/n^2",
+    "var": "n", "n0": 1, "x": "x"}``; factorials as ``n!`` or ``factorial(2*n)``."""
+    from academic_core.domain.engineering.mathlab import series_numericas as SN
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "termino" not in e:
+        raise C.error("BAD_INPUT", "se espera {'calculo': ..., 'termino': ...}")
+    T = SN.leer(str(e["termino"]), str(e.get("var") or "n"))
+    n0 = int(e.get("n0", 1))
+    calculo = str(e.get("calculo", "convergencia"))
+    trace = Trace()
+    if calculo == "convergencia":
+        v = SN.convergencia(T, n0, trace)
+        texto = v.texto()
+        sello = V.Seal(V.VERIFIED, "criterio de comparación, Leibniz o cociente (exactos)", texto)
+    elif calculo == "potencias":
+        r = SN.potencias(T, str(e.get("x") or "x"), trace)
+        texto = r.texto(str(e.get("x") or "x"))
+        decididos = all(v.tipo != "no decidido" for _, v in r.extremos)
+        sello = V.Seal(V.VERIFIED if decididos else V.NUMERIC_ONLY,
+                       "radio por el cociente; extremos como series numéricas", texto)
+    elif calculo == "suma":
+        valor = SN.suma(T, n0, trace)
+        texto = mx.text(valor)
+        objetivo = float(mx.valor_real(valor, {}))
+        parcial = SN.suma_parcial(T, n0, n0 + 100000)
+        if parcial is None:
+            sello = V.Seal(V.NUMERIC_ONLY, "fórmula cerrada", "sumas parciales no evaluables")
+        elif abs(parcial - objetivo) < 1e-4 * max(1.0, abs(objetivo)):
+            sello = V.Seal(V.VERIFIED, "fórmula cerrada y suma parcial de 10⁵ términos",
+                           f"S_N ≈ {parcial:.10g}")
+            trace.verificacion("serie.parcial", f"S_N ≈ {parcial:.10g} con N = n₀ + 10⁵")
+        else:
+            sello = V.Seal(V.DISCREPANT, "suma parcial de 10⁵ términos", f"S_N ≈ {parcial:.10g}")
+    else:
+        raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2591,6 +2631,7 @@ C.registrar("estudio", _estudio)
 C.registrar("extremos_absolutos", _extremos_absolutos)
 C.registrar("soluciones", _soluciones)
 C.registrar("impropia", _calc_impropia)
+C.registrar("serie", _serie)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
