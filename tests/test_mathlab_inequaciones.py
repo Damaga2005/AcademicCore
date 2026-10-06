@@ -409,18 +409,33 @@ def test_una_expresion_cuyos_ceros_no_se_saben_sigue_negandose():
     """El rechazo sigue existiendo, y con el motivo escrito.
 
     Lo que se cerro fue la carta de signos, no el solucionador de ecuaciones:
-    ``sen(x)*cos(x) - 0.1234567`` sigue sin ceros que el motor sepa escribir, y ahi
-    la respuesta correcta es negarse y decirlo.
+    ``sen(x)^5 + cos(x)^3 - 0.1234567`` no tiene ceros que el motor sepa escribir,
+    y ahi la respuesta correcta es negarse y decirlo. (``sen(x)*cos(x) - 0.1234567``
+    estuvo aqui: desde 2026-10-06 sus ceros salen exactos por la bicuadrada.)
     """
     with pytest.raises(UnsupportedError) as exc:
-        I.resolver_inequidad("1/(sen(x)*cos(x) - 0.1234567) > 0")
+        I.resolver_inequidad("1/(sen(x)^5 + cos(x)^3 - 0.1234567) > 0")
     assert "no se saben" in str(exc.value)
 
 
 def test_un_denominador_desconocido_tambien_rehusa_y_lo_dice():
     with pytest.raises(UnsupportedError) as exc:
-        I.resolver_inequidad("1/(sin(x)*cos(x) - 0.1234567) > 0")
+        I.resolver_inequidad("1/(sin(x)^5 + cos(x)^3 - 0.1234567) > 0")
     assert "no se saben" in str(exc.value)
+
+
+def test_el_producto_seno_coseno_menos_una_constante_ya_se_resuelve():
+    """Sus ceros salen de una bicuadrada en cos(x); se comprueba por muestreo."""
+    import math
+    from fractions import Fraction as Fr
+
+    s = I.resolver_inequidad("1/(sin(x)*cos(x) - 0.1234567) > 0")
+    for i in range(-400, 400):
+        k = Fr(i, 97)
+        v = float(k) * math.pi
+        g = math.sin(v) * math.cos(v) - 0.1234567
+        if abs(g) > 1e-6:
+            assert s.contiene(k) == (g > 0), (k, g)
 
 
 def test_ceros_devuelve_none_y_no_una_lista_vacia_cuando_no_sabe():
@@ -430,7 +445,7 @@ def test_ceros_devuelve_none_y_no_una_lista_vacia_cuando_no_sabe():
     # no saber escribir un numero que si sabe escribir es una lista equivocada.
     assert [mx.text(v) for v in I.ceros(mx.parse("sin(x) - 0.1234567"))] == [
         "asin(1234567/10000000)", "pi - asin(1234567/10000000)"]
-    assert I.ceros(mx.parse("(sin(x)*cos(x) - 0.1234567)^2")) is None
+    assert I.ceros(mx.parse("(sin(x)^5 + cos(x)^3 - 0.1234567)^2")) is None
     assert I.ceros(mx.parse("sin(x) - 1/2")) is not None
 
 

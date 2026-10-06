@@ -215,6 +215,54 @@ def _es_exacta(e: mx.Expr) -> bool:
 _ARC = {"sin": "asin", "cos": "acos", "tan": "atan"}
 
 
+def _inversa_de_su_directa(funcion: str, e: mx.Expr) -> mx.Expr | None:
+    """``arccos(cos(q·pi))`` and friends, as the angle in the principal range.
+
+    Viète writes a root as ``2·cos(2pi/9)``, and the solver then asked for
+    ``arccos(cos(2pi/9))``, which it printed as is. The principal value of the
+    inverse is the angle itself once reduced into ``[0, pi]`` (cos),
+    ``[-pi/2, pi/2]`` (sin) or ``(-pi/2, pi/2)`` (tan).
+    """
+    if not (isinstance(e, mx.Call) and e.name == funcion and len(e.args) == 1):
+        return None
+    q = _coeficiente_de_pi(e.args[0])
+    if q is None:
+        return None
+    if funcion == "cos":
+        r = q % 2
+        r = 2 - r if r > 1 else r
+    elif funcion == "sin":
+        r = (q + Fraction(1, 2)) % 2 - Fraction(1, 2)
+        if r > Fraction(1, 2):
+            r = 1 - r
+    else:
+        r = (q + Fraction(1, 2)) % 1 - Fraction(1, 2)
+        if r == Fraction(-1, 2):
+            return None
+    return D.punto_pi(r).expr()
+
+
+def _coeficiente_de_pi(e: mx.Expr) -> Fraction | None:
+    """``q`` when ``e`` is exactly ``q·pi``."""
+    valor = mx.valor_real(e, {})
+    if valor is None:
+        return None
+    for den in (1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 18, 24, 36):
+        q = Fraction(round(valor * den / math.pi), den)
+        if abs(float(q) * math.pi - valor) < 1e-13 and \
+                mx.exact_value(_simplifica_exacto(mx.Sub(e, D.punto_pi(q).expr()))) == 0:
+            return q
+    return None
+
+
+def _simplifica_exacto(e):
+    from academic_core.domain.engineering.mathlab import poly as P
+    try:
+        return P.to_expr(P.as_poly(trig.simplify(e)))
+    except Exception:  # noqa: BLE001
+        return trig.simplify(e)
+
+
 def _inversa(funcion: str, valor) -> tuple[mx.Expr, bool, str]:
     """``arcsin`` / ``arccos`` / ``arctan`` of an exact value.
 
@@ -223,6 +271,9 @@ def _inversa(funcion: str, valor) -> tuple[mx.Expr, bool, str]:
     the answer stays exact and is written symbolically instead of as a decimal.
     """
     expresion = valor if isinstance(valor, mx.Expr) else mx.Num(valor)
+    directo = _inversa_de_su_directa(funcion, expresion)
+    if directo is not None:
+        return directo, True, ""
     k = _indice_notable(funcion, expresion)
     if k is not None:
         return D.punto_pi(k).expr(), True, ""
@@ -2149,8 +2200,14 @@ def _raices_reales(polinomio: P.Polynomial, sub: mx.Expr,
         # a cubic with a repeated root has a rational one and the branch above took
         # it.
         cubica = _raiz_cubica(resto, sub.name)
+        if cubica is None:
+            cubica = _raices_vieta(resto, sub.name)
         if cubica is not None:
             return _limpias(raices + cubica), ""
+    if grado_resto == 4:
+        bicuadrada = _raices_bicuadrada(resto, sub.name)
+        if bicuadrada is not None:
+            return _limpias(raices + bicuadrada), ""
     return _limpias(raices), (
         f"el polinomio es de grado {grado}; se han divididos sus factores lineales "
         "y "
@@ -2178,7 +2235,13 @@ def _raiz_cubica(polinomio: P.Polynomial, var: str):
     p = (3 * c3 * c1 - c2 * c2) / (3 * c3 * c3)
     q = (2 * c2 ** 3 - 9 * c3 * c2 * c1 + 27 * c3 * c3 * c0) / (27 * c3 ** 3)
     if p == 0:
-        return None                    # biquadratic wearing a cubic's coat
+        # v³ + q = 0: the one real root is the real cube root of -q. It used to
+        # be refused here as «a biquadratic wearing a cubic's coat», and x³ - 2
+        # had no exact zero (found 2026-10-06).
+        cubica = mx.Root(3, mx.Num(-q))
+        b = c2 / (3 * c3)
+        return [cubica if b == 0 else
+                (mx.Add(cubica, mx.Num(-b)) if b < 0 else mx.Sub(cubica, mx.Num(b)))]
     delta = (q / 2) ** 2 + (p / 3) ** 3
     if delta <= 0:
         return None
@@ -2187,6 +2250,97 @@ def _raiz_cubica(polinomio: P.Polynomial, var: str):
     v = mx.Add(mx.Root(3, mx.Add(medio, raiz_delta)),
                mx.Root(3, mx.Sub(medio, raiz_delta)))
     return [mx.Sub(v, mx.Num(c2 / (3 * c3)))]
+
+
+def _raices_vieta(polinomio: P.Polynomial, var: str):
+    """The three real roots of a cubic with ``Δ < 0``, exactly, by Viète.
+
+    Cardano reaches them only through complex cube roots (casus irreducibilis).
+    The trigonometric form stays real: for ``v³ + pv + q`` with ``p < 0``,
+    ``v_k = 2·sqrt(-p/3)·cos(acos((3q/(2p))·sqrt(-3/p))/3 − 2πk/3)``, ``k = 0, 1, 2``,
+    and ``u = v − b/(3a)``. Each root is checked numerically against the cubic.
+    """
+    c3 = polinomio.get(((var, 3),), Fraction(0))
+    c2 = polinomio.get(((var, 2),), Fraction(0))
+    c1 = polinomio.get(((var, 1),), Fraction(0))
+    c0 = polinomio.get((), Fraction(0))
+    if c3 == 0:
+        return None
+    p = (3 * c3 * c1 - c2 * c2) / (3 * c3 * c3)
+    q = (2 * c2 ** 3 - 9 * c3 * c2 * c1 + 27 * c3 * c3 * c0) / (27 * c3 ** 3)
+    delta = (q / 2) ** 2 + (p / 3) ** 3
+    if p >= 0 or delta >= 0:
+        return None
+    amplitud = _legible_producto(Fraction(2), -p / 3)
+    argumento = _legible_producto(3 * q / (2 * p), Fraction(-3) / p)
+    # the principal arccos, exactly when the value is notable: acos(-1/2) = 2pi/3
+    alfa, multiplo, _nota = _inversa("cos", argumento)
+    coeficiente_alfa = _coeficiente_de_pi(alfa) if multiplo else None
+    angulo = mx.Div(alfa, mx.Num(Fraction(3)))
+    desplazamiento = c2 / (3 * c3)
+    salida = []
+    for k in range(3):
+        if coeficiente_alfa is not None:
+            # a notable angle: (alfa - 2k·pi)/3 reduced into [0, 2pi) and written
+            # as a multiple of pi, so the root reads 2·cos(2pi/9)
+            fase = D.punto_pi((coeficiente_alfa / 3 - Fraction(2 * k, 3)) % 2).expr()
+        else:
+            fase = mx.Sub(angulo, mx.Mul(mx.Num(Fraction(2 * k, 3)), mx.PI)) if k else angulo
+        termino = mx.Mul(amplitud, mx.Call("cos", (fase,)))
+        if desplazamiento == 0:
+            raiz = termino
+        elif desplazamiento < 0:
+            raiz = mx.Add(termino, mx.Num(-desplazamiento))
+        else:
+            raiz = mx.Sub(termino, mx.Num(desplazamiento))
+        valor = mx.valor_real(raiz, {})
+        if valor is None:
+            return None
+        residuo = float(c3) * valor ** 3 + float(c2) * valor ** 2 + float(c1) * valor + float(c0)
+        if abs(residuo) > 1e-9 * max(1.0, abs(float(c0)), abs(float(c3))):
+            return None
+        salida.append(raiz)
+    return salida
+
+
+def _legible_producto(c: Fraction, r: Fraction) -> mx.Expr:
+    """``c·sqrt(r)`` with the squares of ``r`` taken out: a rational when it is one."""
+    n = r.numerator * r.denominator
+    c = c / r.denominator
+    fuera, d = 1, 2
+    while d * d <= n:
+        while n % (d * d) == 0:
+            n //= d * d
+            fuera *= d
+        d += 1
+    c *= fuera
+    if n == 1:
+        return mx.Num(c)
+    raiz = mx.Root(2, mx.Num(Fraction(n)))
+    return raiz if c == 1 else mx.Mul(mx.Num(c), raiz)
+
+
+def _raices_bicuadrada(polinomio: P.Polynomial, var: str):
+    """``a·u⁴ + b·u² + c``: a quadratic in ``u²``, and ``u = ±sqrt`` of each root ≥ 0."""
+    if any(e % 2 for monomio in polinomio for _, e in monomio):
+        return None
+    c4 = polinomio.get(((var, 4),), Fraction(0))
+    c2 = polinomio.get(((var, 2),), Fraction(0))
+    c0 = polinomio.get((), Fraction(0))
+    if c4 == 0:
+        return None
+    discriminante = c2 * c2 - 4 * c4 * c0
+    if discriminante < 0:
+        return []
+    salida = []
+    for signo in (1, -1):
+        w = _raiz_cuadratica(c4, c2, discriminante, signo)
+        valor = mx.valor_real(w, {})
+        if valor is None or valor < 0:
+            continue
+        r = mx.Root(2, w)
+        salida += [r, mx.Neg(r)] if valor > 0 else [mx.ZERO]
+    return salida
 
 
 #: How many times a rational root is divided out before giving up. Bounded so a

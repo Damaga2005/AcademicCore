@@ -394,9 +394,71 @@ def _ceros_y_si_se_saben(expresion: mx.Expr, var: str
     """The exact zeros, and whether the engine could compute them at all."""
     c = I.ceros(expresion, var)
     if c is None:
-        return (), False
+        algebraicos = _ceros_algebraicos(expresion, var)
+        if algebraicos is None:
+            return (), False
+        return algebraicos, True
     puntos = [p for p in (I._a_punto(v) for v in c) if p is not None]
     return tuple(sorted(set(puntos), key=lambda p: p.coeficiente)), True
+
+
+def _ceros_algebraicos(expresion: mx.Expr, var: str) -> tuple[D.Punto, ...] | None:
+    """Exact zeros of a rational function whose numerator factors down to degree 2.
+
+    ``x² - 2`` used to show its zeros only as ±1.41421: the rational roots come
+    from the rational root theorem, and what is left of degree 2 from the
+    quadratic formula, as ``A ± B·sqrt(r)``. Zeros of the denominator are not zeros.
+    ``None`` when the numerator does not reduce that far (or is not rational).
+    """
+    from academic_core.domain.engineering.mathlab import ecuaciones as E
+    from academic_core.domain.engineering.mathlab import poly as P
+    from academic_core.domain.engineering.mathlab import polynomials as PL
+
+    try:
+        razon = P.as_ratio(expresion, var)
+    except Exception:  # noqa: BLE001
+        return None
+    if razon is None:
+        return None
+
+    def coeficientes(q):
+        grados: dict[int, Fraction] = {}
+        for monomio, c in q.items():
+            if any(nombre != var for nombre, _ in monomio):
+                return None
+            g = sum(e for _, e in monomio)
+            grados[g] = grados.get(g, Fraction(0)) + Fraction(c)
+        n = max(grados) if grados else 0
+        return [grados.get(i, Fraction(0)) for i in range(n + 1)]
+
+    numerador, denominador = coeficientes(razon.numerator), coeficientes(razon.denominator)
+    if numerador is None or denominador is None or len(numerador) < 2:
+        return None
+    resto = PL.normalizar(numerador)
+    raices: list[mx.Expr] = []
+    for r in PL.raices_racionales(resto):
+        while len(resto) > 1 and PL.evaluar(resto, r) == 0:
+            resto = PL.dividir_por_lineal(resto, r).cociente
+        raices.append(mx.Num(r))
+    if len(resto) >= 3:
+        # what is left goes to the equation solver's root finder: quadratic
+        # formula, Cardano, Viète for three real roots, biquadratics
+        u = mx.Sym("u")
+        polinomio = {(((u.name, i),) if i else ()): c for i, c in enumerate(resto) if c}
+        resto_raices, motivo = E._raices_reales(polinomio, u)
+        if motivo:
+            return None
+        raices += resto_raices
+    validas = []
+    for r in raices:
+        v = mx.valor_real(r, {})
+        if v is None:
+            continue
+        d = sum(float(c) * v ** i for i, c in enumerate(denominador))
+        if abs(d) > 1e-12:
+            validas.append(D.punto_pi(Fraction(0)) if mx.exact_value(r) == 0
+                           else D.Punto(expresion=r))
+    return tuple(sorted(validas, key=lambda p: I._coordenada_de(p)))
 
 
 def _ceros_no_listados(expresion: mx.Expr, var: str, ceros, periodo,

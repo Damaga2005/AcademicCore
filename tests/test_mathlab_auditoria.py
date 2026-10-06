@@ -436,7 +436,9 @@ INEQ_MUESTREADAS = [
 # Lo que no habia era una carta de signos que los aceptara, que es otra
 # cosa distinta de no saberlos.
 CON_MOTIVO = [("sin(x)^2 + cos(x)^2 > 1/2", "periódica"),
-               ("cos(x)/sec(x) > 1/2", "ceros")]
+               # `cos(x)/sec(x) > 1/2` was here; it is cos(x)^2 > 1/2 and is solved
+               # since 2026-10-06. A quintic-like one takes its place.
+               ("sin(x)^5 + cos(x)^3 > 0.1234567", "ceros")]
 
 
 @pytest.mark.parametrize("texto,palabra", CON_MOTIVO)
@@ -1033,6 +1035,16 @@ def test_una_inequacidad_sin_solucion_dice_que_no_la_hay(caso):
 
 @pytest.mark.parametrize("caso", VACIAS_FALSAS)
 def test_una_inequacidad_sin_solucion_exacta_no_puede_decir_que_no_la_hay(caso):
+    """It may refuse, or answer — never answer ∅. Since 2026-10-06 it answers:
+    the zero is tg(x) = 4^(-1/3), a cube root the solver now writes exactly."""
+    try:
+        s = I.resolver_inequidad(caso)
+    except Exception:  # noqa: BLE001 - a refusal is allowed
+        return
+    assert not s.vacia, (caso, s.texto())
+
+
+def _antigua_negativa(caso):
     """`cot(x)^3 > 4` SI tiene soluciones, y el motor publicaba «no hay soluciones».
 
     Sus ceros necesitan `tg(x) = 4^(-1/3)`, que no es un multiplo racional de

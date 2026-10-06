@@ -238,7 +238,11 @@ NEGADAS_ANTES = [
 #: real, and the difference between those two states is what the note says.
 PARCIALES = [
     "1/cos(x)^5 = 32",
-    "1/cos(x)^6 = 64",
+    # `1/cos(x)^6 = 64` was here until the biquadratic/cubic roots closed it
+    # (2026-10-06): its answer is now ±pi/3, ±2pi/3, complete. A quintic has no
+    # general formula by radicals, so its EXACT part stays partial — its numeric
+    # solutions are given, certified, next to the note.
+    "sin(x)^5 - sin(x)^2 + sin(x)/3 = 0",
 ]
 
 
