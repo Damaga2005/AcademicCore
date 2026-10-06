@@ -35,6 +35,7 @@ EJEMPLOS = {
     "grafo": {"calculo": "bfs", "aristas": [["a", "b"], ["b", "c"]]},
     "huffman": {"probabilidades": {"a": "1/2", "b": "1/4", "c": "1/4"}},
     "convencion": {"tipo": "db", "razon": 2, "convencion": "20log10"},
+    "limite": {"expr": "sin(x)/x", "punto": "0"},
 }
 
 

@@ -897,6 +897,39 @@ def _convencion(peticion: C.Peticion) -> C.Resultado:
                    r.reconciliacion)
     return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
 
+
+def _calc_limite(peticion: C.Peticion) -> C.Resultado:
+    """ML-2 (T3): ``{"expr": "sin(x)/x", "var": "x", "punto": "0", "lado": "+"|"-"|""}``;
+    ``punto`` may be ``oo`` or ``-oo``."""
+    from academic_core.domain.engineering.mathlab import limite as LM
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "punto" not in e:
+        raise C.error("BAD_INPUT", "se espera {'expr': ..., 'punto': ..., 'lado': ...}")
+    expr = _expresion_de(e, "expr", "f")
+    var = str(e.get("var") or (sorted(mx.variables(expr)) or ["x"])[0])
+    punto, lado = str(e["punto"]).replace(" ", ""), str(e.get("lado", ""))
+    trace = Trace()
+    try:
+        r = LM.limite(expr, var, punto, lado, trace)
+    except LM.NoSe as exc:
+        raise C.unsupported(f"{C.NO_EXACT}: {exc}") from None
+    infinito = punto.lstrip("+-") in ("oo", "inf", "∞")
+    lados = [1] if infinito or lado == "+" else [-1] if lado == "-" else [1, -1]
+    if r.valor.startswith("no existe"):
+        sello = V.Seal(V.VERIFIED, "límites laterales distintos u oscilación",
+                       r.texto())
+    else:
+        veredictos = [LM.comprobacion_numerica(expr, var, punto, s, r) for s in lados]
+        if all(ok for ok, _ in veredictos):
+            sello = V.Seal(V.VERIFIED, "evaluación numérica acercándose al punto",
+                           "; ".join(d for _, d in veredictos))
+            trace.verificacion("limite.numerico", "; ".join(d for _, d in veredictos))
+        else:
+            sello = V.Seal(V.DISCREPANT, "evaluación numérica acercándose al punto",
+                           "; ".join(d for _, d in veredictos))
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2431,6 +2464,7 @@ C.registrar("cola_mm1", _cola_mm1)
 C.registrar("grafo", _grafo)
 C.registrar("huffman", _huffman)
 C.registrar("convencion", _convencion)
+C.registrar("limite", _calc_limite)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
