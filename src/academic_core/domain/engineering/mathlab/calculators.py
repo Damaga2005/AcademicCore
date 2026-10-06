@@ -709,6 +709,37 @@ def _dimensional(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, texto, aproximado=None, sello=sello,
                       avisos=(DM.NO_SUFICIENTE,))
 
+
+def _comprobar_gradiente(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: is this ∇f? (§5.10.4) — central differences at seeded points.
+
+    ``{"f": "x^2*y", "gradiente": {"x": "2*x*y", "y": "x^2"}, "tolerancia": 1e-6}``.
+    Without ``gradiente`` the symbolic gradient is computed and then checked.
+    """
+    from academic_core.domain.engineering.mathlab import gradientes as G
+
+    e = peticion.entrada
+    f = _expresion_de(e, "f", "expr", "expresion")
+    trace = Trace()
+    if isinstance(e, dict) and e.get("gradiente"):
+        grad = {str(k): _expr(v) for k, v in e["gradiente"].items()}
+        origen = "el gradiente dado"
+    else:
+        grad = {k: _presentable(v, trace) for k, v in D.gradient(f, trace).items()}
+        origen = "el gradiente simbólico"
+    tolerancia = float(e.get("tolerancia", G.TOLERANCIA)) if isinstance(e, dict) else G.TOLERANCIA
+    informe = G.comprobar_expresion(f, grad, tolerancia, peticion.semilla, trace)
+    texto = f"{origen}: " + informe.texto()
+    if informe.fiables == 0:
+        sello = V.Seal(V.NUMERIC_ONLY, "diferencias centrales", "sin puntos fiables")
+    elif informe.ok:
+        sello = V.Seal(V.VERIFIED, "diferencias centrales (Richardson) en puntos sembrados",
+                       texto)
+    else:
+        sello = V.Seal(V.DISCREPANT, "diferencias centrales (Richardson)", texto)
+    return _finalizar(peticion, trace, {k: mx.text(v) for k, v in grad.items()},
+                      aproximado=None, sello=sello, avisos=(texto,))
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2237,6 +2268,7 @@ C.registrar("modular", _modular)
 C.registrar("lineal", _lineal)
 C.registrar("distribucion", _distribucion)
 C.registrar("dimensional", _dimensional)
+C.registrar("comprobar_gradiente", _comprobar_gradiente)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
