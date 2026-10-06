@@ -740,6 +740,47 @@ def _comprobar_gradiente(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, {k: mx.text(v) for k, v in grad.items()},
                       aproximado=None, sello=sello, avisos=(texto,))
 
+
+def _markov(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: a finite Markov chain — exact π and p(n), then a seeded simulation.
+
+    ``{"P": [["1/2", "1/2"], [...]], "inicial": 0, "pasos": 3, "simular": 50000}``;
+    the seed is the request's ``semilla`` (§5.9).
+    """
+    from academic_core.domain.engineering.mathlab import eventos as EV
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "P" not in e:
+        raise C.error("BAD_INPUT", "se espera {'P': matriz de transición, ...}")
+    trace = Trace()
+    r = EV.markov(e["P"], inicial=int(e.get("inicial", 0)),
+                  pasos=None if e.get("pasos") is None else int(e["pasos"]),
+                  simular=int(e.get("simular", 0)), semilla=peticion.semilla, trace=trace)
+    if r.pasos_simulados and r.estacionaria is not None and not r.coincide:
+        sello = V.Seal(V.DISCREPANT, "simulación sembrada",
+                       f"{r.peor_desviacion:.1f} errores típicos")
+    else:
+        sello = V.Seal(V.VERIFIED, "π·P = π sustituido en ℚ",
+                       "y simulación sembrada" if r.pasos_simulados else "")
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello)
+
+
+def _cola_mm1(peticion: C.Peticion) -> C.Resultado:
+    """ML-12: M/M/1 — the formulas, and a seeded discrete-event simulation beside them."""
+    from academic_core.domain.engineering.mathlab import eventos as EV
+
+    e = peticion.entrada
+    if not isinstance(e, dict) or "lambda" not in e or "mu" not in e:
+        raise C.error("BAD_INPUT", "se espera {'lambda': ..., 'mu': ..., 'clientes': ...}")
+    trace = Trace()
+    r = EV.cola_mm1(float(e["lambda"]), float(e["mu"]), int(e.get("clientes", 20000)),
+                    peticion.semilla, trace)
+    aviso = ("la simulación es una muestra: su diferencia con la teoría baja como "
+             "1/√clientes y crece mucho cuando ρ se acerca a 1")
+    sello = V.Seal(V.NUMERIC_ONLY, "fórmulas de M/M/1 y simulación sembrada", r.texto())
+    return _finalizar(peticion, trace, r.texto(), aproximado=None, sello=sello,
+                      avisos=(aviso,))
+
 # ---------------------------------------------------------------------------
 # T-11, T-12, T-13: ramas, ecuaciones e inecuaciones
 # ---------------------------------------------------------------------------
@@ -2269,6 +2310,8 @@ C.registrar("lineal", _lineal)
 C.registrar("distribucion", _distribucion)
 C.registrar("dimensional", _dimensional)
 C.registrar("comprobar_gradiente", _comprobar_gradiente)
+C.registrar("markov", _markov)
+C.registrar("cola_mm1", _cola_mm1)
 C.registrar("racional", _racional)
 C.registrar("evaluar", _evaluar)
 C.registrar("igualdad", _igualdad)
