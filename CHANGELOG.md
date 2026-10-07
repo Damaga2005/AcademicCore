@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-07 — ML-8 sin limitaciones evitables
+
+- **Raíces exactas de cúbicas y cuárticas irreducibles** (`cubica.py`): Cardano (forma trigonométrica si Δ < 0) y Ferrari, también bicuadradas; Laplace inversa, característico de EDO y fracciones simples exactas con nombres r1/α1/β1 y sus definiciones. Solo los factores de grado ≥ 5 siguen numéricos (Abel-Ruffini).
+- **EDO de primer orden:** μ mixto, homogénea desplazada, argumento lineal, Riccati, Clairaut; convolución y Volterra comprobadas exactas.
+- **Calor 1D** con contorno dependiente de t y flujos no nulos (referencia + Duhamel por modo), modos resonantes tratados aparte, coeficientes wₙ reducidos por mcd.
+- **Transformada z** con polos cuadráticos repetidos.
+- **Puntos críticos de f = φ(w):** curvas de nivel clasificadas exactas por el signo de φ″, familias periódicas completas (sen(x²+y²): x²+y² = π/2 + kπ, k ≥ 0), extremos aislados exactos.
+- **Bugs corregidos:** cociente perdido en la partición de Bézout, `valor or 1` con cero falso, desbordamiento exponencial en wₙ.
+
 ## 2026-10-06 — Límites de ML-5/ML-6 resueltos, ML-13 y ML-4
 
 - **Gröbner rápido:** grevlex + estrategia normal + criterio de la cadena, y el polinomio de cada variable por formas normales (FGLM en una variable). Los sistemas que agotaban los 8 s se resuelven en 0,2 s.
