@@ -1,6 +1,6 @@
 # Laboratorio de Matemáticas — Especificación de diseño
 
-Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos) y ML-8 (EDO y transformadas) completos** (siguiente según §10: ML-9) · Fecha: 2026-10-07 (v1: 2026-09-30)
+Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos), ML-8 (EDO y transformadas) y ML-9 (probabilidad y estadística) completos** (siguiente según §10: ML-14) · Fecha: 2026-10-07 (v1: 2026-09-30)
 Ámbito: desde la aritmética básica hasta las integrales triples, de línea y de superficie, pasando por cálculo, álgebra lineal, ecuaciones diferenciales, transformadas y probabilidad. Cada tema con **ejercicios para resolver, gráficas y solución paso a paso**. **v2** añade la matemática de otras asignaturas del grado que no es de otro laboratorio: matemática discreta y cuerpos finitos, códigos y criptografía, teoría de la información, Markov y refuerzo, optimización y aprendizaje automático, finanzas, señales deterministas, detección y estimación, fasores y polarización, campos y ondas, y mecánica auxiliar (**bloques 8 a 19**). Lo que va a `SIGNALS_LAB.md` y a `CIRCUITS_LAB.md` está en la tabla «qué va dónde» (§16).
 Fuentes: guías docentes de GREELEC (UPC) en `guias_upc/` — Cálculo (230903), Álgebra Lineal (230904), Cálculo Vectorial (230908), Ecuaciones Diferenciales y Transformadas (230909), Probabilidad y Procesos Estocásticos (230914), Señales y Sistemas (230913). **v2:** cuatro informes de lectura de solo lectura en `Descargas/labs/math_catalog/` (`extra_senales.md`, `extra_electromagnetismo.md`, `extra_circuitos_control.md`, `extra_algoritmia_ia_codigos.md`), integrados con el **reparto decidido por el usuario** (D6, §13) y sin tocar el repositorio ni `guias_upc`.
 
@@ -429,6 +429,66 @@ exacto, cuadráticas repetidas con Δ ≤ 0, sondas de barrido no decididas, esp
 racional, autovectores de λ no racional y pseudoinversa sin rango columna completo.
 **ML-5:** gradiente no lineal (críticos, Lagrange), Hessiana semidefinida o indefinida
 en n > 2, Taylor-2 sin cota, recintos no rectangulares.
+
+## Capacidad implementada — ML-9, probabilidad y estadística (2026-10-07)
+
+Todo en Python puro (SciPy solo como oráculo en las pruebas). Cada operación da pasos con
+«por qué», las convenciones que cambian el resultado (tasa o media, σ o σ², geométrica
+desde 0 o desde 1, varianza con n o con n − 1, factor K lineal…) y **dos caminos**: la
+función de distribución sale de su forma cerrada o de la función especial (gamma y beta
+incompletas por Lentz, Φ⁻¹ de Acklam refinada con Halley, Q de Marcum) y se contrasta con
+la **cuadratura tanh-sinh de la densidad**; las simulaciones sembradas usan el
+**mecanismo constructivo** de cada ley (suma de Bernoulli, llegadas exponenciales,
+Box-Muller, Marsaglia-Tsang), nunca la inversa de la F que comprueban. Si un segundo
+camino discrepa, el resultado sale con el sello «discrepa», no como excepción.
+
+| Tipo de examen (§15.1, Probabilidad) | Operación | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| 1 Probabilidad total y Bayes | `probabilidad` (`bayes`) | Partición comprobada, regla del producto por rama, total y posteriores exactas en ℚ; el árbol como datos | `P(B) + P(no B) = 1`, `Σ P(Aᵢ∣B) = 1` y simulación del árbol |
+| 2 Binomial, geométrica, Poisson | `variable_aleatoria` | Probabilidades exactas (`406006699/625000000`, `1 − 5·e^(−2)`), sucesos «P(2 < X ≤ 5)» y condicionados «P(X > 3 ∣ X > 1)» | Suma término a término y simulación |
+| 3 Aproximación normal | `aproximacion_normal` | Corrección de continuidad, condición `np ≥ 5` declarada | El valor exacto al lado, con el error |
+| 4–5 Intervalos de confianza y tamaño de muestra | `intervalo_confianza` | z con σ conocida, t con σ estimada (elección justificada), χ² para la varianza, Wald (y Wilson de contraste) para proporciones, diferencias (agrupada o Welch), tamaño redondeado hacia arriba | Cuantil por cuadratura y **cobertura del método simulada** (3000 muestras) |
+| 6 Exponencial, falta de memoria, Gamma | `variable_aleatoria`, `proceso` | `P(X > 8 ∣ X > 3) = e^(−1)`; Erlang con F exacta | Cuadratura y simulación |
+| 7 Densidad con constante, Chebyshov | `variable_aleatoria` (`densidad`) | `∫f = 1` lineal en la constante (exacta), `f ≥ 0` comprobada, momentos y F por tramos | Cuadratura independiente |
+| 8 Transformaciones, máximo, mínimo, convolución | `variable_aleatoria` | Ramas monótonas por los ceros de g′ (también sin cambio de signo, x³), inversa simbólica, `f_Y = Σ f_X(h)·∣h′∣`; `Fⁿ`, `1 − (1 − F)ⁿ`; tramos de z por las sumas de extremos | `∫f_Y = 1`, mediana contra la simulación de g(X); convolución numérica por tramos |
+| 9 Vectores gaussianos | `vector_aleatorio` | `Aμ + b`, `AΣAᵀ`, condicionada `μ_a + Σ_abΣ_bb⁻¹(x_b − μ_b)` en ℚ; Σ semidefinida comprobada por menores principales | Elemento a elemento y ortogonalidad del error, exactas |
+| 10 Esperanza condicional, estimación lineal | `vector_aleatorio` (`tabla`) | Marginales, Cov, ρ², independencia (contraejemplo «incorreladas no independientes»), recta óptima y `E[Y∣X]` | `E[e] = E[e·X] = 0` exactos |
+| 11 Momentos y máxima verosimilitud | `estimador` | Fórmulas cerradas (Poisson, exponencial, Bernoulli, geométrica, binomial, normal, U(0, θ) con su máximo en el borde); densidad con parámetro, numérica y declarada | Sección áurea sobre log L |
+| 12 Proceso de Poisson | `proceso` | Recuentos, incrementos independientes, condicionada binomial, llegadas Erlang, `λ·mín(t₁, t₂)` | Simulación de las llegadas |
+| 13 Procesos con variables aleatorias | `proceso` (`va`) | `E[X(t)]` y `R(t₁, t₂)` exactas integrando sobre cada variable (uniforme, discreta, normal por momentos), producto a suma, reducción por periodo; estacionariedad decidida | Simulación sembrada de `R` |
+| 14 Procesos de Bernoulli o ±1 | `proceso` (`paseo`) | Media, varianza, `R(n, m)`, paridad | **Enumeración de los 2ⁿ caminos** (n ≤ 16) |
+| 15 Combinatoria, ocupación, inclusión-exclusión | `probabilidad` | Variaciones, combinaciones (con y sin repetición), multiconjuntos, bolas distinguibles o no, sobreyecciones, desarreglos | **Enumeración directa**; regiones de Venn ≥ 0 |
+| Tablas (§15.2 punto 9) | `tabla_estadistica` | Normal, t, χ², F calculadas con el redondeo «de tabla» (1,960; 2,576; t₁₉ = 2,093…) | F por cuadratura en el cuantil |
+| Descriptiva, contrastes, regresión | `estadistica`, `contraste`, `regresion` | Las dos varianzas, cuartiles tipo 7 declarados, atípicos por 1,5·RIC; z, t, χ² (varianza, bondad, independencia); mínimos cuadrados en ℚ | Identidad `Σ(x − x̄)² = Σx² − n·x̄²`; p-valor por cuadratura y región crítica coherente; `Xᵀe = 0` |
+| Comunicaciones (D12, G) | `comunicaciones` | BER de BPSK/QPSK/BFSK/OOK/DPSK/FSK no coherente/BPSK con Rayleigh (y Eb/N0 para una BER objetivo), ALOHA puro y ranurado, fallo Rayleigh y Rice, ARQ (convención de Stallings) | Simulación de BPSK en AWGN, Q por cuadratura, promedio sobre el desvanecimiento, simulación de ALOHA y ARQ |
+| Simulación | `montecarlo` | Con la semilla de la petición; sello «solo numérico» | Frente al exacto, 5 errores típicos |
+
+**Batería:** 300 leyes y sucesos aleatorios contra `scipy.stats` (P(a < X ≤ b) y su forma
+exacta, cuantil, media, varianza): 0 errores (120 quedan como test permanente).
+
+**Lo que no se hace (y se dice):** la densidad con parámetro en el estimador es numérica
+(sello «solo numérico»); las esperanzas sobre una normal solo para expresiones
+polinómicas en esa variable; la media y la varianza de Rice no se dan en forma cerrada;
+la fórmula de retroceso N con `N < 1 + 2a` es la aproximación de libro y se avisa.
+
+**Revisión de fases anteriores (2026-10-07)** con un barrido de entradas sobre todas las
+operaciones: `integrar` con `oo` leía «o·o» y devolvía un resultado vacío (ahora delega
+en `impropia`); con parámetros (`∫₀¹ k·x(1 − x)`) afirmaba falsamente «no está acotado en
+x ≈ 0» (ahora Barrow simbólico, `k/6`, contrastado con cuadratura en varios valores); una
+integral divergente salía «verificada» sin valor; `impropia` no daba el valor de
+`∫₀^∞ x³e^(−x/2)` (ahora usa también el integrador de ML-2); ML-8 lanzaba una excepción
+cuando el segundo camino discrepaba en lugar del sello «discrepa»; extremos, centros o
+puntos con letras, sumas de Riemann de funciones no acotadas, funciones con letras sin
+valor en operaciones de una variable, gradiente o críticos de una constante, `1/0`
+literal, `clientes ≤ 0` en M/M/1 y probabilidades con denominador 0 en Huffman reventaban
+con TypeError, IndexError o ZeroDivisionError (ahora se rechazan diciendo qué falla); las
+sumas de Riemann con una singularidad evitable (`sen x/x` en 0) toman el límite; `evaluar`
+con valores en texto (`x = "1/2"`) devolvía un resultado vacío (ahora exacto, `1/4`), con
+letras sin valor da la sustitución parcial comprobada y donde no está definida lo dice.
+El contrato (§5.9) convierte en «dato mal escrito» solo los fallos de leer la petición
+(clave ausente, `int("1/2")`, `None`); cualquier otro error interno sigue saliendo como
+tal. Cuatro ficheros de pruebas importaban SymPy sin `importorskip`, y el CI (que no lo
+instala) no podía ni recogerlos. Pruebas: `tests/test_mathlab_revision_fases.py`.
 
 ## 5. El motor matemático
 
@@ -996,7 +1056,7 @@ Orden pensado para que lo **de más uso** llegue antes y cada fase sea demostrab
 | **ML-6** Integración múltiple | Dobles y triples, cambio de orden, jacobianos, regiones 3D. **Implementado (2026-10-06):** iteradas exactas con límites variables (Fubini, primitivas comprobadas derivando, Barrow simbólico) y segundo camino por cuadratura tanh-sinh anidada; polares, cilíndricas y esféricas con jacobiano y validez del cambio; cambio de orden de tipo I a franjas de tipo II con los dos órdenes comparados; masa y centro de masas; calculadora `multiple` | XL |
 | **ML-7** Línea, superficie y teoremas | Integrales de línea y de superficie, conservativos, Green, Stokes y Gauss, con comprobación por los dos lados. **Implementado (2026-10-06):** circulación y ∫ f ds por curvas parametrizadas a trozos, rotacional y divergencia, potencial con rot F = 0 comprobado y ∇φ = F verificado (segundo camino φ(B) − φ(A)), flujo y ∬ f dS con normal r_u × r_v y orientación elegible, |r′| y |N| exactos cuando son cuadrados perfectos; Green, Stokes y Gauss calculan los dos lados y los comparan (una orientación equivocada sale como discrepancia, no se tapa); calculadora `vectorial` | XL |
 | **ML-8** Ecuaciones diferenciales y transformadas | EDO, Laplace, Fourier, transformada z, plano de fases; **v2:** problemas de contorno 1D y Poisson 1D por tramos; **oscilador con Q y conducción de calor 1D (D12)** **Implementado (2026-10-06):** EDO de primer orden (lineal, separable, Bernoulli, exacta con μ(t)/μ(y)/μ mixto, homogénea, homogénea desplazada, argumento lineal, Riccati con solución particular, Clairaut, PVI; los demás tipos no lineales, numéricos), lineales de coeficientes constantes (característico exacto en ℚ/ℚ(√d)/ℂ, coeficientes indeterminados con resonancia, variación de parámetros; factores irreducibles de grado 3 y 4 exactos por Cardano/forma trigonométrica y Ferrari, también bicuadradas, con nombres r1, α1, β1 y su definición; solo grado ≥ 5 queda numérico con sello «solo numérico», por Abel-Ruffini), PVI por Laplace con tramos, escalones y deltas (comprobación exacta por tramos y salto de las deltas), Laplace directa/inversa con región de convergencia, sistemas x′ = Ax + f con e^{At} y plano de fases, oscilador (Q, regímenes, resonancia, ancho de banda), respuesta impulsional, convolución, Volterra e integro-diferenciales, Picard, Wronskiano, reducción de orden, Euler-Cauchy, series de Fourier (n simbólico, Parseval, evaluación) y transformada (frecuencia ordinaria), transformada z, inversa y ecuaciones en diferencias, contorno 1D (también paramétrico), Poisson por tramos con contraste por diferencias finitas y calor 1D (Dirichlet, Neumann, mixta; contorno dependiente de t y flujos no nulos por referencia + Duhamel, con modos resonantes aparte y coeficientes simplificados); transformada z con polos cuadráticos repetidos; **2026-10-07:** puntos críticos de f = φ(w) (curvas de nivel exactas, familias periódicas como sen(x²+y²) completas por paridad de k, extremos aislados exactos); calculadoras `edo`, `laplace`, `fourier`, `transformada_z`, `contorno` | XL |
-| **ML-9** Probabilidad y estadística | Bloque 6 completo con gráficas y simulación sembrada; **v2:** BER con `Q`, ALOHA, Rayleigh y Rice, ARQ (D12) | L |
+| **ML-9** Probabilidad y estadística | Bloque 6 completo con gráficas y simulación sembrada; **v2:** BER con `Q`, ALOHA, Rayleigh y Rice, ARQ (D12) **Implementado (2026-10-07):** los 15 tipos de §15.1 y las 13 calculadoras del bloque G (§8.2): Bayes con árbol, combinatoria contrastada por enumeración, inclusión-exclusión con regiones de Venn; 16 leyes con F, cuantil y momentos (exactos con parámetros racionales: binomial, geométrica, Pascal, hipergeométrica, uniforme, beta entera en ℚ; Poisson, exponencial, Erlang, Weibull y Rayleigh con `exp` exacta) y tablas normal, t, χ² y F calculadas con su redondeo; densidades por tramos con constante, momentos, F, Chebyshov, transformaciones por ramas monótonas, máximo, mínimo y convolución exactos; tablas conjuntas, vectores gaussianos y estimación lineal óptima en ℚ; aproximación normal al lado del exacto; descriptiva, intervalos (t/z justificada, cobertura simulada), contrastes, regresión y estimadores; procesos de Poisson, paseo ±1 y procesos con variables (R(τ) exacta y estacionariedad); BER, ALOHA, Rayleigh/Rice y ARQ; calculadoras `probabilidad`, `variable_aleatoria`, `vector_aleatorio`, `aproximacion_normal`, `estadistica`, `intervalo_confianza`, `contraste`, `regresion`, `estimador`, `proceso`, `tabla_estadistica`, `comunicaciones`, `montecarlo` | L |
 | **ML-10** Ejercicios y maestría | Banco por tema, generador, enlace con el corrector y la maestría | L |
 | **ML-11** Pulido | Accesibilidad, rendimiento, documentación de usuario, certificación | M |
 | **ML-12** Cimientos ampliados (v2) | **Racionales multivariable** (dependencia crítica); **cuerpo como parámetro** del motor lineal y aritmética entera con trazas; distribuciones con área; **contrato con otros laboratorios** y plug-ins de verificación (§5.9); **convenciones declaradas** (§5.11); análisis dimensional; verificador de gradientes; simulador sembrado de eventos; árboles y grafos | L |

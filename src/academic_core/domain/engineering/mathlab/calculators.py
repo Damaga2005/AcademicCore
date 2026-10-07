@@ -50,7 +50,12 @@ def _expr(entrada: object) -> mx.Expr:
     if isinstance(entrada, mx.Expr):
         return entrada
     if isinstance(entrada, str):
-        return mx.parse(entrada)
+        e = mx.parse(entrada)
+        for nodo in mx._walk(e):
+            if isinstance(nodo, mx.Div) and mx.exact_value(nodo.right) == 0:
+                # «1/0» llegaba hasta un Fraction(1, 0) o un resultado vacío
+                raise C.error("BAD_INPUT", f"división por cero en «{entrada}»")
+        return e
     raise C.error("BAD_INPUT", "se esperaba una expresión o su texto")
 
 
@@ -158,9 +163,79 @@ def _finalizar(peticion: C.Peticion, traza: Trace, exacto, *,
     )
 
 
+def con_discrepancia(funcion):
+    """Un ``DISCREPANT`` lanzado por el segundo camino de un módulo de dominio se
+    devuelve como sello «discrepa», no como excepción (§5.3: el resultado se informa
+    como no correcto y el consumidor decide; un error rompería la llamada como si la
+    petición estuviera mal escrita). Antes, ML-8 lo lanzaba (2026-10-07)."""
+    import functools
+
+    from academic_core.errors import ValidationError as _VE
+
+    @functools.wraps(funcion)
+    def envoltura(peticion: C.Peticion) -> C.Resultado:
+        try:
+            return funcion(peticion)
+        except _VE as exc:
+            texto = str(exc)
+            if not texto.startswith("DISCREPANT"):
+                raise
+            traza = Trace()
+            traza.aviso("verificacion.discrepa_dominio", texto)
+            return _finalizar(peticion, traza, "el segundo camino no coincide: no se da "
+                                               "ningún valor por bueno",
+                              sello=V.Seal(V.DISCREPANT, "segundo camino", texto),
+                              avisos=(texto,))
+    return envoltura
+
+
 # ---------------------------------------------------------------------------
 # derivar
 # ---------------------------------------------------------------------------
+
+
+def _es_constante(f: mx.Expr, vars_) -> bool:
+    try:
+        from academic_core.domain.engineering.mathlab import poly as _P
+
+        return not (mx.variables(_P.to_expr(_P.as_poly(f))) & set(vars_))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _real_exacto(texto, que: str) -> mx.Expr:
+    """Un número del enunciado (``2``, ``pi/2``, ``sqrt(3)``) como expresión cerrada.
+
+    Un extremo o un centro con letras (``a = x^2``) no es un número: antes llegaba
+    como ``None`` hasta un ``float()`` o una comparación y saltaba un TypeError
+    (barrido de 2026-10-07); ahora se rechaza diciendo qué falla."""
+    e = _expr(str(texto))
+    libres = mx.variables(e)
+    if libres:
+        try:
+            from academic_core.domain.engineering.mathlab import poly as _P
+
+            normal = _P.to_expr(_P.as_poly(e))       # «x − x» es 0, no tiene x
+            if not mx.variables(normal):
+                e, libres = normal, set()
+        except Exception:  # noqa: BLE001
+            pass
+    if libres:
+        raise C.error("BAD_INPUT", f"{que} «{texto}» no es un número (tiene "
+                                   f"{', '.join(sorted(libres))})")
+    v = mx.valor_real(e, {})
+    if v is None:
+        raise C.error("BAD_INPUT", f"{que} «{texto}» no es un número real")
+    return e
+
+
+def _una_variable(f: mx.Expr, var: str, que: str = "la función") -> None:
+    """Las operaciones de una variable no admiten letras sin valor (``k·x``)."""
+    sobran = mx.variables(f) - {var}
+    if sobran:
+        raise C.error("BAD_INPUT", f"{que} tiene letras sin valor ({', '.join(sorted(sobran))}); "
+                                   f"esta operación es de una sola variable ({var}): dales un "
+                                   "valor o usa la operación con parámetro")
 
 
 def _derivar(peticion: C.Peticion) -> C.Resultado:
@@ -270,6 +345,10 @@ def _real(value: complex | None) -> float:
 
 def _gradiente(peticion: C.Peticion) -> C.Resultado:
     expr = _expresion_de(peticion.entrada, "expr", "expresion", "f")
+    if not mx.variables(expr):
+        raise C.error("BAD_INPUT", f"«{mx.text(expr)}» no tiene variables: su gradiente no "
+                                   "está definido respecto de nada (es el vector nulo en "
+                                   "cualquier espacio que se elija)")
     trace = Trace()
     grad = D.gradient(expr, trace)
     sellos = {k: D.verify_derivative(expr, v, k) for k, v in grad.items()}
@@ -670,6 +749,11 @@ def _multivar(peticion: C.Peticion) -> C.Resultado:
                  + f" → {clase}")
     elif calculo == "criticos":
         f_ = _expresion_de(e, "expr", "f")
+        if not any(mx.depends(pliega_constante(f_) if not mx.variables(f_) - set(vars)
+                              else f_, v) for v in vars) or _es_constante(f_, vars):
+            raise C.error("BAD_INPUT", f"f = {mx.text(f_)} no depende de {', '.join(vars)}: "
+                                       "es constante y todo punto es crítico (ni máximo ni "
+                                       "mínimo estrictos)")
         infinitas = None
         try:
             pts = MV.puntos_criticos(f_, vars, trace)
@@ -1473,6 +1557,7 @@ def _estudio(peticion: C.Peticion) -> C.Resultado:
     trace.metodo("estudio.completo", "dominio, simetría, cortes, asíntotas, f′ y f″ con tabla "
                  "de signos", why="es el orden del estudio de funciones del curso; cada "
                  "tramo se decide con un punto porque todos los ceros y bordes están hallados")
+    _una_variable(f, var)
     est = ES.estudiar(f, var, trace)
     sello = _sello_estudio(f, var, est)
     avisos = tuple(est.avisos) if est.avisos else ()
@@ -1510,9 +1595,12 @@ def _extremos_absolutos(peticion: C.Peticion) -> C.Resultado:
     f = _expresion_de(e, "expr", "f")
     var = str(e.get("var") or "x")
     trace = Trace()
-    r = ES.extremos_absolutos(f, var, _expr(str(e["a"])), _expr(str(e["b"])), trace)
+    _una_variable(f, var)
+    r = ES.extremos_absolutos(f, var, _real_exacto(e["a"], "el extremo a"),
+                              _real_exacto(e["b"], "el extremo b"), trace)
     # second path: a fine grid never beats the maximum nor undercuts the minimum
-    a, b = float(mx.valor_real(_expr(str(e["a"])), {})), float(mx.valor_real(_expr(str(e["b"])), {}))
+    a = float(mx.valor_real(_real_exacto(e["a"], "el extremo a"), {}))
+    b = float(mx.valor_real(_real_exacto(e["b"], "el extremo b"), {}))
     vmax, vmin = mx.valor_real(r.maximo[0], {}), mx.valor_real(r.minimo[0], {})
     malla = [mx.valor_real(f, {var: a + (b - a) * k / 2000}) for k in range(2001)]
     malla = [v for v in malla if v is not None]
@@ -1552,8 +1640,15 @@ def _calc_impropia(peticion: C.Peticion) -> C.Resultado:
     f = _expresion_de(e, "expr", "f")
     var = str(e.get("var") or "x")
     a, b = str(e["a"]), str(e["b"])
+    def _ext(x, que):
+        if x.strip().replace("−", "-").lstrip("+-") in ("oo", "inf", "∞"):
+            return x
+        return mx.text(_real_exacto(x, que))
+    a, b = _ext(a, "el extremo a"), _ext(b, "el extremo b")
     trace = Trace()
     alfa = e.get("parametro")
+    _una_variable(f, var, "el integrando") if not alfa else _una_variable(
+        mx.substitute(f, str(alfa), mx.ONE), var, "el integrando")
     if alfa:
         r = IM.con_parametro(f, var, a, b, str(alfa), trace)
         sello = V.Seal(V.NUMERIC_ONLY, "criterio de comparación exacto en cada valor del barrido",
@@ -1634,8 +1729,9 @@ def _taylor(peticion: C.Peticion) -> C.Resultado:
         raise C.error("BAD_INPUT", "se espera {'expr', 'centro', 'orden', 'x0'}")
     f = _expresion_de(e, "expr", "f")
     var = str(e.get("var") or "x")
-    a = _expr(str(e.get("centro", "0")))
-    x0 = _expr(str(e["x0"])) if e.get("x0") is not None else None
+    a = _real_exacto(e.get("centro", "0"), "el centro")
+    x0 = _real_exacto(e["x0"], "el punto x0") if e.get("x0") is not None else None
+    _una_variable(f, var)
     trace = Trace()
     if e.get("tolerancia") is not None:
         if x0 is None:
@@ -1702,6 +1798,8 @@ def _tfc(peticion: C.Peticion) -> C.Resultado:
     f = _expresion_de(e, "f", "expr")
     t, x = str(e.get("t") or "t"), str(e.get("x") or "x")
     u, v = _expr(str(e["desde"])), _expr(str(e["hasta"]))
+    for limite, que in ((u, "el límite inferior"), (v, "el límite superior")):
+        _una_variable(limite, str(e.get("var") or "x"), que)
     trace = Trace()
     d = CX.tfc(f, t, u, v, x, trace)
     ok, detalle = CX.tfc_comprobacion(f, t, u, v, x, d, 0.7)
@@ -1735,7 +1833,7 @@ def _a_trozos(peticion: C.Peticion) -> C.Resultado:
     nombres = set(parametros) | {var}
     izq = mx.parse(str(e["izquierda"]), nombres=nombres)
     der = mx.parse(str(e["derecha"]), nombres=nombres)
-    c = _expr(str(e["punto"]))
+    c = _real_exacto(e["punto"], "el punto de unión")
     trace = Trace()
     r = CX.a_trozos(izq, der, var, c, parametros, bool(e.get("derivable", False)), trace)
     # second path: with the solution, the jump and the derivative jump vanish numerically
@@ -1766,7 +1864,8 @@ def _teorema(peticion: C.Peticion) -> C.Resultado:
     e = peticion.entrada
     f = _expresion_de(e, "expr", "f")
     var = str(e.get("var") or "x")
-    a, b = _expr(str(e["a"])), _expr(str(e["b"]))
+    a, b = _real_exacto(e["a"], "el extremo a"), _real_exacto(e["b"], "el extremo b")
+    _una_variable(f, var)
     trace = Trace()
     nombre = str(e.get("teorema", "rolle"))
     if nombre == "bolzano":
@@ -1785,7 +1884,15 @@ def _riemann(peticion: C.Peticion) -> C.Resultado:
     e = peticion.entrada
     f = _expresion_de(e, "expr", "f")
     var = str(e.get("var") or "x")
-    r = CX.riemann(f, var, _expr(str(e["a"])), _expr(str(e["b"])), int(e.get("n", 10)))
+    _una_variable(f, var)
+    a, b = _real_exacto(e["a"], "el extremo a"), _real_exacto(e["b"], "el extremo b")
+    lo_, hi_ = sorted((float(mx.valor_real(a, {})), float(mx.valor_real(b, {}))))
+    malos = K.puntos_singulares(f, var, lo_, hi_)
+    if malos:
+        raise C.error("BAD_INPUT", f"f no está acotada (o no está definida) en {var} ≈ "
+                                   f"{malos[0]:.10g}, dentro de [{lo_:.10g}, {hi_:.10g}]: no es "
+                                   "integrable Riemann ahí y las sumas no tienen sentido")
+    r = CX.riemann(f, var, a, b, int(e.get("n", 10)))
     trace = Trace()
     trace.regla("riemann.sumas", r.texto(),
                 why="rectángulos de base (b − a)/n con altura en el extremo izquierdo, el "
@@ -1878,10 +1985,12 @@ def _aplicacion_integral(peticion: C.Peticion) -> C.Resultado:
     tipo = str(e.get("tipo", "area"))
     f = _expresion_de(e, "f", "expr")
     var = str(e.get("var") or "x")
-    a, b = _expr(str(e["a"])), _expr(str(e["b"]))
+    a, b = _real_exacto(e["a"], "el extremo a"), _real_exacto(e["b"], "el extremo b")
+    _una_variable(f, var)
     trace = Trace()
     if tipo == "area":
         g = _expr(str(e.get("g", "0")))
+        _una_variable(g, var, "g")
         r = CX.area_entre(f, g, var, a, b, trace)
     elif tipo == "volumen":
         r = CX.volumen_revolucion(f, var, a, b, str(e.get("eje", "x")), trace)
@@ -2415,6 +2524,16 @@ def _evaluar(peticion: C.Peticion) -> C.Resultado:
         expr, env = _expr(entrada.get("expr")), dict(entrada.get("valores") or {})
     else:
         expr, env = _expr(entrada), {}
+    for nombre, valor in list(env.items()):
+        # «x = "1/2"» se pasaba tal cual y la evaluación devolvía un resultado vacío
+        if isinstance(valor, str):
+            ev = _expr(valor)
+            q = mx.exact_value(ev)
+            if q is None and mx.variables(ev):
+                raise C.error("BAD_INPUT", f"el valor de {nombre} («{valor}») no es un número")
+            env[nombre] = q if q is not None else mx.evaluate(ev, {})
+        elif valor is None or isinstance(valor, bool):
+            raise C.error("BAD_INPUT", f"{nombre} no tiene un valor numérico")
     trace = Trace()
     exacto = mx.exact_value(expr)
     if exacto is not None:
@@ -2444,13 +2563,26 @@ def _evaluar(peticion: C.Peticion) -> C.Resultado:
                 peticion, trace, racional if racional is not None else exacta,
                 aproximado=mx.evaluate(exacta),
                 sello=V.Seal(V.VERIFIED, "valor exacto", mx.text(exacta)))
+    sin_valor = mx.variables(expr) - set(env)
+    if sin_valor:
+        return _evaluacion_parcial(peticion, expr, env, sin_valor, trace)
+    if env and all(isinstance(v, (int, Fraction)) and not isinstance(v, bool)
+                   for v in env.values()):
+        # valores racionales: la sustitución es exacta (x = 1/2 en x² da 1/4, no 0.25)
+        sustituida = expr
+        for nombre, valor in env.items():
+            sustituida = mx.substitute(sustituida, nombre, mx.num(Fraction(valor)))
+        q = mx.exact_value(sustituida)
+        if q is not None:
+            trace.metodo("evaluar.sustitucion_exacta", "valores racionales: sustitución exacta",
+                         why="con datos racionales y operaciones racionales no hay nada que "
+                             "aproximar", before=mx.text(expr), after=str(q))
+            return _finalizar(peticion, trace, q, aproximado=complex(float(q)),
+                              sello=V.Seal(V.VERIFIED, "valor exacto", str(q)))
     valor = mx.evaluate(expr, env)
     if valor is None:
-        trace.aviso("evaluar.sin_valor",
-                    "la expresión no está definida con esos valores")
-        return _finalizar(peticion, trace, None,
-                          sello=V.Seal(V.NUMERIC_ONLY, "sin valor", ""),
-                          avisos=("no se pudo evaluar con esos valores",))
+        # antes: un Resultado sin valor exacto ni aproximado, contra el contrato
+        raise C.error("UNDEFINED", "la expresión no está definida con esos valores")
     trace.metodo(
         "evaluar.numerico",
         "la expresión no es un racional cerrado: se evalúa numéricamente",
@@ -2464,6 +2596,49 @@ def _evaluar(peticion: C.Peticion) -> C.Resultado:
         sello=V.Seal(V.NUMERIC_ONLY, "evaluación numérica", "sin valor exacto"),
         avisos=(C.NO_EXACT,),
     )
+
+
+def _evaluacion_parcial(peticion, expr, env, sin_valor, trace) -> C.Resultado:
+    """Sustituir lo que tiene valor y dejar el resto: ``k·x`` con ``x = 3`` es ``3·k``.
+
+    Antes se devolvía un resultado vacío (ni exacto ni aproximado, contra el contrato)
+    sin decir por qué. Se comprueba evaluando ambas expresiones con valores de prueba
+    para las letras que quedan."""
+    parcial = expr
+    for nombre, valor in env.items():
+        if isinstance(valor, Fraction):
+            sustituto = mx.num(valor)
+        else:
+            try:
+                sustituto = mx.num(Fraction(str(valor).replace(",", ".")))
+            except (ValueError, ZeroDivisionError):
+                sustituto = _expr(str(valor))
+        parcial = mx.substitute(parcial, str(nombre), sustituto)
+    try:
+        parcial = pliega_constante(parcial)
+    except Exception:  # noqa: BLE001
+        pass
+    trace.metodo("evaluar.parcial", f"se sustituye {', '.join(f'{k} = {v}' for k, v in env.items())}"
+                 f" y quedan sin valor {', '.join(sorted(sin_valor))}",
+                 why="la expresión depende de letras a las que no se ha dado valor: el "
+                     "resultado es otra expresión, no un número",
+                 before=mx.text(expr), after=mx.text(parcial))
+    prueba = {n: 0.37 + 0.29 * i for i, n in enumerate(sorted(sin_valor))}
+    a = mx.evaluate(expr, {**env, **prueba})
+    b = mx.evaluate(parcial, prueba)
+    ok = a is not None and b is not None and abs(a - b) <= 1e-9 * max(1.0, abs(a))
+    sello = V.Seal(V.VERIFIED if ok else V.DISCREPANT, "evaluación con valores de prueba",
+                   ", ".join(f"{k} = {v:.2f}" for k, v in prueba.items()))
+    return _finalizar(peticion, trace, parcial, sello=sello,
+                      avisos=(f"quedan letras sin valor: {', '.join(sorted(sin_valor))}",))
+
+
+def _es_numero(v) -> bool:
+    try:
+        Fraction(str(v).replace(",", "."))
+        return True
+    except (ValueError, ZeroDivisionError):
+        return False
 
 
 def _evaluacion_exacta(expr: mx.Expr) -> mx.Expr | None:
@@ -2714,8 +2889,32 @@ def _limite(entrada: dict, *claves: str) -> mx.Expr | None:
     return None
 
 
+_INFINITOS = ("oo", "+oo", "-oo", "inf", "+inf", "-inf", "∞", "+∞", "-∞", "−∞")
+
+
 def _integrar(peticion: C.Peticion) -> C.Resultado:
+    e = peticion.entrada
+    if isinstance(e, dict):
+        extremos = [str(e.get(k, "")).strip() for k in ("desde", "a", "hasta", "b")]
+        if any(x in _INFINITOS for x in extremos):
+            # «oo» se leía como o·o y la integral volvía vacía sin aviso (2026-10-07):
+            # un extremo infinito es una impropia, y la resuelve ML-2
+            integrando = _expresion_de(e, "integrando", "expr", "f")
+            var = str(e.get("var") or sorted(mx.variables(integrando))[0])
+            a = str(e.get("desde", e.get("a"))).replace("−", "-")
+            b = str(e.get("hasta", e.get("b"))).replace("−", "-")
+            return _calc_impropia(C.Peticion(
+                "impropia", {"expr": integrando, "var": var, "a": a, "b": b},
+                peticion.convenciones, peticion.nivel, peticion.semilla, peticion.limites,
+                peticion.cifras))
     integral = _integral_de(peticion.entrada)
+    libres = (mx.variables(integral.integrand) - {integral.var}) | (
+        mx.variables(integral.lower) if integral.lower is not None else set()) | (
+        mx.variables(integral.upper) if integral.upper is not None else set())
+    if integral.lower is not None and integral.upper is not None and libres:
+        resultado = _integral_parametrica(peticion, integral, sorted(libres))
+        if resultado is not None:
+            return resultado
     trace = Trace()
     integrando, var = integral.integrand, integral.var
     bounds = (integral.lower, integral.upper)
@@ -2746,6 +2945,88 @@ def _integrar(peticion: C.Peticion) -> C.Resultado:
     return _finalizar(peticion, trace, valor, aproximado=numerico,
                       error=error, sello=sello, grafica=grafica,
                       avisos=() if error is None else (C.NO_EXACT,))
+
+
+def _integral_parametrica(peticion: C.Peticion, integral: mx.Integral,
+                          parametros: list[str]) -> C.Resultado | None:
+    """∫ₐᵇ f con parámetros (``k·x·(1−x)``, ``∫₀^a x²``): Barrow simbólico.
+
+    Antes se tomaba el parámetro por una singularidad («no está acotado en x ≈ 0»)
+    y no se daba nada. Se integra con la primitiva comprobada derivando, se resta
+    en los extremos y el resultado se contrasta con cuadratura para varios valores
+    de los parámetros. Si una prueba no es concluyente, se devuelve None y sigue el
+    camino de siempre."""
+    import math as _m
+
+    from academic_core.domain.engineering.mathlab import integracion as IN
+    from academic_core.domain.engineering.mathlab import limite as LM
+
+    f, var = integral.integrand, integral.var
+    a, b = integral.lower, integral.upper
+    trace = Trace()
+    F, sello = _primitiva(f, var, trace, peticion)
+    if F is None:
+        try:
+            F = IN.primitiva(f, var, trace)
+        except Exception:  # noqa: BLE001
+            return None
+        if V.verify_by_derivative(F, f, var, D.differentiate).verdict != V.VERIFIED:
+            return None
+    valor = mx.Sub(mx.substitute(F, var, b), mx.substitute(F, var, a))
+    try:
+        valor = pliega_constante(valor)
+    except Exception:  # noqa: BLE001
+        pass
+    valor = LM._limpio(valor)
+    trace.regla("integral.parametrica",
+                f"∫[{mx.text(a)}, {mx.text(b)}] {mx.text(f)} d{var} = F({mx.text(b)}) − "
+                f"F({mx.text(a)}) = {mx.text(valor)}",
+                why=f"{', '.join(parametros)} no depende de {var}: es una constante para la "
+                    "integral y la regla de Barrow se aplica igual")
+    pruebas = (Fraction(7, 10), Fraction(13, 10), Fraction(23, 10))
+    comprobadas = 0
+    for q in pruebas:
+        val = {p: float(q) + 0.37 * i for i, p in enumerate(parametros)}
+        try:
+            av = mx.valor_real(a, val)
+            bv = mx.valor_real(b, val)
+            exacto = mx.valor_real(valor, val)
+        except (ValueError, ZeroDivisionError, OverflowError):
+            continue
+        if av is None or bv is None or exacto is None:
+            continue
+        av, bv = float(av), float(bv)
+        if K.puntos_singulares(_sustituye_todo(f, val), var, min(av, bv), max(av, bv)):
+            continue
+        n = 400
+        h = (bv - av) / n
+        g = lambda x: float(mx.valor_real(f, {**val, var: x}) or 0.0)  # noqa: E731
+        try:
+            simpson = h / 3 * (g(av) + g(bv) + sum((4 if i % 2 else 2) * g(av + i * h)
+                                                    for i in range(1, n)))
+        except (ValueError, ZeroDivisionError, OverflowError, TypeError):
+            continue
+        if not _m.isfinite(simpson) or abs(simpson - float(exacto)) > 1e-7 * max(1.0, abs(simpson)):
+            return None
+        comprobadas += 1
+    if comprobadas < 2:
+        return None
+    trace.verificacion("integral.parametrica.cuadratura",
+                       f"Simpson (n = 400) coincide con el valor exacto en {comprobadas} "
+                       f"valores de {', '.join(parametros)}",
+                       why="segundo camino: no usa la primitiva")
+    _objetivo_declarado(trace, "integrar")
+    return _finalizar(peticion, trace, valor, aproximado=None, sello=V.Seal(
+        V.VERIFIED, "primitiva comprobada derivando y cuadratura en valores de prueba",
+        f"{mx.text(valor)}"),
+        avisos=(f"válido para los valores de {', '.join(parametros)} con los que el "
+                "integrando es continuo en el intervalo",))
+
+
+def _sustituye_todo(e: mx.Expr, valores: dict) -> mx.Expr:
+    for nombre, v in valores.items():
+        e = mx.substitute(e, nombre, mx.num(Fraction(v).limit_denominator(10**6)))
+    return e
 
 
 def _primitiva(integrando: mx.Expr, var: str, trace: Trace,
@@ -3194,8 +3475,11 @@ def _impropia(integrando: mx.Expr, var: str, a: float, b: float, singulares,
                     mensaje = (f"la integral es impropia en {var} ≈ {c:.10g} y DIVERGE: la "
                                "primitiva no tiene límite finito al acercarse a ese punto")
                     trace.aviso("integral.diverge", mensaje)
-                    return (None, None, V.Seal(V.VERIFIED, "integral impropia divergente",
-                                               mensaje), None, None)
+                    # el veredicto ES el resultado: «verificado» sin valor violaba el
+                    # contrato (validar_forma: «sin valor exacto ni aproximado»)
+                    return (f"diverge (impropia en {var} ≈ {c:.10g})", None,
+                            V.Seal(V.VERIFIED, "integral impropia divergente", mensaje),
+                            None, None)
                 extremos.append(limite[1])
                 error += limite[2]
         total += extremos[1] - extremos[0]
@@ -4167,7 +4451,7 @@ C.registrar("simplificar", _simplificar)
 C.registrar("transformar", _transformar)
 C.registrar("modular", _modular)
 C.registrar("lineal", _lineal)
-C.registrar("multivar", _multivar)
+C.registrar("multivar", con_discrepancia(_multivar))
 C.registrar("multiple", _multiple)
 C.registrar("vectorial", _vectorial_calc)
 C.registrar("operadores", _operadores_calc)
@@ -4209,10 +4493,10 @@ C.registrar("aproximar", _aproximar)
 C.registrar("complejo", _complejo)
 C.registrar("fasor", _fasor)
 C.registrar("caracteristicas", _caracteristicas)
-C.registrar("edo", _edo_calc)
-C.registrar("laplace", _laplace_calc)
-C.registrar("fourier", _fourier_calc)
-C.registrar("transformada_z", _z_calc)
-C.registrar("contorno", _contorno_calc)
+C.registrar("edo", con_discrepancia(_edo_calc))
+C.registrar("laplace", con_discrepancia(_laplace_calc))
+C.registrar("fourier", con_discrepancia(_fourier_calc))
+C.registrar("transformada_z", con_discrepancia(_z_calc))
+C.registrar("contorno", con_discrepancia(_contorno_calc))
 
 __all__ = ["C", "Trace", "RESUMEN", "PASO", "DETALLADO"]

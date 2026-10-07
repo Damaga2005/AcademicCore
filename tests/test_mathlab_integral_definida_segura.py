@@ -47,10 +47,18 @@ def test_la_primitiva_que_salta_se_corrige_por_tramos(texto, esperado, antes):
     ("int(1/(x-1)^2, x, 0, 3)", None),
 ])
 def test_un_polo_entre_los_puntos_de_prueba_ya_no_pasa(texto, antes):
-    """Divergent integrals: no number, and the reason says improper."""
+    """Divergent integrals: no number, and the reason says improper.
+
+    The verdict «diverge» is the result itself (2026-10-07): a result with neither an
+    exact nor an approximate value broke the §5.9 contract (``validar_forma``)."""
+    from academic_core.domain.engineering.mathlab import contract as C
+
     r = _calcula(texto)
-    assert r.aproximado is None and r.exacto is None, (texto, r.aproximado, antes)
+    assert r.aproximado is None, (texto, r.aproximado, antes)
+    assert r.exacto is None or "diverge" in str(r.exacto), r.exacto
     assert "impropia" in r.sello.detail
+    if r.exacto is not None:
+        assert C.validar_forma(r) == []
 
 
 def test_una_singularidad_evitable_no_se_confunde_con_un_polo():

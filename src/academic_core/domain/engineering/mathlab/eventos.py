@@ -255,6 +255,8 @@ def cola_mm1(lam: float, mu: float, clientes: int = 20000, semilla: int = 1,
         raise _error("UNSTABLE", "M/M/1 solo es estable con 0 < λ < μ (ρ < 1)")
     if clientes > MAX_PASOS // 2:
         raise _error("EXPRESSION_LIMIT", "demasiados clientes")
+    if clientes < 2:
+        raise _error("BAD_INPUT", "hacen falta al menos 2 clientes que simular")
     rho = lam / mu
     L_t, W_t = rho / (1 - rho), 1 / (mu - lam)
     trace.regla("mm1.teoria", f"L = ρ/(1−ρ) = {L_t:.6g}, W = 1/(μ−λ) = {W_t:.6g}",

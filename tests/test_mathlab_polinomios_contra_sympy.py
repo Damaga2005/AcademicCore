@@ -12,9 +12,10 @@ import random
 from fractions import Fraction
 
 import pytest
-import sympy as sp
 
 from academic_core.domain.engineering.mathlab import polynomials as PL
+
+sp = pytest.importorskip("sympy")
 
 x = sp.symbols("x")
 

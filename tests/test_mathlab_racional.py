@@ -5,12 +5,13 @@ from __future__ import annotations
 import random
 
 import pytest
-import sympy as sp
 
 import academic_core.domain.engineering.mathlab as ML
 from academic_core.domain.engineering.mathlab import mvexpr as mx
 from academic_core.domain.engineering.mathlab import poly as P
 from academic_core.domain.engineering.mathlab import racional as R
+
+sp = pytest.importorskip("sympy")
 
 s, a, b = sp.symbols("s a b")
 

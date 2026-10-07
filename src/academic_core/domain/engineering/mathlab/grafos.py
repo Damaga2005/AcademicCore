@@ -321,7 +321,10 @@ class Huffman:
 
 def huffman(probabilidades: dict[str, object], trace: Trace | None = None) -> Huffman:
     trace = trace if trace is not None else Trace()
-    p = {str(s): Fraction(str(v)) for s, v in probabilidades.items()}
+    try:
+        p = {str(s): Fraction(str(v)) for s, v in probabilidades.items()}
+    except ZeroDivisionError:
+        raise _error("BAD_INPUT", "una probabilidad tiene denominador 0") from None
     if len(p) < 2:
         raise _error("BAD_INPUT", "Huffman necesita al menos dos símbolos")
     if any(v <= 0 for v in p.values()):

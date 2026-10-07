@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-07 — ML-9 probabilidad y estadística; revisión de fases anteriores
+
+- **ML-9 completo** (`probabilidad.py`, `prob_basica.py`, `va_continua.py`, `estadistica.py`, `procesos.py`, `calculadoras_ml9.py`): los 15 tipos de examen de §15.1 y las calculadoras del bloque G con 13 operaciones nuevas. Funciones especiales propias (Φ⁻¹, gamma y beta incompletas, Q de Marcum, I₀) y segundo camino por cuadratura de la densidad y simulación constructiva sembrada. Batería de 300 casos contra `scipy.stats`: 0 errores.
+- **Bugs de fases anteriores corregidos** (barrido de entradas sobre las 66 operaciones): `integrar` con extremo `oo` (se leía «o·o»), con parámetros (falso «no acotado») y divergente («verificado» sin valor); `impropia` sin valor para `x³·e^(−x/2)`; ML-8 lanzaba excepciones en vez del sello «discrepa»; TypeError/IndexError/ZeroDivisionError con extremos o centros con letras, Riemann de funciones no acotadas o con singularidad evitable, letras sin valor, gradiente o críticos de constantes, `1/0` literal, M/M/1 sin clientes y Huffman con denominador 0; `evaluar` con valores en texto (resultado vacío) o con letras sin valor (sustitución parcial). El contrato rechaza con BAD_INPUT las claves ausentes y los datos no numéricos.
+- **Pruebas:** los ficheros que importaban SymPy a pelo usan `importorskip` (el CI no lo instala y fallaba al recogerlos).
+
 ## 2026-10-07 — ML-8 sin limitaciones evitables
 
 - **Raíces exactas de cúbicas y cuárticas irreducibles** (`cubica.py`): Cardano (forma trigonométrica si Δ < 0) y Ferrari, también bicuadradas; Laplace inversa, característico de EDO y fracciones simples exactas con nombres r1/α1/β1 y sus definiciones. Solo los factores de grado ≥ 5 siguen numéricos (Abel-Ruffini).
