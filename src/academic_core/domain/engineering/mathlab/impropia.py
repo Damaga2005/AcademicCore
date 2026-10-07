@@ -393,6 +393,25 @@ def _intenta_gamma(f: mx.Expr, var: str, a: str, b: str, trace: Trace) -> mx.Exp
     return valor
 
 
+def _primitiva_ampliada(f: mx.Expr, var: str, trace: Trace) -> mx.Expr | None:
+    """The ML-2 integrator (parts, change of variable, special forms) when E0.1 has
+    no rule — e.g. x³·e^(−x/2). Only accepted if differentiating it gives f back."""
+    from academic_core.domain.engineering.mathlab import derive_mv as D
+    from academic_core.domain.engineering.mathlab import integracion as IN
+    from academic_core.domain.engineering.mathlab import verify as V
+
+    try:
+        F = IN.primitiva(f, var, Trace())
+    except Exception:  # noqa: BLE001
+        return None
+    if V.verify_by_derivative(F, f, var, D.differentiate).verdict != V.VERIFIED:
+        return None
+    trace.metodo("impropia.primitiva_ampliada", "primitiva por el integrador de ML-2",
+                 why="el motor E0.1 no tiene regla; se integra por partes o cambio de "
+                     "variable y se comprueba derivando")
+    return F
+
+
 def _valor(f: mx.Expr, var: str, a: str, b: str, singulares, trace: Trace) -> mx.Expr | None:
     """Barrow with exact limits of the primitive at every singular point."""
     from academic_core.domain.engineering.mathlab import calculators as K
@@ -403,6 +422,8 @@ def _valor(f: mx.Expr, var: str, a: str, b: str, singulares, trace: Trace) -> mx
         _c, resultado, _i = I_.antiderivative(mx.to_symbolic(f), var, St.StepLog())
         F = K._raiz_real(mx.from_symbolic(resultado))
     except Exception:  # noqa: BLE001
+        F = _primitiva_ampliada(f, var, trace)
+    if F is None:
         trace.aviso("impropia.sin_primitiva", "converge, pero no hay primitiva elemental "
                                               "con la que calcular su valor exacto")
         return None

@@ -66,6 +66,23 @@ EJEMPLOS = {
     "espacios": {"calculo": "suma_interseccion",
                  "F": [[1, 0, 1, 0], [0, 1, 0, 1]],
                  "G": [[1, 1, 0, 0], [1, 0, 1, 0]]},
+    # ML-9
+    "probabilidad": {"calculo": "bayes", "previas": {"A": "1/2", "B": "1/2"},
+                     "verosimilitudes": {"A": "1/10", "B": "1/5"}},
+    "variable_aleatoria": {"dist": "poisson", "parametros": {"lambda": 2}, "suceso": "P(X<=1)"},
+    "vector_aleatorio": {"calculo": "tabla", "x": [0, 1], "y": [0, 1],
+                         "p": [["1/4", "1/4"], ["1/8", "3/8"]]},
+    "aproximacion_normal": {"dist": "binomial", "parametros": {"n": 50, "p": "1/2"},
+                            "suceso": "P(X<=27)"},
+    "estadistica": {"datos": [2, 4, 4, 5, 7]},
+    "intervalo_confianza": {"parametro": "media", "n": 20, "media": "10.2", "s": "1.5"},
+    "contraste": {"tipo": "media", "n": 25, "media": 52, "s": 5, "mu0": 50},
+    "regresion": {"x": [1, 2, 3], "y": [2, 4, 5]},
+    "estimador": {"familia": "poisson", "datos": [2, 3, 1]},
+    "proceso": {"tipo": "poisson", "lambda": 2, "consulta": "conteo", "t": 1, "k": 2},
+    "tabla_estadistica": {"ley": "normal", "p": "0.975"},
+    "comunicaciones": {"calculo": "aloha", "G": "1", "ranurado": True},
+    "montecarlo": {"dist": "binomial", "parametros": {"n": 5, "p": "1/2"}, "suceso": "P(X=2)"},
 }
 
 

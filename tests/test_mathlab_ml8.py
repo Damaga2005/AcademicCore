@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 
 import pytest
-import sympy as sp
 
 import academic_core.domain.engineering.mathlab as ML
 from academic_core.domain.engineering.mathlab import contorno as CO
@@ -20,6 +19,8 @@ from academic_core.domain.engineering.mathlab import fourier as FO
 from academic_core.domain.engineering.mathlab import laplace as LP
 from academic_core.domain.engineering.mathlab import mvexpr as mx
 from academic_core.domain.engineering.mathlab import transformada_z as TZ
+
+sp = pytest.importorskip("sympy")
 
 T, S = sp.symbols("t s", positive=True)
 

@@ -50,6 +50,7 @@ and their explanations remain the source of the steps.
 from __future__ import annotations
 
 from academic_core.domain.engineering.mathlab import calculators  # registers the operations
+from academic_core.domain.engineering.mathlab import calculadoras_ml9  # noqa: F401  ML-9
 from academic_core.domain.engineering.mathlab import derive_mv
 from academic_core.domain.engineering.mathlab import mvexpr
 from academic_core.domain.engineering.mathlab import poly

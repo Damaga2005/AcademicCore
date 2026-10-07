@@ -13,14 +13,15 @@ from __future__ import annotations
 
 from fractions import Fraction
 
-import mpmath
 import pytest
-import sympy as sp
 
 from academic_core.domain.engineering.mathlab import mvexpr as mx
 from academic_core.domain.engineering.mathlab import serie_formal as F
 from academic_core.domain.engineering.mathlab import series as S
 from academic_core.errors import UnsupportedError
+
+sp = pytest.importorskip("sympy")
+mpmath = pytest.importorskip("mpmath")
 
 x = sp.symbols("x")
 

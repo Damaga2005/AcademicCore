@@ -376,7 +376,18 @@ def riemann(f, var, a: mx.Expr, b: mx.Expr, n: int) -> Riemann:
         raise _error("BAD_INPUT", "n entre 1 y 100000")
     xa, xb = _v(a), _v(b)
     h = (xb - xa) / n
-    val = lambda x: _v(f, {var: x})        # noqa: E731
+    def val(x):
+        v = _v(f, {var: x})
+        if v is None:
+            # singularidad evitable en un punto de la partición (sen x/x en 0): se toma
+            # el límite, como el valor que hace continua a f
+            eps = 1e-7 * max(1.0, abs(x))
+            a1, b1 = _v(f, {var: x - eps}), _v(f, {var: x + eps})
+            vivos = [w for w in (a1, b1) if w is not None]
+            if not vivos:
+                raise _error("BAD_INPUT", f"f no está definida en {var} = {x:.10g}")
+            v = sum(vivos) / len(vivos)
+        return v
     izq = sum(val(xa + i * h) for i in range(n)) * h
     der = sum(val(xa + (i + 1) * h) for i in range(n)) * h
     medio = sum(val(xa + (i + 0.5) * h) for i in range(n)) * h

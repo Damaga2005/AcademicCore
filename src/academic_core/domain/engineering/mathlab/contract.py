@@ -329,8 +329,48 @@ def calcular(peticion: Peticion) -> Resultado:
             f"operación «{peticion.operacion}» no registrada "
             f"(disponibles: {', '.join(operaciones()) or 'ninguna'})"
         )
-    resultado = funcion(peticion)
+    try:
+        resultado = funcion(peticion)
+    except KeyError as exc:
+        # una clave que falta en la petición es un error de la petición, no del motor
+        if isinstance(peticion.entrada, dict) and exc.args and \
+                exc.args[0] not in peticion.entrada:
+            raise error("BAD_INPUT", f"falta el dato {exc} en la petición de "
+                                     f"«{peticion.operacion}»") from None
+        raise
+    except (ValueError, TypeError) as exc:
+        if _es_dato_mal_escrito(exc):
+            raise error("BAD_INPUT", f"un dato de la petición no es un número válido "
+                                     f"({exc})") from None
+        if isinstance(exc, TypeError) and "NoneType" in str(exc) and _tiene_none(peticion.entrada):
+            raise error("BAD_INPUT", "un dato de la petición vale None (vacío)") from None
+        raise
     return _con_plug_ins(resultado, peticion)
+
+
+#: los mensajes de int(), float() y Fraction() al leer un texto que no es un número
+_DATO_MAL_ESCRITO = (
+    "invalid literal for int()", "could not convert string to float",
+    "Invalid literal for Fraction",
+)
+
+
+def _tiene_none(entrada) -> bool:
+    if entrada is None:
+        return True
+    if isinstance(entrada, dict):
+        return any(_tiene_none(v) for v in entrada.values())
+    if isinstance(entrada, (list, tuple)):
+        return any(_tiene_none(v) for v in entrada)
+    return False
+
+
+def _es_dato_mal_escrito(exc: Exception) -> bool:
+    """Solo los errores de convertir un dato de la petición (``int("1/2")``,
+    ``float(None)``); cualquier otro ValueError o TypeError es un fallo del motor y
+    sigue saliendo como tal (barrido de 2026-10-07)."""
+    texto = str(exc)
+    return any(m in texto for m in _DATO_MAL_ESCRITO)
 
 
 def _con_plug_ins(resultado: Resultado, peticion: Peticion) -> Resultado:
