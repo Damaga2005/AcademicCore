@@ -1142,7 +1142,11 @@ def conjunto_critico(f: mx.Expr, vars: list[str], trace: Trace | None = None):
     else:
         clase = "depende del tramo: " + "; ".join(
             f"{c_} p. ej. en {', '.join(ps[:3])}" for c_, ps in clases.items())
-    clase += " (comparando f en un entorno)"
+    exacta = _clase_exacta(f, vars, h, valores, trace)
+    if exacta is not None:
+        clase = exacta
+    else:
+        clase += " (comparando f en un entorno)"
     distintos = []
     for v in valores:
         if not any(abs(float(mx.valor_real(v, {})) - float(mx.valor_real(w, {}))) < 1e-12
@@ -1154,6 +1158,98 @@ def conjunto_critico(f: mx.Expr, vars: list[str], trace: Trace | None = None):
                     "componente; la clase sale de comparar f con su valor en un entorno "
                     "de puntos de la curva (comprobación numérica)")
     return pts, [Curva(he, distintos, clase)]
+
+
+def _clase_por_composicion(f, vars, h, c, trace) -> str | None:
+    """f = φ(w) con w(x, y) y la curva w = w₀ (φ′(w₀) = 0): el signo de φ″(w₀) decide."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+    from academic_core.domain.engineering.mathlab import poly as Pm
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    he = Pm.to_expr({tuple((nm, e) for nm, e in zip(vars, ex_) if e): cc for ex_, cc in h.items()})
+    for w in _subexpresiones(f, set(vars)):
+        phi = _reemplaza(f, w, mx.Sym("W__"))
+        if mx.variables(phi) - {"W__"}:
+            continue
+        # la curva es un conjunto de nivel de w: h divide a w − w₀ con w₀ = w en un punto
+        try:
+            pw = S._a_exp(S.a_polinomio(w, list(vars), Trace()), list(vars))
+        except Exception:  # noqa: BLE001
+            continue
+        const = pw.get(tuple(0 for _ in vars), Fraction(0))
+        for w0c in range(-6, 7):
+            cand = dict(pw)
+            cero = tuple(0 for _ in vars)
+            cand[cero] = const - w0c
+            cand = {k: v for k, v in cand.items() if v}
+            if cand and S.divide_exacto(cand, h) is not None and S.divide_exacto(h, cand) is not None:
+                w0 = mx.Num(Fraction(w0c))
+                d1 = MI._limpio(mx.substitute(_d(phi, "W__"), "W__", w0))
+                d2 = MI._limpio(mx.substitute(_d(_d(phi, "W__"), "W__"), "W__", w0))
+                v1, v2 = mx.valor_real(d1, {}), mx.valor_real(d2, {})
+                if v1 is None or abs(v1) > 1e-12 or v2 is None or v2 == 0:
+                    continue
+                clase = "máximos (no estrictos)" if v2 < 0 else "mínimos (no estrictos)"
+                trace.regla("mv.curva_composicion", f"f = φ(w) con w = {mx.text(w)}; la curva es "
+                            f"w = {w0c}; φ′({w0c}) = 0 y φ″({w0c}) = {mx.text(d2)}: {clase}",
+                            why="f solo depende de w: su clase en la curva es la de φ en w₀")
+                _ = he
+                return clase + f" (exacto: f = φ({mx.text(w)}), φ″ = {mx.text(d2)})"
+    return None
+
+
+def _clase_exacta(f, vars, h, valores, trace) -> str | None:
+    """f − c = h^m·g con g de signo constante (polinomio sin ceros reales comprobado como
+    constante, o exponencial): prueba exacta de máximo/mínimo no estricto o silla."""
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    unicos = []
+    for v in valores:
+        if not any(abs(float(mx.valor_real(v, {})) - float(mx.valor_real(w, {}))) < 1e-12
+                   for w in unicos):
+            unicos.append(v)
+    if len(unicos) != 1:
+        return None
+    c = unicos[0]
+    ex = []
+    resto_f = f
+    # factor exponencial positivo fuera: f = e^u·P no se trata; solo polinomios
+    try:
+        p = S._a_exp(S.a_polinomio(mx.Sub(f, c if isinstance(c, mx.Expr) else mx.Num(c)),
+                                   list(vars), Trace()), list(vars))
+    except Exception:  # noqa: BLE001
+        return _clase_por_composicion(f, vars, h, c, trace)
+    m = 0
+    while True:
+        q = S.divide_exacto(p, h)
+        if q is None or not q:
+            break
+        p, m = q, m + 1
+    if m == 0:
+        return None
+    if all(sum(e) == 0 for e in p):            # g constante
+        g = next(iter(p.values()))
+        if m % 2 == 0:
+            clase = "mínimos (no estrictos)" if g > 0 else "máximos (no estrictos)"
+        else:
+            clase = "ni máximos ni mínimos (h cambia de signo a través de la curva)"
+        trace.regla("mv.curva_exacta", f"f − ({mx.text(c) if isinstance(c, mx.Expr) else c}) = "
+                    f"{g}·h^{m} con h = 0 la curva: {clase}",
+                    why="la potencia de h y el signo de la constante deciden exactamente")
+        _ = resto_f, ex
+        return clase + " (exacto: f − c = constante·hᵐ)"
+    if m % 2 == 0:
+        from academic_core.domain.engineering.mathlab import multiple as MI
+        from academic_core.domain.engineering.mathlab import poly as Pm
+
+        g = MI._bonito(Pm.to_expr({tuple((nm, e) for nm, e in zip(vars, ex_) if e): cc
+                                   for ex_, cc in p.items()}))
+        trace.regla("mv.curva_exacta", f"f − c = h^{m}·g con g = {mx.text(g)}: en la curva hay "
+                    "mínimos donde g > 0 y máximos donde g < 0",
+                    why="h^m ≥ 0 (m par): el signo de f − c es el de g")
+        return (f"mínimos (no estrictos) donde {mx.text(g)} > 0 y máximos (no estrictos) donde "
+                f"{mx.text(g)} < 0 (exacto: f − c = h^{m}·({mx.text(g)}))")
+    return None
 
 
 def _sustituye_todo(f, p):

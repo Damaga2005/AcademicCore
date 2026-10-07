@@ -77,11 +77,15 @@ def test_laplace_inversa_formas_de_clase():
     assert "δ′(t)" in LP.inversa("(s^3+1)/(s^2+1)").texto()
 
 
-def test_laplace_inversa_numerica_con_cubica_irreducible():
+def test_laplace_inversa_exacta_con_cubica_irreducible():
     r = LP.inversa("1/(s^3+s+1)")
-    assert r.aproximada and "coeficientes numéricos" in r.texto()
+    assert not r.aproximada and "donde" in r.texto()
     res = ML.calcular(ML.Peticion("laplace", {"calculo": "inversa", "F": "1/(s^3+s+1)"}))
-    assert res.sello.verdict == "solo_numerico"
+    assert res.sello.verdict != "discrepa"
+
+
+def test_laplace_inversa_grado_cinco_sigue_numerica():
+    assert LP.inversa("1/(s^5+s+3)").aproximada
 
 
 # ---------------------------------------------------------------------------
@@ -108,9 +112,9 @@ def test_variacion_de_parametros_formas_de_libro():
         "-1/4*cos(2*t)*ln(abs(1/cos(2*t) + tan(2*t)))")
 
 
-def test_caracteristico_con_cubica_irreducible_es_numerico():
+def test_caracteristico_con_cubica_irreducible_es_exacto():
     g = ED.general(ED.leer("y'''+y'+y=0"))
-    assert g.aproximada and "numéricas" in g.texto()
+    assert not g.aproximada and "donde" in g.texto()
 
 
 @pytest.mark.parametrize("ec, ini", [("y''+3*y'+2*y=e^(-3*t)", ["1", "0"]),

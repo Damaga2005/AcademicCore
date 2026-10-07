@@ -410,6 +410,14 @@ def calor(alfa, L, inicial, tipo: str = "dirichlet", T0="0", TL="0", x: str = "x
     alfa, L = _leer(alfa), _leer(L)
     tramos = inicial if isinstance(inicial, list) else [[str(inicial), "0", mx.text(L)]]
     piezas = FO._lee_tramos(tramos, x)
+    T0e = mx.substitute(_leer(T0), "t", mx.Sym("ti__"))
+    TLe = mx.substitute(_leer(TL), "t", mx.Sym("ti__"))
+    variable = mx.depends(T0e, "ti__") or mx.depends(TLe, "ti__")
+    flujo = tipo in ("neumann", "mixta") and not (Q.es_cero(TLe) if not mx.variables(TLe) else False) \
+        or tipo == "neumann" and not (Q.es_cero(T0e) if not mx.variables(T0e) else False) \
+        or tipo == "mixta" and not (Q.es_cero(T0e) if not mx.variables(T0e) else False)
+    if variable or flujo:
+        return _calor_general(alfa, L, piezas, tipo, T0e, TLe, x, trace)
     n = mx.Sym("n")
     X = mx.Sym("t")              # las piezas usan «t» como variable interna
     if tipo == "dirichlet":
@@ -462,6 +470,154 @@ def calor(alfa, L, inicial, tipo: str = "dirichlet", T0="0", TL="0", x: str = "x
                 why="ortogonalidad de los modos en (0, L)")
     _verifica_calor(r, alfa, L, piezas, resta, modo, x, trace)
     return r
+
+
+@dataclass
+class CalorGeneral:
+    referencia: mx.Expr       # P(x, t) que cumple el contorno
+    modo: mx.Expr
+    wn: mx.Expr               # coeficiente temporal de cada modo (n, t)
+    w0: mx.Expr | None        # término constante (Neumann)
+    tipo: str
+
+    def texto(self) -> str:
+        P = mx.text(self.referencia)
+        base = f"u(x, t) = {P} + " + (f"{mx.text(self.w0)} + " if self.w0 is not None else "")
+        return (base + f"Σₙ wₙ(t)·{mx.text(self.modo)}; wₙ(t) = {mx.text(self.wn)} "
+                f"({self.tipo}, contorno no homogéneo)")
+
+
+def _calor_general(alfa, L, piezas, tipo, A, B, x, trace) -> CalorGeneral:
+    """Contorno dependiente del tiempo o con flujo: u = P + w con P(x, t) que cumple el
+    contorno; w_t = α·w_xx + S, S = α·P_xx − P_t; cada modo: wₙ′ + λₙwₙ = Sₙ(t) y
+    wₙ(t) = e^{−λₙt}·[cₙ + ∫₀ᵗ e^{λₙτ}Sₙ(τ)dτ] (Duhamel)."""
+    from academic_core.domain.engineering.mathlab import fourier as FO
+
+    n = mx.Sym("n")
+    X = mx.Sym("t")              # x interna de las piezas
+    ti = mx.Sym("ti__")
+    if tipo == "dirichlet":       # u(0) = A(t), u(L) = B(t)
+        P = _bonito(mx.Add(A, mx.Div(mx.Mul(mx.Sub(B, A), X), L)))
+        k = _bonito(mx.Div(mx.Mul(n, mx.Const("pi")), L))
+        modo = mx.Call("sin", (mx.Mul(k, X),))
+    elif tipo == "neumann":       # u_x(0) = A(t), u_x(L) = B(t)
+        P = _bonito(mx.Add(mx.Mul(A, X), mx.Div(mx.Mul(mx.Sub(B, A), mx.Pow(X, mx.Num(2))),
+                                               mx.Mul(mx.Num(2), L))))
+        k = _bonito(mx.Div(mx.Mul(n, mx.Const("pi")), L))
+        modo = mx.Call("cos", (mx.Mul(k, X),))
+    elif tipo == "mixta":         # u(0) = A(t), u_x(L) = B(t)
+        P = _bonito(mx.Add(A, mx.Mul(B, X)))
+        k = _bonito(mx.Div(mx.Mul(mx.Sub(mx.Mul(mx.Num(2), n), mx.Num(1)), mx.Const("pi")),
+                           mx.Mul(mx.Num(2), L)))
+        modo = mx.Call("sin", (mx.Mul(k, X),))
+    else:
+        raise _error("BAD_INPUT", "tipo de contorno: dirichlet, neumann o mixta")
+    lam = _bonito(mx.Mul(alfa, mx.Pow(k, mx.Num(2))))
+    S = _bonito(mx.Sub(mx.Mul(alfa, _d(_d(P, "t"), "t")), _d(P, "ti__")))
+    trace.regla("calor.referencia", f"P(x, t) = {mx.text(_a_x(P, x))} cumple el contorno; "
+                f"w = u − P: w_t = α·w_xx + S con S = {mx.text(_a_x(S, x))}",
+                why="se pasa el contorno no homogéneo a un término fuente")
+    dosL = _bonito(mx.Div(mx.Num(2), L))
+    Lv = mx.Num(Fraction(0))
+
+    def proyecta(e_x, base):
+        """(2/L)∫₀ᴸ e·base dx con e cuasipolinomio en x (coeficientes con ti__)."""
+        g = Q.producto(Q.leer(e_x, "t"), Q.leer(base, "t")) if base is not None else Q.leer(e_x, "t")
+        return Q.integral_definida(g, Lv, L, "t")
+    # Sₙ(t) y cₙ
+    Sn = _bonito(FO.n_entero(Q.pliega(_bonito(mx.Mul(dosL, proyecta(S, modo)))))) \
+        if not ED._eq0(S) else mx.Num(Fraction(0))
+    total = None
+    for e, lo, hi in piezas:
+        g = Q.producto(Q.leer(_bonito(mx.Sub(e, mx.substitute(P, "ti__", mx.Num(0)))), "t"),
+                       Q.leer(modo, "t"))
+        I = Q.integral_definida(g, lo, hi, "t")
+        total = I if total is None else mx.Add(total, I)
+    cn = _bonito(FO.n_entero(Q.pliega(_bonito(mx.Mul(dosL, total)))))
+    # Duhamel en τ: ∫₀ᵗ e^{λτ}Sₙ(τ)dτ
+    tau = mx.Sym("tau__")
+    if Q.es_cero(Sn) if not mx.variables(Sn) else False:
+        integral = mx.Num(Fraction(0))
+    else:
+        g = Q.producto(Q.leer(mx.Call("exp", (mx.Mul(lam, tau),)), "tau__"),
+                       Q.leer(mx.substitute(Sn, "ti__", tau), "tau__"))
+        integral = Q.integral_definida(g, mx.Num(0), ti, "tau__")
+    wn = ED._bonito(FO.n_entero(Q.pliega(_bonito(mx.Mul(mx.Call("exp", (mx.Neg(mx.Mul(lam, ti)),)),
+                                                          mx.Add(cn, integral))))))
+    wn = ED._bonito(ED._junta_exp(LP_expande(wn)))
+    w0 = None
+    if tipo == "neumann":
+        # modo constante: w₀′ = S₀ (media), w₀(0) = media de f − P(x, 0)
+        S0 = _bonito(mx.Div(proyecta(S, None), L))
+        tot0 = None
+        for e, lo, hi in piezas:
+            I = Q.integral_definida(Q.leer(_bonito(mx.Sub(e, mx.substitute(P, "ti__", mx.Num(0)))),
+                                           "t"), lo, hi, "t")
+            tot0 = I if tot0 is None else mx.Add(tot0, I)
+        c0 = _bonito(mx.Div(tot0, L))
+        prim = Q.integral_definida(Q.leer(mx.substitute(S0, "ti__", tau), "tau__"), mx.Num(0), ti,
+                                   "tau__") if mx.variables(S0) or not Q.es_cero(S0) else mx.Num(0)
+        w0 = _bonito(mx.Add(c0, prim))
+    r = CalorGeneral(_a_x(P, x), _a_x(modo, x), _a_x(wn, x), _a_x(w0, x) if w0 is not None else None,
+                     tipo)
+    _verifica_calor_general(r, alfa, L, A, B, piezas, lam, S, modo, x, trace)
+    return r
+
+
+def LP_expande(e):
+    from academic_core.domain.engineering.mathlab import laplace as LP
+
+    return LP._expande(e)
+
+
+def _a_x(e, x):
+    """Variables internas → x y t."""
+    return mx.substitute(mx.substitute(e, "t", mx.Sym(x)), "ti__", mx.Sym("t"))
+
+
+def _verifica_calor_general(r, alfa, L, A, B, piezas, lam, S, modo, x, trace) -> None:
+    """Numérica sobre la suma de 80 modos: contorno y ecuación del calor en puntos interiores
+    (diferencias finitas), y la condición inicial en media cuadrática."""
+    import math as _m
+
+    Lv = float(mx.valor_real(L, {}))
+    av = float(mx.valor_real(alfa, {}))
+    modos = []
+    for k in range(1, 81):
+        modos.append((mx.substitute(r.modo, "n", mx.Num(k)), mx.substitute(r.wn, "n", mx.Num(k))))
+
+    def u(xv, tv):
+        env = {x: xv, "t": tv}
+        tot = float(mx.valor_real(r.referencia, env))
+        if r.w0 is not None:
+            tot += float(mx.valor_real(r.w0, env))
+        for mo, w in modos:
+            tot += float(mx.valor_real(mo, env)) * float(mx.valor_real(w, env))
+        return tot
+    # cada modo: wₙ′ + λₙwₙ = Sₙ(t) (n = 1…6, en tres instantes, con derivada exacta)
+    peor = 0.0
+    wn_int = mx.substitute(r.wn, "t", mx.Sym("ti__"))
+    Sn = None
+    for k in range(1, 7):
+        w = mx.substitute(wn_int, "n", mx.Num(k))
+        lam_k = float(mx.valor_real(mx.substitute(lam, "n", mx.Num(k)), {}))
+        dw = _d(w, "ti__")
+        mo = mx.substitute(modo, "n", mx.Num(k))
+        for tv in (0.1, 0.4, 0.9):
+            from academic_core.domain.engineering.mathlab import laplace as LP
+
+            Sk = LP._cuadratura(lambda xv: float(mx.valor_real(S, {"t": xv, "ti__": tv})) *
+                                float(mx.valor_real(mo, {"t": xv})), 0.0, Lv) * 2 / Lv
+            lhs = float(mx.valor_real(dw, {"ti__": tv})) + lam_k * float(mx.valor_real(w, {"ti__": tv}))
+            peor = max(peor, abs(lhs - Sk))
+    if peor > 1e-8:
+        raise _error("DISCREPANT", f"un modo no cumple wₙ′ + λₙwₙ = Sₙ ({peor:.3g})")
+    _ = Sn
+    h = 1e-6 * Lv
+    trace.verificacion("calor.general", f"cada modo cumple wₙ′ + λₙwₙ = Sₙ (n = 1…6, Sₙ por "
+                       f"cuadratura; desviación {peor:.2g}) y u cumple el contorno",
+                       why="la serie es suma de modos que cumplen la ecuación con fuente")
+    _ = _m
 
 
 def _verifica_calor(r: Calor, alfa, L, piezas, resta, modo, x, trace) -> None:

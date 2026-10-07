@@ -616,6 +616,44 @@ def simples(num: list, den: list[Fraction]) -> tuple[list, list[Simple]]:
     return entera, out
 
 
+def inversa_racional(num: list, den: list[Fraction]):
+    """(exacto, simbólico | None, definiciones, entera, aproximada) de L⁻¹{num/den}:
+    fracciones simples; cúbicas irreducibles por Cardano exacto; grado ≥ 4 irreducible
+    (sin fórmula manejable) por residuos numéricos."""
+    from academic_core.domain.engineering.mathlab import cubica as CU
+
+    try:
+        entera, fs = simples(num, den)
+        g: Q.Cuasi = []
+        for f in fs:
+            g = Q.suma(g, inversa_simple(f))
+        return g, None, [], entera, False
+    except UnsupportedError as exc:
+        if "grado ≥ 3" not in str(exc):
+            raise
+    try:
+        sep = CU.separa(num, den)
+    except UnsupportedError:
+        sep = None
+    if sep is not None:
+        cubicas, num1, P, num2, R = sep
+        exacto, simb, defs = CU.inversa_residuos(num1, P, cubicas)
+        entera: list = []
+        if len(R) > 1:
+            entera, fs = simples(num2, R)
+            resto: Q.Cuasi = []
+            for f in fs:
+                resto = Q.suma(resto, inversa_simple(f))
+            exacto = Q.suma(exacto, resto)
+            simb = list(simb) + list(resto)
+        else:
+            entera = [limpio(mx.Div(c, Q.num(R[0]))) for c in num2]
+        return exacto, simb, defs, entera, False
+    if len(num) >= len(den):
+        raise _no("parte entera con un denominador sin raíces exactas")
+    return inversa_numerica(num, den), None, [], [], True
+
+
 def inversa_numerica(num: list, den: list[Fraction]) -> Q.Cuasi:
     """L⁻¹{num/den} por residuos en raíces numéricas simples (Durand-Kerner):
     A = num(p)/den′(p); un par conjugado da e^{at}(2Re A·cos bt − 2Im A·sen bt).
@@ -716,6 +754,8 @@ class Inversa:
     t: str = "t"
     texto_simples: list = field(default_factory=list)
     aproximada: bool = False
+    simbolicas: list = field(default_factory=list)    # cuasi con raíces nombradas (o None)
+    definiciones: list = field(default_factory=list)  # [(nombre, raíz exacta)]
 
     def expr(self) -> mx.Expr:
         total = None
@@ -733,8 +773,9 @@ class Inversa:
 
     def texto(self) -> str:
         partes = []
-        for a, cuasi, imp in self.piezas:
-            g = Q.a_expr(cuasi, self.t)
+        for i, (a, cuasi, imp) in enumerate(self.piezas):
+            simb = self.simbolicas[i] if i < len(self.simbolicas) else None
+            g = Q.a_expr(simb if simb else cuasi, self.t)
             desplazado = "(t)" if Q.es_cero(a) else f"(t − {mx.text(a)})"
             if not Q.es_cero(g):
                 gt = mx.text(g) if Q.es_cero(a) else mx.text(limpio(mx.substitute(
@@ -744,6 +785,8 @@ class Inversa:
                 d = f"δ{'′' * orden}{desplazado}"
                 partes.append(d if mx.exact_value(c) == 1 else f"{mx.text(c)}·{d}")
         texto = "f(t) = " + (" + ".join(partes) if partes else "0") + " (t ≥ 0)"
+        if self.definiciones:
+            texto += " donde " + "; ".join(f"{n} = {mx.text(e)}" for n, e in self.definiciones)
         return decimales(texto) + (" (coeficientes numéricos)" if self.aproximada else "")
 
 
@@ -918,6 +961,8 @@ def inversa(F: mx.Expr | str, s: str = S, t: str = "t", trace: Trace | None = No
     piezas = []
     textos = []
     aproximada = False
+    simbolicas: list = []
+    definiciones: list = []
     for a, R in _separa_retardos(F, s):
         num, den = _num_den(R, s)
         try:
@@ -925,19 +970,21 @@ def inversa(F: mx.Expr | str, s: str = S, t: str = "t", trace: Trace | None = No
         except UnsupportedError as exc:
             if "grado ≥ 3" not in str(exc):
                 raise
-            from academic_core.domain.engineering.mathlab import algebra as AL
-
-            q, r_ = AL._p_divmod([Fraction(mx.valor_real(c, {})).limit_denominator(10 ** 12)
-                                   for c in num] if _como_q(num) is None else _como_q(num), den) \
-                if len(num) >= len(den) else ([Fraction(0)], None)
-            if len(num) >= len(den):
-                raise _no("parte entera con un denominador sin raíces exactas") from None
-            g = inversa_numerica(num, den)
-            trace.aviso("laplace.numerica", f"{mx.text(R)}: el denominador tiene un factor "
-                        "irreducible de grado ≥ 3; inversa por residuos en raíces numéricas")
-            piezas.append((a, g, []))
-            aproximada = True
-            textos.append("residuos numéricos")
+            g, simb, defs, entera, aprox = inversa_racional(num, den)
+            impulsos = [(k, c) for k, c in enumerate(entera) if not Q.es_cero(c)]
+            piezas.append((a, g, impulsos))
+            simbolicas.append(simb)
+            definiciones.extend(defs)
+            aproximada = aproximada or aprox
+            if aprox:
+                trace.aviso("laplace.numerica", f"{mx.text(R)}: factor irreducible de grado ≥ 4; "
+                            "residuos en raíces numéricas")
+            else:
+                trace.regla("laplace.cardano", f"{mx.text(R)}: cúbica irreducible resuelta "
+                            "exactamente (Cardano / forma trigonométrica); residuos "
+                            "A = N(r)/P′(r) en cada raíz",
+                            why="Bézout separa la cúbica del resto del denominador")
+            textos.append("residuos exactos" if not aprox else "residuos numéricos")
             continue
         texto = " + ".join(
             [f"{mx.text(_p_expr([c]))}·s^{k}" for k, c in enumerate(entera) if not Q.es_cero(c)] +
@@ -952,7 +999,8 @@ def inversa(F: mx.Expr | str, s: str = S, t: str = "t", trace: Trace | None = No
             g = Q.suma(g, inversa_simple(f))
         impulsos = [(k, c) for k, c in enumerate(entera) if not Q.es_cero(c)]
         piezas.append((a, g, impulsos))
-    r = Inversa(piezas, t, textos, aproximada)
+        simbolicas.append(None)
+    r = Inversa(piezas, t, textos, aproximada, simbolicas, definiciones)
     trace.regla("laplace.inversa", r.texto(),
                 why="tabla inversa: A/(s−r)ᵏ → A·t^(k−1)e^(rt)/(k−1)!; (B·s+C)/((s−p)²+ω²) → "
                     "e^(pt)[B cos ωt + (C+Bp)/ω·sen ωt]; e^(−as)·G(s) → u(t−a)·g(t−a)")

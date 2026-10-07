@@ -207,9 +207,32 @@ def _texto_poli(p: list[Fraction], var: str = "λ") -> str:
     return AL._texto_poli(p).replace("λ", var)
 
 
-def base_homogenea(p: list[Fraction], trace: Trace) -> tuple[list[Q.Termino], list[str]]:
-    """Modos de p(D)y = 0 y la descripción de cada raíz."""
+def _alinea(modos, simb_cubicas):
+    """Lista simbólica completa: los modos no cúbicos tal cual, los cúbicos nombrados."""
+    out = []
+    it = iter(simb_cubicas)
+    for x in modos:
+        nombre_libre = mx.variables(x.alfa) or (x.tipo != "1" and mx.variables(x.beta))
+        exacto_irracional = not nombre_libre and _es_cardano(x)
+        out.append(next(it) if exacto_irracional else x)
+    return out
+
+
+def _es_cardano(x) -> bool:
+    return any(isinstance(n, mx.Root) and n.degree == 3 or isinstance(n, mx.Call) and
+               n.name == "acos" for n in _nodos(x.alfa)) or (
+        x.tipo != "1" and any(isinstance(n, mx.Root) and n.degree == 3 for n in _nodos(x.beta)))
+
+
+def base_homogenea(p: list[Fraction], trace: Trace, simb: list | None = None,
+                   defs: list | None = None) -> tuple[list[Q.Termino], list[str]]:
+    """Modos de p(D)y = 0 y la descripción de cada raíz. ``simb`` recibe los mismos modos
+    con las raíces de las cúbicas nombradas (r₁, α₁, β₁) y ``defs`` sus valores exactos."""
     from academic_core.domain.engineering.mathlab import algebra as AL
+    from academic_core.domain.engineering.mathlab import cubica as CU
+
+    simb = simb if simb is not None else []
+    defs = defs if defs is not None else []
 
     cero = mx.Num(Fraction(0))
     uno = mx.Num(Fraction(1))
@@ -238,10 +261,37 @@ def base_homogenea(p: list[Fraction], trace: Trace) -> tuple[list[Q.Termino], li
                 for j in range(m):
                     modos.append(Q.Termino(uno, j, limpio(mx.Add(Q.num(pr), w)), "1", cero))
                     modos.append(Q.Termino(uno, j, limpio(mx.Sub(Q.num(pr), w)), "1", cero))
+        elif len(q) in (4, 5):
+            # cúbica (Cardano / forma trigonométrica) o cuártica (Ferrari) irreducible, exacto
+            for r in CU.raices_irreducible(q):
+                if r[0] == "real":
+                    n = f"r{1 + sum(1 for d in defs if d[0].startswith('r'))}"
+                    defs.append((n, r[1]))
+                    raices.append(f"λ = {n}" + (f" (multiplicidad {m})" if m > 1 else ""))
+                    for j in range(m):
+                        modos.append(Q.Termino(uno, j, r[1], "1", cero))
+                        simb.append(Q.Termino(uno, j, mx.Sym(n), "1", cero))
+                else:
+                    k = 1 + sum(1 for d in defs if d[0].startswith("α"))
+                    an, bn = f"α{k}", f"β{k}"
+                    defs += [(an, r[1]), (bn, r[2])]
+                    raices.append(f"λ = {an} ± {bn}·i" + (f" (multiplicidad {m})" if m > 1 else ""))
+                    for j in range(m):
+                        for tipo in ("cos", "sin"):
+                            modos.append(Q.Termino(uno, j, r[1], tipo, r[2]))
+                            simb.append(Q.Termino(uno, j, mx.Sym(an), tipo, mx.Sym(bn)))
+            trace.regla("edo.cardano", f"{_texto_poli(q)} = 0 es irreducible sobre ℚ: raíces "
+                        "exactas por Cardano (o forma trigonométrica si las tres son reales): " +
+                        "; ".join(f"{n} = {mx.text(e)}" for n, e in defs),
+                        why="x = y − a/3 deja y³ + py + q; Δ = (q/2)² + (p/3)³ decide la fórmula")
+            continue
         else:
             raise _no(f"el polinomio característico tiene el factor irreducible "
-                      f"{_texto_poli(q)} de grado ≥ 3: sus raíces no tienen forma exacta "
-                      "sencilla (usa los métodos numéricos)")
+                      f"{_texto_poli(q)} de grado ≥ 5: no hay fórmula general por radicales "
+                      "(Abel-Ruffini); raíces numéricas (grado ≥ 3)")
+    if defs and len(simb) < len(modos):
+        # los modos de factores lineales y cuadráticos son iguales en las dos listas
+        simb[:] = _alinea(modos, simb)
     trace.regla("edo.caracteristico", f"p(λ) = {_texto_poli(p)} = 0: " + "; ".join(raices),
                 why="y = e^(λt) es solución si y solo si p(λ) = 0; una raíz de multiplicidad "
                     "m da tʲe^(λt), j < m; un par complejo p ± iω da e^(pt)cos ωt y e^(pt)sen ωt")
@@ -265,15 +315,20 @@ class General:
     prueba: str = ""
     t: str = "t"
     aproximada: bool = False
+    simbolicos: list = field(default_factory=list)
+    definiciones: list = field(default_factory=list)
 
     def texto(self) -> str:
         t = self._texto()
+        if self.definiciones:
+            t += " donde " + "; ".join(f"{n} = {mx.text(e)}" for n, e in self.definiciones)
         if self.aproximada:
             t = LP.decimales(t) + " (raíces del característico numéricas)"
         return t
 
     def _texto(self) -> str:
-        yh = " + ".join(f"C{i + 1}·{_modo_texto(m, self.t)}" for i, m in enumerate(self.homogenea))
+        base = self.simbolicos if self.simbolicos else self.homogenea
+        yh = " + ".join(f"C{i + 1}·{_modo_texto(m, self.t)}" for i, m in enumerate(base))
         if isinstance(self.particular, list):
             yp = mx.text(Q.a_expr(self.particular, self.t)) if self.particular else "0"
         else:
@@ -302,21 +357,49 @@ def _es_modo(x: Q.Termino, modos: list[Q.Termino]) -> bool:
     return False
 
 
+def _residuo_nulo_num(res, t) -> bool:
+    for tv in (0.3, 1.1, 2.3):
+        v = mx.valor_real(Q.a_expr(res, t), {t: tv})
+        if v is None or abs(v) > 1e-9:
+            return False
+    return True
+
+
+def _es_modo_num(x: Q.Termino, modos: list[Q.Termino]) -> bool:
+    """Como _es_modo, comparando α y β numéricamente (raíces de Cardano)."""
+    ax = mx.valor_real(x.alfa, {})
+    bx = mx.valor_real(x.beta, {}) if x.tipo != "1" else 0.0
+    if ax is None or bx is None:
+        return False
+    for m in modos:
+        am = mx.valor_real(m.alfa, {})
+        bm = mx.valor_real(m.beta, {}) if m.tipo != "1" else 0.0
+        if am is None or bm is None:
+            continue
+        if m.n == x.n and abs(am - ax) < 1e-10 and (m.tipo == "1") == (x.tipo == "1") and \
+                abs(bm - bx) < 1e-10:
+            return True
+    return False
+
+
 def general(ec: Ecuacion, trace: Trace | None = None) -> General:
     """Solución general de una lineal de coeficientes constantes."""
     trace = trace if trace is not None else Trace()
     if not ec.constantes():
         raise _no("la solución general por el característico necesita coeficientes constantes")
     p = _coefs_q(ec)
+    simb: list = []
+    defs: list = []
     try:
-        modos, _ = base_homogenea(p, trace)
+        modos, _ = base_homogenea(p, trace, simb, defs)
     except UnsupportedError as exc:
-        if "grado ≥ 3" not in str(exc):
+        if "grado ≥ 4" not in str(exc) and "grado ≥ 3" not in str(exc):
             raise
         return _general_numerica(ec, p, trace)
     if Q.es_cero(ec.f):
         trace.regla("edo.homogenea", "segundo miembro nulo: y = yₕ")
-        return General(modos, [], "homogénea", t=ec.t)
+        return General(modos, [], "homogénea", t=ec.t, simbolicos=simb if defs else [],
+                       definiciones=defs)
     try:
         fq = Q.leer(ec.f, ec.t)
     except UnsupportedError:
@@ -324,11 +407,12 @@ def general(ec: Ecuacion, trace: Trace | None = None) -> General:
     if fq is not None:
         yp = particular_indeterminados(p, fq, modos, ec.t, trace)
         res = Q.normaliza(Q.suma(_residuo(p, yp), Q.escala(fq, mx.Num(Fraction(-1)))))
-        if res:
+        if res and not _residuo_nulo_num(res, ec.t):
             raise _error("DISCREPANT", "la particular no verifica la ecuación")
         trace.verificacion("edo.particular", "Σ aₖ·y_p⁽ᵏ⁾ = f exactamente (álgebra de "
                            "cuasipolinomios)", why="sustitución en la ecuación")
-        return General(modos, yp, "coeficientes indeterminados", t=ec.t)
+        return General(modos, yp, "coeficientes indeterminados", t=ec.t,
+                       simbolicos=simb if defs else [], definiciones=defs)
     yp = variacion_parametros(ec, modos, trace)
     return General(modos, yp, "variación de parámetros", t=ec.t)
 
@@ -430,10 +514,9 @@ def particular_indeterminados(p: list[Fraction], fq: Q.Cuasi, modos: list[Q.Term
             raise _no("exponente o frecuencia no racional en el segundo miembro: la forma de "
                       "prueba no tiene raíces exactas en ℚ[s]")
         den = AL._p_mul(list(fr.den), list(p))
-        _, simples = LP.simples(fr.num, den)
-        for f in simples:
-            total = Q.suma(total, LP.inversa_simple(f))
-    yp = [x for x in total if not _es_modo(x, modos)]
+        g, _, _, _, _ = LP.inversa_racional(fr.num, den)
+        total = Q.suma(total, g)
+    yp = [x for x in total if not _es_modo(x, modos) and not _es_modo_num(x, modos)]
     yp = Q.normaliza(yp)
     trace.regla("edo.coeficientes", f"y_p = {mx.text(Q.a_expr(yp, t))}",
                 why="los coeficientes A₀, A₁… se obtienen exactos (sistema lineal equivalente: "
@@ -833,27 +916,28 @@ def pvi_laplace(ec: Ecuacion, iniciales: list, trace: Trace | None = None) -> PV
 def inversa_fracciones(fracs: list, t: str, trace: Trace):
     grupos: dict[str, list] = {}
     aproximada = False
+    definiciones: list = []
     for fr in fracs:
         grupos.setdefault(mx.text(fr.retardo), [fr.retardo, [], []])
         g = grupos[mx.text(fr.retardo)]
-        try:
-            entera, simples = LP.simples(fr.num, fr.den)
-        except UnsupportedError as exc:
-            if "grado ≥ 3" not in str(exc) or len(fr.num) >= len(fr.den):
-                raise
-            g[1] = Q.suma(g[1], LP.inversa_numerica(fr.num, fr.den))
-            aproximada = True
-            continue
-        for f in simples:
-            g[1] = Q.suma(g[1], LP.inversa_simple(f))
+        cuasi, simb, defs, entera, aprox = LP.inversa_racional(fr.num, fr.den)
+        g[1] = Q.suma(g[1], cuasi)
+        aproximada = aproximada or aprox
+        for d in defs:
+            if all(mx.text(d[1]) != mx.text(e) for _, e in definiciones):
+                definiciones.append(d)
         for k, c in enumerate(entera):
             if not Q.es_cero(c):
                 g[2].append((k, c))
     piezas = sorted(((a, Q.normaliza(c), imp) for a, c, imp in grupos.values()),
                     key=lambda g: float(mx.valor_real(g[0], {})))
     inv = LP.Inversa(piezas, t, aproximada=aproximada)
+    if definiciones:
+        trace.regla("edo.cardano", "raíces exactas de la cúbica irreducible: " + "; ".join(
+            f"{n} = {mx.text(e)}" for n, e in definiciones),
+            why="Cardano o forma trigonométrica; residuos A = N(r)/P′(r)")
     if aproximada:
-        trace.aviso("edo.numerica", "un factor irreducible de grado ≥ 3: residuos en raíces "
+        trace.aviso("edo.numerica", "un factor irreducible de grado ≥ 4: residuos en raíces "
                     "numéricas (coeficientes decimales)")
     trace.regla("edo.inversa", inv.texto().replace("f(t)", "y(t)"),
                 why="fracciones simples de cada término e^(−as)·R(s) y la tabla inversa")
@@ -903,7 +987,9 @@ def _verifica_pvi(ec, p, y0, inv, senal, trace) -> None:
                 if tr.contiene(medio):
                     f_tramo = Q.suma(f_tramo, Q.leer(tr.expr, ec.t))
         dif = Q.normaliza(Q.suma(lhs, Q.escala(f_tramo, mx.Num(Fraction(-1)))))
-        if dif and inv.aproximada:
+        if dif and (inv.aproximada or any(_es_cardano(x) or any(
+                isinstance(n, mx.Root) and n.degree == 3 or isinstance(n, mx.Call) and
+                n.name == "acos" for n in _nodos(x.coef)) for x in dif)):
             vals = [mx.valor_real(Q.a_expr(dif, ec.t), {ec.t: medio + d}) for d in (0, 0.1, 0.2)]
             if all(v is not None and abs(v) < 1e-7 for v in vals):
                 dif = []
@@ -924,7 +1010,8 @@ def _verifica_pvi(ec, p, y0, inv, senal, trace) -> None:
         if j == ec.orden - 1 and salto0:
             esperado = limpio(mx.Add(c, Q.num(salto0 / p[-1])))
         dif0 = limpio(mx.Sub(v, esperado))
-        if not Q.es_cero(dif0) and not (inv.aproximada and abs(mx.valor_real(dif0, {}) or 1) < 1e-8):
+        v0 = mx.valor_real(dif0, {})
+        if not Q.es_cero(dif0) and not (v0 is not None and abs(v0) < 1e-10):
             raise _error("DISCREPANT", f"y^({j})(0) = {mx.text(v)} ≠ {mx.text(esperado)}")
         d = Q.deriva(d)
     trace.verificacion("edo.pvi", f"en cada uno de los {len(cortes)} tramos Σaₖy⁽ᵏ⁾ = f "
@@ -1102,7 +1189,12 @@ def primer_orden(texto: str, t: str = "t", y: str = "y", inicial: tuple | None =
     Y0, Y1 = _simbolo(0), _simbolo(1)
     N = _d(ec.E, Y1)
     if Y1 in mx.variables(N):
-        raise _no("la ecuación no es lineal en y′ (no se puede escribir y′ = F(t, y))")
+        try:
+            r = clairaut(texto, t, y, trace)
+        except UnsupportedError:
+            raise _no("la ecuación no es lineal en y′ ni de Clairaut: sin método exacto (usa "
+                      "los métodos numéricos)") from None
+        return r
     M = limpio(mx.substitute(ec.E, Y1, mx.Num(Fraction(0))))
     Ys = mx.Sym(y)
     M = limpio(mx.substitute(M, Y0, Ys))
@@ -1110,13 +1202,19 @@ def primer_orden(texto: str, t: str = "t", y: str = "y", inicial: tuple | None =
     F = _bonito(mx.Neg(mx.Div(M, N)))
     trace.regla("edo1.forma", f"y′ = F({t}, {y}) = {mx.text(F)}; M = {mx.text(M)}, "
                 f"N = {mx.text(N)}", why="M + N·y′ = 0")
-    for metodo in (_lineal1, _separable, _bernoulli, _exacta, _homogenea):
-        r = metodo(F, M, N, t, y, trace)
+    for metodo in (_lineal1, _separable, _bernoulli, _exacta, _homogenea, _mu_mixto,
+                   _homogenea_desplazada, _argumento_lineal, _riccati):
+        try:
+            r = metodo(F, M, N, t, y, trace)
+        except UnsupportedError:
+            r = None
         if r is not None:
             break
     else:
-        raise _no("no es separable, lineal, de Bernoulli, exacta (ni con factor integrante "
-                  "μ(t) o μ(y)) ni homogénea")
+        raise _no("no es de ningún tipo con solución exacta conocido (separable, lineal, "
+                  "Bernoulli, exacta con μ(t), μ(y), μ(ty), μ(t+y), homogénea o reducible, "
+                  "y′ = f(at+by), Riccati con particular sencilla, Clairaut): usa los métodos "
+                  "numéricos")
     if inicial is not None:
         r = _con_inicial(r, t, y, inicial, trace)
     _verifica1(r, F, t, y, trace)
@@ -1749,7 +1847,47 @@ def _valor_inv(inv, x: float) -> float:
     return total
 
 
+def _conv_exacta(fe: mx.Expr, ge: mx.Expr) -> mx.Expr | None:
+    """∫₀ᵗ f(τ)·g(t − τ)dτ exacto con cuasipolinomios (t como parámetro)."""
+    try:
+        tau = "tau__"
+        gt = mx.substitute(ge, "t", mx.Sub(mx.Sym("tt__"), mx.Sym(tau)))
+        prod = Q.producto(Q.leer(mx.substitute(fe, "t", mx.Sym(tau)), tau), Q.leer(gt, tau))
+        r = Q.integral_definida(prod, mx.Num(0), mx.Sym("tt__"), tau)
+        return mx.substitute(r, "tt__", mx.Sym("t"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _iguales(a: mx.Expr, b: mx.Expr, t: str = "t") -> bool:
+    """Igualdad de dos expresiones exactas: simbólica o, si no cierra, en 5 puntos a 1e-11."""
+    if _eq0(mx.Sub(a, b)):
+        return True
+    for tv in (0.17, 0.61, 1.3, 2.2, 3.7):
+        va, vb = mx.valor_real(a, {t: tv}), mx.valor_real(b, {t: tv})
+        if va is None or vb is None or abs(va - vb) > 1e-11 * max(1.0, abs(va)):
+            return False
+    return True
+
+
+def _una_pieza(D):
+    """La expresión si la señal es un único tramo [0, ∞) sin impulsos."""
+    tr = [x for x in D.tramos if not (Q.es_cero(x.expr) if not mx.variables(x.expr) else False)]
+    if D.impulsos or len(tr) != 1 or (tr[0].desde is not None and tr[0].desde.x > 0) or \
+            tr[0].hasta is not None:
+        return None
+    return tr[0].expr
+
+
 def _verifica_convolucion(Df, Dg, inv, trace) -> None:
+    fe, ge = _una_pieza(Df), _una_pieza(Dg)
+    if fe is not None and ge is not None:
+        ex = _conv_exacta(fe, ge)
+        if ex is not None and len(inv.piezas) == 1 and \
+                _iguales(ex, Q.a_expr(inv.piezas[0][1], "t")):
+            trace.verificacion("conv.exacta", "∫₀ᵗf(τ)g(t−τ)dτ calculada exactamente por la "
+                               "definición coincide", why="la definición, sin cuadratura")
+            return
     if Df.impulsos or Dg.impulsos:
         trace.verificacion("conv.ida_vuelta", "comprobada por la transformada (hay deltas)")
         return
@@ -1781,6 +1919,16 @@ def volterra(f: str, k: str, lam="1", t: str = "t", trace: Trace | None = None):
                 why="la integral es una convolución: L{k * y} = K·Y")
     inv = LP.inversa(LP._racional(Y) if not any(not Q.es_cero(fr.retardo) for fr in F.fracciones)
                      else Y, "s", t, trace)
+    # comprobación exacta (sin escalones): y − f − λ∫k(t − τ)y(τ)dτ ≡ 0
+    fe = _una_pieza(F.señal)
+    if fe is not None and len(inv.piezas) == 1 and not inv.piezas[0][2]:
+        ye = Q.a_expr(inv.piezas[0][1], t)
+        ke = mx.parse(LP.prepara(k, t))
+        conv = _conv_exacta(mx.substitute(ke, t, mx.Sym("t")), mx.substitute(ye, t, mx.Sym("t")))
+        if conv is not None and _iguales(mx.Sub(ye, fe), mx.Mul(lam_e, conv), t):
+            trace.verificacion("volterra.exacta", "y − f − λ∫k(t−τ)y(τ)dτ ≡ 0 exactamente",
+                               why="sustitución exacta en la ecuación integral")
+            return inv
     # comprobación: la ecuación integral en puntos
     peor = 0.0
     for x in (0.6, 1.4, 2.5):
@@ -1987,3 +2135,163 @@ def euler_cauchy(ecuacion: str, t: str = "t", trace: Trace | None = None) -> str
         trace.regla("euler_cauchy.particular", f"y_p = {mx.text(yp)} por variación de parámetros",
                     why="con la base tʳ de la homogénea")
     return sol
+
+
+# ---------------------------------------------------------------------------
+# primer orden: más tipos
+# ---------------------------------------------------------------------------
+
+
+def _depende_solo_de(e, var):
+    return not (mx.variables(e) - {var})
+
+
+def _argumento_lineal(F, M, N, t, y, trace):
+    """y′ = G(k·t + y): u = kt + y da u′ = k + G(u), separable."""
+    Ft, Fy = _d(F, t), _d(F, y)
+    if not mx.depends(F, y) or not mx.depends(F, t):
+        return None
+    k = _bonito(mx.Div(Ft, Fy))
+    if mx.variables(k) - set() and (mx.depends(k, t) or mx.depends(k, y)):
+        return None
+    u = mx.Sym("u")
+    G = _bonito(mx.substitute(mx.substitute(F, y, mx.Sub(u, mx.Mul(k, mx.Sym(t)))), t,
+                              mx.Num(Fraction(0))))
+    if not _eq0(mx.Sub(mx.substitute(G, "u", mx.Add(mx.Mul(k, mx.Sym(t)), mx.Sym(y))), F)):
+        return None
+    den = _bonito(mx.Add(k, G))
+    trace.regla("edo1.argumento_lineal", f"F depende solo de u = {mx.text(k)}·{t} + {y}: "
+                f"u′ = {mx.text(den)}", why="cambio de variable que separa")
+    H = _prim(mx.Div(mx.Num(Fraction(1)), den), "u")
+    imp = _bonito(mx.Sub(mx.substitute(H, "u", mx.Add(mx.Mul(k, mx.Sym(t)), mx.Sym(y))),
+                         mx.Sym(t)))
+    return PrimerOrden("argumento lineal (u = kt + y)", f"{mx.text(imp)} = C", None, imp)
+
+
+def _homogenea_desplazada(F, M, N, t, y, trace):
+    """y′ = R((a₁t + b₁y + c₁)/(a₂t + b₂y + c₂)): traslado al punto de corte."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    try:
+        R = MI._racional(F)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(R, mx.Div):
+        return None
+
+    def lineal(e):
+        a, b = _d(e, t), _d(e, y)
+        if mx.variables(a) or mx.variables(b):
+            return None
+        c = _bonito(mx.substitute(mx.substitute(e, t, mx.Num(0)), y, mx.Num(0)))
+        if mx.variables(c):
+            return None
+        return [Fraction(mx.exact_value(x) or 0) for x in (a, b, c)]
+    l1, l2 = lineal(R.left), lineal(R.right)
+    if l1 is None or l2 is None or (l1[2] == 0 and l2[2] == 0):
+        return None
+    det = l1[0] * l2[1] - l1[1] * l2[0]
+    if det == 0:
+        return None
+    h = (-l1[2] * l2[1] + l1[1] * l2[2]) / det
+    k = (-l1[0] * l2[2] + l1[2] * l2[0]) / det
+    T, Yv = mx.Sym("T"), mx.Sym("Y")
+    F2 = _bonito(mx.substitute(mx.substitute(F, t, mx.Add(T, Q.num(h))), y, mx.Add(Yv, Q.num(k))))
+    trace.regla("edo1.traslacion", f"{t} = T + {h}, {y} = Y + {k} (punto de corte de las "
+                "rectas): queda homogénea en T, Y", why="las constantes desaparecen")
+    r = _homogenea(F2, None, None, "T", "Y", trace)
+    if r is None:
+        return None
+    imp = _bonito(mx.substitute(mx.substitute(r.implicita, "T", mx.Sub(mx.Sym(t), Q.num(h))),
+                                "Y", mx.Sub(mx.Sym(y), Q.num(k))))
+    return PrimerOrden("reducible a homogénea", f"{mx.text(imp)} = C", None, imp)
+
+
+def _riccati(F, M, N, t, y, trace, particular: str | None = None):
+    """y′ = P + Q·y + R·y² con una particular y₁: y = y₁ + 1/v, v lineal."""
+    if not mx.depends(F, y):
+        return None
+    if not _eq0(_d(_d(_d(F, y), y), y)):
+        return None
+    R = _bonito(mx.Div(_d(_d(F, y), y), mx.Num(2)))
+    if Q.es_cero(R) if not mx.variables(R) else _eq0(R):
+        return None
+    Qc = _bonito(mx.substitute(_d(F, y), y, mx.Num(0)))
+    T = mx.Sym(t)
+    candidatos = [particular] if particular else []
+    candidatos += ["1", "-1", "2", "-2", "t", "-t", "1/t", "-1/t", "2/t", "-2/t", "t^2", "-t^2",
+                   "exp(t)", "-exp(t)", "1/2", "-1/2", "2*t", "t+1", "t-1", "-t+1", "-t-1"]
+    y1 = None
+    for c in candidatos:
+        e = mx.parse(mx.normaliza_entrada(str(c).replace("t", t) if t != "t" else str(c)))
+        if _eq0(mx.Sub(_d(e, t), mx.substitute(F, y, e))):
+            y1 = e
+            break
+    if y1 is None:
+        return None
+    trace.regla("edo1.riccati", f"Riccati y′ = P + Q·y + R·y² con R = {mx.text(R)}; "
+                f"particular y₁ = {mx.text(y1)}", why="y = y₁ + 1/v la vuelve lineal en v")
+    # v′ = −(Q + 2R·y₁)·v − R
+    P_ = _bonito(mx.Add(Qc, mx.Mul(mx.Mul(mx.Num(2), R), y1)))
+    mu = _sin_abs(_bonito(mx.Call("exp", (_sin_abs(_prim(P_, t)),))))
+    v = _bonito(mx.Div(mx.Add(_prim(mx.Mul(mu, mx.Neg(R)), t), mx.Sym("C")), mu))
+    sol = _bonito(mx.Add(y1, mx.Div(mx.Num(1), v)))
+    _ = T
+    return PrimerOrden("Riccati", f"y = {mx.text(sol)}", sol, None, [f"y = {mx.text(y1)} también"])
+
+
+def _mu_mixto(F, M, N, t, y, trace):
+    """Factor integrante μ(t·y) o μ(t + y)."""
+    My, Nt = _d(M, y), _d(N, t)
+    dif = _bonito(mx.Sub(My, Nt))
+    if _eq0(dif):
+        return None
+    z = mx.Sym("z")
+    for nombre, den, sustitucion in (
+            ("t·y", mx.Sub(mx.Mul(mx.Sym(y), N), mx.Mul(mx.Sym(t), M)), mx.Div(z, mx.Sym(t))),
+            ("t + y", mx.Sub(N, M), mx.Sub(z, mx.Sym(t)))):
+        try:
+            f = _bonito(mx.Div(dif, den))
+            fz = _bonito(mx.substitute(f, y, sustitucion))
+        except Exception:  # noqa: BLE001
+            continue
+        if mx.depends(fz, t) and not _eq0(_d(fz, t)):
+            continue
+        if mx.depends(fz, t):
+            fz = _bonito(mx.substitute(fz, t, mx.Num(Fraction(1, 3))))
+        zexp = mx.Mul(mx.Sym(t), mx.Sym(y)) if nombre == "t·y" else mx.Add(mx.Sym(t), mx.Sym(y))
+        mu = _sin_abs(_bonito(mx.substitute(mx.Call("exp", (_sin_abs(_prim(fz, "z")),)), "z", zexp)))
+        M2, N2 = _bonito(mx.Mul(mu, M)), _bonito(mx.Mul(mu, N))
+        if not _eq0(mx.Sub(_d(M2, y), _d(N2, t))):
+            continue
+        trace.regla("edo1.mu_mixto", f"factor integrante μ({nombre}) = {mx.text(mu)}",
+                    why="(M_y − N_t) dividido por el factor adecuado solo depende de z")
+        r = _exacta(None, M2, N2, t, y, trace)
+        if r is not None:
+            return PrimerOrden(f"exacta con factor integrante μ({nombre})", r.solucion, None,
+                               r.implicita)
+    return None
+
+
+def clairaut(texto: str, t: str = "t", y: str = "y", trace: Trace | None = None) -> PrimerOrden:
+    """y = t·y′ + g(y′): general y = C·t + g(C); singular por t = −g′(p), y = tp + g(p)."""
+    trace = trace if trace is not None else Trace()
+    ec = leer(texto, t, y)
+    Y0, Y1 = _simbolo(0), _simbolo(1)
+    a = _d(ec.E, Y0)
+    if mx.variables(a) or Q.es_cero(a):
+        raise _no("no es de Clairaut (y no aparece despejable)")
+    resto = _bonito(mx.Div(mx.Neg(mx.substitute(ec.E, Y0, mx.Num(0))), a))   # y = resto(t, p)
+    g = _bonito(mx.Sub(resto, mx.Mul(mx.Sym(t), mx.Sym(Y1))))
+    if mx.depends(g, t):
+        raise _no("no es de Clairaut: y − t·y′ depende de t")
+    p = mx.Sym("p")
+    gp = _bonito(mx.substitute(g, Y1, p))
+    general = _bonito(mx.Add(mx.Mul(mx.Sym("C"), mx.Sym(t)), mx.substitute(gp, "p", mx.Sym("C"))))
+    tsing = _bonito(mx.Neg(_d(gp, "p")))
+    ysing = _bonito(mx.Add(mx.Mul(tsing, p), gp))
+    trace.regla("edo1.clairaut", f"y = t·p + g(p) con g(p) = {mx.text(gp)}: familia de rectas "
+                f"y = {mx.text(general)}; envolvente t = {mx.text(tsing)}, y = {mx.text(ysing)}",
+                why="derivando: (t + g′(p))·p′ = 0")
+    pasos = [f"solución singular (envolvente): t = {mx.text(tsing)}, y = {mx.text(ysing)}"]
+    return PrimerOrden("Clairaut", f"y = {mx.text(general)}", general, None, pasos)

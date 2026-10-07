@@ -361,7 +361,10 @@ def inversa(X: mx.Expr | str, n: str = "n", trace: Trace | None = None) -> Inver
             x_total = mx.Add(x_total, term)
         else:
             if f.k > 1:
-                raise _no("polos complejos o irracionales repetidos: fuera de la tabla")
+                term, desc = _par_repetido(f, n)
+                polos.append(desc)
+                x_total = mx.Add(x_total, term)
+                continue
             c0, b = f.q[0], f.q[1]
             disc = b * b - 4 * c0
             B = f.A[1] if len(f.A) > 1 else mx.Num(Fraction(0))
@@ -394,6 +397,74 @@ def inversa(X: mx.Expr | str, n: str = "n", trace: Trace | None = None) -> Inver
                 "z/(z − p)ᵏ ↔ C(n, k−1)·p^(n−k+1), pares complejos ↔ ρⁿcos θn, ρⁿsen θn")
     _verifica_inversa(num, den, r, n, trace)
     return r
+
+
+def _serie_z(num: list, den: list, m: int) -> list:
+    """x[0..m−1] de z·num(z)/den(z) = Σ x[n]z^{−n} (división larga exacta)."""
+    zn = [mx.Num(Fraction(0))] + list(num)            # z·num
+    D = list(den)
+    d = len(D) - 1
+    N = list(zn) + [mx.Num(Fraction(0))] * (d + m + 2)
+    # coeficientes desde la potencia más alta: x[k] es el de z^{−k}
+    grado_n = len(zn) - 1
+    alto = [N[grado_n - i] if grado_n - i >= 0 else mx.Num(Fraction(0))
+            for i in range(grado_n + m + d + 1)]
+    Dh = list(reversed(D))                             # D[d], D[d−1], …
+    salida = []
+    resto = alto
+    desfase = d - grado_n                               # x[n] = 0 para n < desfase
+    for k in range(m):
+        idx = k - desfase
+        if idx < 0:
+            salida.append(mx.Num(Fraction(0)))
+            continue
+        c = limpio(mx.Div(resto[idx], Q.num(Dh[0])))
+        salida.append(c)
+        for j in range(1, len(Dh)):
+            if idx + j < len(resto):
+                resto[idx + j] = limpio(mx.Sub(resto[idx + j], mx.Mul(c, Q.num(Dh[j]))))
+    return salida
+
+
+def _par_repetido(f, n: str):
+    """z·(Bz + C)/qᵏ con q cuadrático irreducible repetido: x[n] = Σⱼ nʲ·(aⱼ·φ₁ + bⱼ·φ₂)
+    con φ = ρⁿcos θn, ρⁿsen θn (o p₁ⁿ, p₂ⁿ si las raíces son reales); los 2k
+    coeficientes salen de x[0], …, x[2k − 1] (división larga) por un sistema exacto."""
+    from academic_core.domain.engineering.mathlab import algebra as AL
+    from academic_core.domain.engineering.mathlab import contorno as CO
+
+    c0, b = f.q[0], f.q[1]
+    disc = b * b - 4 * c0
+    N = mx.Sym(n)
+    if disc < 0:
+        rho = limpio(mx.Root(2, Q.num(c0)))
+        theta = _angulo(limpio(mx.Div(Q.num(-b / 2), rho)))
+        fases = [mx.Mul(mx.Pow(rho, N), mx.Call("cos", (mx.Mul(theta, N),))),
+                 mx.Mul(mx.Pow(rho, N), mx.Call("sin", (mx.Mul(theta, N),)))]
+        desc = f"{mx.text(rho)}·e^(±i·{mx.text(theta)}) (multiplicidad {f.k})"
+    else:
+        r = limpio(mx.Root(2, Q.num(disc)))
+        p1 = limpio(mx.Div(mx.Add(Q.num(-b), r), mx.Num(2)))
+        p2 = limpio(mx.Div(mx.Sub(Q.num(-b), r), mx.Num(2)))
+        fases = [mx.Pow(p1, N), mx.Pow(p2, N)]
+        desc = f"{mx.text(p1)}, {mx.text(p2)} (multiplicidad {f.k})"
+    base = []
+    for j in range(f.k):
+        for ph in fases:
+            base.append(mx.Mul(mx.Pow(N, mx.Num(Fraction(j))), ph) if j else ph)
+    q = [Fraction(1)]
+    for _ in range(f.k):
+        q = AL._p_mul(q, f.q)
+    numA = list(f.A) + [mx.Num(Fraction(0))] * (2 - len(f.A))
+    m = 2 * f.k
+    xs = _serie_z(numA, q, m)
+    M = [[_bonito(mx.substitute(phi, n, mx.Num(Fraction(k)))) for phi in base] for k in range(m)]
+    coef = CO._gauss_simbolico(M, xs)
+    term = None
+    for c, phi in zip(coef, base):
+        t_ = mx.Mul(c, phi)
+        term = t_ if term is None else mx.Add(term, t_)
+    return _bonito(term), desc
 
 
 def _angulo(c: mx.Expr) -> mx.Expr:
