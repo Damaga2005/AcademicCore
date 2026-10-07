@@ -363,10 +363,22 @@ def test_criticos_sen_de_cuadratica():
     assert "(0, 0): mínimo" in res.exacto
     assert "-1/2*pi + x^2 + y^2 = 0: f = 1, máximos" in res.exacto
     assert "-3/2*pi + x^2 + y^2 = 0: f = -1, mínimos" in res.exacto
-    assert "infinitos niveles" in res.exacto
+    assert "-1/2*pi - pi*k + x^2 + y^2 = 0 (k ≥ 0)" in res.exacto
+    assert "k par: f = 1, máximos" in res.exacto
+
+
+def test_criticos_cos_de_cuadratica_origen_exacto():
+    res = ML.calcular(ML.Peticion("multivar", {"calculo": "criticos", "expr": "cos(x^2+y^2)",
+                                               "vars": ["x", "y"]}))
+    assert "(0, 0): máximo (exacto" in res.exacto and "(k ≥ 1)" in res.exacto
 
 
 def test_calor_resonancia():
     r = CO.calor("1", "1", "0", "dirichlet", "e^(-pi^2*t)", "0")
     assert 1 in r.especiales and "t" in str(r.especiales[1]) or "*t" in r.texto()
     assert "resonancia" in r.texto()
+
+
+def test_calor_resonancia_simplificada():
+    r = CO.calor("1", "1", "0", "dirichlet", "e^(-pi^2*t)", "0")
+    assert "n^5" not in r.texto() and "(n ≠ 1)" in r.texto()

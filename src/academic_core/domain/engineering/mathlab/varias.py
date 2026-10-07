@@ -1234,7 +1234,7 @@ def criticos_composicion(f: mx.Expr, vars: list[str], trace: Trace | None = None
                 continue
             for s_ in sols:
                 punto = tuple(_coord(s_[v]) for v in vars)
-                pts.append((punto, _clasifica(f, vars, punto, trace)))
+                pts.append((punto, _clase_compuesta(f, w, phi, d1, d2, W, vars, punto, trace)))
         ceros = RZ.ceros(mx.substitute(d1, W, mx.Sym("w")), "w")
         curvas = []
         aislados_w = []
@@ -1277,12 +1277,124 @@ def criticos_composicion(f: mx.Expr, vars: list[str], trace: Trace | None = None
                                 clase + " (exacto: signo de φ″ en el nivel)"))
             if len(curvas) >= 6:
                 break
+        familia = None
         if not ceros.completo:
-            trace.regla("mv.composicion_periodica", "; ".join(ceros.avisos) +
-                        ": se listan los primeros niveles alcanzados por w",
-                        why="φ′ periódica: hay infinitos niveles críticos")
-        return pts, curvas, (not ceros.completo)
+            familia = _familia_niveles(w, phi, d2, W, vars, ceros, aislados_w, trace) or \
+                "… (infinitos niveles críticos: φ′ es periódica)"
+        return pts, curvas, familia
     raise _no("f no es composición φ(w) con w polinómica")
+
+
+def _alcanza(w, w0, vars) -> bool:
+    """¿Toma w el valor w₀ en algún punto real? (se fijan las demás variables)."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+    from academic_core.domain.engineering.mathlab import raices as RZ
+
+    nivel = MI._limpio(mx.Sub(w, w0))
+    for c in (0, 1, -1, 2, -2):
+        g = nivel
+        for v in vars[:-1]:
+            g = mx.substitute(g, v, mx.Num(c))
+        try:
+            if RZ.ceros(MI._limpio(g), vars[-1]).raices:
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+def _clase_compuesta(f, w, phi, d1, d2, W, vars, punto, trace) -> str:
+    """Punto con ∇w = 0: si w tiene ahí un extremo estricto y φ es estrictamente monótona
+    o tiene extremo estricto en w₀ = w(p), la clase de f sale exacta de los signos."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    try:
+        cw = _clasifica(w, vars, punto, Trace())
+    except Exception:  # noqa: BLE001
+        cw = ""
+    if cw.startswith(("mínimo", "máximo")) and "no estricto" not in cw and "comparando" not in cw:
+        env = dict(zip(vars, (c if isinstance(c, mx.Expr) else mx.Num(Fraction(c))
+                              for c in punto)))
+        w0 = MI._limpio(_sustituye_todo(w, env))
+        v1 = mx.valor_real(MI._limpio(mx.substitute(d1, W, w0)), {})
+        v2 = mx.valor_real(MI._limpio(mx.substitute(d2, W, w0)), {})
+        s = None
+        if v1 is not None and abs(v1) > 1e-12:
+            s = 1 if v1 > 0 else -1
+        elif v1 is not None and v2 is not None and abs(v2) > 1e-12:
+            s = 1 if v2 > 0 else -1
+        if s is not None:
+            sube = cw.startswith("mínimo")        # w crece al alejarse del punto
+            clase = "mínimo" if (s > 0) == sube else "máximo"
+            trace.regla("mv.composicion_punto", f"w = {mx.text(w)} tiene un {cw.split(' ')[0]} "
+                        f"estricto en el punto y φ en w₀ = {mx.text(w0)} "
+                        + ("es monótona" if v1 and abs(v1) > 1e-12 else "tiene un extremo")
+                        + f": f tiene un {clase}", why="f = φ(w) compone los dos sentidos")
+            return clase + " (exacto: f = φ(w), w con extremo estricto)"
+    return _clasifica(f, vars, punto, trace)
+
+
+def _familia_niveles(w, phi, d2, W, vars, ceros, aislados_w, trace) -> str | None:
+    """Ceros de φ′ en progresión aritmética w₀ = a + k·d: describe la familia entera de
+    niveles críticos con su clase según la paridad de k."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    rs = sorted((r for r in ceros.raices if r.exacta), key=lambda r: r.x)
+    if len(rs) < 4:
+        return None
+    d = rs[1].x - rs[0].x
+    if d <= 0 or any(abs((b.x - a.x) - d) > 1e-9 for a, b in zip(rs, rs[1:])):
+        return None
+    base = min(rs, key=lambda r: (abs(r.x), -r.x))
+    i0 = rs.index(base)
+    if i0 + 1 >= len(rs):
+        return None
+    a, dd = base.valor, MI._limpio(mx.Sub(rs[i0 + 1].valor, base.valor))
+
+    def nivel(k):
+        return MI._limpio(mx.Add(a, mx.Mul(mx.Num(k), dd)))
+
+    def ok(k):
+        n_ = nivel(k)
+        x_ = mx.valor_real(n_, {})
+        if any(v is not None and abs(v - x_) < 1e-12 for v in aislados_w):
+            return False
+        return _alcanza(w, n_, vars)
+    if ok(-3) and ok(3):
+        rango = "k ∈ ℤ"
+    elif ok(3):
+        kmin = next((k for k in range(-3, 4) if ok(k)), None)
+        if kmin is None:
+            return None
+        rango = f"k ≥ {kmin}"
+    elif ok(-3):
+        kmax = next((k for k in range(3, -4, -1) if ok(k)), None)
+        if kmax is None:
+            return None
+        rango = f"k ≤ {kmax}"
+    else:
+        return None
+
+    def clase(k):
+        v2 = mx.valor_real(MI._limpio(mx.substitute(d2, W, nivel(k))), {})
+        if v2 is None or abs(v2) < 1e-12:
+            return None
+        return "máximos (no estrictos)" if v2 < 0 else "mínimos (no estrictos)"
+
+    def valor(k):
+        return mx.text(MI._limpio(mx.substitute(phi, W, nivel(k))))
+    cp, ci = clase(0), clase(1)
+    if cp is None or ci is None or clase(2) != cp or clase(3) != ci or \
+            valor(2) != valor(0) or valor(3) != valor(1):
+        return None
+    k = mx.Sym("k")
+    ec = mx.text(MI._limpio(mx.Sub(w, mx.Add(a, mx.Mul(k, dd)))))
+    texto = (f"familia completa: todo el conjunto {ec} = 0 ({rango}) es crítico; "
+             f"k par: f = {valor(0)}, {cp}; k impar: f = {valor(1)}, {ci} "
+             "(exacto: signo de φ″ en cada nivel)")
+    trace.regla("mv.composicion_familia", texto,
+                why="los ceros de φ′ forman una progresión aritmética y φ″ alterna con k")
+    return texto
 
 
 def _clase_por_nivel(f, vars, muestras, trace) -> str | None:

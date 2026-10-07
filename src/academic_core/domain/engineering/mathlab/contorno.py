@@ -554,7 +554,7 @@ def _calor_general(alfa, L, piezas, tipo, A, B, x, trace) -> CalorGeneral:
             integral = Q.integral_definida(g, mx.Num(0), ti, "tau__")
         w_ = ED._bonito(FO.n_entero(Q.pliega(_bonito(mx.Mul(
             mx.Call("exp", (mx.Neg(mx.Mul(lam_, ti)),)), mx.Add(cn_, integral))))))
-        return ED._bonito(ED._junta_exp(LP_expande(w_)))
+        return _simplifica_coefs(ED._bonito(ED._junta_exp(LP_expande(w_))))
     wn = duhamel(lam, Sn, cn)
     # resonancia: si la fuente contiene e^{−λₖt}, la fórmula general se anula en n = k
     # (0/0); ese modo se rehace con n = k fijado antes de integrar (aparece t·e^{−λₖt})
@@ -588,6 +588,110 @@ def _calor_general(alfa, L, piezas, tipo, A, B, x, trace) -> CalorGeneral:
                      tipo, {k_: _a_x(v_, x) for k_, v_ in especiales.items()})
     _verifica_calor_general(r, alfa, L, A, B, piezas, lam, S, modo, x, trace)
     return r
+
+
+def _simplifica_coefs(e):
+    """Agrupa los sumandos por su factor trascendente (exp, sen, cos) y reduce cada
+    coeficiente (racional en n y π) a términos mínimos por mcd; si algo falla o el
+    resultado no coincide numéricamente con e, se deja e."""
+    from academic_core.domain.engineering.mathlab import racional as R
+
+    def sumandos(x, signo=1):
+        if isinstance(x, mx.Add):
+            return sumandos(x.left, signo) + sumandos(x.right, signo)
+        if isinstance(x, mx.Sub):
+            return sumandos(x.left, signo) + sumandos(x.right, -signo)
+        if isinstance(x, mx.Neg):
+            return sumandos(x.arg, -signo)
+        return [(signo, x)]
+
+    def factores(x):
+        """(num, den) como listas de factores."""
+        if isinstance(x, mx.Mul):
+            a, b = factores(x.left), factores(x.right)
+            return a[0] + b[0], a[1] + b[1]
+        if isinstance(x, mx.Div):
+            a, b = factores(x.left), factores(x.right)
+            return a[0] + b[1], a[1] + b[0]
+        if isinstance(x, mx.Neg):
+            a = factores(x.arg)
+            return [mx.Num(-1)] + a[0], a[1]
+        return [x], []
+
+    def trasc(x):
+        return any(isinstance(nd, mx.Call) or isinstance(nd, mx.Pow) and (
+            mx.variables(nd.exponent) or isinstance(nd.base, mx.Const) and nd.base.name == "e")
+            for nd in _nodos(x))
+
+    def producto(fs):
+        out = mx.Num(1)
+        for f_ in fs:
+            out = mx.Mul(out, f_)
+        return out
+    try:
+        grupos: dict[str, list] = {}
+        claves: dict[str, mx.Expr] = {}
+        for sg, t_ in sumandos(e):
+            num_, den_ = factores(t_)
+            if any(trasc(f_) for f_ in den_):
+                return e
+            tr = [f_ for f_ in num_ if trasc(f_)]
+            ra = [f_ for f_ in num_ if not trasc(f_)]
+            k = " * ".join(sorted(mx.text(f_) for f_ in tr))
+            claves[k] = producto(tr)
+            grupos.setdefault(k, []).append(mx.Mul(mx.Num(sg), mx.Div(producto(ra), producto(den_))))
+        r = None
+        for k, cs in grupos.items():
+            c = cs[0]
+            for c2 in cs[1:]:
+                c = mx.Add(c, c2)
+            c = mx.substitute(R._plegar(_sin_pi(c)), "pi__", mx.Const("pi"))
+            term = _bonito(mx.Mul(c, claves[k]))
+            r = term if r is None else mx.Add(r, term)
+        r = ED._bonito(r)
+    except Exception:  # noqa: BLE001
+        return e
+    comprobados = 0
+    for nv in (1.5, 2.5, 3.7, 5.3, 1, 2, 3, 5):      # n no entero evita resonancias 0/0
+        for tv in (0.05, 0.3):
+            env = {"n": nv, "ti__": tv}
+            try:
+                a = mx.valor_real(e, env)
+            except Exception:  # noqa: BLE001
+                a = None
+            if a is None:
+                continue
+            try:
+                b = mx.valor_real(r, env)
+            except Exception:  # noqa: BLE001
+                b = None
+            if b is None or abs(a - b) > 1e-9 * (1 + abs(a)):
+                return e
+            comprobados += 1
+    return r if comprobados >= 8 else e
+
+
+def _nodos(x):
+    yield x
+    for hijo in ("left", "right", "arg", "base", "exponent", "radicand"):
+        if hasattr(x, hijo):
+            yield from _nodos(getattr(x, hijo))
+    if isinstance(x, mx.Call):
+        for a in x.args:
+            yield from _nodos(a)
+
+
+def _sin_pi(e):
+    """π → símbolo pi__ para que el mcd polinómico lo trate como variable."""
+    if isinstance(e, mx.Const) and e.name == "pi":
+        return mx.Sym("pi__")
+    if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+        return type(e)(_sin_pi(e.left), _sin_pi(e.right))
+    if isinstance(e, mx.Neg):
+        return mx.Neg(_sin_pi(e.arg))
+    if isinstance(e, mx.Pow):
+        return mx.Pow(_sin_pi(e.base), _sin_pi(e.exponent))
+    return e
 
 
 def LP_expande(e):

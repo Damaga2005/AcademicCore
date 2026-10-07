@@ -670,7 +670,7 @@ def _multivar(peticion: C.Peticion) -> C.Resultado:
                  + f" → {clase}")
     elif calculo == "criticos":
         f_ = _expresion_de(e, "expr", "f")
-        infinitas = False
+        infinitas = None
         try:
             pts = MV.puntos_criticos(f_, vars, trace)
             curvas = []
@@ -689,7 +689,7 @@ def _multivar(peticion: C.Peticion) -> C.Resultado:
             f"{', '.join(mx.text(v) for v in cu.valores)}, {cu.clase}" for cu in curvas]) \
             or "sin puntos críticos"
         if infinitas:
-            texto += "; … (infinitos niveles críticos: φ′ es periódica)"
+            texto += "; " + infinitas
     elif calculo == "taylor2":
         texto = mx.text(MV.taylor2(_expresion_de(e, "expr", "f"), vars,
                                    {str(k): mx.parse(str(v))
