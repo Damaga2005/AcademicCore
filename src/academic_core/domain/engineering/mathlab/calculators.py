@@ -535,7 +535,7 @@ def _transformar(peticion: C.Peticion) -> C.Resultado:
     trace.metodo(
         f"objetivo.{nombre}", f"objetivo «{nombre}»",
         why=objetivo.porque,
-        alternatives=((f"«simplificar»", "reduce; este objetivo puede alargar a propósito "
+        alternatives=(("«simplificar»", "reduce; este objetivo puede alargar a propósito "
                        "porque busca una FORMA concreta (§5.5b)"),),
         before=mx.text(expr))
     resultado = objetivo.metodo(expr)
@@ -1333,8 +1333,6 @@ def _con_de_moivre(texto: str) -> tuple[mx.Expr, str]:
     from academic_core.domain.engineering.mathlab import series_numericas as SN
 
     T = SN.leer(texto, "n")
-    var = (sorted(mx.variables(T.expr) - {f"F_{i}" for i in range(len(T.factoriales))})
-           or ["n"])[0]
     expr = T.expr
     for i, a in enumerate(T.factoriales):
         nombre = f"F_{i}"
@@ -2199,7 +2197,6 @@ def _inecuacion_no_periodica(peticion, texto_ineq: str, var: str, trace: Trace) 
 
 def _sello_numerico_de_conjunto(texto_ineq: str, var: str, solucion) -> V.Seal:
     """Seeded points away from the ends: the set and the inequality must agree."""
-    import math as _m
     from academic_core.domain.engineering.mathlab import inequaciones as I
 
     operador, izquierda, derecha = I._separa(texto_ineq)

@@ -7,3 +7,4 @@ lxml>=5.0
 markdownify>=1.2
 mathml2latex>=0.1.0
 genanki>=0.13.0
+-r requirements-test-oracles.txt

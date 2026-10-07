@@ -58,6 +58,9 @@ jobs:
       - name: Install package (editable, no new deps)
         run: pip install -e . --no-deps
 
+      - name: Install test oracles (SymPy, SciPy; solo pruebas)
+        run: pip install -r requirements-test-oracles.txt
+
       - name: Static check (compile all)
         run: python -m compileall -q src
 

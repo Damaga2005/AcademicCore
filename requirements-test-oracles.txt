@@ -1,0 +1,6 @@
+# Oráculos de las pruebas de MathLab (solo pruebas; el dominio no los importa).
+# Sin ellos las pruebas de contraste se saltan con importorskip.
+sympy==1.14.0
+mpmath==1.3.0
+numpy==2.5.3
+scipy==1.18.1

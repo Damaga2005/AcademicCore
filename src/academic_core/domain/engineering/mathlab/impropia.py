@@ -205,7 +205,6 @@ def _parte_oscilante(f: mx.Expr, var: str) -> tuple | None:
     puesto a 1 (en el numerador). Si no hay exactamente un seno o coseno de
     argumento afín, devuelve (None, None).
     """
-    from academic_core.domain.engineering.mathlab import raices as RZ
 
     nums, dens = _factores_mul_div(f)
     hallado, indice = None, -1
