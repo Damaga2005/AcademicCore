@@ -1044,46 +1044,55 @@ def _otro_orden(f: mx.Expr, L, trace: Trace) -> mx.Expr | None:
     return None
 
 
-_FUNCIONES = {"sin": "math.sin", "cos": "math.cos", "tan": "math.tan", "exp": "math.exp",
-              "ln": "math.log", "log": "math.log", "sqrt": "math.sqrt", "asin": "math.asin",
-              "acos": "math.acos", "atan": "math.atan", "arcsin": "math.asin",
-              "arccos": "math.acos", "arctan": "math.atan", "sinh": "math.sinh",
-              "cosh": "math.cosh", "tanh": "math.tanh", "abs": "abs"}
+_FUNCIONES = {"sin": math.sin, "cos": math.cos, "tan": math.tan, "exp": math.exp,
+              "ln": math.log, "log": math.log, "sqrt": math.sqrt, "asin": math.asin,
+              "acos": math.acos, "atan": math.atan, "arcsin": math.asin,
+              "arccos": math.acos, "arctan": math.atan, "sinh": math.sinh,
+              "cosh": math.cosh, "tanh": math.tanh, "abs": abs}
 
 
 def compilar(e: mx.Expr, nombres: list[str]):
-    """Expr → función de Python (float); None si hay un nodo que no se traduce."""
-    def py(n) -> str:
+    """Expr → función de Python (float); None si hay un nodo que no se traduce.
+
+    Se compila a clausuras anidadas, no a texto con ``eval`` (prohibido por la
+    prueba de seguridad F15-017; antes fallaba el CI)."""
+    def c(n):
         if isinstance(n, mx.Num):
-            return repr(float(n.value))
+            k = float(n.value)
+            return lambda v: k
         if isinstance(n, mx.Sym):
-            return f"v[{nombres.index(n.name)}]"
+            i = nombres.index(n.name)
+            return lambda v: v[i]
         if isinstance(n, mx.Const):
-            return {"pi": "math.pi", "e": "math.e"}[n.name]
-        if isinstance(n, mx.Add):
-            return f"({py(n.left)}+{py(n.right)})"
-        if isinstance(n, mx.Sub):
-            return f"({py(n.left)}-{py(n.right)})"
-        if isinstance(n, mx.Mul):
-            return f"({py(n.left)}*{py(n.right)})"
-        if isinstance(n, mx.Div):
-            return f"({py(n.left)}/{py(n.right)})"
+            k = {"pi": math.pi, "e": math.e}[n.name]
+            return lambda v: k
+        if isinstance(n, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+            a, b = c(n.left), c(n.right)
+            if isinstance(n, mx.Add):
+                return lambda v: a(v) + b(v)
+            if isinstance(n, mx.Sub):
+                return lambda v: a(v) - b(v)
+            if isinstance(n, mx.Mul):
+                return lambda v: a(v) * b(v)
+            return lambda v: a(v) / b(v)
         if isinstance(n, mx.Pow):
-            return f"_pot({py(n.base)},{py(n.exponent)})"
+            a, b = c(n.base), c(n.exponent)
+            return lambda v: _pot(a(v), b(v))
         if isinstance(n, mx.Neg):
-            return f"(-{py(n.arg)})"
+            a = c(n.arg)
+            return lambda v: -a(v)
         if isinstance(n, mx.Root):
-            return f"_raiz({py(n.radicand)},{int(n.degree)})"
+            a, g = c(n.radicand), int(n.degree)
+            return lambda v: _raiz(a(v), g)
         if isinstance(n, mx.Call) and n.name in _FUNCIONES and len(n.args) == 1:
-            return f"{_FUNCIONES[n.name]}({py(n.args[0])})"
+            f, a = _FUNCIONES[n.name], c(n.args[0])
+            return lambda v: f(a(v))
         raise KeyError(type(n).__name__)
 
     try:
-        codigo = py(e)
+        return c(e)
     except (KeyError, ValueError, AttributeError):
         return None
-    return eval(f"lambda v: {codigo}", {"math": math, "_pot": _pot, "_raiz": _raiz,  # noqa: S307
-                                        "abs": abs})
 
 
 def _pot(a: float, b: float) -> float:
