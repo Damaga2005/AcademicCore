@@ -7,6 +7,17 @@ Communicates appearance, nothing else.
 
 from __future__ import annotations
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _con_animaciones(monkeypatch):
+    """El contrato es el de la animación activa: fija «animaciones encendidas», como
+    test_ux_motion. Sin esto el resultado dependía de la máquina (el runner de
+    Windows del CI las tiene apagadas y la duración salía 0)."""
+    from academic_core.ui import motion
+    monkeypatch.setattr(motion, "reduced_motion", lambda: False)
+
 
 def test_pop_uses_bounded_easing(qtbot):
     from PySide6.QtCore import QEasingCurve
