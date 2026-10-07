@@ -308,6 +308,7 @@ Design and verification live in [`docs/ux/`](docs/ux/): [audit](docs/ux/UX-AUDIT
 | **D6** | Neutral Question Bank | Versioned neutral schema (`d6-question-bank/1`), canonical digests, strict validation, no persistence parallel. | **CERTIFICADA** | [`GATE-D6-CERTIFICATION.md`](docs/gates/GATE-D6-CERTIFICATION.md) |
 | **D7** | Structured Ingestion | D6→Knowledge Core bridge: idempotent, versioned, one-transaction; concept reuse, formula persistence. | **CERTIFICADA** | [`GATE-D7-CERTIFICATION.md`](docs/gates/GATE-D7-CERTIFICATION.md) |
 | **UX 2026** | Product redesign | Shell, Home, engineering and lab workspaces, Practice loop (F9–F12), contextual dialogs, motion, Windows experience. Core untouched; installer and screen-reader checks not executed. | **CERTIFICADO CON LIMITACIONES** | [`GATE-UX-2026-CERTIFICATION.md`](docs/gates/GATE-UX-2026-CERTIFICATION.md) |
+| **Math Lab** | Exact math laboratory | ML-0…ML-8, ML-12, ML-13 done: algebra, linear algebra, one/several variables, multiple and vector integrals, series and numerics, ODEs and transforms (Laplace, Fourier, z), boundary problems and 1D heat. Exact steps + independent verification seal (`verificado` / `solo_numerico` / `discrepa`). Only unavoidable numeric cases remain (irreducible factors of degree ≥ 5, unrecognised nonlinear first-order ODEs). | **EN CURSO (siguiente: ML-9)** | [`MATH_LAB.md`](docs/labs/MATH_LAB.md) |
 
 ---
 

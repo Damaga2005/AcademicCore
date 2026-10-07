@@ -1438,11 +1438,14 @@ def ceros_en_puntos(e: mx.Expr, var: str = "x") -> list[D.Punto] | None:
 
     if not mx.depends(e, var):
         return None
-    if _llamadas(e):
+    trig = {"sin", "cos", "tan", "cot", "sec", "csc"}
+    if any(llamada.name in trig for llamada in _llamadas(e)):
         return None                      # a trig function: infinitely many zeros
     q = P.as_poly(e)
     if q is None or P.atoms_of(q) or P.real_variables(q) - {var}:
-        return None
+        # exponenciales, logaritmos, raíces, Lambert…: el resolvedor general, y solo
+        # si da TODOS los ceros y todos exactos
+        return _ceros_generales(e, var)
     from academic_core.domain.engineering.mathlab import ecuaciones as E
 
     # `completar=True`: a sign chart built from HALF the critical points is not an
@@ -1467,6 +1470,22 @@ def ceros_en_puntos(e: mx.Expr, var: str = "x") -> list[D.Punto] | None:
     # Ordered BY VALUE and not by coefficient. An expression point has coefficient
     # zero, so sorting by it would put every radical at the origin and build the
     # intervals in the wrong order — a chart with its ends swapped.
+    return sorted(puntos, key=lambda punto: punto.valor())
+
+
+def _ceros_generales(e: mx.Expr, var: str) -> list[D.Punto] | None:
+    from academic_core.domain.engineering.mathlab import ecuacion_general as EG
+
+    try:
+        r = EG.resolver(e, var)
+    except Exception:  # noqa: BLE001
+        return None
+    if not r.completo or any(s.exacta is None for s in r.soluciones):
+        return None
+    puntos = []
+    for s in r.soluciones:
+        v = mx.exact_value(s.exacta)
+        puntos.append(D.punto(v) if v is not None else D.Punto(expresion=s.exacta))
     return sorted(puntos, key=lambda punto: punto.valor())
 
 

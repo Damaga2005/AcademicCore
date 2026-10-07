@@ -76,8 +76,10 @@ def test_la_sustitucion_universal_no_toca_una_x_suelta(integrando):
 
 
 def test_una_primitiva_que_no_deriva_en_el_integrando_no_se_muestra():
+    # sen(x)/x no tiene primitiva elemental: ahora se da con la función especial Si,
+    # y solo porque al derivarla vuelve el integrando (verificada)
     r = _calcula("int(sin(x)/x, x)")
-    assert r.exacto is None
+    assert r.exacto == "Si(x)" and r.sello.verdict == "verificado"
 
 
 def test_sin_primitiva_elemental_la_definida_cae_a_simpson_y_acierta():
@@ -145,5 +147,9 @@ def test_el_error_declarado_sin_primitiva_cubre_el_error_real(texto, a, b, exact
     """The Simpson/Richardson estimate it replaced declared 0.0046 for an error
     of 0.069 on the first one — an «error acotado» smaller than the error."""
     r = _calcula(f"int({texto}, x, {a}, {b})")
+    if r.error_acotado is None:          # ahora con forma cerrada (erfi…): valor exacto
+        assert r.exacto is not None and abs(r.aproximado.real - exacto) < 1e-10, (
+            texto, r.exacto, r.aproximado)
+        return
     assert abs(r.aproximado.real - exacto) <= r.error_acotado, (
         texto, r.aproximado.real, exacto, r.error_acotado)

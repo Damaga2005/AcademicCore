@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-10-07 — ML-8 sin limitaciones evitables
+
+- **Raíces exactas de cúbicas y cuárticas irreducibles** (`cubica.py`): Cardano (forma trigonométrica si Δ < 0) y Ferrari, también bicuadradas; Laplace inversa, característico de EDO y fracciones simples exactas con nombres r1/α1/β1 y sus definiciones. Solo los factores de grado ≥ 5 siguen numéricos (Abel-Ruffini).
+- **EDO de primer orden:** μ mixto, homogénea desplazada, argumento lineal, Riccati, Clairaut; convolución y Volterra comprobadas exactas.
+- **Calor 1D** con contorno dependiente de t y flujos no nulos (referencia + Duhamel por modo), modos resonantes tratados aparte, coeficientes wₙ reducidos por mcd.
+- **Transformada z** con polos cuadráticos repetidos.
+- **Puntos críticos de f = φ(w):** curvas de nivel clasificadas exactas por el signo de φ″, familias periódicas completas (sen(x²+y²): x²+y² = π/2 + kπ, k ≥ 0), extremos aislados exactos.
+- **Bugs corregidos:** cociente perdido en la partición de Bézout, `valor or 1` con cero falso, desbordamiento exponencial en wₙ.
+
+## 2026-10-06 — Límites de ML-5/ML-6 resueltos, ML-13 y ML-4
+
+- **Gröbner rápido:** grevlex + estrategia normal + criterio de la cadena, y el polinomio de cada variable por formas normales (FGLM en una variable). Los sistemas que agotaban los 8 s se resuelven en 0,2 s.
+- **Conjuntos críticos no aislados** descritos con su forma más simple (x²y² → xy = 0).
+- **Recintos {g ≤ 0} en 3 variables** (bolas, elipsoides) y valores críticos irracionales por el polinomio mínimo m(f) = 0. Bug real corregido: con una curva de candidatos se perdían los puntos aislados (x²y en la bola). 60 elipsoides aleatorios contra fuerza bruta: 0 errores.
+- **Cambio de orden con curvas no monótonas:** se parte solo en los extremos de g₁ y g₂; inversas de sen y cos con todas sus ramas. Primitivas de potencias trigonométricas por linealización (x·cos²x).
+- **Simplificador racional** (N/D sobre átomos, cancelación, ángulo doble, csc/sec/cot, √ de contenido cuadrado).
+- **ML-13 (`operadores.py`, operación `operadores`).** 60 campos aleatorios contra `sympy.vector`: 0 errores.
+- **ML-4 (`numericos.py`, operación `numericos`).** Baterías: 60 radios y 100 extremos contra SymPy, 40 funciones contra un barrido de 400 000 puntos, 200 Lambert W contra mpmath, 60 LU contra SymPy y órdenes de EDO en 5 ecuaciones × 5 métodos: 0 errores. Bugs corregidos por las baterías: raíces perdidas cuando f(r) daba 0.0 exacto (`0.0 or …`), W(e) = 1 sin reconocer por lo mismo, y orden observado falso al nivel del redondeo.
+
+## 2026-10-06 — ML-7 (línea, superficie, Green/Stokes/Gauss) y revisión a fondo de ML-5/ML-6
+
+- **ML-7 (`vectorial.py`, operación `vectorial`):** circulación y ∫ f ds, potencial (rot F = 0, integración sucesiva, ∇φ = F comprobado), flujo y ∬ f dS, rotacional y divergencia; Green, Stokes y Gauss por los dos lados. Batería de 60 campos aleatorios contra SymPy (circulación por curvas polinómicas, flujo por gráficas, Gauss en el cubo con sus 6 caras): 0 errores.
+- **Huecos encontrados y cerrados:** extremos en recintos cuando los críticos forman curvas (x²y) o f es constante en un lado o en la frontera: valores críticos por eliminación (Sard) y comprobación dentro del recinto (80 recintos aleatorios contra fuerza bruta: 0 errores, antes 21 rechazos); Lagrange con f constante en la ligadura se explica; el conjunto crítico no aislado se describe con su base de Gröbner (x²y → x = 0); iteradas con límites constantes cambian solas de orden si uno no tiene primitiva (u·e^(uv)).
+- **Pasos completos:** sistema ∇f = 0 y lagrangiano escritos, polinomio eliminado en cada variable, Hessiana evaluada con sus menores, resumen de máximo y mínimo en Lagrange (absolutos si la ligadura es compacta), Barrow con F(sup) − F(inf) y formas limpias (sin «− −», «+ −» ni «·1»), cuadratura tanh-sinh (tolera singularidades en los extremos).
+- **Baterías:** 150 Lagrange aleatorios sobre elipses contra muestreo denso: 0 errores.
+
+## 2026-10-06 — ML-6 integración múltiple; ML-3/ML-5 corregidos y ampliados
+
+- **Autovalores (bugs reales):** los complejos perdían el factor √ (`[[2,−1],[3,0]]` daba 1 ± i, ahora 1 ± √2·i); en 3×3 el espectro salía incompleto sin aviso si había raíces irracionales o complejas; los dobles se clasificaban como irracionales (`[[1,1],[0,1]]`) y los racionales repetidos en 3×3 fallaban (la simétrica con 4, 1, 1 no diagonalizaba). Ahora: característico n×n exacto (Faddeev-Leverrier, hasta 6×6), raíces racionales con multiplicidad por Ruffini, factor cuadrático restante exacto (ℚ(√r) o par complejo) y, si queda un factor irreducible de grado ≥ 3, rechazo exacto + valores numéricos (Durand-Kerner) con sello solo numérico. 600 matrices aleatorias contra SymPy: 0 errores.
+- **Pseudoinversa de Moore-Penrose de cualquier rango** por factorización A = C·R, con las cuatro condiciones de Penrose comprobadas (200 casos contra SymPy).
+- **Puntos críticos y Lagrange no lineales** (`sistemas.py`): bases de Gröbner en orden lex, raíces por Sturm (exactas racionales o con √, numéricas si no), filtro por sustitución exacta; factor exp(·) común descartado; varias ligaduras; aviso de puntos singulares de la ligadura; soluciones no aisladas dichas. Silla en n > 2 por Descartes; silla con menor nulo y det ≠ 0. Batería de 150 funciones aleatorias: los 39 discrepantes son puntos que el `solve` de SymPy pierde (confirmados con `nsolve`).
+- **Extremos en regiones {g ≤ 0}** acotadas: interior + Lagrange en la frontera + puntos singulares.
+- **ML-6 (`multiple.py`, operación `multiple`):** iteradas exactas con límites variables y segundo camino tanh-sinh, polares/cilíndricas/esféricas con jacobiano, cambio de orden con los dos órdenes comparados, masa y centro de masas. 120 iteradas aleatorias contra SymPy: 0 errores (8 numéricas por e^(x²), sin primitiva elemental).
+
 ## 2026-10-06 — Espacios vectoriales verificados contra TODOS los exámenes
 
 - **Verificación exhaustiva** de los 26 PDFs de la carpeta (Parciales 2018-2022, Segundo Parcial 2018-2022, Finales 2020-2024 y 07-17): F por ecuaciones + G por generadores con Grassmann, cambios de base, S = Col(M) con S⊥ y proyección, núcleo/imagen, φ con parámetro e invariantes, coordenadas en subespacios de ℝ⁴ y polinomios, antiimágenes, Im f + F. Todos resueltos por la calculadora `espacios` con sello verificado.

@@ -63,13 +63,12 @@ def finite_difference(f: mx.Expr, var: str, at: dict[str, float],
     second-order accurate, so it can actually *disagree* with a wrong derivative
     instead of agreeing with it by luck.
     """
-    h = mx.parse(str(step))
     plus = dict(at)
     minus = dict(at)
     plus[var] = at[var] + step
     minus[var] = at[var] - step
-    up = mx.evaluate(mx.substitute(f, var, h), plus)
-    down = mx.evaluate(mx.substitute(f, var, mx.Neg(h)), minus)
+    up = mx.evaluate(f, plus)
+    down = mx.evaluate(f, minus)
     if up is None or down is None:
         return None
     return (up.real - down.real) / (2 * step)
@@ -120,7 +119,14 @@ def differentiate(expr: mx.Expr, var: str, trace: Trace | None = None) -> mx.Exp
     try:
         result, _, _ = _e01_derive.derivative(mx.to_symbolic(expr), var, log)
     except UnsupportedError:
-        raise
+        # funciones especiales, f^g con base y exponente variables, constantes
+        # sueltas…: reglas propias (suma, producto, cociente, cadena y
+        # f^g = e^(g·ln f)), cada paso a la traza
+        d = derivada_directa(expr, var)
+        trace.regla("derivada.reglas_propias", f"d/d{var}[{mx.text(expr)}] = {mx.text(d)}",
+                    why="regla de la cadena con la tabla ampliada (W, erf, Si, Ci, Ei, "
+                        "Fresnel) y f^g = e^(g·ln f) para base y exponente variables")
+        return d
     _translate(log.steps, trace)
     # The method step goes *after* the rules it chose: it explains the sequence
     # the student is looking at, and a step whose "after" is empty teaches
@@ -143,6 +149,85 @@ def differentiate(expr: mx.Expr, var: str, trace: Trace | None = None) -> mx.Exp
         uses=tuple(range(len(log.steps))),
     )
     return mx.from_symbolic(result)
+
+
+def derivada_directa(e: mx.Expr, v: str) -> mx.Expr:
+    """Derivada por reglas, sin pasar por E0.1 (lo que E0.1 no representa)."""
+    M = mx
+    uno, cero = M.Num(Fraction(1)), M.Num(Fraction(0))
+
+    def d(n):
+        if v not in M.variables(n):
+            return cero
+        if isinstance(n, M.Sym):
+            return uno
+        if isinstance(n, M.Add):
+            return M.Add(d(n.left), d(n.right))
+        if isinstance(n, M.Sub):
+            return M.Sub(d(n.left), d(n.right))
+        if isinstance(n, M.Neg):
+            return M.Neg(d(n.arg))
+        if isinstance(n, M.Mul):
+            return M.Add(M.Mul(d(n.left), n.right), M.Mul(n.left, d(n.right)))
+        if isinstance(n, M.Div):
+            return M.Div(M.Sub(M.Mul(d(n.left), n.right), M.Mul(n.left, d(n.right))),
+                         M.Pow(n.right, M.Num(Fraction(2))))
+        if isinstance(n, M.Root):
+            k = Fraction(1, n.degree)
+            return M.Mul(M.Mul(M.Num(k), M.Pow(n.radicand, M.Num(k - 1))), d(n.radicand))
+        if isinstance(n, M.Pow):
+            b, ex = n.base, n.exponent
+            if v not in M.variables(ex):
+                return M.Mul(M.Mul(ex, M.Pow(b, M.Sub(ex, uno))), d(b))
+            lnb = M.Call("ln", (b,)) if b != M.Const("e") else uno
+            if v not in M.variables(b):
+                return M.Mul(M.Mul(n, lnb), d(ex))
+            # f^g: (f^g)·(g′·ln f + g·f′/f)
+            return M.Mul(n, M.Add(M.Mul(d(ex), lnb), M.Div(M.Mul(ex, d(b)), b)))
+        if isinstance(n, M.Call):
+            u = n.args[-1]
+            du = d(u)
+            dos = M.Num(Fraction(2))
+            raiz_pi = M.Root(2, M.Const("pi"))
+            tabla = {
+                "sin": lambda: M.Call("cos", (u,)),
+                "cos": lambda: M.Neg(M.Call("sin", (u,))),
+                "tan": lambda: M.Div(uno, M.Pow(M.Call("cos", (u,)), dos)),
+                "cot": lambda: M.Neg(M.Div(uno, M.Pow(M.Call("sin", (u,)), dos))),
+                "sec": lambda: M.Mul(M.Call("sec", (u,)), M.Call("tan", (u,))),
+                "csc": lambda: M.Neg(M.Mul(M.Call("csc", (u,)), M.Call("cot", (u,)))),
+                "exp": lambda: M.Call("exp", (u,)),
+                "ln": lambda: M.Div(uno, u),
+                "log10": lambda: M.Div(uno, M.Mul(u, M.Call("ln", (M.Num(Fraction(10)),)))),
+                "asin": lambda: M.Div(uno, M.Root(2, M.Sub(uno, M.Pow(u, dos)))),
+                "acos": lambda: M.Neg(M.Div(uno, M.Root(2, M.Sub(uno, M.Pow(u, dos))))),
+                "atan": lambda: M.Div(uno, M.Add(uno, M.Pow(u, dos))),
+                "sinh": lambda: M.Call("cosh", (u,)),
+                "cosh": lambda: M.Call("sinh", (u,)),
+                "tanh": lambda: M.Div(uno, M.Pow(M.Call("cosh", (u,)), dos)),
+                "asinh": lambda: M.Div(uno, M.Root(2, M.Add(M.Pow(u, dos), uno))),
+                "acosh": lambda: M.Div(uno, M.Root(2, M.Sub(M.Pow(u, dos), uno))),
+                "atanh": lambda: M.Div(uno, M.Sub(uno, M.Pow(u, dos))),
+                "abs": lambda: M.Call("sign", (u,)),
+                "W": lambda: M.Div(M.Call("W", (u,)), M.Mul(u, M.Add(uno, M.Call("W", (u,))))),
+                "Wm1": lambda: M.Div(M.Call("Wm1", (u,)), M.Mul(u, M.Add(uno, M.Call("Wm1", (u,))))),
+                "erf": lambda: M.Mul(M.Div(dos, raiz_pi), M.Call("exp", (M.Neg(M.Pow(u, dos)),))),
+                "erfi": lambda: M.Mul(M.Div(dos, raiz_pi), M.Call("exp", (M.Pow(u, dos),))),
+                "Si": lambda: M.Div(M.Call("sin", (u,)), u),
+                "Ci": lambda: M.Div(M.Call("cos", (u,)), u),
+                "Ei": lambda: M.Div(M.Call("exp", (u,)), u),
+                "FresnelS": lambda: M.Call("sin", (M.Pow(u, dos),)),
+                "FresnelC": lambda: M.Call("cos", (M.Pow(u, dos),)),
+            }
+            if n.name == "log" and len(n.args) == 2:
+                return d(M.Div(M.Call("ln", (n.args[1],)), M.Call("ln", (n.args[0],))))
+            if n.name not in tabla:
+                raise _no_rule(f"sin regla para derivar {n.name}")
+            return M.Mul(tabla[n.name](), du)
+        raise _no_rule(f"sin regla para derivar {type(n).__name__}")
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    return MI._limpio(d(e))
 
 
 def _expressible(e: mx.Expr) -> bool:
@@ -228,15 +313,22 @@ def verify_derivative(f: mx.Expr, derivative: mx.Expr, var: str) -> V.Seal:
     """
     names = sorted(mx.variables(f))
     if names == [var]:
-        seal = V.verify_against(derivative, _e01_derivative_of(f, var))
-        if seal.ok:
+        try:
+            seal = V.verify_against(derivative, _e01_derivative_of(f, var))
+        except UnsupportedError:
+            seal = None     # E0.1 no lo representa (f^g, especiales): queda la numérica
+        if seal is not None and seal.ok:
             return seal
     tested = worst = 0
-    for env in V.sampled_points([var]):
+    for env in V.sampled_points(names):
         numeric = finite_difference(f, var, env)
         analytic = mx.evaluate(derivative, env)
         if numeric is None or analytic is None:
             continue
+        valor = mx.evaluate(f, env)
+        if valor is None or abs(complex(valor).imag) > 1e-12 or \
+                abs(complex(analytic).imag) > 1e-12:
+            continue        # fuera del dominio real (x^x con x < 0)
         if abs(analytic) < V.ZERO_GUARD and abs(numeric) < V.ZERO_GUARD:
             continue
         tested += 1
@@ -246,11 +338,39 @@ def verify_derivative(f: mx.Expr, derivative: mx.Expr, var: str) -> V.Seal:
         return V.Seal(V.NUMERIC_ONLY, "sin puntos evaluables",
                       "no se pudo comparar la derivada numéricamente")
     if worst <= 1e-5:
+        segundo = _segundo_camino(f, derivative, var, names)
+        if segundo:
+            return V.Seal(V.VERIFIED, f"{segundo} y {tested} diferencias centrales",
+                          f"desviación máxima {worst:.3g}")
         return V.Seal(V.NUMERIC_ONLY, f"{tested} diferencias centrales",
                       f"desviación máxima {worst:.3g}")
     return V.Seal(V.DISCREPANT, f"{tested} diferencias centrales",
                   f"desviación máxima {worst:.3g}: la derivada no coincide con el "
                   "cociente incremental")
+
+
+def _segundo_camino(f, derivative, var, names) -> str:
+    """Otra derivada exacta e independiente, comparada por equivalencia exacta:
+    con varias variables, las reglas propias frente al puente de E0.1; con f^g,
+    la derivación logarítmica f·(g·ln f)′."""
+    try:
+        if len(names) > 1:
+            otra = derivada_directa(f, var)
+            nombre = "reglas propias frente al motor E0.1"
+        else:
+            def ln_de(e):
+                if isinstance(e, mx.Pow) and var in mx.variables(e.exponent):
+                    return mx.Mul(e.exponent, mx.Call("ln", (e.base,)))
+                return None
+            g = ln_de(f)
+            if g is None:
+                return ""
+            otra = mx.Mul(f, derivada_directa(g, var))
+            nombre = "derivación logarítmica f·(g·ln f)′"
+        ok = V.check_equivalence(derivative, otra)[0]
+    except Exception:  # noqa: BLE001
+        return ""
+    return nombre if ok else ""
 
 
 def _e01_derivative_of(f: mx.Expr, var: str) -> mx.Expr:

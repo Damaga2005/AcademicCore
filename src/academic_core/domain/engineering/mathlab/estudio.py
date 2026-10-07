@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from fractions import Fraction
+import math
 
 from academic_core.domain.engineering.mathlab import mvexpr as mx
 from academic_core.domain.engineering.mathlab import raices as RZ
@@ -222,14 +223,379 @@ class TramoSigno:
     signo: int
 
 
+def _ceros_exactos(g: mx.Expr, var: str, rolle: bool = True):
+    """Ceros de g: primero el resolvedor general (exacto y completo con
+    exponenciales, logaritmos, radicales y Lambert); si no da la lista completa y
+    exacta, la búsqueda de siempre."""
+    from academic_core.domain.engineering.mathlab import ecuacion_general as EG
+
+    base = RZ.ceros(g, var)
+    if base.completo and all(r.exacta for r in base.raices):
+        return base
+    if not base.completo:
+        from academic_core.domain.engineering.mathlab import multiple as MI
+
+        try:
+            g2 = MI._limpio(g)
+            if mx.text(g2) != mx.text(g):
+                otra = RZ.ceros(g2, var)
+                if otra.completo:
+                    base = RZ.Ceros(tuple(r for r in otra.raices
+                                          if _valor(g, var, r.x) is not None), True, otra.avisos)
+        except Exception:  # noqa: BLE001
+            pass
+    if not base.completo:
+        por_radical = _ceros_por_radical(g, var)
+        if por_radical is not None:
+            base = por_radical
+    if not base.completo:
+        por_comun = _ceros_por_factor_comun(g, var)
+        if por_comun is not None:
+            base = por_comun
+    if not base.completo and rolle:
+        por_rolle = _ceros_por_rolle(g, var)
+        if por_rolle is not None:
+            base = por_rolle
+    if base.completo and not all(r.exacta for r in base.raices):
+        base = RZ.Ceros(tuple(_exactifica(g, var, r) for r in base.raices), True, base.avisos)
+        if all(r.exacta for r in base.raices):
+            return base
+    try:
+        r = EG.resolver(g, var)
+    except Exception:  # noqa: BLE001
+        return base
+    if not r.completo or any(s.exacta is None for s in r.soluciones):
+        return base
+    from academic_core.domain.engineering.mathlab.numericos import _multiplicidad_num
+
+    def _mult(f, v, x):
+        try:
+            return _multiplicidad_num(f, v, x)
+        except Exception:  # noqa: BLE001
+            return 1
+
+    raices = tuple(RZ.Raiz(s.exacta, s.valor, _mult(g, var, s.valor))
+                   for s in r.soluciones)
+    return RZ.Ceros(raices, True)
+
+
+def _ceros_por_radical(g: mx.Expr, var: str):
+    """x^(p/q) and ⁿ√x only: x = tⁿ (n = lcm of the indices, odd) turns g into a
+    rational function of t, whose zeros are complete and exact; x = tⁿ is a
+    bijection of ℝ for odd n."""
+    indices: set[int] = set()
+
+    def busca(n):
+        if isinstance(n, mx.Root) and n.radicand == mx.Sym(var):
+            indices.add(n.degree)
+        elif isinstance(n, mx.Pow) and n.base == mx.Sym(var):
+            k = mx.exact_value(n.exponent)
+            if k is None:
+                raise ValueError
+            indices.add(Fraction(k).denominator)
+        elif isinstance(n, mx.Call) and n.name in ("raiz", "sqrt") and n.args[0] == mx.Sym(var):
+            indices.add(2 if n.name == "sqrt" else int(mx.exact_value(n.args[1]) or 0))
+        elif isinstance(n, (mx.Root, mx.Pow, mx.Call)) or not isinstance(
+                n, (mx.Add, mx.Sub, mx.Mul, mx.Div, mx.Neg, mx.Num, mx.Sym, mx.Const)):
+            for h in _hijos(n):
+                busca(h)
+            if isinstance(n, mx.Call) and n.name not in ("raiz", "sqrt"):
+                raise ValueError
+        else:
+            for h in _hijos(n):
+                busca(h)
+
+    try:
+        busca(g)
+    except (ValueError, TypeError):
+        return None
+    n = 1
+    for k in indices:
+        if k <= 0:
+            return None
+        n = n * k // math.gcd(n, k)
+    if n == 1 or n % 2 == 0:
+        return None
+    t = mx.Sym("_t" if var != "_t" else "_u")
+
+    def cambia(e):
+        if e == mx.Sym(var):
+            return mx.Pow(t, mx.Num(Fraction(n)))
+        if isinstance(e, mx.Root) and e.radicand == mx.Sym(var):
+            return mx.Pow(t, mx.Num(Fraction(n, e.degree)))
+        if isinstance(e, mx.Call) and e.name in ("raiz", "sqrt") and e.args[0] == mx.Sym(var):
+            k = 2 if e.name == "sqrt" else int(mx.exact_value(e.args[1]))
+            return mx.Pow(t, mx.Num(Fraction(n, k)))
+        if isinstance(e, mx.Pow) and e.base == mx.Sym(var):
+            return mx.Pow(t, mx.Num(Fraction(mx.exact_value(e.exponent)) * n))
+        if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+            return type(e)(cambia(e.left), cambia(e.right))
+        if isinstance(e, mx.Neg):
+            return mx.Neg(cambia(e.arg))
+        if isinstance(e, mx.Pow):
+            return mx.Pow(cambia(e.base), cambia(e.exponent))
+        if isinstance(e, mx.Root):
+            return mx.Root(e.degree, cambia(e.radicand))
+        if isinstance(e, mx.Call):
+            return mx.Call(e.name, tuple(cambia(a) for a in e.args))
+        return e
+
+    from academic_core.domain.engineering.mathlab import multiple as MI
+
+    try:
+        c = RZ.ceros(MI._racional(cambia(g)), t.name)
+    except Exception:  # noqa: BLE001
+        return None
+    if not c.completo:
+        return None
+    raices = []
+    for r in c.raices:
+        x = r.x ** n
+        if _valor(g, var, x) is None:
+            continue
+        if r.exacta:
+            raices.append(RZ.Raiz(_limpio(mx.Pow(r.valor, mx.Num(Fraction(n)))), x,
+                                  r.multiplicidad, True))
+        else:   # t = ∛2 is not exact but x = t³ = 2 may be
+            raices.append(_exactifica(g, var, RZ.Raiz(mx.Num(Fraction(x)), x,
+                                                      r.multiplicidad, False)))
+    return RZ.Ceros(tuple(raices), True)
+
+
+def _terminos(e: mx.Expr, var: str):
+    """g as Σ c·∏ bᵢ^qᵢ with rational qᵢ; bases are kept whole (by text)."""
+    if isinstance(e, mx.Add):
+        return _terminos(e.left, var) + _terminos(e.right, var)
+    if isinstance(e, mx.Sub):
+        return _terminos(e.left, var) + [(-c, m) for c, m in _terminos(e.right, var)]
+    if isinstance(e, mx.Neg):
+        return [(-c, m) for c, m in _terminos(e.arg, var)]
+    if isinstance(e, mx.Mul):
+        a, b = _terminos(e.left, var), _terminos(e.right, var)
+        if len(a) * len(b) > 64:
+            raise ValueError
+        salida = []
+        for ca, ma in a:
+            for cb, mb in b:
+                m = dict(ma)
+                for k, (base, q) in mb.items():
+                    m[k] = (base, m[k][1] + q) if k in m else (base, q)
+                salida.append((ca * cb, m))
+        return salida
+    if isinstance(e, mx.Div):
+        d = _terminos(e.right, var)
+        if len(d) != 1:
+            return [(c, m) for c, m in _terminos(mx.Mul(e.left, mx.Pow(e.right, mx.Num(Fraction(-1)))),
+                                                    var)] if mx.depends(e.right, var) else _escala(
+                _terminos(e.left, var), e.right)
+        cd, md = d[0]
+        inv = {k: (b, -q) for k, (b, q) in md.items()}
+        return [(c / cd, {**m, **{k: (inv[k][0], (m[k][1] if k in m else 0) + inv[k][1])
+                                  for k in inv}}) for c, m in _terminos(e.left, var)]
+    if not mx.depends(e, var):
+        v = mx.exact_value(e)
+        if v is None:
+            raise ValueError
+        return [(Fraction(v), {})]
+    if isinstance(e, mx.Pow):
+        q = mx.exact_value(e.exponent)
+        if q is None:
+            raise ValueError
+        q = Fraction(q)
+        if isinstance(e.base, (mx.Pow, mx.Root)):
+            interior = _terminos(e.base, var)
+            if len(interior) == 1 and interior[0][0] == 1:
+                return [(Fraction(1), {k: (b, r * q) for k, (b, r) in interior[0][1].items()})]
+        if q.denominator == 1 and q > 0 and isinstance(e.base, (mx.Add, mx.Sub)):
+            pass
+        return [(Fraction(1), {mx.text(e.base): (e.base, q)})]
+    if isinstance(e, mx.Root):
+        return [(Fraction(1), {mx.text(e.radicand): (e.radicand, Fraction(1, e.degree))})]
+    if isinstance(e, mx.Call) and e.name in ("sqrt",):
+        return [(Fraction(1), {mx.text(e.args[0]): (e.args[0], Fraction(1, 2))})]
+    if isinstance(e, mx.Call):
+        raise ValueError
+    return [(Fraction(1), {mx.text(e): (e, Fraction(1))})]
+
+
+def _escala(terminos, d):
+    v = mx.exact_value(d)
+    if v is None or v == 0:
+        raise ValueError
+    return [(c / Fraction(v), m) for c, m in terminos]
+
+
+def _ceros_por_factor_comun(g: mx.Expr, var: str):
+    """Σ c·∏ bᵢ^qᵢ: sacando ∏ bᵢ^(min qᵢ) queda un polinomio en las bases (exponentes
+    enteros ≥ 0). Ceros de g = ceros de ese resto ∪ ceros de las bases con
+    exponente común > 0, siempre donde g está definida."""
+    try:
+        terminos = _terminos(g, var)
+    except (ValueError, ZeroDivisionError, TypeError):
+        return None
+    if len(terminos) < 2:
+        return None
+    claves = {k for _, m in terminos for k in m}
+    bases = {k: next(m[k][0] for _, m in terminos if k in m) for k in claves}
+    minimo = {k: min((m[k][1] if k in m else Fraction(0)) for _, m in terminos) for k in claves}
+    if all(q == 0 for q in minimo.values()):
+        return None
+    resto = None
+    for c, m in terminos:
+        t: mx.Expr = mx.Num(c)
+        for k in claves:
+            q = (m[k][1] if k in m else Fraction(0)) - minimo[k]
+            if q.denominator != 1:
+                return None
+            if q:
+                t = mx.Mul(t, mx.Pow(bases[k], mx.Num(q)))
+        resto = t if resto is None else mx.Add(resto, t)
+    try:
+        partes = [RZ.ceros(_limpio(resto), var)]
+        for k, q in minimo.items():
+            if q > 0 and mx.depends(bases[k], var):
+                partes.append(RZ.ceros(bases[k], var))
+    except Exception:  # noqa: BLE001
+        return None
+    puntos, completo, avisos = _une_raices(partes)
+    if not completo:
+        return None
+    raices = tuple(r for r in puntos
+                   if (v := _valor(g, var, r.x)) is not None and abs(v) < 1e-9)
+    return RZ.Ceros(raices, True)
+
+
+def _exactifica(g, var, r):
+    """A decimal zero that is really 0, a rational, a + b√r, q·π, ln q or e^q,
+    accepted only when substituting it annuls g exactly."""
+    if r.exacta:
+        return r
+    from academic_core.domain.engineering.mathlab import ecuacion_general as EG
+
+    try:
+        e = EG.exactifica(g, var, r.x)
+    except Exception:  # noqa: BLE001
+        e = None
+    return r if e is None else RZ.Raiz(e, r.x, r.multiplicidad, True)
+
+
+def _ceros_por_rolle(g: mx.Expr, var: str):
+    """Rolle: between consecutive zeros of g′ (all of them, exact) g is strictly
+    monotone, so each piece holds at most one zero, present iff g changes sign
+    between its ends (limits at ±∞). Gives the COMPLETE list for g defined and
+    differentiable on all of ℝ, e.g. atan(x) − x/2."""
+    from academic_core.domain.engineering.mathlab import limite as LM
+
+    if any(mx.depends(h, var) for h in _fronteras(g)):
+        return None
+    try:
+        dg = _limpio(DM_differentiate(g, var))
+        cd = RZ.ceros(dg, var)
+        if not cd.completo:
+            cd = _ceros_exactos(dg, var, rolle=False)
+    except Exception:  # noqa: BLE001
+        return None
+    if not cd.completo or any(_valor(dg, var, r.x) is None for r in cd.raices):
+        return None
+
+    def extremo(signo):
+        try:
+            r = LM.limite(g, var, "oo" if signo > 0 else "-oo")
+            if r.valor == "+∞":
+                return math.inf
+            if r.valor == "−∞":
+                return -math.inf
+            v = None if r.expr is None else mx.valor_real(r.expr, {})
+            return None if v is None else float(v)
+        except Exception:  # noqa: BLE001
+            return None
+
+    puntos = sorted(cd.raices, key=lambda r: r.x)
+    xs = [None] + [r.x for r in puntos] + [None]
+    raices: list[RZ.Raiz] = []
+    for r in puntos:
+        v = _valor(g, var, r.x)
+        if v is not None and abs(v) < 1e-13:
+            raices.append(RZ.Raiz(r.valor, r.x, 2, r.exacta))
+    for a, b in zip(xs, xs[1:]):
+        ga = extremo(-1) if a is None else _valor(g, var, a)
+        gb = extremo(1) if b is None else _valor(g, var, b)
+        if ga is None or gb is None:
+            return None
+        if ga == 0 or gb == 0 or (ga > 0) == (gb > 0):
+            continue
+        lo = a if a is not None else (b if b is not None else 0.0) - 1.0
+        while a is None and (_valor(g, var, lo) or 0) * gb > 0:
+            lo = lo * 2 - 1 if lo < 0 else -1.0
+        hi = b if b is not None else (lo + 1.0)
+        while b is None and (_valor(g, var, hi) or 0) * (ga) > 0:
+            hi = hi * 2 + 1 if hi > 0 else 1.0
+        flo = _valor(g, var, lo)
+        for _ in range(200):
+            m = (lo + hi) / 2
+            fm = _valor(g, var, m)
+            if fm is None:
+                return None
+            if fm == 0:
+                lo = hi = m
+                break
+            if (fm > 0) == (flo > 0):
+                lo, flo = m, fm
+            else:
+                hi = m
+        x = (lo + hi) / 2
+        cerca = next((r for r in base_exactas(g, var) if abs(r.x - x) < 1e-9), None)
+        raices.append(cerca or RZ.Raiz(mx.Num(Fraction(x)), x, 1, False))
+    return RZ.Ceros(tuple(sorted(raices, key=lambda r: r.x)), True)
+
+
+def base_exactas(g, var):
+    try:
+        return [r for r in RZ.ceros(g, var).raices if r.exacta]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def DM_differentiate(g, var):
+    from academic_core.domain.engineering.mathlab import derive_mv as DM
+
+    return DM.differentiate(g, var)
+
+
+def _sin_repetir(raices) -> list[RZ.Raiz]:
+    vistos: dict[float, RZ.Raiz] = {}
+    for r in raices:
+        vistos.setdefault(round(r.x, 9), r)
+    return list(vistos.values())
+
+
+def _singulares(g: mx.Expr, var: str, dom: Dominio) -> list[RZ.Raiz]:
+    """Points of the domain of f where g (f′ or f″) is not defined: the sign
+    chart of g must also be cut there (x^(2/3) at 0)."""
+    salida = []
+    for h in _fronteras(g):
+        if not mx.depends(h, var):
+            continue
+        try:
+            c = RZ.ceros(h, var)
+        except Exception:  # noqa: BLE001
+            continue
+        for r in c.raices:
+            if dom.contiene(r.x) and _valor(g, var, r.x) is None:
+                salida.append(r)
+    return salida
+
+
 def _tabla(g: mx.Expr, var: str, dom: Dominio) -> tuple[list[TramoSigno], list[RZ.Raiz], bool,
                                                          list[str]]:
     """Sign of g on the pieces of the domain cut at the zeros of g."""
-    ceros = RZ.ceros(g, var)
+    ceros = _ceros_exactos(g, var)
     corte, completo, avisos = _une_raices([ceros])
+    singulares = _singulares(g, var, dom)
     salida = []
     for t in dom.tramos:
-        dentro = [r for r in corte if (t.a is None or r.x > t.a.x) and (t.b is None or r.x < t.b.x)]
+        dentro = [r for r in sorted(list(corte) + [q for q in singulares if all(
+            abs(q.x - c.x) > 1e-12 for c in corte)], key=lambda r: r.x) if (t.a is None or r.x > t.a.x) and (t.b is None or r.x < t.b.x)]
         bordes = [t.a] + dentro + [t.b]
         for i, (a, b) in enumerate(zip(bordes, bordes[1:])):
             pieza = Tramo(a, b, t.cerrado_a and i == 0, t.cerrado_b and i == len(bordes) - 2)
@@ -254,7 +620,14 @@ class Punto:
 
 def _f_en(e: mx.Expr, var: str, r: RZ.Raiz) -> mx.Expr:
     if r.exacta:
-        return _limpio(mx.substitute(e, var, r.valor))
+        from academic_core.domain.engineering.mathlab import multiple as MI
+
+        v = _limpio(mx.substitute(e, var, r.valor))
+        try:
+            w = MI._limpio(v)
+            return w if len(mx.text(w)) <= len(mx.text(v)) else v
+        except Exception:  # noqa: BLE001
+            return v
     return mx.Num(Fraction(_valor(e, var, r.x) or 0))
 
 
@@ -327,7 +700,7 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
     # intercepts
     if dom.contiene(0.0):
         est.cortes.append(f"eje Y en (0, {mx.text(_limpio(mx.substitute(e, var, mx.Num(Fraction(0)))))})")
-    ceros = RZ.ceros(e, var)
+    ceros = _ceros_exactos(e, var)
     for r in ceros.raices:
         if dom.contiene(r.x):
             est.cortes.append(f"eje X en ({_texto_punto(r)}, 0)")
@@ -383,7 +756,7 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
     for ts in tabla:
         (est.crece if ts.signo > 0 else est.decrece if ts.signo < 0 else []).append(
             ts.tramo.texto())
-    for r in criticos:
+    for r in _sin_repetir(list(criticos) + _singulares(d1, var, dom)):
         if not dom.contiene(r.x):
             continue
         antes = next((ts.signo for ts in tabla if ts.tramo.b is not None
@@ -406,7 +779,7 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
     for ts in tabla2:
         (est.concava_arriba if ts.signo > 0 else est.concava_abajo if ts.signo < 0 else []).append(
             ts.tramo.texto())
-    for r in puntos2:
+    for r in _sin_repetir(list(puntos2) + _singulares(d2, var, dom)):
         if not dom.contiene(r.x):
             continue
         antes = next((ts.signo for ts in tabla2 if ts.tramo.b is not None
@@ -568,9 +941,9 @@ def desigualdad(g: mx.Expr, var: str, operador: str, trace: Trace | None = None)
         if ts.signo != quiere:
             continue
         t = ts.tramo
-        ca = t.cerrado_a or (con_igual and t.a is not None and _valor(g, var, t.a.x) == 0
+        ca = t.cerrado_a or (con_igual and t.a is not None and abs(_valor(g, var, t.a.x)) < 1e-12
                              if t.a is not None and _valor(g, var, t.a.x) is not None else False)
-        cb = t.cerrado_b or (con_igual and t.b is not None and _valor(g, var, t.b.x) == 0
+        cb = t.cerrado_b or (con_igual and t.b is not None and abs(_valor(g, var, t.b.x)) < 1e-12
                              if t.b is not None and _valor(g, var, t.b.x) is not None else False)
         # a closed end must still satisfy the inequality
         if ca and t.a is not None:
@@ -593,7 +966,16 @@ def desigualdad(g: mx.Expr, var: str, operador: str, trace: Trace | None = None)
             dentro = any((t.a is None or t.a.x < r.x or (t.cerrado_a and abs(t.a.x - r.x) < 1e-12))
                          and (t.b is None or r.x < t.b.x or (t.cerrado_b and abs(t.b.x - r.x) < 1e-12))
                          for t in tramos)
-            if not dentro:
+            if dentro:
+                continue
+            for i, t in enumerate(tramos):     # a zero at an open end closes that end
+                if t.a is not None and abs(t.a.x - r.x) < 1e-12:
+                    tramos[i] = t = Tramo(t.a, t.b, True, t.cerrado_b)
+                    break
+                if t.b is not None and abs(t.b.x - r.x) < 1e-12:
+                    tramos[i] = Tramo(t.a, t.b, t.cerrado_a, True)
+                    break
+            else:
                 puntos.append(r)
     trace.regla("inecuacion.signos", "signo de g en cada tramo entre ceros y bordes del dominio",
                 why="g continua en cada tramo y sin ceros dentro: no cambia de signo")

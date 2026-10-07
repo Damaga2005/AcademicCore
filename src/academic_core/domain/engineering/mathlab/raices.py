@@ -344,6 +344,21 @@ def ceros(e: mx.Expr, var: str, ventana: tuple[float, float] = (-VENTANA, VENTAN
         if num is not None and den is not None:
             r = raices_polinomio(num)
             return _filtra(r, e, var)
+    if _sin_ceros(e, var):
+        return Ceros((), True)
+    if isinstance(e, mx.Neg):
+        return ceros(e.arg, var, ventana)
+    if isinstance(e, (mx.Mul, mx.Div)):
+        # a product vanishes where a factor does (and the product is defined there);
+        # the denominator of a quotient contributes no zeros
+        partes = (e.left, e.right) if isinstance(e, mx.Mul) else (e.left,)
+        partes = tuple(f for f in partes if mx.depends(f, var) and not _sin_ceros(f, var))
+        if not partes:
+            return Ceros((), True)
+        acumulado = Ceros((), True)
+        for f in partes:
+            acumulado = _une(acumulado, ceros(f, var, ventana))
+        return _filtra(acumulado, e, var)
     trozos = _por_trozos(e, var, ventana)
     if trozos is not None:
         return trozos
@@ -417,7 +432,12 @@ def _por_trozos(e: mx.Expr, var: str, ventana) -> Ceros | None:
             liso = _sin_valor_absoluto(e, var, x)
         except Exception:  # noqa: BLE001
             return None
-        trozo = ceros(liso, var, ventana)
+        try:
+            trozo = ceros(liso, var, ventana)
+        except UnsupportedError:
+            # identically 0 on the whole piece: no isolated zero there
+            partes.append(Ceros((), True, (f"«{mx.text(e)}» es idénticamente 0 en un tramo",)))
+            continue
         dentro = tuple(r for r in trozo.raices
                        if (a is None or r.x > a + 1e-12) and (b is None or r.x < b - 1e-12))
         partes.append(Ceros(dentro, trozo.completo, trozo.avisos))
@@ -447,7 +467,7 @@ def _por_atomos(e: mx.Expr, var: str, ventana) -> Ceros | None:
     textos = {a: P.atom_text(a) for a in atomos}
     # never-vanishing atoms: exp(...)
     for a in list(atomos):
-        if textos[a].startswith("exp("):
+        if P.es_llamada(textos[a], "exp"):
             minimo = min(dict(m).get(a, 0) for m in p)
             if minimo > 0:
                 p = {tuple((n, k - minimo) if n == a else (n, k) for n, k in m if
@@ -587,6 +607,31 @@ def _igual_a(g: mx.Expr, K: mx.Expr, var: str, ventana) -> Ceros:
         x = (-float(b) + sgn * math.sqrt(dv)) / (2 * float(a))
         salida.append(Raiz(expr, x))
     return Ceros(tuple(sorted(salida, key=lambda r: r.x)), True)
+
+
+def _sin_ceros(e: mx.Expr, var: str) -> bool:
+    """Factors that never vanish: e^u, c^u with c > 0, 1/u, cosh u, nonzero constants."""
+    if not mx.depends(e, var):
+        v = mx.valor_real(e, {})
+        return v is not None and v != 0
+    if isinstance(e, mx.Call) and e.name in ("exp", "cosh"):
+        return True
+    if isinstance(e, mx.Neg):
+        return _sin_ceros(e.arg, var)
+    if isinstance(e, mx.Pow):
+        k = mx.exact_value(e.exponent)
+        if k is not None and k < 0:
+            return True
+        if not mx.depends(e.base, var):
+            v = mx.valor_real(e.base, {})
+            return v is not None and v > 0
+        if k is not None and k > 0:
+            return _sin_ceros(e.base, var)
+    if isinstance(e, mx.Div):
+        return _sin_ceros(e.left, var)
+    if isinstance(e, mx.Mul):
+        return _sin_ceros(e.left, var) and _sin_ceros(e.right, var)
+    return False
 
 
 def _por_factores(e: mx.Expr, var: str, ventana) -> Ceros:

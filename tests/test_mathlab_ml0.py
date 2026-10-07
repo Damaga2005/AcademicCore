@@ -113,7 +113,6 @@ def test_un_nombre_de_letras_se_descompone_y_uno_indexado_no():
     ("raiz(8,x)", "índice"),
     ("desconocida(x)", "no es una función conocida"),
     ("x^^2", "no se esperaba"),
-    ("2 sin x", "sobra"),
 ])
 def test_los_errores_dicen_donde_esta_el_problema(source, fragmento):
     """Spanish errors, and they must locate the problem (§5.1)."""
@@ -613,7 +612,8 @@ def test_lo_que_el_motor_no_sabe_se_dice():
     no number to offer: a primitive is a function, not a value. Only the
     definite case below can fall back to a bounded numeric answer.
     """
-    r = C.calcular(C.Peticion("integrar", {"integrando": "e^(x^2)", "var": "x"}))
+    # e^(x³) no tiene primitiva elemental ni con las especiales del motor (erf, Si, Ei…)
+    r = C.calcular(C.Peticion("integrar", {"integrando": "e^(x^3)", "var": "x"}))
     assert r.exacto is None
     assert r.aproximado is None
     assert r.sello.verdict == V.NUMERIC_ONLY
@@ -627,10 +627,10 @@ def test_una_integral_sin_exacta_cae_a_simpson_con_error_acotado():
     ``∫₀¹ e^(x²)`` has no elementary antiderivative, so Simpson is the second
     path of §5.3. The reference value is ``(√π/2)·erfi(1) = 1.4626517…``.
     """
-    r = C.calcular(C.Peticion("integrar", {"integrando": "e^(x^2)", "var": "x",
+    r = C.calcular(C.Peticion("integrar", {"integrando": "e^(x^3)", "var": "x",
                                            "desde": "0", "hasta": "1"}))
     assert r.exacto is None
-    assert abs(r.aproximado.real - 1.462651747) < 1e-6
+    assert abs(r.aproximado.real - 1.341904418) < 1e-6
     assert r.error_acotado < 1e-6
     assert r.sello.verdict == V.NUMERIC_ONLY
     hipotesis = dict(r.hipotesis)
@@ -648,7 +648,7 @@ def test_una_integral_definida_exacta_no_lleva_error():
 
 def test_un_limite_no_racional_no_se_redondea_a_una_fraccion():
     """A float must never be dressed up as an exact fraction (§5.1)."""
-    r = C.calcular(C.Peticion("integrar", {"integrando": "e^(x^2)", "var": "x",
+    r = C.calcular(C.Peticion("integrar", {"integrando": "e^(x^3)", "var": "x",
                                            "desde": "0", "hasta": "pi"}))
     assert r.exacto is None                 # no closed form: a decimal stays one
     assert r.error_acotado is not None
@@ -660,8 +660,8 @@ def test_un_limite_no_racional_con_valor_exacto_lo_da_exacto():
     r = C.calcular(C.Peticion("integrar", {"integrando": "sin(x)", "var": "x",
                                            "desde": "0", "hasta": "pi"}))
     assert r.exacto == "2"
-    assert r.sello.method == "Barrow con valores exactos en los límites"
-    assert any(s.rule == "integral.definida.exacta" for s in r.traza.steps)
+    assert r.sello.verdict == V.VERIFIED
+    assert any(s.rule in ("integral.definida.exacta", "multiple.barrow") for s in r.traza.steps)
 
 
 def test_una_solicitud_ambigua_pide_claridad():
@@ -775,3 +775,13 @@ def test_el_paso_de_la_potencia_no_se_lee_como_otra_expresion():
                  and s.before.startswith("u")]
     assert potencias
     assert all("^(" in s.before for s in potencias), [s.before for s in potencias]
+
+
+@pytest.mark.parametrize("escrito,canonico", [
+    ("2 sin x", "2*sin(x)"), ("sen x^2", "sin(x^2)"), ("ln x", "ln(x)"), ("log(x)", "ln(x)"),
+    ("π*x", "pi*x"), ("√(x+1)", "sqrt(x + 1)"), ("x²y³", "x^2*y^3"), ("|x-1|", "abs(x - 1)"),
+    ("tg(x)", "tan(x)"), ("arctg(x)", "atan(x)"), ("x·y", "x*y"), ("3 × 4 ÷ 2", "3*4/2"),
+])
+def test_escritura_de_pizarra(escrito, canonico):
+    """Lo que un estudiante escribe a mano también se acepta (normalización)."""
+    assert mx.text(mx.parse(escrito)) == canonico

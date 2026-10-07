@@ -296,6 +296,25 @@ def _polinomio(arg: str, var: str):
     return e, p
 
 
+def _lineal_exacto(arg: str, var: str) -> tuple[Fraction, mx.Expr] | None:
+    """arg = a·t + c con a racional ≠ 0 y c constante exacta cualquiera (t − π)."""
+    from academic_core.domain.engineering.mathlab import derive_mv as DM
+    from academic_core.domain.engineering.mathlab import limite as LM
+
+    try:
+        e = mx.parse(arg)
+        if set(mx.variables(e)) - {var}:
+            return None
+        a = LM._limpio(DM.differentiate(e, var))
+        c = LM._limpio(mx.substitute(e, var, mx.num(Fraction(0))))
+    except Exception:  # noqa: BLE001
+        return None
+    av = mx.exact_value(a)
+    if av is None or av == 0 or mx.variables(c) or mx.valor_real(c, {}) is None:
+        return None
+    return Fraction(av), c
+
+
 def _lineal(p, var: str) -> tuple[Fraction, Fraction] | None:
     a, c = Fraction(0), Fraction(0)
     for mono, coef in p.items():
@@ -325,6 +344,11 @@ def _raices_reales(p, var: str, arg: str) -> list[tuple[Punto, int]]:
 
 def _positivo(e: mx.Expr, var: str, arg: str) -> list[tuple[Punto | None, Punto | None]]:
     """The open intervals where the polynomial is > 0 — sign tested between roots."""
+    general = _lineal_exacto(arg, var)
+    if general is not None:
+        a, c = general
+        t0 = Punto(_limpio(mx.Div(mx.Neg(c), mx.num(a))))
+        return [(t0, None)] if a > 0 else [(None, t0)]
     _, p = _polinomio(arg, var)
     raices = [r for r, _ in _raices_reales(p, var, arg)]
     if not mx.variables(e):
@@ -364,7 +388,7 @@ def _interseca(A, B):
 
 
 def _escalon_en(arg: str, var: str, t0: Punto, u0: Fraction | None) -> Fraction:
-    e, _ = _polinomio(arg, var)
+    e = mx.parse(arg) if _lineal_exacto(arg, var) is not None else _polinomio(arg, var)[0]
     v = mx.valor_real(e, {var: t0.x})
     g_exacto = mx.exact_value(mx.substitute(e, var, t0.expr))
     if g_exacto == 0 or (g_exacto is None and v is not None and abs(v) < 1e-12):
@@ -491,18 +515,26 @@ def leer(texto: str, var: str = "t", trace: Trace | None = None,
         if delta is None:
             zonas = [(None, None)]
             for arg in escalones:
-                e, _ = _polinomio(arg, var)
+                e = (mx.parse(arg) if _lineal_exacto(arg, var) is not None
+                     else _polinomio(arg, var)[0])
                 zonas = _interseca(zonas, _positivo(e, var, arg))
             piezas.extend(Tramo(a, b, coef) for a, b in zonas)
             continue
         arg, k = delta
         if k > MAX_ORDEN:
             raise _no(f"δ de orden {k} > {MAX_ORDEN}")
-        e, p = _polinomio(arg, var)
-        lineal = _lineal(p, var)
+        general = _lineal_exacto(arg, var)
+        if general is not None:
+            a, c = general
+            lineal = (a, c)
+            t0 = Punto(_limpio(mx.Div(mx.Neg(c), mx.num(a))))
+        else:
+            e, p = _polinomio(arg, var)
+            lineal = _lineal(p, var)
+            if lineal is not None:
+                a, c = lineal
+                t0 = Punto(-c / a)
         if lineal is not None:
-            a, c = lineal
-            t0 = Punto(-c / a)
             base = [Impulso(t0, mx.num(Fraction(1) / (a ** k * abs(a))), k)]
             if a != 1:
                 trace.regla("delta.escala",
