@@ -1143,6 +1143,8 @@ def conjunto_critico(f: mx.Expr, vars: list[str], trace: Trace | None = None):
         clase = "depende del tramo: " + "; ".join(
             f"{c_} p. ej. en {', '.join(ps[:3])}" for c_, ps in clases.items())
     exacta = _clase_exacta(f, vars, h, valores, trace)
+    if exacta is None:
+        exacta = _clase_por_nivel(f, vars, muestras, trace)
     if exacta is not None:
         clase = exacta
     else:
@@ -1195,6 +1197,155 @@ def _clase_por_composicion(f, vars, h, c, trace) -> str | None:
                             why="f solo depende de w: su clase en la curva es la de φ en w₀")
                 _ = he
                 return clase + f" (exacto: f = φ({mx.text(w)}), φ″ = {mx.text(d2)})"
+    return None
+
+
+def criticos_composicion(f: mx.Expr, vars: list[str], trace: Trace | None = None):
+    """f = φ(w) con w polinómica y φ de una variable (sen, exp, …): ∇f = φ′(w)·∇w,
+    luego los críticos son ∇w = 0 (puntos, por Gröbner) y los conjuntos de nivel
+    w = w₀ con φ′(w₀) = 0 (curvas enteras), clasificadas por el signo de φ″(w₀)."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+    from academic_core.domain.engineering.mathlab import raices as RZ
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    trace = trace if trace is not None else Trace()
+    W = "w__"
+    for w in _subexpresiones(f, set(vars)):
+        phi = _reemplaza(f, w, mx.Sym(W))
+        if mx.variables(phi) - {W} or not mx.depends(phi, W):
+            continue
+        try:
+            S.a_polinomio(w, list(vars), Trace())
+        except Exception:  # noqa: BLE001
+            continue
+        d1 = MI._limpio(_d(phi, W, Trace()))
+        d2 = MI._limpio(_d(d1, W, Trace()))
+        trace.regla("mv.composicion", f"f = φ(w) con w = {mx.text(w)}, φ(W) = "
+                    f"{mx.text(mx.substitute(phi, W, mx.Sym('W')))}: ∇f = φ′(w)·∇w",
+                    why="regla de la cadena: ∇f = 0 ⇔ ∇w = 0 o φ′(w) = 0")
+        gw = [_d(w, v, trace) for v in vars]
+        pts = []
+        if any(mx.variables(g) for g in gw) or True:
+            try:
+                sols = S.resolver(gw, list(vars), trace)
+            except UnsupportedError:
+                sols = None
+            if sols is None:
+                continue
+            for s_ in sols:
+                punto = tuple(_coord(s_[v]) for v in vars)
+                pts.append((punto, _clasifica(f, vars, punto, trace)))
+        ceros = RZ.ceros(mx.substitute(d1, W, mx.Sym("w")), "w")
+        curvas = []
+        aislados_w = []
+        for punto, _ in pts:
+            env = dict(zip(vars, (mx.Num(c) if isinstance(c, Fraction) else
+                                  c if isinstance(c, mx.Expr) else mx.Num(Fraction(c))
+                                  for c in punto)))
+            try:
+                cl = _clasifica(w, vars, punto, Trace())
+            except Exception:  # noqa: BLE001
+                continue
+            if cl.startswith(("mínimo", "máximo")) and "no estricto" not in cl:
+                aislados_w.append(mx.valor_real(_sustituye_todo(w, env), {}))
+        for r in sorted(ceros.raices, key=lambda r: (abs(r.x), r.x)):
+            if not r.exacta:
+                continue
+            if any(a is not None and abs(a - r.x) < 1e-12 for a in aislados_w):
+                continue        # el nivel es un único punto (extremo de w), ya listado
+            # ¿alcanza w el valor w₀ en ℝⁿ? se busca un punto real del nivel
+            nivel = MI._limpio(mx.Sub(w, r.valor))
+            alcanza = False
+            for c in (0, 1, -1, 2, -2):
+                g = nivel
+                for v in vars[:-1]:
+                    g = mx.substitute(g, v, mx.Num(c))
+                try:
+                    cs = RZ.ceros(MI._limpio(g), vars[-1])
+                except Exception:  # noqa: BLE001
+                    continue
+                if cs.raices:
+                    alcanza = True
+                    break
+            if not alcanza:
+                continue
+            v2 = mx.valor_real(MI._limpio(mx.substitute(d2, W, r.valor)), {})
+            clase = ("ni máximos ni mínimos" if v2 is None or abs(v2) < 1e-12 and False else
+                     "máximos (no estrictos)" if v2 < -1e-12 else
+                     "mínimos (no estrictos)" if v2 > 1e-12 else "φ″(w₀) = 0: clase sin decidir")
+            curvas.append(Curva(nivel, [MI._limpio(mx.substitute(phi, W, r.valor))],
+                                clase + " (exacto: signo de φ″ en el nivel)"))
+            if len(curvas) >= 6:
+                break
+        if not ceros.completo:
+            trace.regla("mv.composicion_periodica", "; ".join(ceros.avisos) +
+                        ": se listan los primeros niveles alcanzados por w",
+                        why="φ′ periódica: hay infinitos niveles críticos")
+        return pts, curvas, (not ceros.completo)
+    raise _no("f no es composición φ(w) con w polinómica")
+
+
+def _clase_por_nivel(f, vars, muestras, trace) -> str | None:
+    """f = φ(w) (∇f ∥ ∇w idénticamente) con w polinómica: en un punto crítico de la
+    curva φ′(w₀) = 0, luego ∂²f/∂v² = φ″(w₀)·(∂w/∂v)² y el signo de φ″ sale exacto."""
+    from academic_core.domain.engineering.mathlab import multiple as MI
+    from academic_core.domain.engineering.mathlab import sistemas as S
+
+    if len(vars) < 2:
+        return None
+    pruebas = [[0.37 * (i + 1) * (-1) ** (i + j) + 0.11 * j for i in range(len(vars))]
+               for j in range(6)]
+    for w in _subexpresiones(f, set(vars)):
+        try:
+            S.a_polinomio(w, list(vars), Trace())
+        except Exception:  # noqa: BLE001
+            continue
+        if not all(mx.variables(w) >= {v} for v in vars):
+            continue
+        gf = [_d(f, v, Trace()) for v in vars]
+        gw = [_d(w, v, Trace()) for v in vars]
+        paralelo = True
+        for i in range(len(vars)):
+            for j in range(i + 1, len(vars)):
+                cruz = mx.Sub(mx.Mul(gf[i], gw[j]), mx.Mul(gf[j], gw[i]))
+                for punto_ in pruebas:
+                    env = dict(zip(vars, punto_))
+                    try:
+                        val = mx.valor_real(cruz, env)
+                    except (ValueError, ZeroDivisionError, OverflowError):
+                        continue
+                    if val is None or abs(val) > 1e-9 * (1 + abs(mx.valor_real(gf[i], env) or 0)):
+                        paralelo = False
+                        break
+                if not paralelo:
+                    break
+            if not paralelo:
+                break
+        if not paralelo:
+            continue
+        clases = []
+        for p in muestras:
+            signo = None
+            for v, dwv in zip(vars, gw):
+                a = MI._limpio(_sustituye_todo(dwv, p))
+                av = mx.valor_real(a, {})
+                if av is None or abs(av) < 1e-12:
+                    continue
+                fvv = MI._limpio(_sustituye_todo(_d(_d(f, v, Trace()), v, Trace()), p))
+                fv = mx.valor_real(fvv, {})
+                if fv is None:
+                    continue
+                signo = 0 if abs(fv) < 1e-12 else (1 if fv > 0 else -1)
+                break
+            if signo is None or signo == 0:
+                break
+            clases.append("mínimos (no estrictos)" if signo > 0 else "máximos (no estrictos)")
+        if len(clases) != len(muestras) or len(set(clases)) != 1:
+            continue
+        trace.regla("mv.curva_composicion", f"f depende solo de w = {mx.text(w)} (∇f ∥ ∇w); "
+                    f"en la curva φ′(w₀) = 0 y ∂²f/∂v² = φ″(w₀)(∂w/∂v)²: {clases[0]}",
+                    why="el signo de φ″ en el nivel crítico decide la clase")
+        return clases[0] + f" (exacto: f = φ({mx.text(w)}), signo de φ″ en la curva)"
     return None
 
 

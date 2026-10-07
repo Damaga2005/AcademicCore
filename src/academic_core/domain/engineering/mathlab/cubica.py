@@ -82,7 +82,9 @@ def raices_cuartica(q: list[Fraction]) -> list[tuple]:
     r = e0 - b * d / 4 + b * b * c / 16 - 3 * b ** 4 / 256
     desp = Q.num(-b / 4)
     if qq == 0:
-        raise _no("cuártica bicuadrada: se factoriza por otro camino")
+        out = _bicuadrada(p, r, desp)
+        _comprueba(q, out)
+        return out
     res = [-qq * qq, 2 * p * p - 8 * r, 8 * p, Fraction(8)]
     from academic_core.domain.engineering.mathlab import algebra as AL
 
@@ -130,6 +132,31 @@ def raices_cuartica(q: list[Fraction]) -> list[tuple]:
             out.append(("par", _bonito(mx.Add(mitad, desp)),
                         _bonito(mx.Div(mx.Root(2, mx.Neg(disc)), mx.Num(2)))))
     _comprueba(q, out)
+    return out
+
+
+def _bicuadrada(p: Fraction, r: Fraction, desp) -> list[tuple]:
+    """y⁴ + py² + r: z = y² cumple z² + pz + r = 0. Con D = p² − 4r ≥ 0, y = ±√z
+    (real si z > 0, ±i√(−z) si z < 0); con D < 0, y = ±a ± ib, a = √((√r − p/2)/2),
+    b = √((√r + p/2)/2) (pues y² tiene parte real −p/2 y módulo √r)."""
+    out: list[tuple] = []
+    D = p * p - 4 * r
+    if D >= 0:
+        for s in (1, -1):
+            z = _bonito(mx.Div(mx.Add(Q.num(-p), mx.Mul(Q.num(s), mx.Root(2, Q.num(D)))),
+                               mx.Num(2)))
+            if (mx.valor_real(z, {}) or 0) > 0:
+                rz = mx.Root(2, z)
+                out.append(("real", _bonito(mx.Add(rz, desp))))
+                out.append(("real", _bonito(mx.Sub(desp, rz))))
+            else:
+                out.append(("par", desp, _bonito(mx.Root(2, mx.Neg(z)))))
+        return out
+    sr = mx.Root(2, Q.num(r))
+    a = _bonito(mx.Root(2, mx.Div(mx.Sub(sr, Q.num(p / 2)), mx.Num(2))))
+    b = _bonito(mx.Root(2, mx.Div(mx.Add(sr, Q.num(p / 2)), mx.Num(2))))
+    out.append(("par", _bonito(mx.Add(a, desp)), b))
+    out.append(("par", _bonito(mx.Sub(desp, a)), b))
     return out
 
 

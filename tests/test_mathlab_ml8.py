@@ -325,3 +325,48 @@ def test_impresion_de_denominador_negado():
     assert mx.text(e) == "x/(-2*t^2)"
     v = mx.valor_real(mx.parse(mx.text(e)), {"x": 1.0, "t": 2.0})
     assert math.isclose(v, -1 / 8)
+
+
+# ---------------------------------------------------------------------------
+# limitaciones resueltas: bicuadrada, curvas por composición, resonancia
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("F", ["1/(s^4+3*s^2+1)", "1/(s^4-2*s^2-1)", "1/(s^4+2)",
+                               "1/(s^4+s^2+2)"])
+def test_laplace_inversa_cuartica_bicuadrada_exacta(F):
+    assert not LP.inversa(F).aproximada
+    res = ML.calcular(ML.Peticion("laplace", {"calculo": "inversa", "F": F}))
+    assert res.sello.verdict == "verificado"
+
+
+def test_caracteristico_bicuadrado_exacto():
+    g = ED.general(ED.leer("y''''+3*y''+y=0"))
+    assert not g.aproximada and "sqrt(5)" in g.texto()
+
+
+@pytest.mark.parametrize("f, clase", [
+    ("(x^2+y^2)*e^(-x^2-y^2)", "máximos (no estrictos) (exacto"),
+    ("(x^2+y^2-1)^2*e^(x^2+y^2)", "mínimos (no estrictos) (exacto"),
+])
+def test_curva_critica_por_composicion(f, clase):
+    from academic_core.domain.engineering.mathlab import mvexpr as mx
+    from academic_core.domain.engineering.mathlab import varias as MV
+
+    _, curvas = MV.conjunto_critico(mx.parse(f), ["x", "y"])
+    assert curvas[0].clase.startswith(clase)
+
+
+def test_criticos_sen_de_cuadratica():
+    res = ML.calcular(ML.Peticion("multivar", {"calculo": "criticos", "expr": "sin(x^2+y^2)",
+                                               "vars": ["x", "y"]}))
+    assert "(0, 0): mínimo" in res.exacto
+    assert "-1/2*pi + x^2 + y^2 = 0: f = 1, máximos" in res.exacto
+    assert "-3/2*pi + x^2 + y^2 = 0: f = -1, mínimos" in res.exacto
+    assert "infinitos niveles" in res.exacto
+
+
+def test_calor_resonancia():
+    r = CO.calor("1", "1", "0", "dirichlet", "e^(-pi^2*t)", "0")
+    assert 1 in r.especiales and "t" in str(r.especiales[1]) or "*t" in r.texto()
+    assert "resonancia" in r.texto()

@@ -670,19 +670,26 @@ def _multivar(peticion: C.Peticion) -> C.Resultado:
                  + f" → {clase}")
     elif calculo == "criticos":
         f_ = _expresion_de(e, "expr", "f")
+        infinitas = False
         try:
             pts = MV.puntos_criticos(f_, vars, trace)
             curvas = []
         except UnsupportedError as exc:
-            if "no están aisladas" not in str(exc):
-                raise
-            pts, curvas = MV.conjunto_critico(f_, vars, trace)
+            if "no están aisladas" in str(exc):
+                pts, curvas = MV.conjunto_critico(f_, vars, trace)
+            else:
+                try:
+                    pts, curvas, infinitas = MV.criticos_composicion(f_, vars, trace)
+                except UnsupportedError:
+                    raise exc from None
         numerico = any(isinstance(c, float) for p, _ in pts for c in p)
         texto = "; ".join([f"({', '.join(MV.texto_coord(c) for c in p)}): {c2}"
                            for p, c2 in pts] + [
             f"todo el conjunto {mx.text(cu.ecuacion)} = 0: f = "
             f"{', '.join(mx.text(v) for v in cu.valores)}, {cu.clase}" for cu in curvas]) \
             or "sin puntos críticos"
+        if infinitas:
+            texto += "; … (infinitos niveles críticos: φ′ es periódica)"
     elif calculo == "taylor2":
         texto = mx.text(MV.taylor2(_expresion_de(e, "expr", "f"), vars,
                                    {str(k): mx.parse(str(v))

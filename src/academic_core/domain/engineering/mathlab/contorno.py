@@ -21,7 +21,7 @@ con cuadratura.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 
 from academic_core.domain.engineering.mathlab import cuasipolinomios as Q
@@ -479,12 +479,20 @@ class CalorGeneral:
     wn: mx.Expr               # coeficiente temporal de cada modo (n, t)
     w0: mx.Expr | None        # término constante (Neumann)
     tipo: str
+    especiales: dict = field(default_factory=dict)   # n resonante → wₙ(t) propio
+
+    def coef(self, k: int) -> mx.Expr:
+        return self.especiales.get(k) or mx.substitute(self.wn, "n", mx.Num(k))
 
     def texto(self) -> str:
         P = mx.text(self.referencia)
         base = f"u(x, t) = {P} + " + (f"{mx.text(self.w0)} + " if self.w0 is not None else "")
-        return (base + f"Σₙ wₙ(t)·{mx.text(self.modo)}; wₙ(t) = {mx.text(self.wn)} "
-                f"({self.tipo}, contorno no homogéneo)")
+        extra = "".join(f"; para n = {k} (resonancia): w_{k}(t) = {mx.text(w)}"
+                        for k, w in sorted(self.especiales.items()))
+        return (base + f"Σₙ wₙ(t)·{mx.text(self.modo)}; wₙ(t) = {mx.text(self.wn)}"
+                + (" (n ≠ " + ", ".join(map(str, sorted(self.especiales))) + ")"
+                   if self.especiales else "") + extra +
+                f" ({self.tipo}, contorno no homogéneo)")
 
 
 def _calor_general(alfa, L, piezas, tipo, A, B, x, trace) -> CalorGeneral:
@@ -536,15 +544,33 @@ def _calor_general(alfa, L, piezas, tipo, A, B, x, trace) -> CalorGeneral:
     cn = _bonito(FO.n_entero(Q.pliega(_bonito(mx.Mul(dosL, total)))))
     # Duhamel en τ: ∫₀ᵗ e^{λτ}Sₙ(τ)dτ
     tau = mx.Sym("tau__")
-    if Q.es_cero(Sn) if not mx.variables(Sn) else False:
-        integral = mx.Num(Fraction(0))
-    else:
-        g = Q.producto(Q.leer(mx.Call("exp", (mx.Mul(lam, tau),)), "tau__"),
-                       Q.leer(mx.substitute(Sn, "ti__", tau), "tau__"))
-        integral = Q.integral_definida(g, mx.Num(0), ti, "tau__")
-    wn = ED._bonito(FO.n_entero(Q.pliega(_bonito(mx.Mul(mx.Call("exp", (mx.Neg(mx.Mul(lam, ti)),)),
-                                                          mx.Add(cn, integral))))))
-    wn = ED._bonito(ED._junta_exp(LP_expande(wn)))
+
+    def duhamel(lam_, Sn_, cn_):
+        if Q.es_cero(Sn_) if not mx.variables(Sn_) else False:
+            integral = mx.Num(Fraction(0))
+        else:
+            g = Q.producto(Q.leer(mx.Call("exp", (mx.Mul(lam_, tau),)), "tau__"),
+                           Q.leer(mx.substitute(Sn_, "ti__", tau), "tau__"))
+            integral = Q.integral_definida(g, mx.Num(0), ti, "tau__")
+        w_ = ED._bonito(FO.n_entero(Q.pliega(_bonito(mx.Mul(
+            mx.Call("exp", (mx.Neg(mx.Mul(lam_, ti)),)), mx.Add(cn_, integral))))))
+        return ED._bonito(ED._junta_exp(LP_expande(w_)))
+    wn = duhamel(lam, Sn, cn)
+    # resonancia: si la fuente contiene e^{−λₖt}, la fórmula general se anula en n = k
+    # (0/0); ese modo se rehace con n = k fijado antes de integrar (aparece t·e^{−λₖt})
+    especiales = {}
+    for kk in range(1, 101):
+        try:
+            val = mx.valor_real(mx.substitute(wn, "n", mx.Num(kk)), {"ti__": 0.37})
+            ok = val is not None and math.isfinite(val)
+        except Exception:  # noqa: BLE001
+            ok = False
+        if not ok:
+            sub = lambda e: _bonito(mx.substitute(e, "n", mx.Num(kk)))  # noqa: E731
+            especiales[kk] = duhamel(sub(lam), sub(Sn), sub(cn))
+            trace.regla("calor.resonancia", f"n = {kk}: la fuente resuena con el modo; "
+                        f"w_{kk}(t) = {mx.text(_a_x(especiales[kk], x))}",
+                        why="λₙ coincide con una tasa de la fuente: Duhamel da t·e^{−λt}")
     w0 = None
     if tipo == "neumann":
         # modo constante: w₀′ = S₀ (media), w₀(0) = media de f − P(x, 0)
@@ -559,7 +585,7 @@ def _calor_general(alfa, L, piezas, tipo, A, B, x, trace) -> CalorGeneral:
                                    "tau__") if mx.variables(S0) or not Q.es_cero(S0) else mx.Num(0)
         w0 = _bonito(mx.Add(c0, prim))
     r = CalorGeneral(_a_x(P, x), _a_x(modo, x), _a_x(wn, x), _a_x(w0, x) if w0 is not None else None,
-                     tipo)
+                     tipo, {k_: _a_x(v_, x) for k_, v_ in especiales.items()})
     _verifica_calor_general(r, alfa, L, A, B, piezas, lam, S, modo, x, trace)
     return r
 
@@ -584,7 +610,7 @@ def _verifica_calor_general(r, alfa, L, A, B, piezas, lam, S, modo, x, trace) ->
     av = float(mx.valor_real(alfa, {}))
     modos = []
     for k in range(1, 81):
-        modos.append((mx.substitute(r.modo, "n", mx.Num(k)), mx.substitute(r.wn, "n", mx.Num(k))))
+        modos.append((mx.substitute(r.modo, "n", mx.Num(k)), r.coef(k)))
 
     def u(xv, tv):
         env = {x: xv, "t": tv}
@@ -596,10 +622,9 @@ def _verifica_calor_general(r, alfa, L, A, B, piezas, lam, S, modo, x, trace) ->
         return tot
     # cada modo: wₙ′ + λₙwₙ = Sₙ(t) (n = 1…6, en tres instantes, con derivada exacta)
     peor = 0.0
-    wn_int = mx.substitute(r.wn, "t", mx.Sym("ti__"))
     Sn = None
-    for k in range(1, 7):
-        w = mx.substitute(wn_int, "n", mx.Num(k))
+    for k in sorted(set(range(1, 7)) | set(r.especiales)):
+        w = mx.substitute(r.coef(k), "t", mx.Sym("ti__"))
         lam_k = float(mx.valor_real(mx.substitute(lam, "n", mx.Num(k)), {}))
         dw = _d(w, "ti__")
         mo = mx.substitute(modo, "n", mx.Num(k))
