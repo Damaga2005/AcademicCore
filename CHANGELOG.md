@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-09 — ML-11 el pulido: accesibilidad, rendimiento, documentación y certificación
+
+- **Última fase de §10 cerrada.** Las 24 fases del laboratorio están implementadas y **certificadas**: `docs/gates/GATE-MATH-LAB-CERTIFICATION.md`.
+- **ML-11 completo** (`pulido.py`, `calculadoras_ml11.py`, operación `pulido` con 5 cálculos): accesibilidad (§6), documentación (§8.1), rendimiento y determinismo (§5.4) y certificación (§8.4). Las cuatro son **comprobaciones que se ejecutan**, no una lista.
+- **Medido: 80 operaciones registradas, 80 comprobadas, 0 fallos, 0 fuera del techo de 10 s, 0 no deterministas, 0 sin muestra canónica.**
+- La certificación vive en el **dominio**, no en `tests/`: una certificación que solo existe dentro de la suite no certifica nada, porque la suite es lo que certifica. `test_toda_operacion_registrada_tiene_muestra_canonica` obliga a que `pulido.MUESTRAS` cubra todo `C.operaciones()`, y `test_la_certificacion_pasa` ejecuta la certificación dentro de la batería: si el motor se rompe, se nota.
+- **Accesibilidad comprobada, no prometida:** una gráfica sin descripción textual, con una serie sin nombre o con abscisas y ordenadas descuadradas **se rechaza**, y el modelo `Graph`/`Serie` **no tiene campo de color** — que es lo que hace imposible depender solo de él (§6). Hay una prueba que fija esa ausencia de campo.
+- **El criterio 3 de §8.4 se aplica donde la norma lo pide y no donde no.** Solo se exige el «por qué se eligió este método» a derivar, integrar, límites, series, EDO y transformadas (12, todas cumplen). Aplicarlo a las 80 sería inventarse un criterio más estricto que el del documento, y hacer fallar la certificación por algo que la norma no pide sería una forma elegante de mentir: las otras cinco (`grafo`, `metodo_numerico`, `proceso`, `teorema`, `variable_aleatoria`) quedan como **mejora pendiente**.
+- **Batería:** `tests/test_mathlab_ml11.py`, 24 pruebas, 0 errores; contrato ampliado con `pulido`.
+
 ## 2026-10-07 — ML-10 ejercicios, corrector y generador
 
 - **ML-10 completo** (`ejercicios.py`, `calculadoras_ml10.py`, operación `ejercicio` con 5 cálculos): §7. Plantilla única, corrección **por equivalencia** reutilizando `verify` (no por texto: `2x+2x` se acepta por `4x`, `1/2` por `0,5`), sello `solo_numerico` cuando solo hay coincidencia por muestras, respuestas **no únicas corregidas por propiedad** (`Aᵀ·A = I`), pistas graduadas y generador sembrado con 7 temas. Batería `tests/test_mathlab_ml10.py`: 19 pruebas, 0 errores; contrato ampliado con `ejercicio`.

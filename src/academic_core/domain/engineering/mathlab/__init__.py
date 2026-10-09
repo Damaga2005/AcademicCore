@@ -62,6 +62,7 @@ from academic_core.domain.engineering.mathlab import calculadoras_ml19  # noqa: 
 from academic_core.domain.engineering.mathlab import calculadoras_ml20  # noqa: F401  ML-20
 from academic_core.domain.engineering.mathlab import calculadoras_ml21  # noqa: F401  ML-21
 from academic_core.domain.engineering.mathlab import calculadoras_ml10  # noqa: F401  ML-10
+from academic_core.domain.engineering.mathlab import calculadoras_ml11  # noqa: F401  ML-11
 from academic_core.domain.engineering.mathlab import derive_mv
 from academic_core.domain.engineering.mathlab import mvexpr
 from academic_core.domain.engineering.mathlab import poly

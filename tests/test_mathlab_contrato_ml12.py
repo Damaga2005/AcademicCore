@@ -109,6 +109,9 @@ EJEMPLOS = {
                  "r": "0.05"},
     # ML-10
     "ejercicio": {"calculo": "genera", "tema": "ecuaciones", "semilla": 3},
+    # ML-11
+    "pulido": {"calculo": "accesibilidad", "operacion": "derivar",
+               "entrada": "x^3+2*x"},
 }
 
 

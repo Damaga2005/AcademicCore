@@ -1,6 +1,6 @@
 # Laboratorio de Matemáticas — Especificación de diseño
 
-Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos), ML-8 (EDO y transformadas), ML-9 (probabilidad y estadística), ML-14 (señales y sistemas deterministas), ML-15 (fasores y polarización), ML-16 (campos y ondas), ML-22 (física auxiliar) y ML-17 (discreta, códigos e información), ML-18 (detección y estimación), ML-19 (optimización y aprendizaje), ML-20 (Markov, MDP y refuerzo), ML-21 (matemáticas financieras) y ML-10 (ejercicios, corrector y generador) completos** (siguiente según §10: ML-11, el pulido) · Fecha: 2026-10-07 (v1: 2026-09-30)
+Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos), ML-8 (EDO y transformadas), ML-9 (probabilidad y estadística), ML-14 (señales y sistemas deterministas), ML-15 (fasores y polarización), ML-16 (campos y ondas), ML-22 (física auxiliar) y ML-17 (discreta, códigos e información), ML-18 (detección y estimación), ML-19 (optimización y aprendizaje), ML-20 (Markov, MDP y refuerzo), ML-21 (matemáticas financieras), ML-10 (ejercicios, corrector y generador) y ML-11 (el pulido: accesibilidad, rendimiento, documentación y certificación) completos**; **las 24 fases de §10 están implementadas y certificadas** (`docs/gates/GATE-MATH-LAB-CERTIFICATION.md`: 80/80 operaciones, 0 fallos, 0 lentas, 0 no deterministas) · Fecha: 2026-10-09 (v1: 2026-09-30)
 Ámbito: desde la aritmética básica hasta las integrales triples, de línea y de superficie, pasando por cálculo, álgebra lineal, ecuaciones diferenciales, transformadas y probabilidad. Cada tema con **ejercicios para resolver, gráficas y solución paso a paso**. **v2** añade la matemática de otras asignaturas del grado que no es de otro laboratorio: matemática discreta y cuerpos finitos, códigos y criptografía, teoría de la información, Markov y refuerzo, optimización y aprendizaje automático, finanzas, señales deterministas, detección y estimación, fasores y polarización, campos y ondas, y mecánica auxiliar (**bloques 8 a 19**). Lo que va a `SIGNALS_LAB.md` y a `CIRCUITS_LAB.md` está en la tabla «qué va dónde» (§16).
 Fuentes: guías docentes de GREELEC (UPC) en `guias_upc/` — Cálculo (230903), Álgebra Lineal (230904), Cálculo Vectorial (230908), Ecuaciones Diferenciales y Transformadas (230909), Probabilidad y Procesos Estocásticos (230914), Señales y Sistemas (230913). **v2:** cuatro informes de lectura de solo lectura en `Descargas/labs/math_catalog/` (`extra_senales.md`, `extra_electromagnetismo.md`, `extra_circuitos_control.md`, `extra_algoritmia_ia_codigos.md`), integrados con el **reparto decidido por el usuario** (D6, §13) y sin tocar el repositorio ni `guias_upc`.
 
@@ -781,6 +781,42 @@ el modelo nunca califica— pero el enlace no está); y corrección por
 equivalencia de **demostraciones**: se corrige la identidad a demostrar, no
 el razonamiento.
 
+## Capacidad implementada — ML-11, el pulido (2026-10-09)
+
+Última fase de §10. `pulido.py` + operación `pulido` (5 cálculos). Las cuatro
+cosas son **comprobaciones que se ejecutan**, no una lista de deseos: un
+requisito que nadie puede ver fallar acaba mintiendo solo, que es lo que pasó
+con los huecos declarados de este mismo documento.
+
+| Frente | Cálculo | Qué comprueba de verdad |
+|---|---|---|
+| Accesibilidad (§6) | `accesibilidad` | Descripción textual obligatoria; serie con nombre; `len(xs) = len(ys)`; y que el modelo `Graph`/`Serie` **no tiene campo de color**, que es lo que hace imposible depender solo de él |
+| Documentación (§8.1) | `describe` | El resultado **entero** como texto, con los tres niveles de detalle: valor, aproximación y error, pasos, sello, hipótesis, convenciones, avisos y gráfica descrita |
+| Rendimiento (§5.4) | `rendimiento` | `time.perf_counter` contra un techo declarado (que se puede cruzar a propósito para verlo fallar) y **determinismo**: la misma entrada da el mismo resultado y sello |
+| Certificación (§8.4) | `audita`, `certifica` | Recorre **todas** las operaciones registradas con una entrada canónica y comprueba los criterios de §8.4 uno a uno |
+
+**Medido:** 80 operaciones comprobadas, **0 fallos, 0 fuera del techo, 0 no
+deterministas**, 0 sin muestra.
+
+**El criterio 3 se aplica donde §8.4 lo pide y no donde no.** La norma solo
+exige el «por qué se eligió este método» a derivar, integrar, límites, series,
+EDO y transformadas (12 aquí, todas cumplen). Aplicarlo a las 80 sería
+inventarse un criterio más estricto, y **hacer fallar la certificación por algo
+que la norma no pide sería una forma elegante de mentir**: las otras cinco
+(`grafo`, `metodo_numerico`, `proceso`, `teorema`, `variable_aleatoria`) se
+reportan como **mejora pendiente**, ni como buenas ni como malas.
+
+**Lo que no se hace (y se dice):** la **interfaz** (§9, el visor Qt) es de otra
+capa — aquí se certifica que la gráfica *descrita como dato* es accesible, que
+el widget la pinte bien es del gate de UX; los criterios 4 y 9 de §8.4, que son
+de juicio y de orden de entrega; el **rendimiento de la interfaz** (aquí se
+mide el dominio); las figuras leídas del enunciado (§7, lo niega ML-10); y el
+enlace al banco D6 y a la maestría (§7).
+
+**Batería:** `tests/test_mathlab_ml11.py` (24 pruebas). Una de ellas ejecuta la
+certificación entera dentro de la suite: si el motor se rompe, la batería lo
+nota.
+
 ## 5. El motor matemático
 
 ### 5.1 Expresiones y exactitud
@@ -1260,6 +1296,16 @@ Raíces (bisección, Newton, secante, punto fijo), sistemas (LU, Jacobi, Gauss-S
 | Pistas graduadas | De menos a más ayuda, y solo las `n` primeras |
 | **Hecho** | Los 5 cálculos de `ejercicio` (ML-10) sobre 7 temas |
 
+#### T. Pulido, accesibilidad y certificación (v2)
+
+| Calculadora | Pasos que muestra |
+|---|---|
+| Accesibilidad de un resultado | Que la gráfica se entiende sin verla; sin descripción o sin nombre de serie se rechaza |
+| Volcado a texto | El resultado entero: valor, pasos, sello, hipótesis, convenciones y gráfica |
+| Rendimiento y determinismo | Tiempo real contra el techo de §5.4, y que la misma entrada da lo mismo |
+| Auditoría de §8.4 | Los nueve criterios, una operación cada vez |
+| **Hecho** | Los 5 cálculos de `pulido` (ML-11), con gate propio |
+
 #### Q. Señales y sistemas deterministas (v2)
 
 | Calculadora | Pasos que muestra |
@@ -1374,7 +1420,7 @@ Orden pensado para que lo **de más uso** llegue antes y cada fase sea demostrab
 | **ML-8** Ecuaciones diferenciales y transformadas | EDO, Laplace, Fourier, transformada z, plano de fases; **v2:** problemas de contorno 1D y Poisson 1D por tramos; **oscilador con Q y conducción de calor 1D (D12)** **Implementado (2026-10-06):** EDO de primer orden (lineal, separable, Bernoulli, exacta con μ(t)/μ(y)/μ mixto, homogénea, homogénea desplazada, argumento lineal, Riccati con solución particular, Clairaut, PVI; los demás tipos no lineales, numéricos), lineales de coeficientes constantes (característico exacto en ℚ/ℚ(√d)/ℂ, coeficientes indeterminados con resonancia, variación de parámetros; factores irreducibles de grado 3 y 4 exactos por Cardano/forma trigonométrica y Ferrari, también bicuadradas, con nombres r1, α1, β1 y su definición; solo grado ≥ 5 queda numérico con sello «solo numérico», por Abel-Ruffini), PVI por Laplace con tramos, escalones y deltas (comprobación exacta por tramos y salto de las deltas), Laplace directa/inversa con región de convergencia, sistemas x′ = Ax + f con e^{At} y plano de fases, oscilador (Q, regímenes, resonancia, ancho de banda), respuesta impulsional, convolución, Volterra e integro-diferenciales, Picard, Wronskiano, reducción de orden, Euler-Cauchy, series de Fourier (n simbólico, Parseval, evaluación) y transformada (frecuencia ordinaria), transformada z, inversa y ecuaciones en diferencias, contorno 1D (también paramétrico), Poisson por tramos con contraste por diferencias finitas y calor 1D (Dirichlet, Neumann, mixta; contorno dependiente de t y flujos no nulos por referencia + Duhamel, con modos resonantes aparte y coeficientes simplificados); transformada z con polos cuadráticos repetidos; **2026-10-07:** puntos críticos de f = φ(w) (curvas de nivel exactas, familias periódicas como sen(x²+y²) completas por paridad de k, extremos aislados exactos); calculadoras `edo`, `laplace`, `fourier`, `transformada_z`, `contorno` | XL |
 | **ML-9** Probabilidad y estadística | Bloque 6 completo con gráficas y simulación sembrada; **v2:** BER con `Q`, ALOHA, Rayleigh y Rice, ARQ (D12) **Implementado (2026-10-07):** los 15 tipos de §15.1 y las 13 calculadoras del bloque G (§8.2): Bayes con árbol, combinatoria contrastada por enumeración, inclusión-exclusión con regiones de Venn; 16 leyes con F, cuantil y momentos (exactos con parámetros racionales: binomial, geométrica, Pascal, hipergeométrica, uniforme, beta entera en ℚ; Poisson, exponencial, Erlang, Weibull y Rayleigh con `exp` exacta) y tablas normal, t, χ² y F calculadas con su redondeo; densidades por tramos con constante, momentos, F, Chebyshov, transformaciones por ramas monótonas, máximo, mínimo y convolución exactos; tablas conjuntas, vectores gaussianos y estimación lineal óptima en ℚ; aproximación normal al lado del exacto; descriptiva, intervalos (t/z justificada, cobertura simulada), contrastes, regresión y estimadores; procesos de Poisson, paseo ±1 y procesos con variables (R(τ) exacta y estacionariedad); BER, ALOHA, Rayleigh/Rice y ARQ; calculadoras `probabilidad`, `variable_aleatoria`, `vector_aleatorio`, `aproximacion_normal`, `estadistica`, `intervalo_confianza`, `contraste`, `regresion`, `estimador`, `proceso`, `tabla_estadistica`, `comunicaciones`, `montecarlo` | L |
 | **ML-10** Ejercicios y maestría | Banco por tema, generador, enlace con el corrector y la maestría. **Implementado (2026-10-07):** plantilla única (§7) con enunciado, datos, tipo de entrega, pistas graduadas, respaldo E/G y solución paso a paso; **corrector por equivalencia** (formas normales exactas de `verify`, nunca texto: `2x+2x` = `4x`, `1/2` = `0,5`, y si solo hay coincidencia numérica el sello baja a `solo_numerico`); respuestas **no únicas corregidas por propiedad** (`Aᵀ·A = I`); **generador sembrado** por tema y dificultad cuya solución la pide el motor, se autocomprueba y **reintenta si el ejercicio sale degenerado**; 7 temas y 5 cálculos de `ejercicio` | L |
-| **ML-11** Pulido | Accesibilidad, rendimiento, documentación de usuario, certificación | M |
+| **ML-11** Pulido | Accesibilidad, rendimiento, documentación de usuario, certificación. **Implementado (2026-10-09):** `pulido.py` con las cuatro comprobaciones **ejecutables** — `audita_accesibilidad` (§6: descripción textual obligatoria, serie con nombre, `len(xs) = len(ys)`, y el modelo de gráficas **no tiene campo de color**), `describe` (el resultado entero como texto: valor, pasos, sello, hipótesis, convenciones y gráfica), `mide` (tiempo real contra un techo declarado, más **determinismo**: la misma entrada da el mismo resultado) y `audita`/`certifica` (recorre **las 80 operaciones registradas** y comprueba los criterios de §8.4 uno a uno); operación `pulido` con 5 cálculos; gate en `docs/gates/GATE-MATH-LAB-CERTIFICATION.md` | M |
 | **ML-12** Cimientos ampliados (v2) | **Racionales multivariable** (dependencia crítica); **cuerpo como parámetro** del motor lineal y aritmética entera con trazas; distribuciones con área; **contrato con otros laboratorios** y plug-ins de verificación (§5.9); **convenciones declaradas** (§5.11); análisis dimensional; verificador de gradientes; simulador sembrado de eventos; árboles y grafos | L |
 | **ML-13** Cálculo vectorial ampliado (v2, **E**) | Operadores ∇ en cilíndricas y esféricas, laplaciano y Poisson, cambio de componentes entre bases; los 6 tipos de `V` dado y flujo por cubo; **cinemática intrínseca de curvas (D12)** **Implementado (2026-10-06):** ∇, ∇·, ∇× y ∇² con factores de escala en cartesianas, cilíndricas y esféricas (segundo camino en cartesianas por diferencias de orden 4), controles ∇·(∇×F) = 0 y ∇×∇V = 0, Poisson ρ = −ε₀∇²V, cambio de componentes con RᵀR = I y módulo invariante, V dado ⇒ E, ρ y carga en una caja por ∭ρ y ∯E·dS, cinemática intrínseca (T, N, κ, a_t, a_n, radio); calculadora `operadores` | S-M |
 | **ML-14** Señales y sistemas deterministas (v2, **E**) | Bloque 15: biblioteca de señales, convolución por tramos y digital, periódicas por señal base, energía y correlación, DTFT, DFT, z con eco e inverso. **Implementado (2026-10-07):** pulsos Π/Λ/exp con integral, energía y TF cerradas (E = A²T, 2A²T/3, A²T/2) y aviso de solape; eje afín con E/|a| comprobada; convolución por rupturas = sumas de extremos con ∫y = ∫x·∫h (lineal a trozos exacta en constantes; cola exponencial por cuadratura con sello numérico), deltas que desplazan y escalan, ventana móvil; digital exacta en ℚ (L1+L2−1, tres tramos, Σy y DFT con N suficiente) y régimen geométrico; periódicas c_k = (1/T0)·X_b(k/T0) con nulos por paridad, periodo por mcm y Parseval; energía/potencia (A²/2, E_x(1+a²) del eco), correlación con r(0) = E y |r| ≤ r(0), densidad S = |X|² y retardo por el pico; DTFT (P_L con máximo L y ceros en k/L, |H|² del de primer orden, fase del retardo; Parseval y hermiticidad), DFT (X[0], hermítica, Parseval, circular = lineal con N ≥ L1+L2−1, retardo como fase) y eco (ceros en |z| = |a|^{1/L}, |H(F)|², inverso causal con b = −a y cascada que devuelve la entrada); calculadora `senales` | L |
