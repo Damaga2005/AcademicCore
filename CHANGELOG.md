@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-07 — ML-10 ejercicios, corrector y generador
+
+- **ML-10 completo** (`ejercicios.py`, `calculadoras_ml10.py`, operación `ejercicio` con 5 cálculos): §7. Plantilla única, corrección **por equivalencia** reutilizando `verify` (no por texto: `2x+2x` se acepta por `4x`, `1/2` por `0,5`), sello `solo_numerico` cuando solo hay coincidencia por muestras, respuestas **no únicas corregidas por propiedad** (`Aᵀ·A = I`), pistas graduadas y generador sembrado con 7 temas. Batería `tests/test_mathlab_ml10.py`: 19 pruebas, 0 errores; contrato ampliado con `ejercicio`.
+- **La solución la pide el motor, no la escribe el generador**: cada constructor llama a la calculadora real, así que enunciado y solución no pueden desincronizarse. El generador **se autocomprueba** y **reintenta** si el ejercicio sale degenerado.
+- **Bug del motor, encontrado por el generador:** `lineal.determinante` (y el resto del camino de Gauss) llamado con **enteros** en vez de fracciones salía a **coma flotante sin avisar**: `Racionales.inv` hacía `1/int` → float, y el propio control del motor contra Laplace lo detectaba y se negaba a certificar («el determinante por Gauss no coincide con Laplace», 128 de las 6561 matrices 2×2 con entradas en [−4, 4]). `Racionales.preparar` ahora convierte las entradas con `de()` antes de eliminar, e `inv` fuerza `Fraction`. Las 6561 matrices pasan y el determinante es exacto (`-15`, no `-15.0`). El contrato no lo veía porque `calculators.py` ya convertía con `_ent`.
+- El generador **necesitaba** un azar de verdad: su primer LGC (`semilla·C + k·D mod rango`) devolvía la misma clave para claves distintas siempre que la diferencia fuera múltiplo del rango, con lo que la matriz 2×2 salía siempre singular. Ahora mezcla los bits antes de reducir.
+
 ## 2026-10-07 — ML-21 matemáticas financieras
 
 - **ML-21 completo** (`finanzas.py`, `calculadoras_ml21.py`, operación `finanzas` con 15 cálculos): bloque 14. Interés simple/compuesto/continuo con TAE, VAN, TIR, anualidad, bono con duración y convexidad, futuro, CRR, Black-Scholes, σ implícita, Monte Carlo, Markowitz, **frontera eficiente** y Sharpe/VaR. Batería `tests/test_mathlab_ml21.py`: 20 pruebas, 0 errores; contrato ampliado con `finanzas`.

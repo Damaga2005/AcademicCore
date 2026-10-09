@@ -94,6 +94,21 @@ class Racionales(Cuerpo):
                                       "escríbelo como fracción")
         return Fraction(valor)
 
+    def preparar(self, M) -> None:
+        """Pasa las entradas al cuerpo **antes** de eliminar.
+
+        Sin esto, dar la matriz con enteros (lo natural) dejaba enteros en la
+        matriz, ``inv`` devolvía un float y Gauss calculaba en coma flotante:
+        el determinante salía con error de redondeo y su propio control contra
+        Laplace lo detectaba y se negaba a certificarlo. ``de()`` convierte y
+        además rechaza los decimales, que en ℚ no son exactos — que es lo que
+        corresponde decir en vez de calcular en coma flotante y llamarlo ℚ.
+        """
+        for fila in M:
+            for j, x in enumerate(fila):
+                if not isinstance(x, Fraction):
+                    fila[j] = self.de(x)
+
     def suma(self, a, b):
         return a + b
 
@@ -104,7 +119,11 @@ class Racionales(Cuerpo):
         return a * b
 
     def inv(self, a):
-        return 1 / a
+        # ``1/a`` con ``a`` entero devuelve un float y el camino de Gauss
+        # pasaría a coma flotante en silencio; forzando Fraction la división
+        # es exacta siempre (2026-10-07, lo encontró el generador de
+        # ejercicios de ML-10 al pedir un determinante con enteros).
+        return Fraction(1) / Fraction(a)
 
 
 class Primo(Cuerpo):

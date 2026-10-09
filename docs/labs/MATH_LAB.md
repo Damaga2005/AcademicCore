@@ -1,6 +1,6 @@
 # Laboratorio de Matemáticas — Especificación de diseño
 
-Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos), ML-8 (EDO y transformadas), ML-9 (probabilidad y estadística), ML-14 (señales y sistemas deterministas), ML-15 (fasores y polarización), ML-16 (campos y ondas), ML-22 (física auxiliar) y ML-17 (discreta, códigos e información), ML-18 (detección y estimación), ML-19 (optimización y aprendizaje), ML-20 (Markov, MDP y refuerzo) y ML-21 (matemáticas financieras) completos** (siguiente según §10: cerrar los bloques G restantes o auditar los E) · Fecha: 2026-10-07 (v1: 2026-09-30)
+Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos), ML-8 (EDO y transformadas), ML-9 (probabilidad y estadística), ML-14 (señales y sistemas deterministas), ML-15 (fasores y polarización), ML-16 (campos y ondas), ML-22 (física auxiliar) y ML-17 (discreta, códigos e información), ML-18 (detección y estimación), ML-19 (optimización y aprendizaje), ML-20 (Markov, MDP y refuerzo), ML-21 (matemáticas financieras) y ML-10 (ejercicios, corrector y generador) completos** (siguiente según §10: ML-11, el pulido) · Fecha: 2026-10-07 (v1: 2026-09-30)
 Ámbito: desde la aritmética básica hasta las integrales triples, de línea y de superficie, pasando por cálculo, álgebra lineal, ecuaciones diferenciales, transformadas y probabilidad. Cada tema con **ejercicios para resolver, gráficas y solución paso a paso**. **v2** añade la matemática de otras asignaturas del grado que no es de otro laboratorio: matemática discreta y cuerpos finitos, códigos y criptografía, teoría de la información, Markov y refuerzo, optimización y aprendizaje automático, finanzas, señales deterministas, detección y estimación, fasores y polarización, campos y ondas, y mecánica auxiliar (**bloques 8 a 19**). Lo que va a `SIGNALS_LAB.md` y a `CIRCUITS_LAB.md` está en la tabla «qué va dónde» (§16).
 Fuentes: guías docentes de GREELEC (UPC) en `guias_upc/` — Cálculo (230903), Álgebra Lineal (230904), Cálculo Vectorial (230908), Ecuaciones Diferenciales y Transformadas (230909), Probabilidad y Procesos Estocásticos (230914), Señales y Sistemas (230913). **v2:** cuatro informes de lectura de solo lectura en `Descargas/labs/math_catalog/` (`extra_senales.md`, `extra_electromagnetismo.md`, `extra_circuitos_control.md`, `extra_algoritmia_ia_codigos.md`), integrados con el **reparto decidido por el usuario** (D6, §13) y sin tocar el repositorio ni `guias_upc`.
 
@@ -744,6 +744,43 @@ o una base de días act/365 o 30/360 explícita: la convención se declara
 pero **no** se implementa el calendario, así que se dice en vez de
 aproximar.
 
+## Capacidad implementada — ML-10, ejercicios y corrector (2026-10-07)
+
+§7. Operación `ejercicio` (§8.2 S) con 5 cálculos y 7 temas. Reutiliza
+`verify.check_equivalence` / `numeric_agreement` (el corrector de F9 y el
+operador `igualdad` ya comparaban formas normales: aquí se usan, no se
+repiten).
+
+| Requisito de §7 | Cómo está resuelto |
+|---|---|
+| Plantilla única | `Ejercicio`: enunciado, datos, tipo de entrega, pistas, respaldo E/G, dificultad, gráfica y solución paso a paso |
+| Tipos de entrega | `expresion`, `numero`, `matriz`, `vector`, `conjunto`, `grafica`, `demostracion` |
+| **Corrección por equivalencia** | Formas normales exactas; si solo coinciden en las muestras, el sello queda en `solo_numerico` y se dice (§5.3) |
+| Pistas graduadas y modo estudio | `pistas_hasta(n)`: de menos a más ayuda, y se pide solo las `n` primeras |
+| **Generador sembrado** | Por tema, dificultad y semilla; determinista y con la solución incluida |
+| **Respuestas no únicas** | `comprueba_propiedad("ortonormal", A)`: comprueba `Aᵀ·A = I`, no su forma |
+| Nada por parecido | Una gráfica **no** se corrige por texto: se lanza `UNSUPPORTED` y se dice por qué |
+
+**La solución la pide el motor, no la escribe el generador.** Cada
+constructor llama a la calculadora real (`limite`, `differentiate`,
+`integrar`, `lineal.determinante`, `resolver`, `algebra.gram_schmidt`,
+`laplace`), de modo que enunciado y solución no pueden desincronizarse. El
+generador **se autocomprueba** (`corrige(ex, ex.solucion)`) y **reintenta con
+otros parámetros** si el ejercicio sale degenerado —un determinante 0, un
+límite que no existe—, porque un ejercicio sin sentido no es un ejercicio.
+
+**Batería:** `tests/test_mathlab_ml10.py` (19 pruebas) más la fila `ejercicio`
+del contrato.
+
+**Lo que no se hace (y se dice):** gráficos con figuras leídas del enunciado
+(§7 lo pide y aquí se **niega**: la aplicación no lee la imagen, así que el
+ejercicio ofrece las lecturas como datos — falta hacerlo en los temas con
+figura); exercises de los bloques todavía no conectados al banco D6 de
+preguntas ni a la maestría (el corrector es el mismo principio —determinista,
+el modelo nunca califica— pero el enlace no está); y corrección por
+equivalencia de **demostraciones**: se corrige la identidad a demostrar, no
+el razonamiento.
+
 ## 5. El motor matemático
 
 ### 5.1 Expresiones y exactitud
@@ -1212,6 +1249,17 @@ Raíces (bisección, Newton, secante, punto fijo), sistemas (LU, Jacobi, Gauss-S
 | Markowitz | KKT, mínima varianza, **frontera eficiente por barrido de `m`**, Sharpe, VaR gaussiano |
 | **Hecho** | Los 15 cálculos de `finanzas` (ML-21), con `frontera` incluida |
 
+#### S. Ejercicios, corrector y generador (v2)
+
+| Calculadora | Pasos que muestra |
+|---|---|
+| Plantilla de ejercicio | Enunciado, datos, tipo de entrega, pistas, insignia E/G y dificultad |
+| Generador sembrado | Un ejercicio por tema, dificultad y semilla, con su solución y sus pasos |
+| Corrector por equivalencia | Formas normales, no texto; el sello baja si solo hay coincidencia numérica |
+| Corrección por propiedad | Para lo que no tiene respuesta única (`Aᵀ·A = I`) |
+| Pistas graduadas | De menos a más ayuda, y solo las `n` primeras |
+| **Hecho** | Los 5 cálculos de `ejercicio` (ML-10) sobre 7 temas |
+
 #### Q. Señales y sistemas deterministas (v2)
 
 | Calculadora | Pasos que muestra |
@@ -1325,7 +1373,7 @@ Orden pensado para que lo **de más uso** llegue antes y cada fase sea demostrab
 | **ML-7** Línea, superficie y teoremas | Integrales de línea y de superficie, conservativos, Green, Stokes y Gauss, con comprobación por los dos lados. **Implementado (2026-10-06):** circulación y ∫ f ds por curvas parametrizadas a trozos, rotacional y divergencia, potencial con rot F = 0 comprobado y ∇φ = F verificado (segundo camino φ(B) − φ(A)), flujo y ∬ f dS con normal r_u × r_v y orientación elegible, |r′| y |N| exactos cuando son cuadrados perfectos; Green, Stokes y Gauss calculan los dos lados y los comparan (una orientación equivocada sale como discrepancia, no se tapa); calculadora `vectorial` | XL |
 | **ML-8** Ecuaciones diferenciales y transformadas | EDO, Laplace, Fourier, transformada z, plano de fases; **v2:** problemas de contorno 1D y Poisson 1D por tramos; **oscilador con Q y conducción de calor 1D (D12)** **Implementado (2026-10-06):** EDO de primer orden (lineal, separable, Bernoulli, exacta con μ(t)/μ(y)/μ mixto, homogénea, homogénea desplazada, argumento lineal, Riccati con solución particular, Clairaut, PVI; los demás tipos no lineales, numéricos), lineales de coeficientes constantes (característico exacto en ℚ/ℚ(√d)/ℂ, coeficientes indeterminados con resonancia, variación de parámetros; factores irreducibles de grado 3 y 4 exactos por Cardano/forma trigonométrica y Ferrari, también bicuadradas, con nombres r1, α1, β1 y su definición; solo grado ≥ 5 queda numérico con sello «solo numérico», por Abel-Ruffini), PVI por Laplace con tramos, escalones y deltas (comprobación exacta por tramos y salto de las deltas), Laplace directa/inversa con región de convergencia, sistemas x′ = Ax + f con e^{At} y plano de fases, oscilador (Q, regímenes, resonancia, ancho de banda), respuesta impulsional, convolución, Volterra e integro-diferenciales, Picard, Wronskiano, reducción de orden, Euler-Cauchy, series de Fourier (n simbólico, Parseval, evaluación) y transformada (frecuencia ordinaria), transformada z, inversa y ecuaciones en diferencias, contorno 1D (también paramétrico), Poisson por tramos con contraste por diferencias finitas y calor 1D (Dirichlet, Neumann, mixta; contorno dependiente de t y flujos no nulos por referencia + Duhamel, con modos resonantes aparte y coeficientes simplificados); transformada z con polos cuadráticos repetidos; **2026-10-07:** puntos críticos de f = φ(w) (curvas de nivel exactas, familias periódicas como sen(x²+y²) completas por paridad de k, extremos aislados exactos); calculadoras `edo`, `laplace`, `fourier`, `transformada_z`, `contorno` | XL |
 | **ML-9** Probabilidad y estadística | Bloque 6 completo con gráficas y simulación sembrada; **v2:** BER con `Q`, ALOHA, Rayleigh y Rice, ARQ (D12) **Implementado (2026-10-07):** los 15 tipos de §15.1 y las 13 calculadoras del bloque G (§8.2): Bayes con árbol, combinatoria contrastada por enumeración, inclusión-exclusión con regiones de Venn; 16 leyes con F, cuantil y momentos (exactos con parámetros racionales: binomial, geométrica, Pascal, hipergeométrica, uniforme, beta entera en ℚ; Poisson, exponencial, Erlang, Weibull y Rayleigh con `exp` exacta) y tablas normal, t, χ² y F calculadas con su redondeo; densidades por tramos con constante, momentos, F, Chebyshov, transformaciones por ramas monótonas, máximo, mínimo y convolución exactos; tablas conjuntas, vectores gaussianos y estimación lineal óptima en ℚ; aproximación normal al lado del exacto; descriptiva, intervalos (t/z justificada, cobertura simulada), contrastes, regresión y estimadores; procesos de Poisson, paseo ±1 y procesos con variables (R(τ) exacta y estacionariedad); BER, ALOHA, Rayleigh/Rice y ARQ; calculadoras `probabilidad`, `variable_aleatoria`, `vector_aleatorio`, `aproximacion_normal`, `estadistica`, `intervalo_confianza`, `contraste`, `regresion`, `estimador`, `proceso`, `tabla_estadistica`, `comunicaciones`, `montecarlo` | L |
-| **ML-10** Ejercicios y maestría | Banco por tema, generador, enlace con el corrector y la maestría | L |
+| **ML-10** Ejercicios y maestría | Banco por tema, generador, enlace con el corrector y la maestría. **Implementado (2026-10-07):** plantilla única (§7) con enunciado, datos, tipo de entrega, pistas graduadas, respaldo E/G y solución paso a paso; **corrector por equivalencia** (formas normales exactas de `verify`, nunca texto: `2x+2x` = `4x`, `1/2` = `0,5`, y si solo hay coincidencia numérica el sello baja a `solo_numerico`); respuestas **no únicas corregidas por propiedad** (`Aᵀ·A = I`); **generador sembrado** por tema y dificultad cuya solución la pide el motor, se autocomprueba y **reintenta si el ejercicio sale degenerado**; 7 temas y 5 cálculos de `ejercicio` | L |
 | **ML-11** Pulido | Accesibilidad, rendimiento, documentación de usuario, certificación | M |
 | **ML-12** Cimientos ampliados (v2) | **Racionales multivariable** (dependencia crítica); **cuerpo como parámetro** del motor lineal y aritmética entera con trazas; distribuciones con área; **contrato con otros laboratorios** y plug-ins de verificación (§5.9); **convenciones declaradas** (§5.11); análisis dimensional; verificador de gradientes; simulador sembrado de eventos; árboles y grafos | L |
 | **ML-13** Cálculo vectorial ampliado (v2, **E**) | Operadores ∇ en cilíndricas y esféricas, laplaciano y Poisson, cambio de componentes entre bases; los 6 tipos de `V` dado y flujo por cubo; **cinemática intrínseca de curvas (D12)** **Implementado (2026-10-06):** ∇, ∇·, ∇× y ∇² con factores de escala en cartesianas, cilíndricas y esféricas (segundo camino en cartesianas por diferencias de orden 4), controles ∇·(∇×F) = 0 y ∇×∇V = 0, Poisson ρ = −ε₀∇²V, cambio de componentes con RᵀR = I y módulo invariante, V dado ⇒ E, ρ y carga en una caja por ∭ρ y ∯E·dS, cinemática intrínseca (T, N, κ, a_t, a_n, radio); calculadora `operadores` | S-M |

@@ -107,6 +107,8 @@ EJEMPLOS = {
     # ML-21
     "finanzas": {"calculo": "van", "flujos": [-1000, 500, 500, 500],
                  "r": "0.05"},
+    # ML-10
+    "ejercicio": {"calculo": "genera", "tema": "ecuaciones", "semilla": 3},
 }
 
 
