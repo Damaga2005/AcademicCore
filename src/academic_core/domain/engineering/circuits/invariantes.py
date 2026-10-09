@@ -24,6 +24,7 @@ peor que no comprobar nada.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from fractions import Fraction
 
 from academic_core.domain.engineering.units import Quantity
@@ -31,6 +32,68 @@ from academic_core.domain.engineering.units import Quantity
 
 class InvarianteRota(ValueError):
     """Una solución que no cumple una ley de la física: no se muestra."""
+
+
+def _muestra(valor, cifras: int = 6) -> str:
+    """Escribe un número grande sin reventar.
+
+    `float(10**500)` lanza `OverflowError`, y todos estos `float(x)` estaban
+    **dentro de los mensajes de error**: una comprobación que revienta al
+    intentar explicar por qué falló es peor que una que no comprueba, porque
+    entrega un traceback en vez del diagnóstico. Se intenta el camino corto y,
+    si no cabe, se escribe en notación científica con el número de cifras
+    que tiene de verdad, que es información exacta y no una aproximación.
+    """
+    try:
+        return f"{float(valor):.{cifras}g}"
+    except (OverflowError, ValueError):
+        pass
+    if isinstance(valor, Fraction):
+        num, den = valor.numerator, valor.denominator
+        if num == 0:
+            return "0"
+        digitos = len(str(abs(num))) - len(str(den))
+        if digitos > 300:      # la mantisa se escribe, no el entero entero
+            return f"{num / den:.0e}" if digitos < 400 else f"~1e{digitos}"
+        return f"{float(num) / float(den):.{cifras}g}"
+    try:
+        return f"{Decimal(valor):.{cifras}E}"
+    except (OverflowError, ValueError, TypeError):
+        return f"~{valor}"
+
+
+def _sin_float(valor, donde: str) -> None:
+    """Se niega a dejar pasar un `float`, venga de donde venga.
+
+    Vive aquí y no solo en el contrato porque el `valor` de un
+    :class:`Resultado` también tiene que estar limpio: con `float` en el valor,
+    el digest que se calcula no corresponde al cálculo que se haría al
+    reproducirlo, y la comparación de dos resultados iguales daría distinta
+    por culpa de un redondeo que nadie ve.
+    """
+    if isinstance(valor, float):
+        raise InvarianteRota(
+            f"{donde} ha llegado como float ({valor!r}); el dominio calcula "
+            f"exacto (P1). Escríbelo como fracción o decimal")
+
+
+def _exacto(valor, donde: str) -> Fraction:
+    """Convierte a fracción exacta **rechazando** los `float` (P1).
+
+    El contrato de calculadoras ya rechaza los `float` en la puerta, pero las
+    invariantes son una puerta también: si un residuo llega como `0.5`, la
+    comparación se hace en binario y ni la ley ni nadie sabe ya si lo que se
+    compara es el número que se escribió. Con `Fraction(0.5)` el valor sería
+    exacto por casualidad —0,5 sí es representable—, y esa casualidad es
+    justo la que hace peligroso dejarlo pasar: otros valores sí perderían
+    cifras y el residuo que se compararía no sería el del cálculo, sino el de
+    su redondeo.
+    """
+    if isinstance(valor, float):
+        raise InvarianteRota(
+            f"{donde} ha llegado como float ({valor!r}); las comprobaciones "
+            f"físicas son exactas (P1). Escríbelo como fracción o decimal")
+    return Fraction(valor)
 
 
 #: tolerancia relativa por defecto (§20.2 usa ε). Con aritmética exacta el
@@ -123,7 +186,8 @@ def kcl(corrientes_por_nodo: dict, eps: Fraction = EPS) -> VeredictoInvariante:
     """
     peor_nodo, peor = None, None
     for nodo, corro in corrientes_por_nodo.items():
-        vals = [Fraction(v) for v in corro]
+        vals = [_exacto(v, f"la corriente de la rama del nodo {nodo}")
+                for v in corro]
         residuo = abs(sum(vals))
         escala = sum(abs(v) for v in vals)
         if escala == 0:
@@ -137,17 +201,18 @@ def kcl(corrientes_por_nodo: dict, eps: Fraction = EPS) -> VeredictoInvariante:
     if peor > tol:
         return VeredictoInvariante(
             "KCL", False,
-            f"en el nodo {peor_nodo} el residuo es {float(peor):.3g} de la suma "
-            f"de corrientes, por encima de {float(tol):.3g}")
+            f"en el nodo {peor_nodo} el residuo es {_muestra(peor, 3)} de la suma "
+            f"de corrientes, por encima de {_muestra(tol, 3)}")
     return VeredictoInvariante("KCL", True,
-                               f"peor residuo relativo {float(peor):.3g}")
+                               f"peor residuo relativo {_muestra(peor, 3)}")
 
 
 def kvl(tensiones_por_malla: dict, eps: Fraction = EPS) -> VeredictoInvariante:
     """En cada malla, la suma de tensiones es cero."""
     peor_malla, peor = None, None
     for malla, tens in tensiones_por_malla.items():
-        vals = [Fraction(v) for v in tens]
+        vals = [_exacto(v, f"la tensión del tramo de la malla {malla}")
+                for v in tens]
         residuo = abs(sum(vals))
         escala = sum(abs(v) for v in vals)
         if escala == 0:
@@ -162,9 +227,9 @@ def kvl(tensiones_por_malla: dict, eps: Fraction = EPS) -> VeredictoInvariante:
         return VeredictoInvariante(
             "KVL", False,
             f"en la malla {peor_malla} la suma de tensiones deja un residuo "
-            f"relativo de {float(peor):.3g}")
+            f"relativo de {_muestra(peor, 3)}")
     return VeredictoInvariante("KVL", True,
-                               f"peor residuo relativo {float(peor):.3g}")
+                               f"peor residuo relativo {_muestra(peor, 3)}")
 
 
 # ---------------------------------------------------------------------------
@@ -180,8 +245,8 @@ def balance_potencias(absorbidas, suministradas,
     suministrado la comprobación no significa nada, y se dice en vez de
     devolver «cumple» por el cero trivial.
     """
-    a = [Fraction(v) for v in absorbidas]
-    s = [Fraction(v) for v in suministradas]
+    a = [_exacto(v, "una potencia absorbida") for v in absorbidas]
+    s = [_exacto(v, "una potencia suministrada") for v in suministradas]
     ta, ts = sum(a), sum(s)
     if ts == 0:
         if ta == 0:
@@ -189,20 +254,20 @@ def balance_potencias(absorbidas, suministradas,
                                        "red sin fuentes: potencia nula")
         return VeredictoInvariante(
             "balance de potencias", False,
-            f"nada suministra energía pero se absorben {float(ta):.6g} W")
+            f"nada suministra energía pero se absorben {_muestra(ta, 6)} W")
     if ta < 0:
         return VeredictoInvariante(
             "balance de potencias", False,
-            f"potencia absorbida negativa ({float(ta):.6g} W): con la "
+            f"potencia absorbida negativa ({_muestra(ta, 6)} W): con la "
             f"convención pasiva eso es un generador que se ha puesto al revés")
     residuo = abs(ta - ts) / abs(ts)
     if residuo > eps:
         return VeredictoInvariante(
             "balance de potencias", False,
-            f"se absorben {float(ta):.6g} W y se suministran "
-            f"{float(ts):.6g} W; el desnivel relativo es {float(residuo):.3g}")
+            f"se absorben {_muestra(ta, 6)} W y se suministran "
+            f"{_muestra(ts, 6)} W; el desnivel relativo es {_muestra(residuo, 3)}")
     return VeredictoInvariante("balance de potencias", True,
-                               f"desequilibrio relativo {float(residuo):.3g}")
+                               f"desequilibrio relativo {_muestra(residuo, 3)}")
 
 
 # ---------------------------------------------------------------------------
@@ -223,9 +288,9 @@ class Region:
     def linea(self) -> str:
         extra = []
         if self.corriente is not None:
-            extra.append(f"I = {float(self.corriente):.6g} A")
+            extra.append(f"I = {_muestra(self.corriente)} A")
         if self.tension is not None:
-            extra.append(f"V = {float(self.tension):.6g} V")
+            extra.append(f"V = {_muestra(self.tension)} V")
         return f"{self.ref} ({self.tipo}): {self.region}" + (
             ", " + ", ".join(extra) if extra else "")
 
@@ -241,6 +306,16 @@ def regiones(datos: dict, reglas: dict) -> list[VeredictoInvariante]:
     que la regla existe pero no se ha evaluado, y sale como *sin comprobar*.
     """
     fuera = []
+    for ref in reglas:
+        if ref not in datos:
+            # una regla para un dispositivo que no está es un nombre mal
+            # escrito. Ignorarla en silencio deja el hueco tapado y, cuando
+            # se añada el dispositivo, su región sevaluateá sola sin que
+            # nadie se entere de que la regla llevaba ahí sin usarse.
+            fuera.append(VeredictoInvariante(
+                f"región de {ref}", False,
+                "hay una regla de región para un dispositivo que no está en "
+                "la solución: el nombre no coincide con ningún ref"))
     for ref, info in datos.items():
         if ref not in reglas:
             fuera.append(VeredictoInvariante(
@@ -269,12 +344,13 @@ def regiones(datos: dict, reglas: dict) -> list[VeredictoInvariante]:
 def pasiva(potencias, tol: Fraction = Fraction(1, 10 ** 12)
            ) -> VeredictoInvariante:
     """Una red sin fuentes no genera energía: ninguna potencia puede ser < 0."""
-    malos = [(k, Fraction(v)) for k, v in potencias.items() if Fraction(v) < -tol]
+    malos = [(k, p) for k, v in potencias.items()
+             if (p := _exacto(v, f"la potencia de {k}")) < -tol]
     if malos:
         k, v = malos[0]
         return VeredictoInvariante(
             "pasividad", False,
-            f"{k} disipa {float(v):.6g} W (negativo): una red pasiva no "
+            f"{k} disipa {_muestra(v, 6)} W (negativo): una red pasiva no "
             f"entrega energía")
     return VeredictoInvariante("pasividad", True,
                                f"{len(potencias)} elementos, ninguno negativo")
@@ -322,26 +398,36 @@ def estable(ys, margen: Fraction = Fraction(1, 10 ** 4)) -> VeredictoInvariante:
     oscilación amortiguada, la divergencia pura, la oscilación que se amplifica
     y la serie corta. Una comprobación que sólo aceptase casos divergentes, o
     que sólo rechazase casos normales, habría pasado igual con un solo test.
+
+    **Lo que no ve:** el crecimiento lento y sin límite, como la raíz de t.
+    Sus pasos se acortan, así que aquí sale como un asentamiento, y no lo es:
+    la respuesta se va al infinito igual. Distinguirlo exige mirar el
+    comportamiento asintótico (Routh-Hurwitz, CI-12.1) y no la forma de una
+    muestra. Está anotado en los límites honestos del gate en vez de
+    disimularlo con una comprobación que no lo distingue.
     """
-    vals = [Fraction(v) for v in ys]
+    vals = [_exacto(v, f"un punto del transitorio ({i})")
+            for i, v in enumerate(ys)]
     magnitudes = [abs(v) for v in vals]
     if len(vals) < 4:
         return VeredictoInvariante(
             "estabilidad", True,
-            f"solo {len(vals)} puntos: hace falta la respuesta asentada para "
-            f"juzgar si diverge", comprobado=False)
+            ("no hay ningún punto que mirar" if not vals else
+             f"solo {len(vals)} {'punto' if len(vals) == 1 else 'puntos'}: "
+             f"hace falta la respuesta asentada para juzgar si diverge"),
+            comprobado=False)
     if max(magnitudes) == 0:
         return VeredictoInvariante("estabilidad", True, "respuesta nula")
     if min(magnitudes) == max(magnitudes):
         return VeredictoInvariante(
             "estabilidad", True,
-            f"la magnitud se mantiene en {float(magnitudes[0]):.6g}: ya está "
+            f"la magnitud se mantiene en {_muestra(magnitudes[0], 6)}: ya está "
             f"asentada")
     if magnitudes[-2] == 0 and magnitudes[-1] > 0:
         return VeredictoInvariante(
             "estabilidad", False,
             f"la respuesta es cero hasta el penúltimo punto y salta a "
-            f"{float(magnitudes[-1]):.6g}: nace de la nada sin fuente "
+            f"{_muestra(magnitudes[-1], 6)}: nace de la nada sin fuente "
             f"declarada")
     picos = _picos(magnitudes)
     if len(picos) >= 2:
@@ -349,13 +435,23 @@ def estable(ys, margen: Fraction = Fraction(1, 10 ** 4)) -> VeredictoInvariante:
         if ultimo > penultimo * (1 + margen):
             return VeredictoInvariante(
                 "estabilidad", False,
-                f"los picos crecen ({float(penultimo):.6g} → "
-                f"{float(ultimo):.6g}): la oscilación se amplifica sin "
+                f"los picos crecen ({_muestra(penultimo, 6)} → "
+                f"{_muestra(ultimo, 6)}): la oscilación se amplifica sin "
                 f"realimentación declarada")
+        # picos iguales no están «amortiguados»: se mantienen. Decir
+        # «amortiguados» de una oscilación de amplitud constante sería un
+        # mensaje que afirma algo que no se ha comprobado, que es el mismo
+        # fallo que se evita en el resto del laboratorio.
+        if ultimo == penultimo:
+            return VeredictoInvariante(
+                "estabilidad", True,
+                f"los picos se mantienen en {_muestra(ultimo, 6)}: "
+                f"oscilación marginal, ni crece ni se apaga",
+                comprobado=False)
         return VeredictoInvariante(
             "estabilidad", True,
-            f"picos amortiguados ({float(penultimo):.6g} → "
-            f"{float(ultimo):.6g})")
+            f"picos amortiguados ({_muestra(penultimo, 6)} "
+            f"a {_muestra(ultimo, 6)})")
     if len(magnitudes) < 5:
         return VeredictoInvariante(
             "estabilidad", True,
@@ -369,18 +465,18 @@ def estable(ys, margen: Fraction = Fraction(1, 10 ** 4)) -> VeredictoInvariante:
         return VeredictoInvariante(
             "estabilidad", False,
             f"la magnitud no deja de crecer y sus pasos se agrandan "
-            f"({float(pasos[-2]):.6g} → {float(pasos[-1]):.6g}): diverge sin "
+            f"({_muestra(pasos[-2], 6)} → {_muestra(pasos[-1], 6)}): diverge sin "
             f"realimentación declarada")
     if pasos[-1] > pasos[-2] * (1 + margen):
         return VeredictoInvariante(
             "estabilidad", True,
-            f"el último paso crece ({float(pasos[-2]):.6g} → "
-            f"{float(pasos[-1]):.6g}) pero la magnitud no es monótona: puede "
+            f"el último paso crece ({_muestra(pasos[-2], 6)} → "
+            f"{_muestra(pasos[-1], 6)}) pero la magnitud no es monótona: puede "
             f"ser un transitorio normal, sin comprobar", comprobado=False)
     return VeredictoInvariante(
         "estabilidad", True,
-        f"los pasos no se agrandan (últimos: {float(pasos[-2]):.6g} → "
-        f"{float(pasos[-1]):.6g}): la respuesta se asienta, no diverge")
+        f"los pasos no se agrandan (últimos: {_muestra(pasos[-2], 6)} → "
+        f"{_muestra(pasos[-1], 6)}): la respuesta se asienta, no diverge")
 
 
 # ---------------------------------------------------------------------------
@@ -411,15 +507,15 @@ def dimensiones(magnitudes: dict, esperadas: dict) -> VeredictoInvariante:
 def reciproca(z12, z21, eps: Fraction = Fraction(1, 10 ** 9)
               ) -> VeredictoInvariante:
     """En una red pasiva, z₁₂ = z₂₁ (y S₁₂ = S₂₁)."""
-    a, b = Fraction(z12), Fraction(z21)
+    a, b = _exacto(z12, "z₁₂"), _exacto(z21, "z₂₁")
     escala = max(abs(a), abs(b), Fraction(1))
     if abs(a - b) / escala > eps:
         return VeredictoInvariante(
             "reciprocidad", False,
-            f"z₁₂ = {float(a):.6g} y z₂₁ = {float(b):.6g}: una red sin "
+            f"z₁₂ = {_muestra(a, 6)} y z₂₁ = {_muestra(b, 6)}: una red sin "
             f"fuentes controladas no puede romper la simetría")
     return VeredictoInvariante("reciprocidad", True,
-                               f"z₁₂ = z₂₁ = {float(a):.6g}")
+                               f"z₁₂ = z₂₁ = {_muestra(a, 6)}")
 
 
 # ---------------------------------------------------------------------------

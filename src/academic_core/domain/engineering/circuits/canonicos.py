@@ -4,14 +4,25 @@
 Un banco de regresión vale sólo si la solución esperada viene de **otro sitio**.
 Si el banco calculase lo que espera con el mismo solver que después comprueba,
 estaría comparando el código consigo mismo y un error común a los dos pasaría
-inadvertido. Por eso aquí hay un resolutor propio, mínimo y exacto, escrito a
-propósito: nodos por Kron y mallas por eliminación de Gauss, todo con
-`Fraction`. Es lento e inútil para un circuito de mil nodos, y ése es el punto:
-es lento, es corto y es fácil de leer entera, así que cuando discrepa del
-motor de producción se sabe que el fallo está en uno de los dos.
+inadvertido. Por eso aquí el cálculo se escribe de otra manera a como lo
+hará el motor de producción, y en dos formatos distintos:
 
-Los valores esperados están calculados a mano y comprobados dos veces por
-camino distinto (nodos y mallas, o fórmula cerrada y ley de Ohm), y cada
+- **fórmula cerrada** en los cinco circuitos Pasivos (malla simple, doble
+  malla, divisor, los dos puentes): se aplica la ley que se enseña y se
+  escribe el resultado en `Fraction`;
+- **eliminación de Gauss con `Fraction`** en la doble malla, que es el único
+  donde hace falta un sistema. La implementa :func:`gauss`, escrita aquí a
+  propósito.
+
+**No hay resolutor de nodos todavía** (ni Kron ni Kirchhoff): los circuitos con
+fuente en un rama se resuelven aquí por fórmula cerrada, no por sistema. Cuando
+llegue el solver de nodos de CI-1 se pondrá a la obra y el banco pasará a tener
+las dos vías para los mismos circuitos, que es cuando la comparación empieza a
+valer algo.
+
+Los valores esperados están calculados a mano y comprobados por un camino
+independiente (el divisor por Thevenin, el puente por el criterio de
+equilibrio, la doble malla por la corriente del nodo medio), y cada
 circuito dice cuál es su comprobación. Todos en forma exacta salvo el
 transitorio, que es transcendente y va marcado como tal.
 
@@ -27,13 +38,11 @@ cerrada exacta; los de dispositivos van con su modelo y llegan con CI-9.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal, localcontext
+from decimal import Decimal
 from fractions import Fraction
 
 from academic_core.domain.engineering.circuits import invariantes as I
-
-#: el transitorio necesita 50 dígitos; con 28 no coincide ni el sello
-PRECISION = 50
+from academic_core.domain.engineering.circuits.contrato import con_precision
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +149,10 @@ registra(Canonico(
     invariantes={
         "corrientes": {"nodo": [Fraction(1, 3), Fraction(-1, 3)]},
         "mallas": {"espira": [Fraction(2), Fraction(-2, 3), Fraction(-4, 3)]},
+        # 2 V x 1/3 A = 2/3 W, y las dos resistencias disipan
+        # (1/3)²x2 + (1/3)²x4 = 2/9 + 4/9 = 2/3 W
+        "absorbidas": [Fraction(2, 9), Fraction(4, 9)],
+        "suministradas": [Fraction(2, 3)],
     },
 ))
 
@@ -150,30 +163,51 @@ registra(Canonico(
 
 
 def _doble_malla() -> dict:
-    """12 V con 4 Ω en la espira 1; 6 V con 6 Ω en la espira 2; 3 Ω comunes.
+    """12 V alimentando 4 Ω; 6 V alimentando 6 Ω; los dos tramos se juntan en
+    un nodo del que sale un 3 Ω común a masa:
 
-    Ecuaciones de malla:  4·i1 + 3·(i1 − i2) = 12 ;  6·i2 + 3·(i2 − i1) = 6
+        V1 0→n1 (12 V)   R1 n1→n2 (4 Ω)
+        V2 0→n3 (6 V)    R2 n3→n2 (6 Ω)
+        R3 n2→0 (3 Ω)
+
+    **Las dos corrientes de malla vuelven por R3 en el mismo sentido**, así que
+    sus corrientes se **suman**: 4·i1 + 3·(i1 + i2) = 12 y 6·i2 +
+    3·(i1 + i2) = 6, es decir 7·i1 + 3·i2 = 12 y 3·i1 + 9·i2 = 6.
+
+    La primera versión de este canónico llevaba **menos** en el 3 Ω y decía
+    que la razón era que «la resistencia común aparece con el signo
+    contrario porque las dos corrientes la cruzan en sentidos opuestos». Eso es
+    cierto en **otra** topología, la del resistor común entre los dos puntos
+    medios, y falso en ésta. El error daba i1 = 7/3 e i2 = 13/9, que
+    **violan KCL**: al nodo central entran 34/9 A y salen 8/9. Se cazó al
+    contrastar este canónico con el MNA de producción, que es para lo que sirve
+    un banco canónico; el propio banco se autocomprobaba y no lo veía, porque
+    autocomprobarse con el mismo criterio equivocado no comprueba nada.
     """
-    A = [[Fraction(7), Fraction(-3)], [Fraction(-3), Fraction(9)]]
+    A = [[Fraction(7), Fraction(3)], [Fraction(3), Fraction(9)]]
     b = [Fraction(12), Fraction(6)]
     i1, i2 = gauss(A, b)
-    return {"I1": i1, "I2": i2, "Ic": i1 - i2}
+    return {"I1": i1, "I2": i2, "Ic": i1 + i2}
 
 
 registra(Canonico(
     nombre="doble_malla",
-    descripcion="dos espiras que comparten 3 Ω, con 12 V y 6 V",
+    descripcion="dos espiras que comparten el 3 Ω de retorno, con 12 V y 6 V",
     resuelve=_doble_malla,
-    espera={"I1": Fraction(7, 3), "I2": Fraction(13, 9), "Ic": Fraction(8, 9)},
-    metodo="mallas: la resistencia común aparece con el signo contrario en "
-           "las dos ecuaciones porque las dos corrientes la cruzan en sentidos "
-           "opuestos; 7·i1 − 3·i2 = 12 y −3·i1 + 9·i2 = 6",
-    comprobacion="la corriente por el 3 Ω shared sale de la diferencia "
-                 "i1 − i2 = 8/9 A, y por KCL en el nodo medio ni entra ni sale",
+    espera={"I1": Fraction(5, 3), "I2": Fraction(1, 9), "Ic": Fraction(16, 9)},
+    metodo="mallas: las dos corrientes vuelven por el 3 Ω común en el mismo "
+           "sentido, así que allí se suman y no se restan; 7·i1 + 3·i2 = 12 y "
+           "3·i1 + 9·i2 = 6",
+    comprobacion="por KCL en el nodo central: por R1 llega i1 = 5/3 y por "
+                 "R2 llega i2 = 1/9, y por el 3 Ω se salen los 16/9; el MNA de "
+                 "producción da los tres números, y el balance de potencias "
+                 "cierra a 62/3 W por los dos lados",
     invariantes={
-        "corrientes": {"medio": [Fraction(8, 9), Fraction(-8, 9)]},
-        "absorbidas": [Fraction(0)],
-        "suministradas": [Fraction(0)],
+        "corrientes": {"medio": [Fraction(16, 9), Fraction(-16, 9)]},
+        # 12 V x 5/3 = 20 W y 6 V x 1/9 = 2/3 W; los tres resistores
+        # disipan 100/9 + 2/27 + 256/27 = 62/3 W, que es lo mismo
+        "absorbidas": [Fraction(100, 9), Fraction(2, 27), Fraction(256, 27)],
+        "suministradas": [Fraction(20), Fraction(2, 3)],
     },
 ))
 
@@ -209,8 +243,10 @@ registra(Canonico(
     comprobacion="por Thevenin, que es un camino independiente: V_th = 8 V, "
                  "R_th = 4/3 kΩ, y 8·4/(4/3 + 4) = 6 V, el mismo valor",
     invariantes={
-        "absorbidas": [Fraction(0)],
-        "suministradas": [Fraction(0)],
+        # 12 V por 3 mA = 36 mW; R1 9/500, y el paralelo R2||RL a 6 V
+        # disipa 9/1000 + 9/1000
+        "absorbidas": [Fraction(9, 500), Fraction(9, 1000), Fraction(9, 1000)],
+        "suministradas": [Fraction(9, 250)],
     },
 ))
 
@@ -249,8 +285,11 @@ registra(Canonico(
                  "4/6 = 6/3; como no lo son, la diferencia es la lectura y "
                  "no un error de cálculo",
     invariantes={
-        "absorbidas": [Fraction(0)],
-        "suministradas": [Fraction(0)],
+        # las dos ramas en paralelo desde la misma fuente de 12 V: 12 x
+        # (6/5 + 4/3) = 152/5 W, y las cuatro resistencias 152/5 W
+        "absorbidas": [Fraction(144, 25), Fraction(216, 25),
+                       Fraction(32, 3), Fraction(16, 3)],
+        "suministradas": [Fraction(152, 5)],
     },
 ))
 
@@ -280,8 +319,10 @@ registra(Canonico(
                  "dos mitades da también 0: los dos caminos coinciden en el "
                  "caso en que la diagonal no se nota",
     invariantes={
-        "absorbidas": [Fraction(0)],
-        "suministradas": [Fraction(0)],
+        # las dos ramas llevan 6/5 A: 2 x 144/25 + 2 x 216/25 = 144/5 W
+        "absorbidas": [Fraction(144, 25), Fraction(216, 25),
+                       Fraction(144, 25), Fraction(216, 25)],
+        "suministradas": [Fraction(144, 5)],
     },
 ))
 
@@ -302,8 +343,7 @@ def _rc_escalon() -> dict:
     # resistencia salía aquí con τ = 1 µs en vez de 1 ms.
     v, r, c = Fraction(5), Fraction(1000), Fraction(1, 10 ** 6)
     tau = r * c
-    with localcontext() as ctx:
-        ctx.prec = PRECISION
+    with con_precision():
         e = Decimal(1).exp()
         # la fracción se entra como decimal, no al revés: mezclar
         # `Fraction * Decimal` es un TypeError, no una aproximación silenciosa
@@ -333,7 +373,8 @@ registra(Canonico(
         # una divergencia, no el hecho de que suba
         "transitorio": [Fraction(0), Fraction(3), Fraction(13, 3),
                         Fraction(19, 4), Fraction(5)],
-        "absorbidas": [Fraction(0)],
-        "suministradas": [Fraction(0)],
+        # la resistencia sola durante el transitorio: 5 V x 5 mA = 25 mW
+        "absorbidas": [Fraction(25, 1000)],
+        "suministradas": [Fraction(25, 1000)],
     },
 ))

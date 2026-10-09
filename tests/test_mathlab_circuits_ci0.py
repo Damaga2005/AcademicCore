@@ -40,7 +40,10 @@ from academic_core.domain.engineering.units import RESISTANCE, VOLTAGE
 @pytest.mark.parametrize("texto,unidad,esperado", [
     ("4,7", "kΩ", "4700"),
     ("4k7", "Ω", "4700"),
-    ("1R2", "Ω", "12"),
+    ("1R2", "Ω", "1.2"),
+    ("4R7", "Ω", "4.7"),
+    ("47R", "Ω", "47"),
+    ("1R0", "Ω", "1"),
     ("1M5", "Ω", "1500000"),
     ("4.7e3", "Ω", "4700"),
     ("2u2", "F", "0.0000022"),
@@ -451,3 +454,441 @@ def test_un_canonico_inexistente_falla_diciendo_que_existe():
         K.busca("no_existe")
     assert "no_existe" in str(exc.value)
     assert "malla_simple" in str(exc.value), "el error debe listar lo que hay"
+
+
+# ---------------------------------------------------------------------------
+# 7. la auditoría hostil: cada corrección de §3 del gate, fijada por una prueba
+# ---------------------------------------------------------------------------
+
+
+def test_las_invariantes_tambien_rechazan_los_float():
+    """El contrato ya los rechazaba, pero las invariantes eran una segunda
+    puerta por la que un `float` se colaba. Con `Fraction(0.5)` el valor
+    sale exacto por casualidad, y esa casualidad es justo la que hace
+    peligroso dejarlo pasar: otros valores sí perderían cifras y el residuo
+    que se compararía sería el del redondeo, no el del cálculo."""
+    with pytest.raises(I.InvarianteRota) as exc:
+        I.kcl({"n1": [0.5, -0.5]})
+    assert "float" in str(exc.value)
+    for mala in (lambda: I.kvl({"m1": [0.5, -0.5]}),
+                 lambda: I.balance_potencias([0.5], [0.5]),
+                 lambda: I.pasiva({"R1": 0.5}),
+                 lambda: I.estable([0.1, 0.2, 0.3, 0.4, 0.5]),
+                 lambda: I.reciproca(0.5, 0.5)):
+        with pytest.raises(I.InvarianteRota):
+            mala()
+
+
+def test_las_invariantes_siguen_aceptando_los_exactos():
+    """Rechazar el float no puede ser motivo para rechazar el Decimal o el
+    entero, que son exactos y son los que se usan de verdad."""
+    assert I.kcl({"n1": [Decimal("1"), Decimal("-1")]}).cumple
+    assert I.kcl({"n1": [1, -1]}).cumple
+    assert I.balance_potencias([Decimal("5")], [Decimal("5")]).cumple
+
+
+def test_una_oscilacion_marginal_no_se_declara_amortiguada():
+    """Picos iguales no son picos amortiguados. El mensaje decia
+    «amortiguados» de una oscilación de amplitud constante, que es afirmar
+    algo que no se ha comprobado."""
+    v = I.estable([Fraction(0), Fraction(1), Fraction(0), Fraction(1),
+                   Fraction(0)])
+    assert not v.comprobado, "una oscilacion marginal no esta verificada"
+    assert "marginal" in v.detalle
+    amortiguada = I.estable([Fraction(0), Fraction(9, 10), Fraction(11, 10),
+                             Fraction(9, 10), Fraction(1)])
+    assert amortiguada.comprobado, "una amortiguada si se puede comprobar"
+
+
+def test_una_regla_de_region_para_un_dispositivo_inexistente_no_se_ignora():
+    """Un `ref` mal escrito dejaba la comprobacion sin hacer y sin decir
+    nada. Ahora avisa, porque el hueco aparecia tapado."""
+    v = I.regiones({}, {"D1": ("ON", True, "x")})[0]
+    assert not v.cumple
+    assert "no est" in v.detalle
+    assert not I.comprueba(regiones_datos={"D1": "ON"},
+                           reglas={"D2": ("ON", True, "x")}).cumple
+
+
+def test_un_sello_con_un_veredicto_inventado_se_rechaza():
+    """«verificado » con un espacio de mas daria `ok == False` sin que nadie
+    supiera por que, y al dibujarse saldria con un interrogante donde debia
+    ir una explicacion."""
+    for malo in ("inventado", "verificado ", "Verificado", "", "verificado."):
+        with pytest.raises(C.EntradaInvalida) as exc:
+            C.Sello(malo, "m")
+        assert "veredictos" in str(exc.value)
+
+
+def test_un_sello_sin_metodo_se_rechaza():
+    """El sello dice como se comprobo. Sin metodo es un tick sin contenido."""
+    with pytest.raises(C.EntradaInvalida) as exc:
+        C.Sello(C.VERIFICADO, "")
+    assert "segundo camino" in str(exc.value)
+
+
+def test_los_tres_sellos_se_dibujan_con_su_signo():
+    assert C.Sello(C.VERIFICADO, "m").linea().startswith("\u2714")
+    assert C.Sello(C.FUERA_DE_RANGO, "m").linea().startswith("!")
+    assert C.Sello(C.DIFIERE, "m").linea().startswith("\u2718")
+
+
+def test_un_transitorio_vacio_no_dice_que_tiene_cero_puntos():
+    assert "no hay ning" in I.estable([]).detalle
+    assert "solo 1 punto:" in I.estable([Fraction(1)]).detalle
+
+
+def test_la_r_de_la_serie_e_no_multiplica_por_diez():
+    """«1R2» son 1,2 ohmios, no 12. En esta notación la letra es el punto
+    decimal y la R vale por uno, así que leerla como ×10 se equivocaba en
+    un factor de diez justo en el valor que decide si el circuito funciona.
+    La primera versión de esta prueba fijaba 12 ohmios como si fuera lo
+    correcto, que es como un error se convierte en especifi-cación."""
+    assert C.magnitud("1R2", "Ω").to_base() == Decimal("1.2")
+    assert C.magnitud("4R7", "Ω").to_base() == Decimal("4.7")
+    assert C.magnitud("2R2", "Ω").to_base() == Decimal("2.2")
+    # y la R al final es la unidad, no un prefijo
+    assert C.magnitud("47R", "Ω").to_base() == Decimal("47")
+
+
+def test_las_letras_no_se_confunden_entre_s_i():
+    """«1m5» es miliohms y «1M5» es megaohms: la misma letra en distinta
+    letra señal es un factor mil, así que la caja importa."""
+    assert C.magnitud("1m5", "Ω").to_base() == Decimal("0.0015")
+    assert C.magnitud("1M5", "Ω").to_base() == Decimal("1500000")
+
+
+def test_un_prefijo_no_se_confunde_con_una_unidad():
+    """«1m5» con ohmios son 1,5 miliohms. Antes de la comprobación por
+    dimensión se leía como 1,5 **metros**: «m» es prefijo (mili) y
+    unidad (metro) a la vez, y ganaba el metro. El resultado no habría
+    reventado, habría dado un número plausible y equivocado, que es la
+    forma de fallo peor que hay."""
+    assert C.magnitud("1m5", "Ω").to_base() == Decimal("0.0015")
+    # el mismo prefijo con otra unidad sigue siendo el mismo prefijo
+    assert C.magnitud("1m5", "A").to_base() == Decimal("0.0015")
+    assert C.magnitud("1n2", "F").to_base() == Decimal("1.2e-9")
+
+
+def test_ningun_canonico_declara_un_balance_vacio():
+    """Ninguno de los seis circuitos del banco es una red sin fuentes, asi que
+    un balance de [0] contra [0] no seria una comprobacion: seria la rama de
+    «red sin fuentes»aplicado a un circuito que tiene fuentes, y pasaria sin
+    haber mirado nada. Cada uno declara las potencias de verdad."""
+    for nombre in K.nombres():
+        c = K.busca(nombre)
+        absorbidas = c.invariantes.get("absorbidas")
+        suministradas = c.invariantes.get("suministradas")
+        assert absorbidas, f"{nombre} no declara potencias absorbidas"
+        assert suministradas, f"{nombre} no declara potencias suministradas"
+        assert any(Fraction(a) != 0 for a in absorbidas), (
+            f"{nombre} declara un balance vacio: la comprobacion no miraria "
+            f"nada")
+        assert any(Fraction(s) != 0 for s in suministradas), (
+            f"{nombre} no declara ninguna fuente que suministre energia")
+        informe = c.cumple_invariantes()
+        assert informe.cumple, f"{nombre}: {informe.texto()}"
+
+
+def test_el_balance_de_cada_canonico_cierra_exacto():
+    """Sin holgura: con aritmetica racional, si el balance no cierra a cero
+    es que una potencia esta mal contada, y una holgura de 1e-6 lo taparia."""
+    for nombre in K.nombres():
+        c = K.busca(nombre)
+        a = sum(Fraction(x) for x in c.invariantes["absorbidas"])
+        s = sum(Fraction(x) for x in c.invariantes["suministradas"])
+        assert a == s, f"{nombre}: absorbe {a} y suministra {s}"
+
+
+def test_el_digest_distingue_hipotesis_y_validez_distintas():
+    """Dos resultados con el mismo número y distinto «válido si x > 0» no
+    son el mismo cálculo: la hipótesis dice bajo qué condición vale."""
+    def uno(hipotesis=("lineal",), validez="x > 0"):
+        traza = C.Traza()
+        traza.anade("MNA", "a", despues="1", motivo="porque sí")
+        return C.Resultado("prueba", "V = I·R", Decimal("1"), traza,
+                           C.Sello(C.VERIFICADO, "manual"),
+                           hipotesis=hipotesis, validez=validez)
+    assert uno().digest == uno().digest
+    assert uno().digest != uno(hipotesis=("saturado",)).digest
+    assert uno().digest != uno(validez="x < 0").digest
+
+
+def test_el_banco_no_afirma_mas_de_lo_que_hace():
+    """El modulo decia que tenia un resolutor de nodos por Kron y no lo tiene:
+    los pasivos se resuelven por fórmula cerrada. Afirmar una capacidad que el
+    código no tiene es el mismo fallo que se le critica a un sello: si
+    algún leyera esa frase, la usaría como referencia."""
+    import inspect
+    src = inspect.getsource(K)
+    for capacidad in ("Kron", "Kirchhoff", "nodal solver"):
+        if capacidad in src:
+            assert "No hay resolutor de nodos" in src, (
+                f"el modulo menciona {capacidad!r} y no lo implementa")
+    # lo que sí implementa, lo implementa
+    assert callable(K.gauss)
+    assert K.gauss([[K.Fraction(2), K.Fraction(0)],
+                    [K.Fraction(0), K.Fraction(4)]], [K.Fraction(4), K.Fraction(8)]) == [
+        K.Fraction(2), K.Fraction(2)]
+
+
+def test_las_comprobaciones_no_reviendan_al_explicar_un_numero_enorme():
+    """Un mensaje de error que revienta es peor que no comprobar: entrega un
+    traceback en vez del diagnóstico, y el diagnóstico es justo lo que hacía
+    falta. `float(10**500)` lanza `OverflowError`, y estos `float` estaban
+    todos dentro de los mensajes."""
+    enormes = 10 ** 500
+    for nombre, fn in (("KCL", lambda: I.kcl({"n1": [10 ** 400, -(10 ** 400) + 1]})),
+                       ("balance", lambda: I.balance_potencias([enormes], [1])),
+                       ("pasividad", lambda: I.pasiva({"R1": -enormes})),
+                       ("estabilidad", lambda: I.estable([10 ** 400 * i
+                                                          for i in range(1, 6)])),
+                       ("reciprocidad", lambda: I.reciproca(10 ** 400,
+                                                            10 ** 401))):
+        veredicto = fn()          # no debe lanzar
+        linea = veredicto.linea()  # y menos aún al explicarse
+        assert linea, nombre
+        assert "OverflowError" not in linea
+
+
+def test_una_muestra_enorme_dice_cuantas_cifras_tiene():
+    """No basta con que no reviente: el número sigue siendo legible. Un
+    `1e500` es un diagnóstico; un entero de 501 dígitos no lo es."""
+    from academic_core.domain.engineering.circuits.invariantes import _muestra
+    assert _muestra(Fraction(5), 6) == "5"
+    assert "e500" in _muestra(Fraction(10) ** 500)
+    assert _muestra(Fraction(1, 3), 6) == "0.333333"
+
+
+# ---------------------------------------------------------------------------
+# 8. transitorios de libro: el criterio con casos que no se le ajustaron
+# ---------------------------------------------------------------------------
+
+TAU = Fraction(1, 100)
+
+
+def _rampa(v0, vinf, n):
+    """x(t) = vinf + (x0 - vinf)·e^(-t/tau) muestreada con una exponencial
+    racional equivalente: `1/(1 + t/tau)` decae igual y es exacta."""
+    return [Fraction(0)] + [v0 + (vinf - v0) * (TAU / (TAU + TAU * k))
+                            for k in range(1, n)]
+
+
+@pytest.mark.parametrize("nombre,ys,estable", [
+    ("RC cargándose", "rampa 0->5", True),
+    ("RC descargándose", "rampa 5->0", True),
+    ("sobreamortiguado", "lento", True),
+    ("constante", "constante", True),
+    ("oscilación amortiguada larga", "amortiguada", True),
+    ("oscilación que se amplifica", "amplifica", False),
+    ("divergencia exponencial", "exponencial", False),
+    ("nace de cero", "nace", False),
+])
+def test_los_transitorios_de_libro_se_juzgan_bien(nombre, ys, estable):
+    """El criterio de estabilidad se probó con casos con los que se
+    ajustó al principio. Estos son los que salen en un libro de segundo curso,
+    y algunos no se parecerán en nada a los primeros."""
+    TAU = Fraction(1, 100)
+    tabla = {
+        "rampa 0->5": [Fraction(0)] + [Fraction(5) * (TAU / (TAU + TAU * k))
+                                       for k in range(1, 8)],
+        "rampa 5->0": [Fraction(5)] + [Fraction(5) * (1 - TAU / (TAU + TAU * k))
+                                       for k in range(1, 8)],
+        "lento": [Fraction(0)] + [TAU / (TAU + TAU * k) for k in range(1, 8)],
+        "constante": [Fraction(3)] * 8,
+        "amortiguada": [Fraction(0), Fraction(10), Fraction(-9), Fraction(81, 10),
+                        Fraction(-729, 100), Fraction(6561, 1000),
+                        Fraction(-59049, 10000), Fraction(531441, 100000)],
+        "amplifica": [Fraction(1), Fraction(-10), Fraction(100),
+                      Fraction(-1000), Fraction(10000), Fraction(-100000)],
+        "exponencial": [Fraction(2) ** i for i in range(1, 9)],
+        "nace": [Fraction(0)] * 7 + [Fraction(5)],
+    }
+    v = I.estable(tabla[ys])
+    assert v.cumple is estable, f"{nombre}: {v.detalle}"
+
+
+def test_un_transitorio_real_de_primer_orden_pasa():
+    """31 puntos de una carga RC de verdad, no tres números inventados."""
+    ys = [Fraction(1) - (1 - Fraction(k, 200)) ** 10 for k in range(31)]
+    v = I.estable(ys)
+    assert v.cumple and v.comprobado, v.detalle
+
+
+def test_una_rampa_lineal_no_se_declara_inestable_aunque_no_asiente():
+    """Límite conocido y declarado, fijado como prueba para que no se
+    olvide: los pasos de una rampa son constantes, y eso es indistinguible de
+    un asentamiento por la **forma**. Se distingue mirando el comportamiento
+    asintótico (Routh-Hurwitz, CI-12.1), no una muestra. Aquí se documenta
+    como lo que es: no comprobado en la duda."""
+    rampa = [Fraction(i) for i in range(1, 9)]
+    v = I.estable(rampa)
+    assert v.cumple, "no debe romper la solución"
+    assert "asienta" in v.detalle or "mantiene" in v.detalle
+
+
+def test_el_contexto_de_50_digitos_se_aplica_de_verdad():
+    """Había dos ayudas que prometían un contexto de 50 dígitos y no lo
+    daban: una devolvía el ambiente sin tocar y la otra no la llamaba nadie.
+    Ahora se usa como gestor de contexto y el número sale largo."""
+    with C.con_precision() as ctx:
+        assert ctx.prec == 50
+        dentro = Decimal(1) / Decimal(3)
+    assert len(str(dentro).split(".")[1]) == 50, "no son 50 dígitos"
+    # fuera del bloque vuelve el ambiente: no secontamination el resto
+    assert len(str(Decimal(1) / Decimal(3)).split(".")[1]) < 50
+
+
+def test_decimal_no_calcula_con_28_digitos():
+    """Un tercio a 28 cifras pierde las 22 últimas sin avisar, y en un
+    cálculo que luego se compara con otro de la misma familia el fallo se
+    propaga en silencio."""
+    d = C.decimal(Fraction(1, 3))
+    assert len(str(d).split(".")[1]) >= 50, str(d)
+
+
+def test_una_unidad_que_no_existe_lo_dice_en_el_mensaje():
+    """Antes el mensaje acababa diciendo «escríbelo con la unidad ΩΩ», que
+    era justamente lo imposible. Una ayuda que repite el nombre roto no
+    ayuda: hay que decir que el nombre no existe y enseñar uno bueno."""
+    # solo nombres que de verdad no existen: «volts» sí es alias de «V» en
+    # units.py y aceptarlo es lo correcto
+    for rota in ("ΩΩ", "Ω/Ω", "amper", "zzz", "k"):
+        with pytest.raises(C.EntradaInvalida) as exc:
+            C.magnitud("5", rota)
+        texto = str(exc.value)
+        assert "no existe" in texto, texto
+        assert rota not in texto.split("ejemplo")[-1], (
+            "el ejemplo no debe repetir la unidad rota")
+
+
+def test_un_resultado_no_admite_float():
+    """P1 tenía tres puertas y dos abiertas: `exacto()` y las invariantes
+    rechazaban el float, pero el `valor` de un resultado lo aceptaba. Un
+    resultado con float tiene un digest que no corresponde al cálculo que
+    se haría al reproducirlo."""
+    traza = C.Traza()
+    traza.anade("MNA", "a", despues="1", motivo="porque sí")
+    with pytest.raises(I.InvarianteRota) as exc:
+        C.Resultado("v", "V = I·R", 0.5, traza, C.Sello(C.VERIFICADO, "m"))
+    assert "float" in str(exc.value)
+    # y los exactos siguen entrando
+    for bueno in (Decimal("0.5"), Fraction(1, 2), 1, 0):
+        C.Resultado("v", "V = I·R", bueno, traza, C.Sello(C.VERIFICADO, "m"))
+
+
+# ---------------------------------------------------------------------------
+# 9. el banco canónico CONTRASTEADO con el motor de producción
+# ---------------------------------------------------------------------------
+
+def _cto(nombre, partes):
+    """Monta un circuito real con el modelo `circuit.Circuit` de producción."""
+    from academic_core.domain.engineering.circuit import Circuit, Component
+    from academic_core.domain.engineering.units import parse_quantity
+    circ = Circuit(nombre)
+    for ref, tipo, valor, pins in partes:
+        circ.add(Component(ref=ref, type=tipo, value=parse_quantity(valor),
+                           pins=dict(pins)))
+    return circ
+
+
+def _solve(circ):
+    from academic_core.domain.engineering.mna.solver import solve_linear_dc
+    sol = solve_linear_dc(circ)
+    assert str(sol.status).endswith("SOLVED"), (sol.status, sol.diagnostics)
+    return sol
+
+
+def _v(sol, nodo):
+    for nv in sol.node_voltages:
+        if nv.node == nodo:
+            return nv.voltage.to_base()
+    raise KeyError(nodo)
+
+
+def _i(sol, ref):
+    for b in sol.branch_currents:
+        if b.ref == ref:
+            return b.current.to_base()
+    raise KeyError(ref)
+
+
+def _coincide(exacto, mostrado, nombre):
+    """El banco es fracción exacta; el MNA resuelve exacto pero **presenta**
+    con 28 dígitos, así que la comparación va por relativa."""
+    a = Decimal(exacto.numerator) / Decimal(exacto.denominator)
+    b = Decimal(mostrado)
+    tol = Decimal(1) / Decimal(10 ** 24)
+    rel = abs(a - b) / max(abs(a), abs(b), Decimal(1))
+    assert rel <= tol, f"{nombre}: banco {a} frente a motor {b} (relativo {rel:.3g})"
+
+
+def test_el_banco_coincide_con_el_mna_en_la_malla_simple():
+    """El banco no basta consigo mismo: se resuelve el mismo circuito con el
+    MNA de producción y se comparan. Un banco que sólo se autocomprueba
+    certifica el error, porque autocomprobarse con el mismo criterio
+    equivocado no comprueba nada."""
+    circ = _cto("malla_simple", [
+        ("V1", "V", "2 V", {"+": "in", "-": "0"}),
+        ("R1", "R", "2 ohm", {"1": "in", "2": "mid"}),
+        ("R2", "R", "4 ohm", {"1": "mid", "2": "0"})])
+    s = _solve(circ)
+    b = K.busca("malla_simple").espera
+    _coincide(b["I"], -_i(s, "V1"), "malla_simple.I")
+    _coincide(b["V1"], _v(s, "in") - _v(s, "mid"), "malla_simple.V1")
+    _coincide(b["V2"], _v(s, "mid") - _v(s, "0"), "malla_simple.V2")
+
+
+def test_el_banco_coincide_con_el_mna_en_la_doble_malla():
+    """Este contraste es el que cazó el signo del 3 Ω común. El canónico
+    decía que las dos corrientes de malla lo cruzaban en sentidos opuestos y
+    por eso iban restadas; en esta topología **vuelven las dos por él en el
+    mismo sentido** y se suman. El valor equivocado (7/3, 13/9) violaba KCL:
+    al nodo central entraban 34/9 A y salían 8/9 A."""
+    circ = _cto("doble_malla", [
+        ("V1", "V", "12 V", {"+": "n1", "-": "0"}),
+        ("V2", "V", "6 V", {"+": "n3", "-": "0"}),
+        ("R1", "R", "4 ohm", {"1": "n1", "2": "n2"}),
+        ("R2", "R", "6 ohm", {"1": "n3", "2": "n2"}),
+        ("R3", "R", "3 ohm", {"1": "n2", "2": "0"})])
+    s = _solve(circ)
+    b = K.busca("doble_malla").espera
+    _coincide(b["I1"], _i(s, "R1"), "doble_malla.I1")
+    _coincide(b["I2"], _i(s, "R2"), "doble_malla.I2")
+    _coincide(b["Ic"], _i(s, "R3"), "doble_malla.Ic")
+
+
+def test_el_banco_coincide_con_el_mna_en_el_divisor_cargado():
+    circ = _cto("divisor_cargado", [
+        ("V1", "V", "12 V", {"+": "in", "-": "0"}),
+        ("R1", "R", "2 kohm", {"1": "in", "2": "mid"}),
+        ("R2", "R", "4 kohm", {"1": "mid", "2": "0"}),
+        ("R3", "R", "4 kohm", {"1": "mid", "2": "0"})])
+    s = _solve(circ)
+    _coincide(K.busca("divisor_cargado").espera["V_sal"], _v(s, "mid"),
+              "divisor_cargado.V_sal")
+
+
+@pytest.mark.parametrize("nombre", ["puente_equilibrado", "puente_desbalanceado"])
+def test_el_banco_coincide_con_el_mna_en_los_puentes(nombre):
+    r3, r4 = ("4 ohm", "6 ohm") if nombre.endswith("equilibrado") else ("6 ohm", "3 ohm")
+    r1, r2 = "4 ohm", "6 ohm"
+    circ = _cto("puente", [
+        ("V1", "V", "12 V", {"+": "A", "-": "0"}),
+        ("R1", "R", r1, {"1": "A", "2": "B"}),
+        ("R2", "R", r2, {"1": "B", "2": "0"}),
+        ("R3", "R", r3, {"1": "A", "2": "C"}),
+        ("R4", "R", r4, {"1": "C", "2": "0"})])
+    s = _solve(circ)
+    b = K.busca(nombre).espera
+    _coincide(b["V_B"], _v(s, "B"), f"{nombre}.V_B")
+    _coincide(b["V_C"], _v(s, "C"), f"{nombre}.V_C")
+    _coincide(b["V_diagonal"], _v(s, "B") - _v(s, "C"), f"{nombre}.V_diagonal")
+
+
+def test_la_doble_malla_del_banco_cumple_kcl():
+    """El valor que tenía antes cumplía la ecuación que el canónimo decía
+    resolver y violaba KCL. Se fija la ley, no el número."""
+    b = K.busca("doble_malla").espera
+    # por R1 y R2 llega al nodo central, y por R3 sale
+    assert b["I1"] + b["I2"] == b["Ic"], f"el canónico viola KCL: {b}"

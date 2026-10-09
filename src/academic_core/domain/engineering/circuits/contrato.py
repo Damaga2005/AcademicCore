@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
+from contextlib import contextmanager
 from decimal import Decimal, localcontext
 from fractions import Fraction
 
@@ -42,7 +43,10 @@ from academic_core.domain.engineering.units import (
     Quantity,
     UnitError,
     parse_quantity,
+    parse_unit,
 )
+
+from academic_core.domain.engineering.circuits.invariantes import _sin_float
 
 #: contexto de trabajo para lo transcendente (§14.1, punto 4)
 PRECISION = 50
@@ -136,21 +140,32 @@ def exacto(valor, que: str = "el valor") -> Fraction | Decimal:
 
 
 def decimal(valor, que: str = "el valor") -> Decimal:
-    """Como :func:`exacto`, pero devuelve siempre `Decimal`."""
+    """Como :func:`exacto`, pero devuelve siempre `Decimal`.
+
+    La división se hace dentro del contexto de :data:`PRECISION` dígitos y no
+    con el ambiente, que por defecto son 28: un tercio-salvado a 28 cifras
+    pierde las últimas 22 sin que nada lo diga, y en un cálculo que luego se
+    compara con otro de la misma familia el fallo se propaga en silencio.
+    """
     v = exacto(valor, que)
-    return v if isinstance(v, Decimal) else Decimal(v.numerator) / Decimal(v.denominator)
+    if isinstance(v, Decimal):
+        return v
+    with con_precision():
+        return Decimal(v.numerator) / Decimal(v.denominator)
 
 
-def contexto():
-    """El contexto de 50 dígitos para lo transcendente."""
-    ctx = localcontext()
-    return ctx
-
-
+@contextmanager
 def con_precision(prec: int = PRECISION):
-    ctx = localcontext()
-    ctx.prec = prec
-    return ctx
+    """El contexto de `prec` dígitos, de verdad aplicado mientras se usa.
+
+    Se usa así: ``with con_precision(): ...``. Antes esta función existía pero
+    no la llamaba nadie, y la otra (`contexto`) decía devolver un contexto de 50
+    dígitos cuando en realidad devolvía el ambiente sin tocar. Dos ayudas
+    que prometen una cosa y hacen otra, que es peor que no tenerlas.
+    """
+    with localcontext() as ctx:
+        ctx.prec = prec
+        yield ctx
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +193,17 @@ def magnitud(valor, unidad: str, que: str = "la magnitud",
     return q
 
 
+def ejemplo_de(unidad: str) -> str:
+    """La unidad que se ouió de verdad para un nombre parecido.
+
+    Solo para el mensaje de error: si el llamante pide «ΩΩ» y eso no
+    existe, decir «Ω» es mucho más útil que repetir el nombre roto.
+    """
+    return {"ohm": "Ω", "kohm": "kΩ", "Mohm": "MΩ", "mohm": "mΩ",
+            "F": "F", "V": "V", "A": "A", "S": "S", "Hz": "Hz"}.get(
+                unidad.strip(), "Ω")
+
+
 def _lee(texto: str, unidad: str, que: str) -> Quantity:
     """Lee la magnitud dando por hecho que trae su unidad.
 
@@ -187,29 +213,58 @@ def _lee(texto: str, unidad: str, que: str) -> Quantity:
     es el que hace funcionar «4k7» con «Ω».
     """
     intentos = [texto]
+    # la dimensión que el llamante espera. Sin ella, «1m5» con unidad Ω se
+    # leía como 1,5 metros: «m» es un prefijo (mili) y también una unidad
+    # (metro), y el que ganaba era el metro. Comparar por dimensión es lo
+    # que devuelve «1,5 miliohms», que es lo que se quiso escribir.
+    esperada = None
     if unidad:
+        try:
+            esperada = parse_unit(unidad).dimension
+        except (UnitError, ValueError) as exc:
+            # la unidad que pide el llamante no existe. Antes el mensaje
+            # acababa diciendo «escríbelo con la unidad ΩΩ», que es
+            # justamente lo imposible: una ayuda que no ayuda
+            raise EntradaInvalida(
+                f"la unidad {unidad!r} no existe: {exc}. Se esperaba una "
+                f"unidad real, por ejemplo «{texto} {ejemplo_de(unidad)}»"
+            ) from None
         # el prefijo se pega a la unidad («4.7kΩ»): separado, «k Ω» no es
         # una unidad y el lector no lo entiende
         intentos.append(f"{texto}{unidad}")
         intentos.append(f"{texto} {unidad}")
     visto: list[Quantity] = []
+    otras: list[Quantity] = []
     for cand in intentos:
         try:
             q = parse_quantity(cand)
         except (UnitError, ValueError):
             continue
-        if q.unit.dimension != DIMENSIONLESS:
+        if q.unit.dimension == DIMENSIONLESS:
+            visto.append(q)
+        elif esperada is not None and q.unit.dimension == esperada:
             return q
-        visto.append(q)
+        else:
+            otras.append(q)
+    if not esperada and otras:
+        return otras[0]
     if not unidad and visto:
         return visto[0]
     if visto:
         raise EntradaInvalida(
             f"{que} ha salido adimensional y se esperaba {unidad}; escribe la "
             f"unidad, por ejemplo «{texto} {unidad}»")
+    pista = ""
+    if otras:
+        # se entendió, pero como otra magnitud: decirlo es la diferencia
+        # entre «el prefijo se ha comido la unidad» y «no se entiende»
+        q = otras[0]
+        pista = (f". Se ha leído como {q} ({q.dim_name}), que no es "
+                 f"{que.split()[-1] if que else 'la magnitud pedida'}")
     raise EntradaInvalida(
         f"{que} no se entiende: «{texto}»"
         + (f" con la unidad {unidad}" if unidad else "")
+        + pista
         + ". Se esperaba algo como «4k7», «4,7 kΩ» o «2u2F»")
 
 
@@ -218,7 +273,14 @@ def _lee(texto: str, unidad: str, que: str) -> Quantity:
 #: un error que no se parece a nada que haya escrito.
 _PREFIJOS_CORTOS = "fpnuµmkKMGT"
 _CORTO = re.compile(rf"^(\d+)([{_PREFIJOS_CORTOS}])(\d+)$")
+#: en la notación de la serie E la letra es el punto decimal y la R no
+#: multiplica por diez, sino por uno: «1R2» es 1,2 ohmios y no 12. Escribirlo
+#: como ×10 daba un factor diez en un montón de valores, y un error de
+#: ese tamaño en una resistencia es un circuito que no funciona.
 _CORTO_R = re.compile(r"^(\d+)[Rr](\d+)$")
+#: «47R» es cuarenta y siete ohmios: la R va al final y es el símbolo de la
+#: unidad, no un prefijo. Se quita y deja la unidad al llamante.
+_SUFIJO_R = re.compile(r"^(\d+[.,]?\d*)[Rr]$")
 
 
 def _normaliza(texto: str) -> str:
@@ -226,14 +288,17 @@ def _normaliza(texto: str) -> str:
     t = texto.strip().replace(",", ".")
     if not t:
         return t
+    m = _CORTO_R.match(t)
+    if m:                      # «1R2» es 1,2 ohmios
+        entero, decimal = m.groups()
+        return f"{entero}.{decimal}"
     m = _CORTO.match(t)
     if m:
         entero, prefijo, decimal = m.groups()
         return f"{entero}.{decimal}{prefijo}"
-    m = _CORTO_R.match(t)
-    if m:                      # «1R2» es 1,2 × 10 (notación de la serie E)
-        entero, decimal = m.groups()
-        return f"{entero}.{decimal}e1"
+    m = _SUFIJO_R.match(t)
+    if m:                      # «47R» es 47 ohmios
+        return m.group(1)
     return t
 
 
@@ -303,13 +368,23 @@ class Sello:
     metodo: str          # el segundo camino, escrito para que se entienda
     detalle: str = ""
 
+    def __post_init__(self):
+        if self.veredicto not in (VERIFICADO, FUERA_DE_RANGO, DIFIERE):
+            raise EntradaInvalida(
+                f"sello desconocido {self.veredicto!r}; los veredictos son "
+                f"{VERIFICADO}, {FUERA_DE_RANGO} o {DIFIERE}")
+        if not self.metodo:
+            raise EntradaInvalida(
+                "el sello dice cómo se comprobó y el método está vacío: un "
+                "sello sin segundo camino no es un sello")
+
     @property
     def ok(self) -> bool:
         return self.veredicto == VERIFICADO
 
     def linea(self) -> str:
-        marca = {"verificado": "✔", "fuera_de_rango": "⚠", "difiere": "✘"}.get(
-            self.veredicto, "?")
+        marca = {VERIFICADO: "✔", FUERA_DE_RANGO: "!", DIFIERE: "✘"}[
+            self.veredicto]
         return f"{marca} {self.veredicto} ({self.metodo})" + (
             f": {self.detalle}" if self.detalle else "")
 
@@ -331,13 +406,26 @@ class Resultado:
     digest: str = ""
 
     def __post_init__(self):
+        # P1 también por esta puerta. `exacto()` y las invariantes rechazan
+        # los float, pero el `valor` de un resultado no estaba tipado y los
+        # aceptaba: la misma regla con tres puertas y dos abiertas. Un
+        # resultado con float tiene un digest que no corresponde al cálculo
+        # que se haría al reproducirlo, y dos resultados iguales darían
+        # distinto por culpa de un redondeo que nadie ve.
+        _sin_float(self.valor, "el valor del resultado")
         if not self.digest:
             object.__setattr__(self, "digest", self._digest())
 
     def _digest(self) -> str:
         """P reproducible: misma entrada y mismos pasos, mismo digest."""
+        # las hipótesis y la validez van dentro porque son parte de lo que se
+        # afirma: dos resultados con el mismo número y distinto «válido si
+        # x > 0» no son el mismo cálculo, y con un digest común no se
+        # podría saber cuál de los dos se recargó
         partes = [self.id, self.formula, str(self.valor), self.sustitucion,
-                  self.sello.veredicto, self.sello.metodo]
+                  self.sello.veredicto, self.sello.metodo, self.sello.detalle,
+                  self.unidades, self.validez]
+        partes += list(self.hipotesis)
         partes += [f"{k}={v}" for k, v in self.convenciones]
         # el motivo va dentro: dos pasos que llegan al mismo número por
         # razones distintas no son el mismo cálculo, y compartirdigest haría
