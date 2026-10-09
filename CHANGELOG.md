@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-09 — CI-0: los cimientos del laboratorio de circuitos
+
+Empieza el bloque de circuitos (`CIRCUITS_LAB.md`, 17 fases). **CI-0** es la fase de la que dependen todas las demás: contrato de calculadora, invariantes ejecutables y banco de regresión. Va **a medias, 4 de sus 6 entregables**: faltan el catálogo de ecuaciones con unidades y validez, y el formato `circuits/1` (B.1), que son catálogo de datos y serialización y de los que no depende nada de lo ya construido. No hay todavía ninguna calculadora de circuitos, y eso es a propósito: los cimientos primero.
+
+- **El contrato §14.1, en código y no en una lista de intenciones.** `domain/engineering/circuits/contrato.py`: entrada con unidades y validación estricta, convención declarada (valor eficaz/pico, `e^{+jωt}`/`e^{-jωt}`, dB de amplitud/potencia, temperatura), resultado con fórmula, sustitución, valor, hipótesis, pasos y **motivo**, `float` **prohibido en el dominio** (P1) con el rechazo en la puerta, segundo camino con sello, rango de validez y `digest` reproducible.
+- **`4k7`, `4,7 kΩ`, `1R2`, `2u2F` y `4.7e3` son la misma resistencia.** Se lee lo que se escribe en un papel, con la coma decimal normalizada a punto —leer «4,7» como 47 sería un error de mil— y el prefijo pegado a la unidad, porque `4.7 k Ω` no es una unidad y no se lee.
+- **Las nueve invariantes de §20.2, ejecutables** (`invariantes.py`): KCL y KVL con residuo **relativo**, balance de potencias, condición de región comprobada **con los números** y no con la etiqueta que afirma el dispositivo, pasividad, estabilidad, dimensiones, reciprocidad y segundo camino.
+- **El «no comprobado» es un tercer estado.** Una invariante que no se puede evaluar (transitorio de menos de cuatro puntos, región sin desigualdad evaluada) sale con `comprobado=False` y cuenta aparte en el informe. Devolver ✔ por lo que no se ha mirado es la forma de que un hueco se haga pasar por bueno, y un informe **vacío falla** en vez de certificar.
+- **El banco canónico §20.4 lleva su propio resolutor** (`canonicos.py`): Kron para nodos y Gauss con `Fraction` para mallas, escritos a propósito. Un banco de regresión que calcula lo esperado con el solver que después comprueba no comprueba nada. Seis circuitos: malla simple, doble malla, divisor cargado, puente de Wheatstone equilibrado y desequilibrado, y RC a escalón.
+- **Cuatro bugs cazados por las pruebas de humo, antes de que llegaran a la suite:**
+  1. KCL decía «sin nodos con corriente» cuando el nodo cuadrava **exactamente**: el peor residuo se quedaba sin registrar porque su valor inicial era 0 y la comparación era estricta. Una comprobación que se congratula de no haber mirado nada.
+  2. `estable` daba por buena una divergencia pura (`1, 2, 4, 8, 16`) porque comparaba el final con su propio máximo, y en una señal creciente **el final es el máximo**. Ese fallo nunca podía detectar lo que decía detectar.
+  3. Corregido lo anterior, `estable` pasó a declarar **inestable la respuesta de un RC normal** (`0, 0,5, 0,8, 0,95, 1`), que es el transitorio más corriente que existe. Lo que separa un asentamiento de una divergencia no es cuánto sube —todo transitorio sube antes de asentarse— sino que los **picos bajen** y los **pasos se acorten**. Ahora se juzga por eso, y una serie demasiado corta sale como *no comprobada*.
+  4. El canónico del RC tenía `R·C` con 1 Ω y 1 µF, que da 1 µs, no 1 ms: kΩ y ohmios mezclados. Al corregirlo, el valor `5(1−1/e)` esperado —calculado a mano— no coincidía con los 50 dígitos del motor: **tenía razón el motor**.
+- **Ampliación de `test_eng_security`** con las reglas del dominio aplicadas al laboratorio nuevo: nada de `eval`/`exec`/`subprocess`, ni reloj, ni azar sin semilla, ni fichero, y la inyección (`__import__`, `` `id` ``, `1; import os`) rechazada tanto en la magnitud como en la convención.
+- **CI-R (el renombrado del paquete) se ha hecho a posta y queda anotado como decisión consciente.** Renombrar `domain/engineering` → `domain/circuits` con 92 ficheros de `mathlab` dentro produce un diff de cientos de archivos que escondería cualquier error real. CI-0 nace ya en `domain/engineering/circuits/` y viaja con el renombrado sin cambios.
+- **Batería:** `tests/test_mathlab_circuits_ci0.py`, 56 pruebas, más 5 en `test_eng_security`.
+
 ## 2026-10-09 — Robustez del laboratorio: los pasos son obligatorios y nadie revienta por dentro
 
 Revisión a petición del usuario: comprobar que **todas** las calculadoras muestran sus pasos y por qué se eligió el método, vigilar los errores y arreglarlos.

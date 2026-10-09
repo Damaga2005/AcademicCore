@@ -76,3 +76,55 @@ def test_numeric_overflow_controlled(tmp_path):
         core.engineering.calculate({"V": "5 V", "R": "0 ohm"}, "I = V / R")
     with pytest.raises(Exception):
         core.engineering.calculate({"V": "5 XX"}, "I = V / R")
+
+
+# ---------------------------------------------------------------------------
+# CI-0: el laboratorio de circuitos amplía estas mismas reglas
+# ---------------------------------------------------------------------------
+
+
+def test_el_laboratorio_de_circuitos_no_evalua_ni_ejecuta():
+    """La regla del dominio entero, comprobada también sobre los módulos
+    nuevos. Si un módulo del laboratorio nuevo trae `eval`, entra por la puerta
+    de atrás lo que lleva años sin entrar por la otra."""
+    import inspect
+    import academic_core.domain.engineering.circuits as lab
+    for mod in (lab.contrato, lab.invariantes, lab.canonicos):
+        src = inspect.getsource(mod)
+        for prohibido in ("eval(", "exec(", "subprocess", "os.system",
+                          "shell=True", "__import__"):
+            assert prohibido not in src, f"{mod.__name__} usa {prohibido}"
+
+
+def test_el_laboratorio_de_circuitos_es_funcion_pura():
+    """Sin reloj, sin azar sin semilla, sin fichero. Mismo circuito, mismo
+    digest: si un cálculo dependiera del día que es, la regresión no valdría."""
+    import os
+    import inspect
+    import academic_core.domain.engineering.circuits as lab
+    for mod in (lab.contrato, lab.invariantes, lab.canonicos):
+        src = inspect.getsource(mod)
+        for prohibido in ("random.", "time.time", "datetime.now", "open(",
+                          "os.environ", "os.getcwd", "Path("):
+            assert prohibido not in src, f"{mod.__name__} usa {prohibido}"
+    assert os.name  # el módulo ni siquiera toca el sistema de ficheros
+
+
+def test_el_contrato_rechaza_inyeccion_en_la_magnitud():
+    """Lo que se escribe en un campo acaba cerca de un lector de unidades. Un
+    `__import__` ahí no es una paranoia: es un intento de ejecución."""
+    from academic_core.domain.engineering.circuits import contrato as C
+    for ataque in ["__import__('os').system('id')", "1; import os",
+                   "1 os.system('id')", "`id`", "1 and 1=1"]:
+        with pytest.raises(C.EntradaInvalida):
+            C.magnitud(ataque, "Ω")
+
+
+def test_el_contrato_rechaza_una_convencion_injected():
+    """Las convenciones son valores de una lista cerrada. Aceptar cualquiera
+    sería dejar que quien llama decida en qué convención se calculó."""
+    from academic_core.domain.engineering.circuits import contrato as C
+    with pytest.raises(C.EntradaInvalida):
+        C.declara(db="; import os")
+    with pytest.raises(C.EntradaInvalida):
+        C.declara(valor_efectivo="cualquier cosa")

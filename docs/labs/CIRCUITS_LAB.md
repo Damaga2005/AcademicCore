@@ -1,6 +1,7 @@
 # Laboratorio de Circuitos Electrónicos — Especificación de diseño
 
-Estado: **borrador de especificación, sin implementación iniciada** · Fecha: 2026-10-01 · Ruta de UI actual: `engineering/circuits` (página «Circuitos»), `engineering/analysis`, `engineering/lab` · Ruta prevista del laboratorio: `engineering/circuits-lab` (decisión D3, §3.9)
+Estado: **en implementación; CI-0 (Cimientos) completada** · Fecha: 2026-10-09 · Ruta de UI actual: `engineering/circuits` (página «Circuitos»), `engineering/analysis`, `engineering/lab` · Ruta prevista del laboratorio: `domain/engineering/circuits` ahora, `domain/circuits` tras CI-R
+Progreso de fases: **CI-0 a medias, 4 de 6 entregables** (contrato §14.1, invariantes §20.2, banco canónico §20.4, ampliación de `test_eng_security`; faltan el catálogo de ecuaciones con unidades y validez y el formato `circuits/1` de B.1). **CI-R pendiente** (renombrado del paquete, mecánica) y luego CI-1. Detalle y estado por pieza en §21.2.2.
 Parte 1 del documento: **§0 Cómo leer, §1 Objetivo y requisitos, §2 Punto de partida real (inventario verificado del código y de los tests), §3 Arquitectura, mapa asignatura→bloques, renombrado y reorganización.** Las partes 2–6 (motor de pasos y catálogos, dibujo/editor/simulación, dispositivos y analógico, RF/energía/control y medida, y calculadoras a riesgos y anexos) siguen a continuación con numeración única; el índice general está justo debajo.
 
 Plantilla de estructura, estilo y nivel de detalle: `DIGITAL_DESIGN_LAB.md`. Capa matemática compartida (motor de pasos, justificación de método, hipótesis): `MATH_LAB.md` §5 y §5.5b. Lo circuital y de alta frecuencia que el catálogo matemático había dejado aparte (`math_catalog/extra_circuitos_control.md`, `math_catalog/extra_electromagnetismo.md`) **vive aquí por decisión del usuario**. Fronteras con los otros laboratorios (todos hermanos de este documento): `MATH_LAB.md` §16, `SIGNALS_LAB.md` §3.1 y §23.4 (D8), `DIGITAL_DESIGN_LAB.md` §23 y el futuro `AEROSPACE_LAB.md` (en preparación: allí van `orbital\`, `satcom\`, `ui\aerospace.py` y todo análisis estructural aeroespacial; ver §3.8).
@@ -5293,6 +5294,26 @@ Cada fase `CI-n` (sin área) es la unidad de entrega; las partes 4 y 5 las subdi
 
 **Orden recomendado:** CI-R → CI-0 → CI-1 → CI-2 → CI-8 → CI-4 → CI-3 → CI-5 → CI-6 → CI-7 → CI-9 → CI-13 → CI-14 → CI-10 → CI-12 → CI-11 → CI-15 → CI-16.
 Razón: primero el renombrado (mecánico, más barato cuanto antes), después lo **puramente de dominio y de mayor valor inmediato** (resolver con pasos CCE/AC y calculadoras); a continuación el editor (CI-4: entrega `SchematicDoc` y el núcleo de lienzo compartido), el dibujo dinámico (CI-3, el requisito más característico, que se apoya en ellos) y la simulación; dispositivos y analógico cuando simulación y dibujo dinámico están estables; ejercicios y tutor cuando hay contenido que corregir; RF, control y energía al final por tener su propia carga y poder iterarse en paralelo; el pulido cierra.
+
+#### 21.2.2 Estado de implementación
+
+| Fase | Estado | Dónde | Pruebas |
+|---|---|---|---|
+| **CI-R** | Pendiente. No se ha hecho a propósito: renombrar `domain/engineering` → `domain/circuits` con 92 ficheros de `mathlab` dentro produce un diff de cientos de archivos que esconde cualquier error real. Se hará con la suite verde antes y después (§21.1) y en un PR único revertible. El código de CI-0 nace ya en `domain/engineering/circuits/` y **viaja con el renombrado sin cambios** | — | — |
+| **CI-0** | **A medias (4 de 6 entregables).** Hechos: contrato §14.1 (`contrato.py`), invariantes §20.2 (`invariantes.py`), banco canónico §20.4 (`canonicos.py`) y ampliación de `test_eng_security`. **Pendientes: catálogo de ecuaciones con unidades y validez, y formato `circuits/1` (B.1).** Los pendientes son catálogo de datos y serialización, no cimientos: nada de lo ya construido depende de ellos, así que CI-1 no espera. | `src/academic_core/domain/engineering/circuits/` | `tests/test_mathlab_circuits_ci0.py` (56) + 5 en `test_eng_security` |
+| CI-1 | Pendiente | — | — |
+| CI-2 … CI-16 | Pendiente | — | — |
+
+**Decisiones tomadas al hacer CI-0 que el spec deja abiertas:**
+
+1. **El «no comprobado» es un tercer estado, no un «cumple».** Una invariante que no se puede evaluar (serie de transitorio demasiado corta, región de dispositivo sin desigualdad evaluada) sale con `comprobado=False` y se cuenta aparte en el informe. Devolver ✔ para lo que no se ha mirado es como se hace pasar por bueno un hueco, y el informe vacío **falla** en lugar de certificar.
+2. **La tolerancia de KCL/KVL es 10⁻⁷ relativa, no 10⁻⁹.** Con aritmética `Fraction` el residuo de una solución correcta es exactamente 0, así que un umbral menor sólo detectaría redondeos en la séptima cifra decimal en circuitos de 10¹³ A, que no es el fallo que se busca. El que se busca es una ley mal aplicada, que se desvía en tanto por ciento.
+3. **La estabilidad se juzga por los picos y por si los pasos se agrandan, no por si la respuesta supera su máximo anterior.** La primera versión de esta comprobación declaraba inestable la respuesta de un RC normal (`0, 0,5, 0,8, 0,95, 1`), que es el transitorio más corriente que existe, y aceptaba una divergencia pura. La prueba de humo lo cazó antes de que llegara a la suite. Ahora: los picos amortiguados son estables, los que crecen no, y los pasos que no se acortan no son un asentamiento.
+4. **El banco canónico lleva su propio resolutor exacto** (Kron para nodos, Gauss para mallas, todo con `Fraction`), en vez de llamar al solver de producción. Un banco de regresión que calcula lo esperado con el código que después comprueba no comprueba nada: compararía el código consigo mismo y un error común a los dos pasaría inadvertido. Al ser corto y legible, cuando discrepa se sabe en cuál de los dos está el fallo.
+5. **Las formas cortas de las resistencias se leen de verdad.** `4k7`, `4,7 kΩ`, `1R2`, `2u2F` y `4.7e3` dan la misma magnitud, porque son lo que se escribe en un papel. La coma se normaliza a punto explícitamente, y el prefijo se pega a la unidad (`4.7kΩ`, no `4.7 k Ω`, que no es una unidad y no se lee).
+6. **El digest incluye el motivo de cada paso.** Dos pasos que llegan al mismo número por razones distintas no son el mismo cálculo; si compartieran digest no se podría saber cuál se reprodujo.
+7. **CI-0 se ha construido antes que CI-R, contra el orden de la tabla.** Es una desviación consciente y anotada: CI-R es mecánica pura y diff enorme; hacerla ahora convertiría cada error de CI-0 en un cambio perdido dentro de un diff de cientos de archivos. El orden vigente es CI-0 → CI-R → CI-1, con CI-0 ya situada donde CI-R la dejará.
+8. **Se «pone el motivo», no se comprueba que sea bueno.** Como en `MATH_LAB`: la auditoría verifica que cada paso explica el porqué, no que la explicación sea la correcta. Es un texto escrito a mano y sigue siendo la principal fuente de error de este laboratorio.
 
 #### 21.2.1 Sub-olas de CI-9 a CI-12 (partes 4 y 5)
 
