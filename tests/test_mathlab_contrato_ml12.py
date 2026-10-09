@@ -101,6 +101,12 @@ EJEMPLOS = {
     "deteccion": {"calculo": "matriz_r", "r": [1, "1/2"]},
     # ML-19
     "aprende": {"calculo": "gd"},
+    # ML-20
+    "refuerzo": {"calculo": "absorcion",
+                 "P": [[1, 0], ["1/2", "1/2"]]},
+    # ML-21
+    "finanzas": {"calculo": "van", "flujos": [-1000, 500, 500, 500],
+                 "r": "0.05"},
 }
 
 

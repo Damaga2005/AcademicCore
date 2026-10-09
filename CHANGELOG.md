@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-07 — ML-21 matemáticas financieras
+
+- **ML-21 completo** (`finanzas.py`, `calculadoras_ml21.py`, operación `finanzas` con 15 cálculos): bloque 14. Interés simple/compuesto/continuo con TAE, VAN, TIR, anualidad, bono con duración y convexidad, futuro, CRR, Black-Scholes, σ implícita, Monte Carlo, Markowitz, **frontera eficiente** y Sharpe/VaR. Batería `tests/test_mathlab_ml21.py`: 20 pruebas, 0 errores; contrato ampliado con `finanzas`.
+- **Markowitz comprueba Σ definida positiva** por Sylvester (menores principales-leading en ℚ): sin ella «mínima varianza» no es un mínimo y se rechaza con `BAD_INPUT`.
+- **Segundo camino de `anualidad` era tautológico** (`c·n − (A + (c·n − A))` siempre vale 0): ahora simula la tabla de amortización y exige saldo final 0.
+- **TAE en modo simple** devolvía `e^r − 1` (tasa continua) en vez de la efectiva `r`.
+- **Segundo camino de `interes`** comparaba contra un número entero de periodos: fallaba (y marcaba «discrepa») justo cuando `m·t` no es entero, que es lo que devuelve `despejar_tiempo`. Ahora el último periodo va fraccionado.
+- `futuro` verifica por la cartera replicante `S₀ − F·e^{−rT} = 0` en vez de repetir la misma fórmula.
+- **`bono` reventaba con `ZeroDivisionError`** si los flujos sumaban precio 0 (o venían vacíos): la duración dividía por `P` sin comprobarlo. Ahora se rechaza con `BAD_INPUT` diciendo que la duración no está definida; también rechaza `y ≤ −1`.
+- **Markowitz comprueba la dirección factible de verdad**: `2Σw` debe ser ortogonal a todo `d` con `1ᵀd = μᵀd = 0`, y cada punto de la frontera sube de riesgo al moverse por ella. Comparar los puntos de la curva entre sí no probaba nada.
+
+## 2026-10-07 — ML-20 Markov, MDP y refuerzo
+
+- **ML-20 completo** (`refuerzo.py`, `calculadoras_ml20.py`, operación `refuerzo` con 7 cálculos): bloque 12. Absorción exacta, clasificación con periodos, MDP con residuo 0, episodio MC/TD/SARSA/Q, bandidos, REINFORCE. Batería `tests/test_mathlab_ml20.py`: 7 pruebas, 0 errores; contrato ampliado.
+- `clasifica` tenía un «segundo camino» que solo informaba; ahora comprueba que las clases forman partición, que el cierre por aristas de un paso coincide con el de la clausura transitiva y que el periodo es el retorno **mínimo** (multiplicando Pᵏ de verdad).
+
 ## 2026-10-07 — ML-19 optimización y aprendizaje
 
 - **ML-19 completo** (`aprende.py`, `calculadoras_ml19.py`, operación `aprende` con 17 cálculos): bloque 13. GD/momento/Adam, regresión exacta con ridge/lasso, logística, métricas, ROC/AUC, k-medias, EM, árboles, PCA/SVD, MLP con backprop verificada, atención, RNN/LSTM, SVM. Batería `tests/test_mathlab_ml19.py`: 8 pruebas, 0 errores; contrato ampliado.

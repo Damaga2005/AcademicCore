@@ -1,6 +1,6 @@
 # Laboratorio de Matemáticas — Especificación de diseño
 
-Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos), ML-8 (EDO y transformadas), ML-9 (probabilidad y estadística), ML-14 (señales y sistemas deterministas), ML-15 (fasores y polarización), ML-16 (campos y ondas), ML-22 (física auxiliar) y ML-17 (discreta, códigos e información), ML-18 (detección y estimación) y ML-19 (optimización y aprendizaje) completos** (siguiente según §10: ML-20) · Fecha: 2026-10-07 (v1: 2026-09-30)
+Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos), ML-8 (EDO y transformadas), ML-9 (probabilidad y estadística), ML-14 (señales y sistemas deterministas), ML-15 (fasores y polarización), ML-16 (campos y ondas), ML-22 (física auxiliar) y ML-17 (discreta, códigos e información), ML-18 (detección y estimación), ML-19 (optimización y aprendizaje), ML-20 (Markov, MDP y refuerzo) y ML-21 (matemáticas financieras) completos** (siguiente según §10: cerrar los bloques G restantes o auditar los E) · Fecha: 2026-10-07 (v1: 2026-09-30)
 Ámbito: desde la aritmética básica hasta las integrales triples, de línea y de superficie, pasando por cálculo, álgebra lineal, ecuaciones diferenciales, transformadas y probabilidad. Cada tema con **ejercicios para resolver, gráficas y solución paso a paso**. **v2** añade la matemática de otras asignaturas del grado que no es de otro laboratorio: matemática discreta y cuerpos finitos, códigos y criptografía, teoría de la información, Markov y refuerzo, optimización y aprendizaje automático, finanzas, señales deterministas, detección y estimación, fasores y polarización, campos y ondas, y mecánica auxiliar (**bloques 8 a 19**). Lo que va a `SIGNALS_LAB.md` y a `CIRCUITS_LAB.md` está en la tabla «qué va dónde» (§16).
 Fuentes: guías docentes de GREELEC (UPC) en `guias_upc/` — Cálculo (230903), Álgebra Lineal (230904), Cálculo Vectorial (230908), Ecuaciones Diferenciales y Transformadas (230909), Probabilidad y Procesos Estocásticos (230914), Señales y Sistemas (230913). **v2:** cuatro informes de lectura de solo lectura en `Descargas/labs/math_catalog/` (`extra_senales.md`, `extra_electromagnetismo.md`, `extra_circuitos_control.md`, `extra_algoritmia_ia_codigos.md`), integrados con el **reparto decidido por el usuario** (D6, §13) y sin tocar el repositorio ni `guias_upc`.
 
@@ -289,7 +289,7 @@ Cada bloque lista el **tipo de ejercicio**, los **pasos con el porqué del méto
 |---|---|---|---|---|---|
 | **Interés** simple y compuesto, capitalización continua `C₀·e^{rt}`, TAE, regla del 72 | Elegir la composición → fórmula → despejar la incógnita (tiempo con `ln`) | Tasa constante; **base de días** (act/365, 30/360) y nominal frente a efectiva declaradas | Capitalizar mes a mes frente a la fórmula; el límite `m → ∞` tiende a `e^{rt}`; descontar y capitalizar devuelve el inicial | Curvas de capital | G |
 | **VAN, TIR, anualidades y amortización** | Línea temporal → factor de descuento → suma. La TIR por **bisección** (hay cambio de signo acotado) con la gráfica de `VAN(r)`; Newton solo si la derivada no se anula | Un solo cambio de signo ⇒ TIR única (**Descartes**); `r > −1` | `VAN(TIR) = 0` recalculado; intereses + capital = total pagado; segundo método de raíces | `VAN(r)` y tabla de amortización | G |
-| **Bonos**: precio, YTM, duración de Macaulay y modificada, convexidad | Flujos → descontar → `P`; `∂P/∂y` derivando el sumatorio | Curva de tipos plana; sin impago; fechas regulares | `P` a la par cuando `y` = cupón; derivada numérica de `P(y)` frente a la duración; monotonía | `P(y)` | G |
+| **Bonos**: precio, duración de Macaulay y modificada, convexidad (la YTM no se resuelve: es implícita y sin cerrar) | Flujos → descontar → `P`; `∂P/∂y` derivando el sumatorio | Curva de tipos plana; sin impago; fechas regulares | `P` a la par cuando `y` = cupón; derivada numérica de `P(y)` frente a la duración; monotonía | `P(y)` | G |
 | **Futuros** `F = S₀·e^{rT}` y arbitraje | Capitalizar el spot → comparar con el mercado → estrategia | Sin fricciones; tasa constante | Valor inicial del contrato 0; la cartera replicante da beneficio 0 | Diagrama de beneficio | G |
 | **Opciones**: payoff, **árbol binomial CRR** (`u = e^{σ√Δt}`, `d = 1/u`, `q = (e^{rΔt}−d)/(u−d)`), americanas, paridad put-call | Árbol de precios → payoffs en las hojas → retroceder → comparar con el ejercicio inmediato | `0 < q < 1`, es decir `d < e^{rΔt} < u` (no arbitraje); mercado completo; sin dividendos | Paridad `C − P = S₀ − K·e^{−rT}`; réplica con `Δ` acciones y `B` bono; convergencia a Black-Scholes con `n` grande | **Árbol dibujado** | G |
 | **Black-Scholes-Merton**, griegas, volatilidad implícita | `d₁ → d₂ → Φ` (normal acumulada del bloque 6). Implícita por Newton sobre la vega, que es siempre positiva y garantiza unicidad | Movimiento browniano geométrico; `σ` y `r` constantes; europea; sin dividendos | Paridad; límite del árbol; `Δ` por derivada numérica; `C` monótona en `σ` | Precio y griegas frente a `S` | G |
@@ -685,6 +685,65 @@ desbalanceadas (la exactitud engaña, se avisa); k-medias/EM dependen de la
 inicialización; w = 0 en SVM; datos no separables en logística sin
 regularizar (w → ∞, se avisa).
 
+## Capacidad implementada — ML-20, Markov/MDP/refuerzo (2026-10-07)
+
+Bloque 12 (G). Operación `refuerzo` (§8.2 N) con los cinco grupos;
+`markov`/`cola_mm1` de ML-12 reutilizados (π exacta, simulación sembrada).
+
+| Tipo (§4.12) | Cálculo | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| Cadenas | `absorcion`, `clasifica` | N = (I−Q)⁻¹ exacta; clases + periodos por mcd | N·(I−Q) = I; partición y cierre por aristas de un paso; periodo = retorno mínimo multiplicando Pᵏ |
+| MDP | `mdp_eval`, `mdp_optimo` | Sistema lineal; iteración hasta tol + voraz | Residuo de Bellman 0; iteración = directa |
+| Tabulares | `episodio` | MC/TD/SARSA/Q sobre episodio dado | MC = media muestral exacta |
+| Bandidos | `bandidos` | Incremental/ε-greedy/UCB con tablas Q/N | Qₙ = media muestral exacta |
+| Gradiente | `reinforce` | Softmax con baseline en 1 paso | Diferencias finitas de J |
+
+**Batería:** `tests/test_mathlab_ml20.py` (7 pruebas con las propiedades de
+§11.3 para el bloque 12, incluida la gráfica de recompensa media de los
+bandidos). La prueba de contrato incluye `refuerzo`.
+
+**Lo que no se hace (y se dice):** I−Q singular (sin absorción segura);
+γ ≥ 1 (sin contracción); α fuera de (0,1]; MDP continuo o con S grande
+(solo tabular pequeño).
+
+## Capacidad implementada — ML-21, matemáticas financieras (2026-10-07)
+
+Bloque 14 (G). Operación `finanzas` (§8.2 P) con 15 cálculos. Convenciones
+declaradas (§5.11): tasa **nominal** repartida en `m` capitalizaciones
+(la periódica es `r/m`, la TAE es `(1+r/m)^m − 1`), Florida continua
+`e^{rt}`; Markowitz **con cortos** (si no, es cuadrática y no se resuelve).
+La base de días (act/365 o 30/360) **no** se implementa: el calendario no
+está modelado y se dice, en vez de asumirlo.
+
+| Tipo (§4.14) | Cálculo | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| Interés | `interes`, `tiempo` | Simple, `(1+r/m)^{mt}`, continua | Periodo a periodo con el último fraccionado |
+| Rentabilidad | `van`, `tir`, `anualidad` | Suma descontada; bisección en el cambio de signo; `A·r/(1−(1+r)^{−n})` | VAN(TIR) = 0; saldo 0 tras n cuotas |
+| Fijo | `bono` | Suma descontada + ∂P/∂y | Duración modificada = −P′/P numérica |
+| Derivados | `futuro`, `payoff`, `crr`, `black_scholes` | `S₀e^{rT}`; árbol con `q=(e^{rΔt}−d)/(u−d)`; BSM | `0 < q < 1`; CRR → BS con n grande; paridad put-call |
+| Volatilidad | `vol_implicita`, `montecarlo` | Newton sobre la vega; `S_T` lognormal exacta sembrada | Vega > 0 ⇒ raíz única; MC dentro de 3σ̂ de BSM |
+| Cartera | `markowitz`, `frontera`, `sharpe_var` | KKT lineal exacto en ℚ; barrido de `m` | `wᵀ1 = 1`, `wᵀμ = m`, `2Σw` ortogonal al espacio factible, σ² creciente y perturbación factible que sube el riesgo |
+| (hipótesis) | Σ definida positiva | — | Sylvester: los `n` menores principales-leading > 0, en ℚ |
+
+**Batería:** `tests/test_mathlab_ml21.py` (20 pruebas) más la fila
+`finanzas` del contrato. Verifica CRR → Black-Scholes (n = 400, tolerancia
+0.05), paridad put-call, duración contra derivada numérica, ortogonalidad
+del gradiente KKT a la dirección factible con 3 activos, rechazo de Σ no
+definida positiva y el error 1/√N del Monte Carlo. El contrato cubre los
+15 cálculos.
+
+**Lo que no se hace (y se dice):** Markowitz **sin shorts** (la frontera es
+cuadrática: se avisa en la hipótesis, no se resuelve) y Σ **no definida
+positiva** (`BAD_INPUT`, porque «mínima varianza» no sería un mínimo);
+bono de precio 0 o sin flujos (`BAD_INPUT`: la duración no está definida);
+TIR sin cambio de signo acotado (se lanza `UNSUPPORTED`, no se inventa ninguna);
+CRR con `d < e^{rΔt} < u` (hay arbitraje → se rechaza); σ implícita sin
+solución en [0,∞) (`UNSUPPORTED`); BS con dividendos, tasa variable o
+anticipos (fuera del modelo estándar); Todo lo que exige un flujo perpetuo
+o una base de días act/365 o 30/360 explícita: la convención se declara
+pero **no** se implementa el calendario, así que se dice en vez de
+aproximar.
+
 ## 5. El motor matemático
 
 ### 5.1 Expresiones y exactitud
@@ -717,9 +776,9 @@ Cada operación produce una **traza**: regla aplicada (nombre en castellano), tr
 | Probabilidad | Suma a 1, simulación sembrada como contraste |
 | **(v2)** Aritmética modular y cuerpos finitos | `descifrar(cifrar(x)) = x`; `a·a⁻¹ ≡ 1`; tabla completa para `n` pequeño; `α^(2ᵐ−1) = 1`; contar los `2ᵏ` elementos de un subespacio de GF(2) |
 | **(v2)** Códigos, Shamir, RSA | `G·Hᵀ = 0`; `d_min` por pares frente al peso mínimo; **dos subconjuntos** de partes dan el mismo secreto; `m^(e·d) ≡ m` frente a `pow` independiente |
-| **(v2)** Información y Markov | `H = log₂ N` en el uniforme; Kraft; `Pⁿ` converge a `π`; **residuo de Bellman 0**; simulación sembrada de la cadena o del episodio |
+| **(v2)** Información y Markov | `H = log₂ N` en el uniforme; Kraft; `Pⁿ` converge a `π`; **residuo de Bellman 0**; `N·(I−Q) = I`; periodo = retorno mínimo; simulación sembrada de la cadena o del episodio |
 | **(v2)** Optimización y redes | **Gradiente por diferencias finitas centrales** (verificador reutilizable en GD, logística, retropropagación y Markowitz); la pérdida baja tras un paso; `Xᵀe = 0` |
-| **(v2)** Finanzas | Paridad put-call; `VAN(TIR) = 0`; límite del árbol CRR a Black-Scholes; KKT con `∇L = 0`; Monte Carlo dentro del intervalo exacto |
+| **(v2)** Finanzas | Paridad put-call; `VAN(TIR) = 0`; saldo 0 tras n cuotas; duración `= −P′/P`; límite del árbol CRR a Black-Scholes; `0 < q < 1`; **Markowitz**: `2Σw` ortogonal a la dirección factible y Σ definida positiva por Sylvester; Monte Carlo dentro del intervalo exacto |
 | **(v2)** Señales deterministas | `∫y = ∫x·∫h`; duración `D_x + D_h`; `Σy = Σx·Σh`; **tiempo y frecuencia** (Parseval); Wiener-Khinchin `r = TF⁻¹{S}`; circular frente a `conv` directa; la cascada de eco e inverso devuelve la entrada |
 | **(v2)** Detección y estimación | Monte Carlo sembrado de `P_FA` y `P_D`; varianza empírica **`≥` cota de Cramér-Rao**; ortogonalidad `E[e·x*] = 0`; modos de LMS frente a la fórmula modal |
 | **(v2)** Fasores y Jones | **Dominio del tiempo frente a fasor**; resolver con la convención contraria; **unitariedad** de Jones (conserva `abs(E)²`); exacto frente a aproximado (buen conductor, buen dieléctrico) con su error relativo |
@@ -1128,16 +1187,30 @@ Raíces (bisección, Newton, secante, punto fijo), sistemas (LU, Jacobi, Gauss-S
 | Redes neuronales a mano | Propagación, retropropagación con `δ`, conteo de parámetros, tamaños de convolución, atención |
 | **Verificador de gradientes** | Diferencias centrales frente al gradiente analítico (reutilizable) |
 
+#### N. Cadenas de Markov, MDP y refuerzo (v2)
+
+| Calculadora | Pasos que muestra |
+|---|---|
+| Cadenas absorbentes | `N = (I−Q)⁻¹` con los transitorios declarados |
+| Clasificación de estados | Alcanzabilidad, clases, recurrentes/transitorios, periodo por mcd |
+| Evaluación de política | `v = (I−γP)⁻¹R` exacto, una ecuación de Bellman por estado |
+| Iteración de valor | Barrido hasta tolerancia y política voraz |
+| Episodio a mano | MC, TD(0), SARSA y Q-learning sobre el mismo episodio |
+| Bandidos | Incremental, ε-greedy y UCB con tablas `Q`/`N` |
+| REINFORCE | Softmax con baseline y su gradiente |
+| **Hecho** | Los 7 cálculos de `refuerzo` (ML-20); `markov` y `cola_mm1` de ML-12 se reutilizan |
+
 #### P. Matemáticas financieras (v2)
 
 | Calculadora | Pasos que muestra |
 |---|---|
-| Interés, anualidades, amortización | Capitalización y descuento, tabla de amortización, base de días declarada |
-| VAN y TIR | Línea temporal, bisección con la gráfica `VAN(r)`, aviso de Descartes |
-| Bonos | Precio, YTM, duración, convexidad |
-| Futuros y arbitraje | `F = S₀·e^{rT}`, estrategia |
+| Interés, anualidades, amortización | Capitalización y descuento, tabla de amortización con saldo final 0 |
+| VAN y TIR | Línea temporal, bisección, aviso de Descartes |
+| Bonos | Precio, duración de Macaulay y modificada, convexidad (YTM no se resuelve) |
+| Futuros y arbitraje | `F = S₀·e^{rT}` y la cartera replicante |
 | Opciones | Payoff, árbol CRR, americana, paridad, Black-Scholes, griegas, volatilidad implícita, Monte Carlo |
-| Markowitz | Sistema KKT, mínima varianza, frontera eficiente, Sharpe, VaR gaussiano |
+| Markowitz | KKT, mínima varianza, **frontera eficiente por barrido de `m`**, Sharpe, VaR gaussiano |
+| **Hecho** | Los 15 cálculos de `finanzas` (ML-21), con `frontera` incluida |
 
 #### Q. Señales y sistemas deterministas (v2)
 
@@ -1262,8 +1335,8 @@ Orden pensado para que lo **de más uso** llegue antes y cada fase sea demostrab
 | **ML-17** Discreta, modular, códigos e información (v2, E débil y **G**) | Bloques 8 a 11: lógica, inducción, recurrencias, complejidad; ℤₙ y GF(p) con el cifrado clásico (**E** 3/7 de APR), códigos lineales, CRC, Shamir, RSA y DH; entropía y Huffman; **tiempo real y privacidad (D12, G, al final)**. Dentro de la fase, el cifrado clásico (**E**) y ℤₙ van primero. GF(2ᵐ) al final, prioridad media. **Implementado (2026-10-07):** tablas de verdad/equivalencias hasta 4 vars (si no, leyes), conjuntos por enumeración, binomio con filas 2ⁿ, recurrencias por característica con iteración, maestro casos 1/2/3, ruina con p=1/2 exacta, sumatorios cerrados, mochila PD = fuerza bruta, voraz frente a PD, tiempo real (U, Liu-Layland, RTA, hiperperiodo, cronograma); César/afín/Vigenère/Hill con ida y vuelta, tablas ℤₙ, hash con Monte Carlo, GF(2ᵐ) con Rabin y tabla log/antilog, polinomios sobre GF(p), [n,k,d] con G·Hᵀ=0, síndrome, Hamming(7,4), CRC con resto 0, paridad, checksum, Shamir con dos subconjuntos, RSA/DH con aviso pedagógico, k-anonimato, Laplace con b=Δf/ε; entropía/mutua/KL/cruzada con cadena, Kraft, BSC/BEC/Hartley, Huffman con H≤L̄<H+1, claves 2ᵏ; operaciones `discreta`, `codigos`, `informacion` | L |
 | **ML-18** Detección y estimación (v2, **G**) | Bloque 16: MAP, Neyman-Pearson y ROC, Cramér-Rao, Wiener, gradiente, LMS y NLMS; **PSD teórica de procesos discretos (D12)**. **Implementado (2026-10-07):** Toeplitz hermitiana con s.d.p., AR(1), PSD con r[0] = ∫S, S_y = S_x|H|²; señal conocida con d², umbral NP, P_D y ROC con Monte Carlo; MAP/Bayes por γ; Fisher cerrada con CRB; gaussiano con ML = MAP = MMSE y ECM; Wiener con R·w = p y J_min; Yule-Walker; gradiente por modos con cota; LMS con curva sembrada (divergencia visible) y NLMS; operación `deteccion` | M |
 | **ML-19** Optimización y aprendizaje automático (v2, **G**) | Bloque 13: GD, regresión, logística, métricas, k-medias, EM, árboles, PCA y SVD, redes a mano. **Implementado (2026-10-07):** GD/momento/Adam en cuadráticas con η < 2/L y óptimo por normales; regresión exacta en ℚ con Xᵀe = λw, ridge, lasso 1D y R²; logística con pérdida que baja; métricas, ROC/AUC por trapecios = Mann-Whitney; Lloyd con SSE y silueta, EM 1D con log L y BIC, árboles por ganancia; PCA con Σλ = traza y VᵀV = I, SVD 2×2; MLP con retropropagación verificada por diferencias, atención con filas 1, RNN/LSTM, SVM con KKT; operación `aprende` | M |
-| **ML-20** Markov, MDP y refuerzo (v2, **G**) | Bloque 12 con el simulador de eventos | M |
-| **ML-21** Matemáticas financieras (v2, **G**) | Bloque 14 completo | M-L |
+| **ML-20** Markov, MDP y refuerzo (v2, **G**) | Bloque 12 con el simulador de eventos. **Implementado (2026-10-07):** absorción N = (I−Q)⁻¹ exacta con N·(I−Q) = I, clasificación con periodos por mcd, MDP con v = (I−γP)⁻¹R y residuo 0, iteración de valor = solución directa, episodio a mano (MC = media muestral, TD/SARSA/Q), bandidos con Qₙ exacta, REINFORCE con gradiente numérico; operación `refuerzo` (lo de ML-12 no se duplica) | M |
+| **ML-21** Matemáticas financieras (v2, **G**) | Bloque 14. **Implementado (2026-10-07):** interés simple/compuesto m/continuo con TAE y regla del 72, despeje con ln, VAN, TIR por bisección, anualidad de amortización, bono (Macaulay, modificada y convexidad), futuro, payoff, árbol CRR con q, Black-Scholes con griegas, σ implícita por Newton sobre la vega, Monte Carlo sembrado con error 1/√N, Markowitz por KKT lineal, **frontera eficiente** y Sharpe/VaR; operación `finanzas` (15 cálculos) | M-L |
 | **ML-22** Física auxiliar (v2, **E** para `U(x)`; parte térmica **opcional**; órbitas **G**) | Bloque 19: `U(x)` siempre; termodinámica del gas ideal y Maxwell-Boltzmann, Planck y Stefan solo si se activan (D10, D12); **órbitas y visibilidad (D12, G)**. **Implementado (2026-10-07):** equilibrios por barrido+bisección con U″, ω exacta en cuadráticas, v_max, periodo por cuadratura sen² = RK4, retrato de fases; gas lineal/parabólico/isotermo con T_max, ΔS doble y ciclo con Clausius; Kepler por bisección+Newton (e=0 círculo), órbita circular, visibilidad; MB con norma y ⟨v²⟩, Planck π⁴/15 con σ; calculadora `fisica` | S |
 
 **Cada fase incluye las calculadoras de su bloque (§8), con pasos y verificación completos.** S ≈ días, M ≈ 1–2 semanas, L ≈ 3–5, XL > 5. **Orden recomendado (v1):** ML-0 → ML-1 → ML-2 → ML-3 → ML-5 → ML-6 → ML-7 → ML-4 → ML-8 → ML-9 → ML-10 → ML-11.
