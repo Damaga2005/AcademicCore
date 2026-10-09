@@ -794,17 +794,21 @@ con los huecos declarados de este mismo documento.
 | Documentación (§8.1) | `describe` | El resultado **entero** como texto, con los tres niveles de detalle: valor, aproximación y error, pasos, sello, hipótesis, convenciones, avisos y gráfica descrita |
 | Rendimiento (§5.4) | `rendimiento` | `time.perf_counter` contra un techo declarado (que se puede cruzar a propósito para verlo fallar) y **determinismo**: la misma entrada da el mismo resultado y sello |
 | Certificación (§8.4) | `audita`, `certifica` | Recorre **todas** las operaciones registradas con una entrada canónica y comprueba los criterios de §8.4 uno a uno |
+| Pasos y porqué (§5.2, §5.5b) | `pasos` | Traza no vacía, al menos un paso con «por qué» y un paso de tipo `metodo`, y los tres niveles renderizando sin romperse |
+| Robustez | `robustez` | Alimenta entradas mal formadas a las 80 y exige rechazo con motivo: un `TypeError` es un bug de programación, no una respuesta para el estudiante |
 
 **Medido:** 80 operaciones comprobadas, **0 fallos, 0 fuera del techo, 0 no
-deterministas**, 0 sin muestra.
+deterministas**, 0 sin muestra, **0 sin pasos completos y 0 errores internos**.
 
-**El criterio 3 se aplica donde §8.4 lo pide y no donde no.** La norma solo
-exige el «por qué se eligió este método» a derivar, integrar, límites, series,
-EDO y transformadas (12 aquí, todas cumplen). Aplicarlo a las 80 sería
-inventarse un criterio más estricto, y **hacer fallar la certificación por algo
-que la norma no pide sería una forma elegante de mentir**: las otras cinco
-(`grafo`, `metodo_numerico`, `proceso`, `teorema`, `variable_aleatoria`) se
-reportan como **mejora pendiente**, ni como buenas ni como malas.
+**El criterio 3 es ahora universal.** §8.4 solo lo exigía a derivar, integrar,
+límites, series, EDO y transformadas, y la primera auditoría dejó pasar cinco
+calculadoras sin un solo «por qué» (`grafo`, `metodo_numerico`, `proceso`,
+`teorema`, `variable_aleatoria`). El usuario decidió que **toda** calculadora
+muestre sus pasos y el porqué, y se corrigieron las cinco; después,
+`audita_pasos` encontró **28 más** sin un paso de tipo `metodo` —que es lo que
+§5.5b pide: el porqué de *este* método, no la explicación de una regla suelta— y
+se añadieron los 28. La lista de excepciones se conserva para documentar qué
+exigía el documento, no para dejar fuera a nadie.
 
 **Lo que no se hace (y se dice):** la **interfaz** (§9, el visor Qt) es de otra
 capa — aquí se certifica que la gráfica *descrita como dato* es accesible, que
@@ -813,9 +817,9 @@ de juicio y de orden de entrega; el **rendimiento de la interfaz** (aquí se
 mide el dominio); las figuras leídas del enunciado (§7, lo niega ML-10); y el
 enlace al banco D6 y a la maestría (§7).
 
-**Batería:** `tests/test_mathlab_ml11.py` (24 pruebas). Una de ellas ejecuta la
-certificación entera dentro de la suite: si el motor se rompe, la batería lo
-nota.
+**Batería:** `tests/test_mathlab_ml11.py` (28 pruebas). Tres de ellas ejecutan
+la certificación, la auditoría de pasos y la de robustez dentro de la suite: si
+el motor se rompe, la batería lo nota.
 
 ## 5. El motor matemático
 

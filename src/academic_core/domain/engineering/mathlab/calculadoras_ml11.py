@@ -92,6 +92,46 @@ def _pulido(peticion: C.Peticion) -> C.Resultado:
         return _ok(peticion, trace, m.texto(), "medición real",
                    m.detalle)
 
+    if calculo == "pasos":
+        trace.metodo("pulido.pasos",
+                     "recorrer todas las operaciones exigiendo traza no vacía, "
+                     "un «por qué» y un paso de método",
+                     why="§5.2 y §5.5b: el estudiante tiene que ver los pasos "
+                         "y por qué se eligió ese método. Una calculadora que "
+                         "devuelve el número sin explicar nada incumple, y "
+                     "aquí se nota en vez de confiar en que todas lo hacen")
+        fallos = P.audita_pasos()
+        detalle = f"{len(fallos)} calculadoras sin los pasos completos"
+        cuerpo = (f"{len(C.operaciones())} calculadoras comprobadas; "
+                  f"{len(fallos)} sin pasos completos")
+        if fallos:
+            cuerpo += "\n" + "\n".join("  - " + f for f in fallos)
+            return _finalizar(peticion, trace, cuerpo,
+                              sello=V.Seal(V.DISCREPANT, "pasos incompletos",
+                                           detalle))
+        return _ok(peticion, trace, cuerpo, "todas muestran sus pasos", detalle)
+
+    if calculo == "robustez":
+        trace.metodo("pulido.robustez",
+                     "alimentar entradas mal formadas a todas las "
+                     "calculadoras y exigir un rechazo con motivo",
+                     why="una petición mala debe decir qué está mal; un "
+                         "TypeError o un IndexError son bugs de programación, "
+                         "no mensajes para el estudiante. Merece la pena "
+                         "comprobarlo porque es lo que más fácil se rompe al "
+                         "tocar un cálculo")
+        rotos = P.audita_robustez()
+        detalle = f"{len(rotos)} errores internos"
+        cuerpo = (f"{len(C.operaciones())} calculadoras alimentadas con "
+                  f"basura; {len(rotos)} responden con un error interno")
+        if rotos:
+            cuerpo += "\n" + "\n".join("  - " + f for f in rotos)
+            return _finalizar(peticion, trace, cuerpo,
+                              sello=V.Seal(V.DISCREPANT, "errores internos",
+                                           detalle))
+        return _ok(peticion, trace, cuerpo, "ninguna revienta por dentro",
+                   detalle)
+
     if calculo in ("audita", "certifica"):
         medir = calculo == "certifica"
         trace.metodo(

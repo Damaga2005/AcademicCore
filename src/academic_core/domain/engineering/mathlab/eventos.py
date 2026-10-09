@@ -259,6 +259,14 @@ def cola_mm1(lam: float, mu: float, clientes: int = 20000, semilla: int = 1,
         raise _error("BAD_INPUT", "hacen falta al menos 2 clientes que simular")
     rho = lam / mu
     L_t, W_t = rho / (1 - rho), 1 / (mu - lam)
+    trace.metodo("mm1.estacionario",
+                 "fórmulas de la cola en régimen estacionario, contrastadas "
+                 "con una simulación de clientes sembrada",
+                 why="una cola se estabiliza solo si ρ = λ/μ < 1; entonces la "
+                     "longitud media de la cola y la espera media tienen "
+                     "fórmula cerrada, y la simulación sirve de segundo camino "
+                     "porque si la fórmula fuera falsa el promedio empírico la "
+                     "contradiría")
     trace.regla("mm1.teoria", f"L = ρ/(1−ρ) = {L_t:.6g}, W = 1/(μ−λ) = {W_t:.6g}",
                 why="fórmulas de M/M/1 en régimen estacionario; Little: L = λ·W")
     sim = Simulador(semilla)

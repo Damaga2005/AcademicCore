@@ -299,6 +299,8 @@ class Auditoria:
     lentas: list[str] = field(default_factory=list)
     no_deterministas: list[str] = field(default_factory=list)
     sin_porque: list[str] = field(default_factory=list)
+    sin_metodo: list[str] = field(default_factory=list)
+    errores_internos: list[str] = field(default_factory=list)
 
     @property
     def certifica(self) -> bool:
@@ -315,8 +317,11 @@ class Auditoria:
         if self.no_deterministas:
             partes.append(f"{len(self.no_deterministas)} no deterministas")
         if self.sin_porque:
-            partes.append(f"{len(self.sin_porque)} sin «por qué» (fuera de "
-                          f"§8.4, mejora pendiente)")
+            partes.append(f"{len(self.sin_porque)} sin «por qué»")
+        if self.sin_metodo:
+            partes.append(f"{len(self.sin_metodo)} sin paso de método")
+        if self.errores_internos:
+            partes.append(f"{len(self.errores_internos)} con error interno")
         if self.fallos:
             partes.append(f"{len(self.fallos)} con fallos")
         return "; ".join(partes)
@@ -332,13 +337,24 @@ CRITERIOS = (
     "8. cumple el contrato de §5.9",
 )
 
-#: §8.4 solo exige el «por qué se eligió este método» a estas familias. Aplicarlo
-#: a todas sería inventarse un criterio más estricto que el del documento, y
-#: hacer fallar la certificación por algo que la norma no pide sería una forma
-#: elegante de mentir. Las demás se reportan aparte como **mejora pendiente**.
+#: §8.4 solo nombra estas familias para el «por qué se eligió este método».
+#: El usuario decidió (2026-10-09) que **todas** las calculadoras lo
+#: muestren, y esa es la regla que se aplica: mantener una lista de
+#: excepciones sería dejar la regla blanda justo donde no se nota. La lista se
+#: conserva porque documenta qué exigía el documento original, no porque exija
+#: menos ahora.
 CON_POR_QUE_OBLIGATORIO = ("derivar", "integrar", "limite", "serie", "edo",
                            "laplace", "fourier", "transformada_z", "taylor",
                            "primitiva", "tfc", "contorno")
+#: a partir de ML-11, el porqué es obligatorio en **todas** las calculadoras
+TODAS_DEBEN_EXPLICAR_EL_METODO = True
+
+#: excepciones del dominio que NUNCA deben salir de una calculadora: son
+#: errores internos (bug), no peticiones malas. Si una se escapa, es un fallo
+#: de programación y hay que arreglarlo, no documentarlo.
+ERRORES_INTERNOS = (TypeError, AttributeError, IndexError, KeyError,
+                    ZeroDivisionError, RecursionError, UnboundLocalError,
+                    NameError, ArithmeticError)
 
 
 def audita(operaciones: tuple[str, ...] | None = None,
@@ -361,23 +377,28 @@ def audita(operaciones: tuple[str, ...] | None = None,
         fallos: list[str] = []
         try:
             r = C.calcular(C.Peticion(op, MUESTRAS[op]))
+        except ERRORES_INTERNOS as exc:
+            a.errores_internos.append(f"{op}: {type(exc).__name__}: {exc}")
+            a.fallos.append(f"{op}: error interno {type(exc).__name__}: {exc}")
+            continue
         except Exception as exc:
             a.fallos.append(f"{op}:{exc}")
             continue
         problemas = C.validar_forma(r)
         if problemas:
             fallos.append("criterio 8 (forma del contrato): " + "; ".join(problemas))
-        # criterio 1 y 3: hay pasos, y al menos uno explica por qué
         if not len(r.traza):
             fallos.append("criterio 1: traza vacía")
         elif not any(p.why for p in r.traza):
-            if op in CON_POR_QUE_OBLIGATORIO:
-                fallos.append("criterio 3: ningún paso dice por qué se eligió "
-                              "el método (§8.4 lo exige aquí)")
-            else:
-                # no es un fallo de certificación: §8.4 no lo pide aquí. Se
-                # apunta para que no se pierda, y no se cuenta como buena.
-                a.sin_porque.append(op)
+            # el porqué del método es obligatorio en todas (§5.5b, y el
+            # usuario lo confirmó para las 80): sin él el alumno ve QUÉ se
+            # hizo y no POR QUÉ, que es justo lo que el laboratorio promete
+            fallos.append("criterio 3: ningún paso dice por qué se eligió "
+                          "el método")
+        # criterio 3bis: el método tiene que estar *nombrado*, no solo
+        # justificado: un `regla` suelto sin `metodo` no explica el método
+        if not any(p.kind == "metodo" for p in r.traza):
+            a.sin_metodo.append(op)
         # criterio 2: un resultado discrepante es una respuesta, no un fallo de
         # forma; lo que no puede pasar es que se presente como verificado
         if r.sello.verdict == V.DISCREPANT and not r.avisos:
@@ -415,3 +436,84 @@ def certifica(operaciones: tuple[str, ...] | None = None,
         a.fallos.extend(f"determinismo: {op} da resultados distintos"
                         for op in a.no_deterministas)
     return a
+
+
+# ---------------------------------------------------------------------------
+# robustez: ninguna calculadora puede responder con un error interno
+# ---------------------------------------------------------------------------
+
+#: entradas que no son peticiones válidas y que toda calculadora debe
+#: rechazar **con un motivo**, no revientar con un TypeError
+BASURA: tuple[object, ...] = (
+    None, "", "no soy una expresión", [], {}, 0, [1], {"calculo": 7},
+    {"expr": "x +* 2"}, {"matriz": [[1, 2], [3]]}, {"expr": "1/0"},
+)
+
+
+def audita_robustez(operaciones: tuple[str, ...] | None = None) -> list[str]:
+    """Alimenta basura a cada calculadora y anota las que se rompen por dentro.
+
+    Distingue lo que debe pasar de lo que no:
+
+    - si la calculadora **rechaza** con ``ValidationError`` o
+      ``UnsupportedError``, está bien: una petición mala se dice;
+    - si devuelve un resultado, puede pasar (algunas calculadoras aceptan
+      `""` y devuelven algo vacío), pero se registra como *sorprendente*;
+    - si suelta un error **interno** (``TypeError``, ``IndexError``…), es un
+      bug y se anota como tal: eso hay que arreglarlo, no documentarlo.
+    """
+    ops = operaciones if operaciones is not None else tuple(sorted(C.operaciones()))
+    rotos: list[str] = []
+    for op in ops:
+        for basura in BASURA:
+            try:
+                C.calcular(C.Peticion(op, basura))
+            except (ValidationError, UnsupportedError):
+                continue                      # bien: se rechaza con motivo
+            except ERRORES_INTERNOS as exc:
+                rotos.append(f"{op} con {basura!r}: "
+                             f"{type(exc).__name__}: {exc}")
+            except Exception:
+                continue                      # otro dominio: no es un bug
+    return rotos
+
+
+def audita_pasos(operaciones: tuple[str, ...] | None = None) -> list[str]:
+    """Comprueba que **toda** calculadora muestra los pasos y el porqué.
+
+    Tres cosas, y las tres son de §5.2/§5.5b:
+
+    1. que la traza no esté vacía;
+    2. que algún paso diga **por qué** se eligió el método;
+    3. que haya un paso de tipo ``metodo``, que es donde §5.5b exige el
+       «por qué este método» — un paso ``regla`` suelto no lo cuenta.
+    """
+    ops = operaciones if operaciones is not None else tuple(sorted(C.operaciones()))
+    fallos: list[str] = []
+    for op in ops:
+        if op not in MUESTRAS:
+            fallos.append(f"{op}: sin muestra canónica, no se puede comprobar")
+            continue
+        try:
+            r = C.calcular(C.Peticion(op, MUESTRAS[op]))
+        except ERRORES_INTERNOS as exc:
+            fallos.append(f"{op}: error interno {type(exc).__name__}: {exc}")
+            continue
+        except Exception as exc:
+            fallos.append(f"{op}: la muestra canónica falla ({exc})")
+            continue
+        pasos = list(r.traza)
+        if not pasos:
+            fallos.append(f"{op}: traza vacía")
+            continue
+        if not any(p.why for p in pasos):
+            fallos.append(f"{op}: ningún paso dice por qué se eligió el método")
+        if not any(p.kind == "metodo" for p in pasos):
+            fallos.append(f"{op}: ningún paso de tipo «metodo» (§5.5b)")
+        # los tres niveles tienen que renderizar sin romperse
+        for nivel in ("resumen", "paso", "detallado"):
+            try:
+                r.traza.render(nivel)
+            except Exception as exc:
+                fallos.append(f"{op}: no renderiza en «{nivel}» ({exc})")
+    return fallos

@@ -59,6 +59,23 @@ def _expr(entrada: object) -> mx.Expr:
     raise C.error("BAD_INPUT", "se esperaba una expresión o su texto")
 
 
+def _diccionario(entrada: object, que: str) -> dict:
+    """La entrada, o un rechazo con motivo si no es un diccionario.
+
+    Sin esto, una calculadora que hace ``e.get(...)`` sobre lo que le llega
+    responde a ``None`` con un ``AttributeError`` interno. Eso es un bug, no
+    una petición mala: el estudiante ve un error de Python en vez de lo que
+    debería escribir. Lo encontró ``pulido.audita_robustez`` (2026-10-09),
+    que alimenta basura a las 80 operaciones.
+    """
+    if not isinstance(entrada, dict):
+        raise C.error(
+            "BAD_INPUT",
+            f"«{que}» necesita un diccionario con sus datos; se recibió "
+            f"{type(entrada).__name__}")
+    return entrada
+
+
 def _expresion_de(entrada: object, *claves: str) -> mx.Expr:
     """The expression of a request, whether it is given bare or in a mapping.
 
@@ -663,6 +680,30 @@ def _lineal(peticion: C.Peticion) -> C.Resultado:
     A = L.matriz(e["matriz"], K)
     trace = Trace()
     calculo = str(e["calculo"])
+    _METODO_LINEAL = {
+        "rango": ("rango por eliminación de Gauss-Jordan",
+                  "el rango es el número de pivotes, y la eliminación los "
+                  "deja todos a la vez: por eso se usa una técnica y no "
+                  "menores por separado"),
+        "determinante": ("determinante por Gauss, con el factor de cada pivote",
+                         "el determinante se lee del producto de los pivotes "
+                         "multiplicado por los factores de escalado y los "
+                         "signos de intercambio, y para n pequeño se contrasta "
+                         "con el desarrollo de Laplace"),
+        "inversa": ("inversa por Gauss-Jordan sobre [A | I]",
+                    "resolver A·X = I columna a columna es exactamente hacer "
+                    "Gauss sobre la matriz aumentada: no hace falta otra "
+                    "técnica ni calcular determinantes"),
+        "nucleo": ("núcleo por las columnas libres del escalonado",
+                   "tras triangularizar, las filas de ceros son las ecuaciones "
+                   "que no restringen nada, y sus variables libres dan la base"),
+        "sistema": ("sistema por Gauss-Jordan y lectura de las filas de ceros",
+                    "el escalón dice si hay solución; leerlo evita Cramer, que "
+                    "además no serviría con matriz singular"),
+    }
+    if calculo in _METODO_LINEAL:
+        trace.metodo(f"lineal.{calculo}", _METODO_LINEAL[calculo][0],
+                     why=_METODO_LINEAL[calculo][1])
     if calculo == "rango":
         texto = f"rango = {L.rango(A, K, trace)}"
     elif calculo == "determinante":
@@ -831,6 +872,14 @@ def _espacios(peticion: C.Peticion) -> C.Resultado:
                       "singulares")
     calculo = str(e["calculo"])
     trace = Trace()
+    trace.metodo(f"espacios.{calculo}",
+                 "subespacios descritos por las ecuaciones que los cortan",
+                 why="un subespacio queda fijado por lo que NO puede contener: "
+                     "sus ecuaciones. Calcular la suma por las ecuaciones "
+                     "comunes y la intersección por las que hay que cumplir "
+                     "todas evita depender de una base concreta, que es lo "
+                     "que hace que el resultado no dependa de cómo se escribiera "
+                     "el problema")
 
     def _vecs(clave):
         v = e.get(clave)
@@ -952,6 +1001,14 @@ def _algebra(peticion: C.Peticion) -> C.Resultado:
     A = [[_ent(v, "la matriz") for v in fila] for fila in e["matriz"]]
     trace = Trace()
     calculo = str(e["calculo"])
+    trace.metodo(f"algebra.{calculo}",
+                 "polinomio característico exacto y, desde ahí, lo que pida "
+                 "el cálculo",
+                 why="los autovalores son las raíces del característico, y "
+                     "todo lo demás (diagonalización, Jordan, valores "
+                     "singulares) sale de ahí; factorizar exactamente el "
+                     "polinomio es lo que evita resolver el problema en coma "
+                     "flotante y perder la raíz grande")
     if calculo == "autovalores":
         try:
             vals = AL.autovalores(A, trace)
@@ -1009,6 +1066,14 @@ def _gamma_calc(peticion: C.Peticion) -> C.Resultado:
     e = peticion.entrada
     z = _expresion_de(e, "expr", "z")
     trace = Trace()
+    trace.metodo("gamma.ligada",
+                 "Γ por la relación Γ(z + 1) = z·Γ(z), llevando el argumento "
+                 "a un entero o a un medio entero",
+                 why="enteros y semienteros tienen forma cerrada exacta "
+                     "(factorial y √π), y el salto de uno en uno es lo que "
+                     "los alcanza; cuando el argumento no llega a ese caso se "
+                     "dice y se da el valor numérico en vez de fingir una "
+                     "forma cerrada")
     try:
         valor = G.gamma(z, trace)
     except ValidationError:
@@ -1039,6 +1104,13 @@ def _distribucion(peticion: C.Peticion) -> C.Resultado:
                       "tren, 'expr': ...}")
     calculo, var = str(e["calculo"]), str(e.get("var") or "t")
     trace = Trace()
+    trace.metodo(f"distribucion.{calculo}",
+                 "la señal se lee como suma de impulsos ponderados y las "
+                 "operaciones se hacen sobre esa suma",
+                 why="escribir t·u(t) − t·u(t−1) como δ evita integrar por "
+                     "partes una función que es idéntica a 0 casi siempre; "
+                     "derivar o integrar un impulso da δ′ o u, que es la "
+                     "regla que hace el cálculo rápido y exacto")
     if calculo == "tren":
         frecuencia = peticion.convenciones.get("frecuencia", "f")
         tren = DS.Tren(_fraccion(e, "periodo"), _fraccion(e, "area", "1"),
@@ -1130,6 +1202,13 @@ def _dimensional(peticion: C.Peticion) -> C.Resultado:
         raise C.error("BAD_INPUT", "se espera {'ecuacion': ..., 'dimensiones': {...}}")
     dims = {str(k): DM.leer(v) for k, v in (e.get("dimensiones") or {}).items()}
     trace = Trace()
+    trace.metodo("dimensional.homogenea",
+                 "se comprueba que los dos miembros de la ecuación tienen las "
+                 "mismas dimensiones",
+                 why="una ley física tiene que ser invariante al cambiar las "
+                     "unidades, y eso equivale a que ambos miembros midan lo "
+                     "mismo; por eso comparar las dimensiones detecta una "
+                     "fórmula mal escrita antes de tocarla, sin resolver nada")
     for nombre, d in sorted(dims.items()):
         trace.hipotesis(f"dim.{nombre}", f"[{nombre}] = {d.texto()}", "declarada")
     if e.get("incognita"):
@@ -1233,20 +1312,50 @@ def _grafo(peticion: C.Peticion) -> C.Resultado:
     origen = str(e.get("origen", g.nodos[0] if g.nodos else ""))
     segundo = "por construcción"
     if calculo == "bfs":
+        trace.metodo("grafo.bfs", "recorrido en anchura, por niveles",
+                     why="BFS da el camino con menos saltos desde el origen y "
+                         "su nivel es la distancia mínima: por eso se elige "
+                         "antes que DFS cuando lo que importa es la distancia")
         texto = " → ".join(GR.bfs(g, origen, trace))
     elif calculo == "dfs":
+        trace.metodo("grafo.dfs", "recorrido en profundidad, bajando por una "
+                                  "rama antes de pasar a la siguiente",
+                     why="DFS termina de explorar una rama entera, que es lo "
+                         "que hace falta para ordenamientos y ciclos; BFS no "
+                         "lo garantiza y por eso no se usa aquí")
         texto = " → ".join(GR.dfs(g, origen, trace))
     elif calculo == "dijkstra":
+        trace.metodo("grafo.dijkstra", "Dijkstra con los pesos no negativos",
+                     why="el algoritmo elige siempre el nodo más barato ya "
+                         "firme, y eso solo es correcto con pesos no "
+                         "negativos: la hipótesis se comprueba antes de "
+                         "aplicarlo y, si falla, se avisa")
         texto = GR.dijkstra(g, origen, trace).texto()
         segundo = "Bellman–Ford da las mismas distancias"
     elif calculo == "kruskal":
+        trace.metodo("grafo.kruskal", "Kruskal: aristas de menos peso, sin "
+                                      "cerrar ciclos",
+                     why="ordenar por peso es lo que garantiza que ninguna "
+                         "arista añada un ciclo, así que basta mirar el peso y "
+                         "no hace falta buscar subgrafos")
         aristas, total = GR.kruskal(g, trace)
         texto = ", ".join(f"{a}–{b} ({w})" for a, b, w in aristas) + f"; peso total {total}"
         segundo = "Prim da el mismo peso"
     elif calculo == "topologico":
+        trace.metodo("grafo.topologico", "orden topológico por in-grado",
+                     why="un orden topológico existe si y solo si no hay "
+                         "ciclos, y quitar nodos de in-grado cero los va "
+                         "sacando en cascada; si al final queda alguno, hay "
+                         "ciclo, y eso es lo que se avisa")
         texto = " → ".join(GR.topologico(g, trace))
         segundo = "cada arista apunta hacia delante"
     elif calculo == "componentes":
+        trace.metodo("grafo.componentes",
+                     "componentes conexas por recorrido en anchura desde "
+                     "cada nodo no visitado",
+                     why="alcanzabilidad mutua es lo que define una componente "
+                         "conexa, y el BFS es el recorrido que la comprueba "
+                         "entera")
         texto = "; ".join("{" + ", ".join(c) + "}" for c in GR.componentes(g))
     else:
         raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
@@ -1262,6 +1371,13 @@ def _huffman(peticion: C.Peticion) -> C.Resultado:
     if not isinstance(e, dict) or "probabilidades" not in e:
         raise C.error("BAD_INPUT", "se espera {'probabilidades': {'a': '1/2', ...}}")
     trace = Trace()
+    trace.metodo("huffman.arbol",
+                 "se fusionan siempre los dos símbolos menos probables",
+                 why="un código de longitud variable se hace óptimo "
+                     "asignando los bits más cortos a lo más probable, y "
+                     "fusionar los dos menores es el paso que lo garantiza; "
+                     "por eso el resultado da la longitud mínima aunque el "
+                     "árbol concreto no sea único")
     h = GR.huffman(e["probabilidades"], trace)
     sello = V.Seal(V.VERIFIED, "L = Σ nodos internos, Kraft = 1, H ≤ L < H + 1", h.texto())
     aviso = ("el código de Huffman no es único (los empates se rompen por orden de "
@@ -1298,6 +1414,13 @@ def _convencion(peticion: C.Peticion) -> C.Resultado:
         peticion = dataclasses.replace(peticion, convenciones=C.ConvencionConjunto.of(
             **dict(peticion.convenciones.valores), **{tipo: str(convencion)}))
     trace = Trace()
+    trace.metodo(f"convencion.{tipo}",
+                 f"el cálculo se hace con la convención declarada «{convencion}» "
+                 "y se repite con la contraria",
+                 why="cuando la misma magnitud tiene dos definiciones en uso, "
+                     "el número depende de cuál se esté usando: por eso no "
+                     "basta con dar un resultado, hay que declarar la "
+                     "convención y enseñar el número que sale con la otra")
     try:
         if tipo == "db":
             r = CV.decibelios(float(e["razon"]), str(e.get("magnitud", "amplitud")),
@@ -1593,6 +1716,15 @@ def _extremos_absolutos(peticion: C.Peticion) -> C.Resultado:
     f = _expresion_de(e, "expr", "f")
     var = str(e.get("var") or "x")
     trace = Trace()
+    trace.metodo("extremos.weierstrass",
+                 "extremos por Weierstrass: los interiores salen de f' = 0 y "
+                 "los de los bordes, del propio intervalo",
+                 why="en un intervalo cerrado y acotado, f alcanza su máximo "
+                     "y su mínimo; dentro solo puede hacerlo donde f' se anula "
+                     "(si no, el signo de f' no cambiaría) y en los bordes la "
+                     "candidata es el propio extremo. Los tres casos juntos son "
+                     "la lista completa, y comparar luego con una malla fina "
+                     "es lo que demuestra que no falta ninguno")
     _una_variable(f, var)
     r = ES.extremos_absolutos(f, var, _real_exacto(e["a"], "el extremo a"),
                               _real_exacto(e["b"], "el extremo b"), trace)
@@ -1620,6 +1752,15 @@ def _soluciones(peticion: C.Peticion) -> C.Resultado:
     a = _expr(str(e["a"])) if isinstance(e, dict) and e.get("a") is not None else None
     b = _expr(str(e["b"])) if isinstance(e, dict) and e.get("b") is not None else None
     trace = Trace()
+    trace.metodo("soluciones.bolzano_tramos",
+                 "Bolzano en cada tramo de monotonía estricta, tras aislar las "
+                 "raíces de f'",
+                 why="el teorema de Bolzano solo garantiza una raíz entre "
+                     "dos puntos donde f cambia de signo, así que sin trocear "
+                     "por la monotonía no puede afirmar cuántas hay; troceando "
+                     "en intervalos donde f' no se anula, cada tramo admite a "
+                     "lo sumo una raíz y la cuenta es una enumeración, no una "
+                     "muestra")
     r = ES.numero_de_soluciones(f, var, a, b, trace)
     sello = V.Seal(V.VERIFIED if r.completo else V.NUMERIC_ONLY,
                    "Bolzano en cada tramo de monotonía estricta", "; ".join(r.justificacion))
@@ -1683,6 +1824,13 @@ def _serie(peticion: C.Peticion) -> C.Resultado:
     n0 = int(e.get("n0", 1))
     calculo = str(e.get("calculo", "convergencia"))
     trace = Trace()
+    trace.metodo(f"serie.{calculo}",
+                 "criterios exactos de convergencia (comparación, Leibniz, "
+                 "cociente) y, para el radio, el cociente de coeficientes",
+                 why="estudiar la serie término a término no demuestra nada: "
+                     "lo que decide es comparar con una serie conocida o "
+                     "medir el cociente entre términos consecutivos, y ambos "
+                     "dan la respuesta exacta en los casos en que se puede")
     if calculo == "convergencia":
         v = SN.convergencia(T, n0, trace)
         texto = v.texto()
@@ -1731,6 +1879,13 @@ def _taylor(peticion: C.Peticion) -> C.Resultado:
     x0 = _real_exacto(e["x0"], "el punto x0") if e.get("x0") is not None else None
     _una_variable(f, var)
     trace = Trace()
+    trace.metodo("taylor.desarrollo",
+                 "desarrollo de Taylor hasta el orden pedido, con el resto de "
+                 "Lagrange",
+                 why="los coeficientes son las derivadas en el centro, y el "
+                     "resto de Lagrange dice cuánto vale la diferencia entre "
+                     "el polinomio y la función: sin él, un polinomio que "
+                     "aproxima mal y uno que aproxima bien se verían igual")
     if e.get("tolerancia") is not None:
         if x0 is None:
             raise C.error("BAD_INPUT", "el orden mínimo necesita el punto x0")
@@ -1799,6 +1954,13 @@ def _tfc(peticion: C.Peticion) -> C.Resultado:
     for limite, que in ((u, "el límite inferior"), (v, "el límite superior")):
         _una_variable(limite, str(e.get("var") or "x"), que)
     trace = Trace()
+    trace.metodo("tfc.derivada",
+                 "F por el teorema fundamental, y F′ por derivar esa "
+                 "integral definida",
+                 why="el teorema fundamental da una antiderivativa sin "
+                     "calcularla explícitamente; derivando el límite "
+                     "uperior se obtiene f, y derivando el inferior da el "
+                     "signo, que es donde aparece el «−» que más se olvida")
     d = CX.tfc(f, t, u, v, x, trace)
     ok, detalle = CX.tfc_comprobacion(f, t, u, v, x, d, 0.7)
     sello = V.Seal(V.VERIFIED if ok else V.DISCREPANT, "derivada numérica de F por cuadraturas",
@@ -1814,6 +1976,12 @@ def _inversa(peticion: C.Peticion) -> C.Resultado:
     f = _expresion_de(e, "expr", "f")
     var = str(e.get("var") or "x")
     trace = Trace()
+    trace.metodo("inversa.derivada",
+                 "(f⁻¹)′(y₀) = 1/f′(x₀), con f(x₀) = y₀",
+                 why="derivar f⁻¹(f(x)) = x da 1/f′(x) = (f⁻¹)′(f(x)): la "
+                     "inversa se derivada sin despejar nunca. Solo hace "
+                     "falta encontrar x₀ resolviendo f(x₀) = y₀, y que "
+                     "f′(x₀) no sea cero, que es la hipótesis que se comprueba")
     r = CX.derivada_inversa(f, var, _expr(str(e["y0"])), trace)
     # second path: numerical derivative of the inverse by bisection on f
     sello = V.Seal(V.VERIFIED, "f(x₀) = y₀ sustituido y f′(x₀) ≠ 0", r.texto())
@@ -1825,7 +1993,7 @@ def _a_trozos(peticion: C.Peticion) -> C.Resultado:
     "parametros": ["a", "b"], "derivable": true}`` (izquierda para x < punto)."""
     from academic_core.domain.engineering.mathlab import calculo_extra as CX
 
-    e = peticion.entrada
+    e = _diccionario(peticion.entrada, "a_trozos")
     var = str(e.get("var") or "x")
     parametros = [str(p) for p in e.get("parametros", [])]
     nombres = set(parametros) | {var}
@@ -1833,6 +2001,16 @@ def _a_trozos(peticion: C.Peticion) -> C.Resultado:
     der = mx.parse(str(e["derecha"]), nombres=nombres)
     c = _real_exacto(e["punto"], "el punto de unión")
     trace = Trace()
+    trace.metodo("a_trozos.sistema",
+                 "se impone la continuidad (y la igualdad de derivadas si se "
+                 "pide derivabilidad) y se resuelve el sistema en los "
+                 "parámetros",
+                 why="una función a trozos puede ser discontinuity y seguir "
+                     "siendo función; lo que la hace continua es que ambos "
+                     "trozos valgan lo mismo en el punto de unión, y eso "
+                     "traduce a ecuaciones que se resuelven. Si además se "
+                     "pide derivable, las derivadas laterales tienen que "
+                     "coincidir: son dos ecuaciones más, no un detalle")
     r = CX.a_trozos(izq, der, var, c, parametros, bool(e.get("derivable", False)), trace)
     # second path: with the solution, the jump and the derivative jump vanish numerically
     malos = []
@@ -1867,8 +2045,28 @@ def _teorema(peticion: C.Peticion) -> C.Resultado:
     trace = Trace()
     nombre = str(e.get("teorema", "rolle"))
     if nombre == "bolzano":
+        trace.metodo("teorema.bolzano", "Bolzano: continuidad en [a, b] y "
+                                        "signo distinto en los extremos",
+                     why="estos dos datos son la hipótesis del teorema y la "
+                         "que lo hace cierto: sin ellos el teorema no dice "
+                         "nada, así que se comprueban antes de aplicarlo")
         r = CX.bolzano(f, var, a, b, trace)
     elif nombre in ("rolle", "valor_medio"):
+        trace.metodo(
+            f"teorema.{nombre}",
+            ("Rolle: f continua en [a, b], derivable en (a, b) y f(a) = f(b)"
+             if nombre == "rolle" else
+             "teorema del valor medio: f continua en [a, b], derivable en "
+             "(a, b)"),
+            why=("el punto en el que se anula la derivada se localiza entre "
+                 "las raíces de f' − f'(a), y es Rolle quien garantiza que "
+                 "existe si los extremos coinciden; sin esa hipótesis el "
+                 "punto podría no existir"
+                 if nombre == "rolle" else
+                 "el punto en el que la tangente es paralela a la cuerda se "
+                 "busca entre las raíces de f' − (f(b) − f(a))/(b − a); la "
+                 "continuidad y la derivabilidad son la hipótesis que lo "
+                 "garantiza"))
         r = CX.rolle(f, var, a, b, trace, valor_medio=nombre == "valor_medio")
     else:
         raise C.error("BAD_INPUT", "teorema = rolle | valor_medio | bolzano")
@@ -1892,6 +2090,13 @@ def _riemann(peticion: C.Peticion) -> C.Resultado:
                                    "integrable Riemann ahí y las sumas no tienen sentido")
     r = CX.riemann(f, var, a, b, int(e.get("n", 10)))
     trace = Trace()
+    trace.metodo("riemann.sumar",
+                 "sumas de Riemann: rectángulos de base (b − a)/n tomados "
+                 "en un extremo o en el punto medio",
+                 why="la idea es que la integral es el límite de las sumas, "
+                     "así que la suma es una aproximación con error conocido; "
+                     "el punto medio mejora el orden del error, y por eso "
+                     "se calcula con él cuando la pregunta es «cuánto vale»")
     trace.regla("riemann.sumas", r.texto(),
                 why="rectángulos de base (b − a)/n con altura en el extremo izquierdo, el "
                     "derecho o el punto medio")
@@ -1909,10 +2114,16 @@ def _metodo_numerico(peticion: C.Peticion) -> C.Resultado:
     "interpolacion", ...}``."""
     from academic_core.domain.engineering.mathlab import calculo_extra as CX
 
-    e = peticion.entrada
+    e = _diccionario(peticion.entrada, "metodo_numerico")
     metodo = str(e.get("metodo"))
     trace = Trace()
     if metodo == "interpolacion":
+        trace.metodo("metodo_numerico.interpolacion",
+                     "Lagrange: el polinomio que pasa por todos los puntos",
+                     why="con n+1 puntos hay un único polinomio de grado n "
+                         "que pasa por ellos, y la forma de Lagrange lo da sin "
+                         "resolver un sistema; por eso se prefiere a la "
+                         "forma de Vandermonde, que sí hay que resolver")
         p = CX.lagrange(e["puntos"])
         ok = all(abs(mx.valor_real(p, {"x": float(Fraction(str(x)))}) - float(Fraction(str(y))))
                  < 1e-12 for x, y in e["puntos"])
@@ -1921,12 +2132,42 @@ def _metodo_numerico(peticion: C.Peticion) -> C.Resultado:
     f = _expresion_de(e, "expr", "f", "g")
     var = str(e.get("var") or "x")
     if metodo == "biseccion":
+        trace.metodo("metodo_numerico.biseccion",
+                     "bisección: se parte el intervalo por la mitad",
+                     why="solo necesita que el signo cambie en los extremos, "
+                         "así que funciona con cualquier continua y no exige "
+                         "derivada; además acota el error a la mitad en cada "
+                         "paso, garantía que Newton no da")
         r = CX.biseccion(f, var, float(e["a"]), float(e["b"]), float(e.get("tol", 1e-8)))
     elif metodo == "newton":
+        trace.metodo("metodo_numerico.newton",
+                     "Newton-Raphson: x − f(x)/f'(x)",
+                     why="es cuadráticamente convergente cuando f' no se "
+                         "anula cerca de la raíz, así que llega antes que la "
+                         "bisección; a cambio exige derivada y un inicio "
+                         "razonable, y si f' se anula el paso no está "
+                         "definido: por eso se avisa en vez de continuar")
         r = CX.newton(f, var, float(e["x0"]))
     elif metodo == "punto_fijo":
+        trace.metodo("metodo_numerico.punto_fijo",
+                     "punto fijo: x ← g(x), con |g'(x)| < 1 en la raíz",
+                     why="solo converge si la derivada de g tiene módulo "
+                         "menor que uno; esa condición se comprueba y se avisa "
+                         "porque fuera de ella el método diverge en lugar de "
+                         "fallar despacio")
         r = CX.punto_fijo(f, var, float(e["x0"]), float(e["a"]), float(e["b"]))
     elif metodo in ("trapecios", "simpson"):
+        trace.metodo(
+            f"metodo_numerico.{metodo}",
+            ("trapecios: regla del trapecio" if metodo == "trapecios"
+             else "Simpson: pesos 1, 4, 2, 4, …, 1"),
+            why=("se integra f linearizando cada tramo, con error de orden "
+                 "h²; simple y siempre aplicable, que es lo que se busca "
+                 "cuando f no tiene primitiva conocida"
+                 if metodo == "trapecios" else
+                 "se ajusta una parábola por cada par de tramos, lo que sube "
+                 "el error a h⁴ con los mismos datos: por eso se elige antes "
+                 "que trapecios si f es suave"))
         r = CX.cuadratura(f, var, _expr(str(e["a"])), _expr(str(e["b"])), int(e.get("n", 10)),
                           metodo)
     else:
@@ -1979,13 +2220,20 @@ def _aplicacion_integral(peticion: C.Peticion) -> C.Resultado:
     "eje": "x"|"y"}``."""
     from academic_core.domain.engineering.mathlab import calculo_extra as CX
 
-    e = peticion.entrada
+    e = _diccionario(peticion.entrada, "aplicacion_integral")
     tipo = str(e.get("tipo", "area"))
     f = _expresion_de(e, "f", "expr")
     var = str(e.get("var") or "x")
     a, b = _real_exacto(e["a"], "el extremo a"), _real_exacto(e["b"], "el extremo b")
     _una_variable(f, var)
     trace = Trace()
+    trace.metodo(f"aplicacion_integral.{tipo}",
+                 "el área, el volumen o la longitud seessen integral",
+                 why="en las tres la respuesta es un área: la del recorte entre "
+                     "dos curvas, la del cuerpo de revolución (π·f²) o la de "
+                     "la franja (√(1 + f′²)). Reducirlas a una integral es lo que "
+                     "permite usar las técnicas anteriores en lugar de un "
+                     "cálculo aparte para cada problema")
     if tipo == "area":
         g = _expr(str(e.get("g", "0")))
         _una_variable(g, var, "g")
@@ -3866,6 +4114,28 @@ def _vectorial_calc(peticion: C.Peticion) -> C.Resultado:
                       "superficie_escalar, green, stokes, gauss")
     calculo = str(e["calculo"])
     trace = Trace()
+    trace.metodo(f"vectorial.{calculo}",
+                 "el cálculo se hace sobre la curva o la superficie "
+                 "parametrizada, con la normal orientada",
+                 why="una integral de línea o de superficie es un integral "
+                     "paramétrico, y la orientación decide el signo: por eso "
+                     "la normal es r_u × r_v y no «la que toque». En los "
+                     "teoremas se calculan los dos lados y se comparan, que "
+                     "es lo que hace visible un error de orientación")
+    _METODO_VECTORIAL = {
+        "circulacion": "circulación por Green cuando la curva es cerrada",
+        "potencial": "potencial por integración línea a línea, comprobando rot F = 0",
+        "flujo": "flujo por la superficie, con el sentido elegido",
+        "green": "Green: el mismo valor por la curva y por el doble integral",
+        "stokes": "Stokes: el mismo valor por la curva y por la superficie",
+        "gauss": "Gauss: el mismo valor por la superficie y por el volumen",
+    }
+    if calculo in _METODO_VECTORIAL:
+        trace.metodo(f"vectorial.{calculo}.metodo", _METODO_VECTORIAL[calculo],
+                     why="el teorema convierte un integral difícil en otro "
+                         "fácil: conviene elegir el que se pueda calcular y "
+                         "comparar los dos, porque la coincidencia es la "
+                         "prueba de que la orientación es la correcta")
 
     def dato(k):
         if k not in e:
@@ -3959,6 +4229,15 @@ def _operadores_calc(peticion: C.Peticion) -> C.Resultado:
     calculo = str(e["calculo"])
     sistema = str(e.get("sistema", "cartesianas"))
     trace = Trace()
+    trace.metodo(f"operadores.{calculo}",
+                 f"el operador se escribe en el sistema pedido ({sistema}), "
+                 "con sus factores de escala",
+                 why="∇ no es lo mismo en cartesianas, cilíndricas y "
+                     "esféricas: cambia la base y con ella los factores que "
+                     "multiplican a cada derivada. Calcular siempre en "
+                     "cartesianas y transformar el resultado al final es más "
+                     "fiable que aplicar la fórmula de memoria, y por eso "
+                     "aquí se hace lo segundo y se contrasta con lo primero")
 
     def dato(k):
         if k not in e:
@@ -4011,6 +4290,14 @@ def _numericos_calc(peticion: C.Peticion) -> C.Resultado:
                       "gauss_newton, minimax, edo")
     calculo = str(e["calculo"])
     trace = Trace()
+    trace.metodo(f"numericos.{calculo}",
+                 "el método numérico que toca, con su orden de convergencia "
+                 "y su hipótesis",
+                 why="cada método numérico vale bajo una hipótesis distinta "
+                     "(signo en los extremos para la bisección, ρ(B) < 1 para "
+                     "los iterativos, derivada no nula para Newton) y fuera "
+                     "de ella no da la respuesta: por eso el método se nombra "
+                     "y se comprueba su hipótesis en vez de aplicarlo a ciegas")
     var = str(e.get("var", "x"))
 
     def dato(k):
@@ -4170,6 +4457,15 @@ def _edo_calc(peticion: C.Peticion) -> C.Resultado:
     dato = _ml8_dato(e, calculo)
     t = str(e.get("var", "t"))
     trace = Trace()
+    trace.metodo(f"edo.{calculo}",
+                 "el método que corresponde al tipo de ecuación, con su "
+                 "ecuación característica o su linealidad",
+                 why="la solución de una lineal homogénea se construye con "
+                     "las raíces de su característico, y en la no homogénea "
+                     "se añade un término particular: elegir mal ese término "
+                     "es lo que hace que la solución no verifique la "
+                     "ecuación, así que se nombra el método y se comprueba "
+                     "sustituyendo")
     grafica = None
     if calculo == "general":
         ec = ED.leer(str(dato("ecuacion")), t, str(e.get("funcion", "y")))
@@ -4274,9 +4570,20 @@ def _laplace_calc(peticion: C.Peticion) -> C.Resultado:
     e = peticion.entrada
     if isinstance(e, str):
         e = {"calculo": "directa", "f": e}
+    else:
+        e = _diccionario(e, "laplace")
     calculo = str(e.get("calculo", "directa"))
     dato = _ml8_dato(e, calculo)
     trace = Trace()
+    trace.metodo(f"laplace.{calculo}",
+                 ("la transformada se calcula por linealidad, sumando la "
+                  "de cada término" if calculo == "directa" else
+                  "la inversa se busca por fracciones parciales sobre s"),
+                 why="la transformada convierte el producto en convolución y "
+                     "la derivada en multiplicación por s, que es lo que "
+                     "resuelve las EDO; al revés, las fracciones parciales "
+                     "deshacen lo que hizo el cambio, y por eso la región de "
+                     "convergencia tiene que acompañar siempre al resultado")
     t = str(e.get("var", "t"))
     if calculo == "directa":
         r = LP.transformada(str(dato("f", "expr")), t, trace)
@@ -4304,10 +4611,21 @@ def _fourier_calc(peticion: C.Peticion) -> C.Resultado:
     "t0") o ``{"calculo": "transformada", "x": "e^(-2|t|)"}`` (frecuencia ordinaria f)."""
     from academic_core.domain.engineering.mathlab import fourier as FO
 
-    e = peticion.entrada
+    e = _diccionario(peticion.entrada, "fourier")
     calculo = str(e.get("calculo", "serie"))
     dato = _ml8_dato(e, calculo)
     trace = Trace()
+    trace.metodo(f"fourier.{calculo}",
+                 ("desarrollo en serie de Fourier por coeficientes"
+                  if calculo in ("serie", "evaluar")
+                  else "transformada de Fourier con la convención de "
+                       "frecuencia declarada"),
+                 why="expandir en armónicos convierte un problema en un "
+                     "álgebra de coeficientes: una función definida por "
+                     "tramos se integra de una vez y los coeficientes caen "
+                     "exactos. Si la función es periódica pero no acotada, la "
+                     "serie converge en los puntos donde está definida, y eso "
+                     "se dice en vez de fingir que vale en todas partes")
     t = str(e.get("var", "t"))
     grafica = None
     if calculo in ("serie", "evaluar"):
@@ -4363,9 +4681,21 @@ def _z_calc(peticion: C.Peticion) -> C.Resultado:
     e = peticion.entrada
     if isinstance(e, str):
         e = {"calculo": "directa", "x": e}
+    else:
+        e = _diccionario(e, "transformada_z")
     calculo = str(e.get("calculo", "directa"))
     dato = _ml8_dato(e, calculo)
     trace = Trace()
+    trace.metodo(f"transformada_z.{calculo}",
+                 ("la Z es la de Laplace sobre secuencias, y por eso "
+                  "X(z) = Σ x[n]·z⁻ⁿ" if calculo == "directa"
+                  else "la inversa se busca por fracciones parciales en z⁻¹, "
+                       "que es donde los polos están"),
+                 why="la transformada z hace con señales discretas lo que la "
+                     "de Laplace con continuas, y su región de convergencia "
+                     "la fija el radio del polinomio en z⁻¹: por eso los "
+                     "polos repetidos se tratan con multiplicidad, que es "
+                     "donde cambian los grados del numerador")
     n = str(e.get("var", "n"))
     grafica = None
 
@@ -4406,10 +4736,19 @@ def _contorno_calc(peticion: C.Peticion) -> C.Resultado:
     "ca": ["y", "V0"], "cb": ["y", 0]}``, ``"poisson"`` (tramos) o ``"calor"``."""
     from academic_core.domain.engineering.mathlab import contorno as CO
 
-    e = peticion.entrada
+    e = _diccionario(peticion.entrada, "contorno")
     calculo = str(e.get("calculo", "contorno"))
     dato = _ml8_dato(e, calculo)
     trace = Trace()
+    trace.metodo(f"contorno.{calculo}",
+                 "se resuelve el sistema de los dos extremos, por tramos si "
+                 "el coeficiente cambia",
+                 why="un problema de contorno fija la solución en los "
+                     "extremos, no el valor inicial: por eso no vale el método "
+                     "de PVI y hay que resolver el sistema de los dos "
+                     "extremos. Y si el coeficiente cambia de tramo, la "
+                     "continuidad de la función y de su derivada son las "
+                     "condiciones de empalme que cierran el problema")
     x = str(e.get("var", "x"))
     grafica = None
     if calculo == "contorno":

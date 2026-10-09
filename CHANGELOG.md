@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-09 — Robustez del laboratorio: los pasos son obligatorios y nadie revienta por dentro
+
+Revisión a petición del usuario: comprobar que **todas** las calculadoras muestran sus pasos y por qué se eligió el método, vigilar los errores y arreglarlos.
+
+- **La regla del «por qué» pasa a ser universal.** §8.4 solo la exigía a derivar, integrar, límites, series, EDO y transformadas, y la certificación anterior lo aceptaba así: reportaba `grafo`, `metodo_numerico`, `proceso`, `teorema` y `variable_aleatoria` como «mejora pendiente». Se corrigieron y ahora `TODAS_DEBEN_EXPLICAR_EL_METODO` deja de ser una excepción: las 80 tienen que cumplirla.
+- **33 calculadoras más se arreglan al fijarla.** `audita_pasos` comprobaba además que haya un paso de tipo `metodo` —§5.5b pide el porqué de *este* método, y un paso `regla` suelto explica una regla, no el método— y encontró 28 que no lo tenían: `a_trozos`, `algebra`, `aplicacion_integral`, `cola_mm1`, `contorno`, `convencion`, `dimensional`, `distribucion`, `edo`, `espacios`, `estadistica`, `extremos_absolutos`, `fourier`, `gamma`, `huffman`, `inversa`, `laplace`, `lineal`, `numericos`, `operadores`, `riemann`, `serie`, `soluciones`, `tabla_estadistica`, `taylor`, `tfc`, `transformada_z` y `vectorial`. Cada una lleva ahora su porqué real (por qué bisección y no Newton, por qué Weierstrass, por qué el punto medio en Simpson…), no un texto de relleno.
+- **39 errores internos encontrados y arreglados.** `audita_robustez` alimenta basura (`None`, `""`, `0`, `[]`, matrices descuadradas) a las 80 y exige rechazo con motivo. `a_trozos`, `aplicacion_integral`, `contorno`, `fourier`, `laplace`, `metodo_numerico` y `transformada_z` hacían `e.get(...)` sobre lo que les llegaba sin comprobar que fuese un diccionario, así que `None` devolvía `AttributeError: 'NoneType' object has no attribute 'get'`; `estadistica` reventaba con `TypeError: 'int' object is not iterable`. Son bugs de programación, no mensajes para el estudiante. Se corrigen con un guard compartido (`_diccionario`) y quedan en **0**.
+- **Dos comprobaciones nuevas y ejecutables:** `pulido.audita_pasos()` y `pulido.audita_robustez()`, accesibles también por el contrato con `{"calculo": "pasos"}` y `{"calculo": "robustez"}`. Las dos corren dentro de la batería, así que si alguien rompe un cálculo la batería lo nota.
+- **Batería:** `tests/test_mathlab_ml11.py` pasa de 24 a 28 pruebas; suite completa del laboratorio en verde.
+
 ## 2026-10-09 — ML-11 el pulido: accesibilidad, rendimiento, documentación y certificación
 
 - **Última fase de §10 cerrada.** Las 24 fases del laboratorio están implementadas y **certificadas**: `docs/gates/GATE-MATH-LAB-CERTIFICATION.md`.
@@ -7,7 +17,7 @@
 - **Medido: 80 operaciones registradas, 80 comprobadas, 0 fallos, 0 fuera del techo de 10 s, 0 no deterministas, 0 sin muestra canónica.**
 - La certificación vive en el **dominio**, no en `tests/`: una certificación que solo existe dentro de la suite no certifica nada, porque la suite es lo que certifica. `test_toda_operacion_registrada_tiene_muestra_canonica` obliga a que `pulido.MUESTRAS` cubra todo `C.operaciones()`, y `test_la_certificacion_pasa` ejecuta la certificación dentro de la batería: si el motor se rompe, se nota.
 - **Accesibilidad comprobada, no prometida:** una gráfica sin descripción textual, con una serie sin nombre o con abscisas y ordenadas descuadradas **se rechaza**, y el modelo `Graph`/`Serie` **no tiene campo de color** — que es lo que hace imposible depender solo de él (§6). Hay una prueba que fija esa ausencia de campo.
-- **El criterio 3 de §8.4 se aplica donde la norma lo pide y no donde no.** Solo se exige el «por qué se eligió este método» a derivar, integrar, límites, series, EDO y transformadas (12, todas cumplen). Aplicarlo a las 80 sería inventarse un criterio más estricto que el del documento, y hacer fallar la certificación por algo que la norma no pide sería una forma elegante de mentir: las otras cinco (`grafo`, `metodo_numerico`, `proceso`, `teorema`, `variable_aleatoria`) quedan como **mejora pendiente**.
+- **El criterio 3 de §8.4 se aplica donde la norma lo pide y no donde no.** Solo se exige el «por qué se eligió este método» a derivar, integrar, límites, series, EDO y transformadas (12, todas cumplen). Aplicarlo a las 80 sería inventarse un criterio más estricto que el del documento, y hacer fallar la certificación por algo que la norma no pide sería una forma elegante de mentir: las otras cinco (`grafo`, `metodo_numerico`, `proceso`, `teorema`, `variable_aleatoria`) quedan como **mejora pendiente**. *(Superado el mismo día por la entrada de arriba: la regla pasó a ser universal y las cinco se corrigieron.)*
 - **Batería:** `tests/test_mathlab_ml11.py`, 24 pruebas, 0 errores; contrato ampliado con `pulido`.
 
 ## 2026-10-07 — ML-10 ejercicios, corrector y generador

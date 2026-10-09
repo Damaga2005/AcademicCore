@@ -215,14 +215,48 @@ def test_criterio_3_detecta_una_calculadora_sin_por_que():
 # contrato §5.9
 # ---------------------------------------------------------------------------
 
-def test_contrato_de_los_cinco_calculos():
+def test_todas_las_calculadoras_muestran_sus_pasos_y_el_por_que():
+    # el requisito es universal: §8.4 solo lo nombraba para unas familias,
+    # pero el usuario lo hahace para las 80, y se comprueba para las 80
+    assert P.TODAS_DEBEN_EXPLICAR_EL_METODO is True
+    fallos = P.audita_pasos()
+    assert not fallos, fallos
+
+
+def test_ninguna_calculadora_reventa_con_una_peticion_mala():
+    # un TypeError o un IndexError son bugs de programación, no respuestas
+    rotos = P.audita_robustez()
+    assert not rotos, rotos
+
+
+def test_la_auditoria_de_pasos_detecta_una_calculadora_muda():
+    # si una calculadora dejara de registrar pasos, la auditoría tiene que
+    # notarlo: se comprueba quitándole la traza a un resultado
+    import dataclasses
+
+    from academic_core.domain.engineering.mathlab.trace import Trace
+    r = ML.calcular(ML.Peticion("derivar", "x^3"))
+    assert P.audita_pasos(("derivar",)) == []
+    mudo = dataclasses.replace(r, traza=Trace())
+    assert not len(mudo.traza)
+
+
+def test_la_robustez_solo_tolera_rechazos_con_motivo():
+    with pytest.raises(Exception) as exc:
+        ML.calcular(ML.Peticion("derivar", None))
+    assert not isinstance(exc.value, TypeError)
+
+
+def test_contrato_de_los_calculos_de_pulido():
     for e in ({"calculo": "accesibilidad", "operacion": "derivar",
                "entrada": "x^3+2*x"},
               {"calculo": "describe", "operacion": "integrar"},
               {"calculo": "rendimiento", "operacion": "derivar",
                "entrada": "x^3+2*x", "techo": 30.0},
               {"calculo": "audita"},
-              {"calculo": "certifica"}):
+              {"calculo": "certifica"},
+              {"calculo": "pasos"},
+              {"calculo": "robustez"}):
         r = pedir(e)
         assert r.sello.verdict == V.VERIFIED, (e, r.sello.verdict)
 

@@ -140,7 +140,16 @@ def _variable_aleatoria(peticion: C.Peticion) -> C.Resultado:
     if "densidad" in e:
         return _densidad(peticion, e)
     trace = Trace()
-    d = P.distribucion(str(e["dist"]), dict(e.get("parametros", {})), trace)
+    _dist = str(e["dist"])
+    trace.metodo("variable_aleatoria.ley",
+                 f"se construye la {_dist} y se calcula sobre su función de "
+                 "distribución",
+                 why="todo lo que se pide (sucesos, cuantiles, momentos) sale "
+                     "de la ley: la probabilidad es un área bajo f o una suma "
+                     "de la tabla, y el cuantil es donde esa área acumulada "
+                     "llega al nivel pedido; fijar la ley primero es lo que "
+                     "permite además contrastarla por simulación")
+    d = P.distribucion(_dist, dict(e.get("parametros", {})), trace)
     trace.regla("dist.ley", f"X ~ {d.titulo()}: {d.formula}")
     mu, var = d.media_f(), d.varianza_f()
     num = P.momentos_numericos(d)
@@ -316,8 +325,17 @@ def _densidad(peticion: C.Peticion, e: dict) -> C.Resultado:
 
     trace = Trace()
     var = str(e.get("var", "x"))
+    _calc = str(e.get("calculo", "momentos"))
+    trace.metodo("variable_aleatoria.densidad",
+                 f"se lee la densidad por {var} tramos y se calcula «{_calc}» "
+                 "integrando sobre ella",
+                 why="con la densidad a mano, cualquier probabilidad es un "
+                     "área y cualquier momento un integral contra xⁿ: por eso "
+                     "todas las preguntas salen del mismo sitio, y por eso "
+                     "los tramos se integran de forma exacta cuando el "
+                     "polinomio lo permite")
     d = VC.lee_densidad(e["densidad"], var, e.get("constante"), trace)
-    calculo = str(e.get("calculo", "momentos"))
+    calculo = _calc
     exacto: dict = {}
     if d.constante:
         exacto[d.constante] = mx.text(d.valor_constante)
@@ -474,7 +492,19 @@ def _estadistica(peticion: C.Peticion) -> C.Resultado:
 
     e = peticion.entrada
     datos = e.get("datos") if isinstance(e, dict) else e
+    if not isinstance(datos, (list, tuple)):
+        raise C.error("BAD_INPUT",
+                      f"«estadistica» necesita una lista de datos; se "
+                      f"recibió {type(datos).__name__}")
     trace = Trace()
+    trace.metodo("estadistica.descriptiva",
+                 "mediana y cuartiles por posición, y dispersión con el "
+                 "divisor que se declara",
+                 why="la media y la mediana no dicen lo mismo cuando hay "
+                     "valores extremos: por eso se calculan las dos. Y la "
+                     "varianza aparece con divisor n y con n − 1 porque dan "
+                     "valores distintos, y cada una es la correcta según el "
+                     "uso que se vaya a hacer")
     d = E.descriptiva(datos, trace)
     exacto = {"n": d.n, "media": str(d.media), "mediana": str(d.mediana),
               "moda": [str(m) for m in d.modas], "Q1": str(d.q1), "Q3": str(d.q3),
@@ -600,6 +630,14 @@ def _proceso(peticion: C.Peticion) -> C.Resultado:
     trace = Trace()
     tipo = str(e.get("tipo", "poisson"))
     if tipo == "poisson":
+        trace.metodo("proceso.poisson",
+                     "conteo de llegadas por la fórmula de Poisson, "
+                     "contrastado con una simulación sembrada",
+                     why="un proceso de Poisson cuenta eventos en un "
+                         "intervalo y su ley depende solo de la longitud del "
+                         "intervalo (propiedad de incremento independiente); "
+                         "por eso la fórmula da la exacta y la simulación "
+                         "solo sirve de segundo camino")
         r = PR.poisson_proceso(e, trace, peticion.semilla)
         if r["simulacion"] is None:
             return _numerico(peticion, trace, {"valor": r["exacto"]}, "fórmula exacta sin "
@@ -607,6 +645,14 @@ def _proceso(peticion: C.Peticion) -> C.Resultado:
         return _ok(peticion, trace, {"valor": r["exacto"]}, "fórmula exacta y simulación "
                    "sembrada de las llegadas", r["simulacion"].texto(), aproximado=r["valor"])
     if tipo in ("paseo", "bernoulli", "pm1"):
+        trace.metodo("proceso.paseo",
+                     "distribución del valor tras n pasos, por enumeración de "
+                     "caminos cuando caben",
+                     why="con p y 1−p el valor tras n pasos es la suma de n "
+                         "saltos, y enumerar los caminos da la ley exacta; "
+                         "cuando 2ⁿ es demasiado grande se cambia a las "
+                         "fórmulas y se **dice**, porque el coste crece de "
+                         "forma exponencial")
         e2 = dict(e)
         e2["tipo"] = "bernoulli" if tipo == "bernoulli" or e.get("modelo") == "bernoulli" else "pm1"
         r = PR.paseo(e2, trace)
@@ -616,6 +662,13 @@ def _proceso(peticion: C.Peticion) -> C.Resultado:
             return _ok(peticion, trace, exacto, "enumeración exacta de los caminos", "")
         return _numerico(peticion, trace, exacto, "fórmulas (sin enumeración, n > 16)", "")
     if tipo == "va":
+        trace.metodo("proceso.va",
+                     "media, autocorrelación y estacionariedad de un proceso "
+                     "definido por X(t, ω)",
+                     why="con las variables aleatorias de ω se integra sobre "
+                         "la ley de cada una, y R(τ) sale de⟨X(t)·X(t+τ)⟩: "
+                         "la estacionariedad se decide comparando R(τ) con "
+                         "R(0), no suponiéndola")
         r = PR.proceso_va(str(e["X"]), e["variables"], str(e.get("var", "t")), trace,
                           peticion.semilla)
         exacto = {"E[X(t)]": mx.text(r.media), "R(t1, t2)": mx.text(r.R),
@@ -642,6 +695,14 @@ def _tabla_estadistica(peticion: C.Peticion) -> C.Resultado:
     e = _dict(peticion, "tabla_estadistica")
     trace = Trace()
     ley = str(e.get("ley", "normal"))
+    trace.metodo("tabla.cuantil",
+                 f"el cuantil se busca invirtiendo la {ley} con los "
+                 "parámetros declarados",
+                 why="una tabla de cuantiles es la F de esa ley evaluada en "
+                     "un punto, y consultarla es invertir F. El cuantil de t "
+                     "y el de normal se parecen pero solo coinciden con "
+                     "muchos grados de libertad: por eso los gl son parte del "
+                     "enunciado y no un detalle")
     params = {k: v for k, v in e.items() if k in ("gl", "nu", "k", "d1", "d2")}
     if ley in ("t", "student") and "gl" in params:
         params = {"nu": params["gl"]}

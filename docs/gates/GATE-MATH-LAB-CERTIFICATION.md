@@ -6,7 +6,7 @@ Fecha: 2026-10-09 · Rama: `main` · Fases: ML-0 … ML-22 (las 24 de §10) · C
 
 **MATH LAB: CERTIFICADO CON LIMITACIONES DOCUMENTADAS.**
 
-Las cuatro cosas que ML-11 debía cerrar son **comprobaciones que se ejecutan**, no afirmaciones:
+Las cuatro cosas que ML-11 debía cerrar son **comprobaciones que se ejecutan**, no afirmaciones. Y desde la revisión del 2026-10-09 hay dos más, pedidas por el usuario: **todas las calculadoras muestran sus pasos y el porqué**, y **ninguna revienta con una petición mala**.
 
 | Frente | Comprobación | Resultado medido |
 |---|---|---|
@@ -14,14 +14,17 @@ Las cuatro cosas que ML-11 debía cerrar son **comprobaciones que se ejecutan**,
 | Rendimiento (§5.4) | `mide` con `time.perf_counter` contra un techo declarado | **0 fuera del techo** de 10 s |
 | Determinismo | la misma entrada, dos veces | **0 no deterministas** |
 | Documentación (§8.1) | `describe` vuelca valor + pasos + sello + hipótesis + gráfica | presente en las 80 |
+| **Pasos y porqué (§5.2, §5.5b)** | `audita_pasos`: traza no vacía, un «por qué» y un paso de método | **80/80; 0 incompletas** |
+| **Robustez** | `audita_robustez`: basura a las 80 y rechazo con motivo | **39 errores internos hallados → 0** |
 | Certificación (§8.4) | `certifica` sobre **todas** las operaciones registradas | **80 comprobadas, 0 fallos, 0 sin muestra** |
 
 Reproducir:
 
 ```python
 from academic_core.domain.engineering.mathlab import pulido
-print(pulido.certifica().texto())
-# 80 operaciones comprobadas
+print(pulido.certifica().texto())      # 80 operaciones comprobadas
+print(pulido.audita_pasos())           # []
+print(pulido.audita_robustez())        # []
 ```
 
 Nada de lo anterior se afirma sin la evidencia de §5.
@@ -83,7 +86,7 @@ lector de pantalla. Respeta los tres niveles de detalle (`resumen`, `paso`,
 |---|---|---|---|
 | 1 | Existe, con modo paso a paso y sello | `validar_forma` + traza no vacía | 80/80 |
 | 2 | Ningún resultado sin segundo camino | sello `discrepa` ⇒ tiene que llevar aviso | 80/80 |
-| 3 | Los pasos nombran la regla y el porqué | al menos un paso con `why` **en las familias que §8.4 nombra** | cumple en las 12 |
+| 3 | Los pasos nombran la regla y el porqué | `audita_pasos`: todo paso con `why` **y** un paso de tipo `metodo` | **80/80** |
 | 4 | Cambios de variable con su(validación) | **no se comprueba**: es de juicio | fuera |
 | 5 | Se puede pedir por programa | todo pasa por `contract.calcular`, sin interfaz | 80/80 |
 | 6 | Sin solución exacta se avisa | `solo_numerico` ⇒ el sello dice por qué | 80/80 |
@@ -91,24 +94,46 @@ lector de pantalla. Respeta los tres niveles de detalle (`resumen`, `paso`,
 | 8 | Cumple el contrato de §5.9 | `validar_forma` entero | 80/80 |
 | 9 | Bloques E antes que G, ninguno recortado | **no se comprueba**: es de orden de entrega | fuera |
 
-**Sobre el criterio 3.** §8.4 solo lo exige a derivar, integrar, límites,
-series, EDO y transformadas. Aplicarlo a las 80 sería inventarse un criterio
-más estricto que el del documento, y **hacer fallar la certificación por algo
-que la norma no pide sería una forma elegante de mentir**. Las que lo cumplen
-por hoy; las otras cinco se reportan como **mejora pendiente**, ni como buenas
-ni como malas:
-
-`grafo`, `metodo_numerico`, `proceso`, `teorema`, `variable_aleatoria`.
+**Sobre el criterio 3: la regla se endureció a petición del usuario.** §8.4
+solo lo exigía a derivar, integrar, límites, series, EDO y transformadas, y la
+primera auditoría mostró cinco calculadoras que no lo cumplían (`grafo`,
+`metodo_numerico`, `proceso`, `teorema`, `variable_aleatoria`): ninguna
+registraba ni un «por qué». Aplicar el criterio solo donde el documento lo pedía
+hubría dejado pasar eso con una nota de «mejora pendiente». El usuario decidió
+que **toda** calculadora muestre sus pasos y el porqué, y se arreglaron las
+cinco; después, `audita_pasos` encontró que otras 28 no tenían un paso de tipo
+`metodo` (§5.5b lo pide explícitamente: «el porqué de **este método**», y un
+paso `regla` suelto explica una regla, no el método), y se añadieron los 28.
+Ahora las 80 cumplen las dos cosas y la regla es **universal**: la lista de
+excepciones `CON_POR_QUE_OBLIGATORIO` se conserva solo para documentar qué
+exigía §8.4, no para dejar fuera a nadie.
 
 ## 6. Evidencia
 
-- `tests/test_mathlab_ml11.py`: 24 pruebas.
-- La propia prueba `test_la_certificacion_pasa` ejecuta `certifica()` sobre las
-  80 operaciones y exige 0 fallos: si el motor se rompe, **la batería lo nota**.
+- `tests/test_mathlab_ml11.py`: 28 pruebas.
+- `test_la_certificacion_pasa` ejecuta `certifica()` sobre las 80 operaciones y
+  exige 0 fallos: si el motor se rompe, **la batería lo nota**.
+- `test_todas_las_calculadoras_muestran_sus_pasos_y_el_por_que` ejecuta
+  `audita_pasos()` sobre las 80 y exige lista vacía.
+- `test_ninguna_calculadora_reventa_con_una_peticion_mala` ejecuta
+  `audita_robustez()` sobre las 80 y exige lista vacía.
 - `test_toda_operacion_registrada_tiene_muestra_canonica` obliga a que
   `pulido.MUESTRAS` cubra todo `C.operaciones()`: una operación sin muestra se
   contaría como «sin muestra», no como buena.
-- Suite completa del laboratorio: en verde por bloques.
+- Suite completa del laboratorio: en verde.
+
+## 6 bis. Lo que encontró la auditoría de robustez
+
+Alimentar basura (`None`, `""`, `0`, `[]`, matrices descuadradas) a las 80
+calculadoras destapó **39 errores internos**: `AttributeError: 'NoneType'
+object has no attribute 'get'` en `a_trozos`, `aplicacion_integral`, `contorno`,
+`fourier`, `laplace`, `metodo_numerico` y `transformada_z`, que hacían `e.get(...)`
+sobre lo que les llegaba sin comprobar que fuese un diccionario, y un
+`TypeError: 'int' object is not iterable` en `estadistica`.
+
+Son bugs de programación, no mensajes para el estudiante: quien escribía `0` en
+vez de un diccionario veía un error de Python en vez de «aquí van tus datos».
+Se corrigieron con un guard compartido (`_diccionario`) y **quedan en 0**.
 
 ## 7. Lo que NO se certifica aquí (y por qué)
 
