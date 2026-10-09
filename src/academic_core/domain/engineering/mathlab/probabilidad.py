@@ -567,6 +567,7 @@ def _d_geometrica(params) -> Distribucion:
     if desde not in (0, 1):
         raise _error("BAD_INPUT", "la geométrica cuenta desde 1 (ensayos) o desde 0 (fracasos)")
     pf = float(p)
+    qf = 1 - pf
 
     def pmf_e(k: int) -> Fraction:
         return p * (1 - p) ** (k - desde) if k >= desde else Fraction(0)
@@ -587,8 +588,9 @@ def _d_geometrica(params) -> Distribucion:
             "X = número de FRACASOS antes del primer éxito (k = 0, 1, …)",)
     return Distribucion(
         "geométrica", {"p": p, "desde": desde}, True, (desde, math.inf),
-        lambda k: float(pmf_e(int(k))) if float(k).is_integer() else 0.0,
-        lambda x: float(F_e(x)), lambda: (1 / p) if desde == 1 else (1 - p) / p,
+        lambda k: (pf * qf ** (int(k) - desde)) if float(k).is_integer() and int(k) >= desde else 0.0,
+        lambda x: 1 - qf ** (math.floor(x) - desde + 1) if math.floor(x) >= desde else 0.0,
+        lambda: (1 / p) if desde == 1 else (1 - p) / p,
         lambda: (1 - p) / p ** 2, muestra, pmf_e, F_e, convenciones=conv,
         hipotesis=("ensayos de Bernoulli independientes; falta de memoria: "
                    "P(X > s + t | X > s) = P(X > t)",), coste=float(1 / p),
@@ -1256,7 +1258,8 @@ def momentos_numericos(d: Distribucion) -> tuple[float, float] | None:
         s0 = s1 = s2 = 0.0
         k = lo
         while k <= d.soporte[1] and k < lo + 200000:
-            p = d.densidad(k)
+            p = float(d.densidad(k))  # vía numérica: en float (en Fraction,
+            # (1−p)^k con k ~ 1/p cuelga con miles de cifras: P1c de PPE-2025)
             s0 += p
             s1 += k * p
             s2 += k * k * p

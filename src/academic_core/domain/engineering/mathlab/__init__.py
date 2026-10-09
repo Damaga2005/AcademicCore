@@ -51,6 +51,14 @@ from __future__ import annotations
 
 from academic_core.domain.engineering.mathlab import calculators  # registers the operations
 from academic_core.domain.engineering.mathlab import calculadoras_ml9  # noqa: F401  ML-9
+from academic_core.domain.engineering.mathlab import calculadoras_ml14  # noqa: F401  ML-14
+from academic_core.domain.engineering.mathlab import calculadoras_ml15  # noqa: F401  ML-15
+from academic_core.domain.engineering.mathlab import calculadoras_ml16  # noqa: F401  ML-16
+from academic_core.domain.engineering.mathlab import calculadoras_ml22  # noqa: F401  ML-22
+from academic_core.domain.engineering.mathlab import calculadoras_dem  # noqa: F401  demostraciones
+from academic_core.domain.engineering.mathlab import calculadoras_ml17  # noqa: F401  ML-17
+from academic_core.domain.engineering.mathlab import calculadoras_ml18  # noqa: F401  ML-18
+from academic_core.domain.engineering.mathlab import calculadoras_ml19  # noqa: F401  ML-19
 from academic_core.domain.engineering.mathlab import derive_mv
 from academic_core.domain.engineering.mathlab import mvexpr
 from academic_core.domain.engineering.mathlab import poly

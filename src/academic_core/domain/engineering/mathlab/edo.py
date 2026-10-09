@@ -1498,6 +1498,9 @@ def _con_inicial(r: PrimerOrden, t, y, inicial, trace) -> PrimerOrden:
             raise _no(f"no se despeja {cte} de la condición inicial ({exc})") from None
         sols = [s_ for s_ in sols if s_.exacta is not None]
         if not sols:
+            # p. ej. 4·ln2 + 4·C = 0: lineal con constante trascendente
+            sols = _despeje_lineal(ecu, cte, trace)
+        if not sols:
             raise _no(f"la condición inicial no fija {cte}")
         valor = sols[0].exacta
         sol = _bonito(mx.substitute(e, cte, valor))
@@ -1507,6 +1510,35 @@ def _con_inicial(r: PrimerOrden, t, y, inicial, trace) -> PrimerOrden:
     trace.regla("edo1.pvi", f"Φ({mx.text(t0)}, {mx.text(y0)}) = {mx.text(phi0)} = C")
     return PrimerOrden(r.tipo, f"{mx.text(r.implicita)} = {mx.text(phi0)}", None,
                        r.implicita, r.pasos)
+
+
+def _despeje_lineal(ecu, cte, trace):
+    """Despeja una constante que entra lineal: A·C + B = 0 ⇒ C = −B/A.
+
+    Cubre lo que el resolvedor general no ve (p. ej. A o B con ln 2 de una
+    condición en x = 2): se comprueba que no queda C ni en A ni en el resto.
+    """
+    from academic_core.domain.engineering.mathlab import ecuacion_general as EG
+
+    uno, cero = mx.Num(Fraction(1)), mx.Num(Fraction(0))
+    coef = limpio(mx.Sub(mx.substitute(ecu, cte, uno), mx.substitute(ecu, cte, cero)))
+    resto = limpio(mx.substitute(ecu, cte, cero))
+    if cte in mx.variables(coef) or cte in mx.variables(resto):
+        return []
+    if _eq0(mx.Sub(ecu, mx.Add(mx.Mul(coef, mx.Sym(cte)), resto))):
+        if _eq0(coef):
+            return []
+        valor = _bonito(mx.Div(mx.Neg(resto), coef))
+        trace.regla("edo1.pvi_lineal", f"{cte} = {mx.text(valor)} (lineal con "
+                    "constante trascendente)",
+                    why="A·C + B = 0 se despeja aunque B no sea racional")
+        try:
+            num = mx.valor_real(valor, {})
+            num = float(num.real if isinstance(num, complex) else num)
+        except Exception:  # noqa: BLE001
+            num = 0.0
+        return [EG.Solucion(valor, num)]
+    return []
 
 
 def _verifica1(r: PrimerOrden, F, t, y, trace) -> None:

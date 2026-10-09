@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-10-07 — ML-19 optimización y aprendizaje
+
+- **ML-19 completo** (`aprende.py`, `calculadoras_ml19.py`, operación `aprende` con 17 cálculos): bloque 13. GD/momento/Adam, regresión exacta con ridge/lasso, logística, métricas, ROC/AUC, k-medias, EM, árboles, PCA/SVD, MLP con backprop verificada, atención, RNN/LSTM, SVM. Batería `tests/test_mathlab_ml19.py`: 8 pruebas, 0 errores; contrato ampliado.
+
+## 2026-10-07 — ML-18 detección y estimación
+
+- **ML-18 completo** (`deteccion.py`, `calculadoras_ml18.py`, operación `deteccion` con 13 cálculos): bloque 16. Toeplitz/AR(1)/PSD, Neyman-Pearson con ROC y Monte Carlo, MAP/Bayes, Fisher/CRB, gaussiano conjunto, Wiener, Yule-Walker, gradiente por modos, LMS/NLMS. Batería `tests/test_mathlab_ml18.py`: 8 pruebas, 0 errores; contrato ampliado.
+
+## 2026-10-07 — ML-17 discreta, códigos e información
+
+- **ML-17 completo** (`discreta.py`, `codigos.py`, `informacion.py`; operaciones `discreta`, `codigos`, `informacion` con 30 cálculos): bloques 8–11. Lógica por tablas/leyes, conjuntos, binomio, recurrencias con maestro y ruina, sumatorios, mochila/PD/voraz, tiempo real con RTA y cronograma; César/afín/Vigenère/Hill, tablas ℤₙ, hash, GF(2ᵐ) con Rabin, códigos [n,k,d] con síndrome, Hamming(7,4), CRC, Shamir, RSA/DH, k-anonimato, DP; entropía/KL/capacidad/Huffman/claves. Batería `tests/test_mathlab_ml17.py`: 19 pruebas, 0 errores; contrato ampliado.
+
+## 2026-10-07 — Auditoría con exámenes de la UPC (Física, EM, PPE, EDO, Cálculo, Álgebra)
+
+- **Resueltos con mathlab y verificados contra la solución oficial:** Física Final 2025 (U(x) del cristalino T9–T11 exactos, gas P3 con Tmax = 900 K y ΔS = +10,4 J/K, mezcla Q12 con Teq = 336 K, adiabática Q13–Q18 con Tm = 2^0,4·T0 y ΔS = −(p0V0/T0)·ln2); Electromagnetismo Final 23-24 (esferas C1 con 8700/6000 V y U = 0,133 mJ, tierra interior con Q₁ = −10,7 nC, coaxial, mutua, Maxwell con c) y Parcial 2025 (arco D1 con Q/V₀ exactos, V dado D2 con q = 9ε₀a⁴); PPE (Poisson, t₁₉, binomial, geométrica, normal, P(≥) frente a P(>)); EDO (Laplace A1, deltas B2, B3 con var, primer orden A2 con C = −ln2); Cálculo (primitiva, Taylor, definida) y Álgebra/Cálculo Vectorial (diagonalizar, SVD, sistema incompatible, Gauss, Hessiana, triple 9π).
+- **Extensiones pedidas por los exámenes:** `carga.arco` con m general, uniforme y E/V en O (orientación declarada); `carga.segmento` (hilo finito); `conductores` con tierra interior; `biot_savart.coaxial` (retorno, macizo, tubo b–c); `condensador.diel` y esférico aislado; `mutua` y `mutua_neumann` (numérica honesta); `fuerza_espira`; `b_fuera_eje` (numérico honesto); `gas.adiabatico/isocoro/mezcla`; `fisica.cos` con signo, `fuerza/tabla/expr`, `muelle_gas`, `orbita_elipse`, `potencial_2d`; mecánica clásica (`circular` peralte/cono/talud, `choque`, `cm`, `inercia`+Steiner, `rodadura`, `conduccion`, `boltzmann`); `vectorial.cuadrica` y `parametriza`; `edo._despeje_lineal` para C con constantes trascendentes (4·ln2 + 4·C = 0); `complejo` polar/raíces, `resolver` (|·|, √·), `teorema` (punto c), `inecuaciones` y X′=AX ya cubrían A1/C1–C4/E4 (el catálogo los daba por fuera por error).
+- **Bugs encontrados y corregidos:** `geométrica` con p pequeña colgaba (`densidad` float calculaba el `Fraction` exacto por dentro); `edo` no despejaba C con ln2; `_det3` de `cuadrica` asumía simetría (Cramer la rompe; centro z mal en el cono del Tema 1).
+- **Demostraciones asistidas** (operación `demuestra`): punto fijo por Bolzano con imagen contenida, desigualdades por mínimo global (con contraejemplo si es falsa), axiomas de subespacio, invariancia por la base e inducción como identidades exactas; lo no demostrable se niega. Batería `tests/test_mathlab_dem.py`.
+- **Erratas oficiales confirmadas** en §11.4 (PPE P1a/P1c/P1d/P2d, Física P3, EM C5, Álgebra P2b/P3a/P3c).
+
+## 2026-10-07 — ML-22 física auxiliar
+
+- **ML-22 completo** (`fisica.py`, `calculadoras_ml22.py`, operación `fisica` con 10 cálculos): bloque 19. U(x) polinómica/cosenoidal con equilibrios, ω, periodo cuadratura = RK4 y retrato; gas lineal/parabólico/isotermo con T_max, ΔS doble y ciclo con Clausius (W sobre el gas, declarado); Kepler/órbita/visibilidad; MB/Planck/Stefan opcionales. Batería `tests/test_mathlab_ml22.py`: 17 pruebas, 0 errores; contrato ampliado con `fisica`.
+
+## 2026-10-07 — ML-16 campos y ondas
+
+- **ML-16 completo** (`campos.py`, `calculadoras_ml16.py`, operación `campos` con 16 cálculos): bloque 18 con respaldo E. Carga no uniforme con cuadratura y homogeneidad; Gauss por regiones con empalme, referencia declarada y energía doble; concéntricos con tierra; V dado vía ML-13; Maxwell por sustitución (guía TE con Helmholtz y corte honesto); perfiles por sustitución con trazas; Coulomb/Biot-Savart con límites y polígono→círculo; condensadores con energía doble; Faraday/Lenz y Poynting exacto; Friis/G-T/array (G). Batería `tests/test_mathlab_ml16.py`: 29 pruebas, 0 errores; contrato ampliado con `campos`.
+
+## 2026-10-07 — ML-15 fasores y polarización
+
+- **ML-15 completo** (`polarizacion.py`, `calculadoras_ml15.py`, operación `polarizacion` con 11 cálculos): bloque 17 con respaldo E de EAFO. Suma de fasores con rectangular exacto, problema inverso por sistema 2×2 y x(t) idéntica con ambas convenciones; onda plana con ⟨S⟩ por tres caminos y sensor con aviso; medios con ñ en rama Re ≥ 0, α/β por dos caminos y aproximación justificada con error relativo; polarización por SVD con AR/ψ por dos fórmulas, mano muestreada y Stokes; Jones unitario con cascada, diseño λ/4+λ/2 y PLF; Fresnel con R+T=1 y Brewster; multicapa con det=1 y antirreflejante. Batería `tests/test_mathlab_ml15.py`: 32 pruebas, 0 errores; contrato ampliado con `polarizacion`.
+
+## 2026-10-07 — ML-14 señales y sistemas deterministas
+
+- **ML-14 completo** (`senales.py`, `calculadoras_ml14.py`, operación `senales` con 17 cálculos): bloque 15 con respaldo E. Biblioteca Π/Λ/exp con integral, energía y TF cerradas y aviso de solape; eje afín con E/|a|; convolución por rupturas = sumas de extremos con ∫y = ∫x·∫h (exacta en constantes, numérica con sello en colas); digital exacta en ℚ con DFT de control y régimen geométrico; periódicas por señal base con nulos, mcm y Parseval; energía/potencia/correlación/densidad con r(0) = E; DTFT/DFT con Parseval, hermiticidad y circular = lineal; eco con ceros, inverso causal y cascada identidad. Batería `tests/test_mathlab_ml14.py`: 35 pruebas, 0 errores; contrato ampliado con `senales`; regresión ML-4/ML-5/ML-6/ML-7/ML-13 en verde.
+
 ## 2026-10-07 — ML-9 probabilidad y estadística; revisión de fases anteriores
 
 - **ML-9 completo** (`probabilidad.py`, `prob_basica.py`, `va_continua.py`, `estadistica.py`, `procesos.py`, `calculadoras_ml9.py`): los 15 tipos de examen de §15.1 y las calculadoras del bloque G con 13 operaciones nuevas. Funciones especiales propias (Φ⁻¹, gamma y beta incompletas, Q de Marcum, I₀) y segundo camino por cuadratura de la densidad y simulación constructiva sembrada. Batería de 300 casos contra `scipy.stats`: 0 errores.

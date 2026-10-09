@@ -83,6 +83,24 @@ EJEMPLOS = {
     "tabla_estadistica": {"ley": "normal", "p": "0.975"},
     "comunicaciones": {"calculo": "aloha", "G": "1", "ranurado": True},
     "montecarlo": {"dist": "binomial", "parametros": {"n": 5, "p": "1/2"}, "suceso": "P(X=2)"},
+    # ML-14
+    "senales": {"calculo": "conv_digital", "x": [1, 2, 3], "h": [1, 1]},
+    # ML-15
+    "polarizacion": {"calculo": "fasor", "suma": [[1, 0]]},
+    # ML-16
+    "campos": {"calculo": "carga", "tipo": "arco"},
+    # ML-22
+    "fisica": {"calculo": "equilibrio"},
+    # Demostraciones
+    "demuestra": {"calculo": "punto_fijo", "expr": "x/2"},
+    # ML-17
+    "discreta": {"calculo": "logica", "formula": "p -> q"},
+    "codigos": {"calculo": "cesar", "texto": "HOLA", "k": 3},
+    "informacion": {"calculo": "entropia"},
+    # ML-18
+    "deteccion": {"calculo": "matriz_r", "r": [1, "1/2"]},
+    # ML-19
+    "aprende": {"calculo": "gd"},
 }
 
 

@@ -82,3 +82,32 @@ def test_calculadora_vectorial():
     r = ML.calcular(ML.Peticion("vectorial", {"calculo": "flujo", "campo": ["x", "y", "z"],
                                               "superficie": ESFERA}))
     assert r.sello.verdict == "verificado" and "4*pi" in r.exacto
+
+
+def test_cuadrica_clasifica():
+    import academic_core.domain.engineering.mathlab as ML
+
+    assert VE.cuadrica([[1, 0, 0], [0, 1, 0], [0, 0, 1]], c=-1)[
+        "tipo"] == "elipsoide"
+    assert VE.cuadrica([[1, 0, 0], [0, 1, 0], [0, 0, -1]], c=-1)[
+        "tipo"].startswith("hiperboloide de una hoja")
+    assert VE.cuadrica([[1, 0, 0], [0, 1, 0], [0, 0, 0]], [0, 0, -1], 0)[
+        "tipo"] == "paraboloide elíptico"
+    assert VE.cuadrica([[4, 0, 0], [0, 1, 0], [0, 0, 0]])["tipo"].startswith(
+        "cilindro elíptico")
+    assert VE.cuadrica([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0], 0)[
+        "tipo"].startswith("cono")
+    r = ML.calcular(ML.Peticion(
+        "vectorial", {"calculo": "cuadrica",
+                      "matriz": [[4, 0, 0], [0, 1, 0], [0, 0, -1]], "c": -1}))
+    assert r.sello.verdict == "verificado" and "hiperboloide" in r.exacto
+
+
+def test_parametriza_curvas():
+    r = VE.parametriza({"tipo": "circunferencia", "r": 3})
+    assert r["r"][0] == "0+3*cos(t)"
+    r = VE.parametriza({"tipo": "segmento", "P": [0, 0, 0], "Q": [1, 2, 3]})
+    assert r["t"] == ["0", "1"]
+    import pytest as _pt
+    with _pt.raises(Exception):
+        VE.parametriza({"tipo": "interseccion"})

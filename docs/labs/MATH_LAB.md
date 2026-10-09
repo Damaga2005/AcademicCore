@@ -1,6 +1,6 @@
 # Laboratorio de Matemáticas — Especificación de diseño
 
-Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos), ML-8 (EDO y transformadas) y ML-9 (probabilidad y estadística) completos** (siguiente según §10: ML-14) · Fecha: 2026-10-07 (v1: 2026-09-30)
+Estado: **v2 con las decisiones D1 a D12 aprobadas por el usuario (§13); implementación en curso: ML-0, ML-1 y el motor trigonométrico (T-01 a T-24) completos; ML-12 y ML-2 completos; ML-3 (núcleo + espacios vectoriales), ML-5 (varias variables) ML-6 (integración múltiple) ML-7 (línea, superficie y teoremas), ML-13 (cálculo vectorial ampliado), ML-4 (series y métodos numéricos), ML-8 (EDO y transformadas), ML-9 (probabilidad y estadística), ML-14 (señales y sistemas deterministas), ML-15 (fasores y polarización), ML-16 (campos y ondas), ML-22 (física auxiliar) y ML-17 (discreta, códigos e información), ML-18 (detección y estimación) y ML-19 (optimización y aprendizaje) completos** (siguiente según §10: ML-20) · Fecha: 2026-10-07 (v1: 2026-09-30)
 Ámbito: desde la aritmética básica hasta las integrales triples, de línea y de superficie, pasando por cálculo, álgebra lineal, ecuaciones diferenciales, transformadas y probabilidad. Cada tema con **ejercicios para resolver, gráficas y solución paso a paso**. **v2** añade la matemática de otras asignaturas del grado que no es de otro laboratorio: matemática discreta y cuerpos finitos, códigos y criptografía, teoría de la información, Markov y refuerzo, optimización y aprendizaje automático, finanzas, señales deterministas, detección y estimación, fasores y polarización, campos y ondas, y mecánica auxiliar (**bloques 8 a 19**). Lo que va a `SIGNALS_LAB.md` y a `CIRCUITS_LAB.md` está en la tabla «qué va dónde» (§16).
 Fuentes: guías docentes de GREELEC (UPC) en `guias_upc/` — Cálculo (230903), Álgebra Lineal (230904), Cálculo Vectorial (230908), Ecuaciones Diferenciales y Transformadas (230909), Probabilidad y Procesos Estocásticos (230914), Señales y Sistemas (230913). **v2:** cuatro informes de lectura de solo lectura en `Descargas/labs/math_catalog/` (`extra_senales.md`, `extra_electromagnetismo.md`, `extra_circuitos_control.md`, `extra_algoritmia_ia_codigos.md`), integrados con el **reparto decidido por el usuario** (D6, §13) y sin tocar el repositorio ni `guias_upc`.
 
@@ -489,6 +489,201 @@ El contrato (§5.9) convierte en «dato mal escrito» solo los fallos de leer la
 (clave ausente, `int("1/2")`, `None`); cualquier otro error interno sigue saliendo como
 tal. Cuatro ficheros de pruebas importaban SymPy sin `importorskip`, y el CI (que no lo
 instala) no podía ni recogerlos. Pruebas: `tests/test_mathlab_revision_fases.py`.
+
+## Capacidad implementada — ML-14, señales y sistemas deterministas (2026-10-07)
+
+Todo en Python puro (sin NumPy ni SciPy en el dominio; la DFT es la definición
+directa en O(N²)). Cada cálculo de la operación `senales` da pasos con «por qué»,
+las convenciones de §5.11 (`frecuencia = f`, `frecuencia_digital = F`) y **dos
+caminos**: la fórmula cerrada frente a cuadratura fina, DFT con relleno o
+recurrencia iterada. Si el segundo camino discrepa, sello «discrepa».
+
+| Tipo (§4.15) | Cálculo | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| Biblioteca de señales | `biblioteca`, `eje` | Π/Λ/exp con integral, energía (A²T, 2A²T/3, A²T/2) y TF cerradas; eje afín con centro y ancho nuevos; aviso de solape con energía cruzada | Cuadratura fina; E escala como E/\|a\| |
+| Convolución analógica | `convolucion`, `ventana` | Rupturas = sumas de extremos; lineal a trozos exacta en constantes; deltas que desplazan y escalan; ventana como Π normalizado | ∫y = ∫x·∫h; cuadratura fina + cola exponencial |
+| Convolución digital | `conv_digital`, `regimen` | Exacta en ℚ, longitud L1+L2−1, tres tramos; régimen por suma geométrica (\|a\| < 1) | Σy = Σx·Σh; DFT con N ≥ L1+L2−1 |
+| Periódicas | `periodica`, `periodo` | c_k = (1/T0)·X_b(k/T0); nulos por paridad; periodo por mcm | Otra base da los mismos c_k; Parseval contra (1/T0)∫\|x\|² |
+| Energía y potencia | `energia`, `potencia_sinusoide`, `energia_eco` | E exacta por tramos; P = A²/2; E_y = E_x(1+a²) sin solape | Cuadratura fina |
+| Correlación y densidad | `correlacion`, `densidad` | r del Π (triángulo) y de la exp; S = \|X\|²; retardo por el pico | r(0) = E; \|r(τ)\| ≤ r(0) |
+| DTFT | `dtft` | P_L con máximo L y ceros en k/L; aⁿu[n] con \|H\|²; δ con fase | Parseval Σ\|x\|² = ∫₀¹\|X\|²; hermiticidad |
+| DFT | `dft`, `dft_lineal` | Definición directa; X[0] = Σx; hermítica; Parseval; retardo como fase | Circular = lineal con N ≥ L1+L2−1 |
+| Eco e inverso | `eco`, `inverso`, `cascada` | Ceros en \|z\| = \|a\|^{1/L}; \|H(F)\|²; h2 = Σb^k·δ[n−kL] con b = −a (\|b\| < 1) | La cascada devuelve x |
+
+**Batería:** `tests/test_mathlab_ml14.py` (35 pruebas: doradas + las 7
+propiedades de §11.3 para el bloque 15). La prueba de contrato
+(`tests/test_mathlab_contrato_ml12.py`) incluye ya `senales`.
+
+**Lo que no se hace (y se dice):** tramos no constantes (triangular con
+exponencial y colas) salen con sello «solo numérico»; el inverso causal con
+\|b\| ≥ 1 se rechaza por inestable; la TF de periódicas como deltas usa las
+áreas de `distribuciones.py` (ML-12) sin duplicarlas.
+
+## Capacidad implementada — ML-15, fasores y polarización (2026-10-07)
+
+Respaldo E de EAFO. Operación `polarizacion` (§8.2 S) con los cinco grupos de
+calculadoras, todo en Python puro (la SVD 2×2 es fórmula cerrada).
+Convenciones de §5.11 declaradas en cada cálculo (`pico` o `V_ef`,
+`e^{+jωt}` o `e^{−iωt}`, `f` o `ω`, dB de amplitud): el fasor frente al
+tiempo se verifica con la convención contraria y da la misma onda física.
+
+| Tipo (§4.17) | Cálculo | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| Fasor ↔ tiempo, inverso | `fasor`, `inverso`, `convenciones_fasor` | Suma rectangular (exacta si fases múltiplo de π/2); inverso como sistema 2×2 en (P, Q) desde dos muestras | Muestreo del tiempo; x(t) idéntica con e⁺ y con e⁻ |
+| Onda plana | `onda_plana` | k = nω/c, η = η₀/n, H = k̂×E/η, ⟨S⟩ = |E|²/2η, P = ⟨S⟩·A (círculo/cuadrado; desplazamiento avisado) | ½Re(E×H*) y promedio temporal; k̂·E = 0 comprobado |
+| Medios con pérdidas | `medios` | ε̃, ñ en rama Re ≥ 0, γ = α+jβ; aproximación por σ/ωε con condición y error relativo; d(X dB) con 8,686 | α, β por γ y por k₀·ñ |
+| Polarización | `polarizacion` | SVD de [Re E \| Im E]; AR también por tanχ; ψ por tan2ψ y por vector singular; Stokes | Giro muestreado (mano); |s| = S₀ |
+| Jones | `jones`, `diseno`, `plf` | Retardadores R(−φ)·diag(1,e^{−jδ})·R(φ), cascada, Malus; diseño λ/4+λ/2 en malla determinista; PLF hermítico | J†J = I (conserva |E|²); Malus como caso de PLF |
+| Fresnel | `fresnel` | Snell, cosθ_t con Im ≥ 0, r/t/potencias con factor de medios; θ_B, θ_c | R + T = 1; r_p(θ_B) = 0; normal (n₁−n₂)/(n₁+n₂) |
+| Multicapa | `multicapa`, `antirreflejante` | Matriz por capa (δ, η s/p), producto, Y = C/B; n_f = √(n₁n₂) | det = 1 por capa; R + T = 1; AR con R ≈ 0 |
+
+**Batería:** `tests/test_mathlab_ml15.py` (32 pruebas: doradas + las 6
+propiedades de §11.3 para el bloque 17). La prueba de contrato incluye ya
+`polarizacion`. Mano declarada: dextrógira por la regla de la mano derecha
+con el pulgar en la dirección de propagación (IEEE); con e^{+jωt}:
+dextrógira ⟺ sinδ < 0.
+
+**Lo que no se hace (y se dice):** fases no múltiplo de π/2 salen numéricas
+(con rectangular exacto solo si lo son); AR = ∞ se informa como lineal; ψ no
+definida en circular; inverso causal con |b| ≥ 1 y muestras separadas medio
+periodo se rechazan; el diseño Jones falla honestamente si la malla no
+alcanza el objetivo.
+
+## Capacidad implementada — ML-16, campos y ondas (2026-10-07)
+
+Respaldo E de Electromagnetismo (las tres esferas, 5 veces) y parciales.
+Operación `campos` (§8.2 T) con los ocho grupos; reutiliza ML-13
+(electrostática de la caja para V dado) y no duplica motores. Convención
+declarada: `V(∞) = 0` solo para distribuciones acotadas (`potencial =
+V_inf_0`); el cilindro infinito lleva su referencia en r₀ y lo avisa.
+
+| Tipo (§4.18) | Cálculo | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| Carga total | `carga` | Arco (dl = R·dθ), cilindro (jacobiano r), esfera (capas 4πr²), placa separable; todo en función de `a` | Cuadratura; homogeneidad Q(2a) = 2Q(a); límites uniforme/macizo |
+| Gauss | `gauss` | Esfera con empalme y V(∞) = 0; ρ = a·rⁿ con Q_enc; cilindro con ref. en r₀; plano a caballo | ∇·E = ρ/ε₀; E = −dV/dr; energía por ½ΣQV y (ε₀/2)∫E² |
+| Conductores | `conductores` | Gauss en el metal (E = 0); V por superposición; tierra impone V = 0 | Inducidas suman la carga neta; V(R₃) = 0 con tierra |
+| V dado | `v_dado` | ML-13: E = −∇V, ρ = −ε₀∇²V, caja por 6 caras | ∭ρ frente a ε₀∯E·dS |
+| Maxwell | `maxwell`, `guia`, `completar` | c = ω/k = E₀/B₀; guía TE con β² = ω²/c² − (π/a)² (corte honesto); By por ∇·B = 0 | Helmholtz fasorial; cuadratura de P; función nula sin campos estáticos |
+| Perfiles | `perfil` | f(t − k̂·r/v) gauss/sech² por sustitución; v, energía, trazas | Ecuación de onda numérica; Simpson del área |
+| Coulomb/BS | `coulomb`, `biot_savart` | Anillo, disco, espira, hilo, polígono de N lados | Límites puntual/plano/dipolo; Ampère; N → ∞ a la espira |
+| Condensadores | `condensador` | Plano, esférico, cilíndrico por Gauss con D; serie | Q²/2C frente a ½CV²; R₂ → ∞; serie ≤ mín |
+| Inducción | `faraday`, `poynting` | Φ orientado → derivada → Lenz; S = E×H en el borde | Unidades V = Wb/s; ∮S·dA = dU/dt exacto |
+| Antenas (G) | `friis`, `ruido`, `array` | Friis, G/T, AF = sen(Nψ/2)/sen(ψ/2) | Lineal frente a dB; N = 1 reproduce |
+
+**Batería:** `tests/test_mathlab_ml16.py` (29 pruebas: doradas + las 8
+propiedades de §11.3 para el bloque 18). La prueba de contrato incluye ya
+`campos`.
+
+**Lo que no se hace (y se dice):** modo en corte (β imaginaria) y Bj con
+simetría no razonada se rechazan; perfiles solo gauss/sech²; mutua solo
+solenoide-bobina (geometrías arbitrarias, fuera); antenas
+solo Friis/ruido/array (G, al final como manda §10); campo fuera del eje y
+fuerza sobre espiras en campo no uniforme, fuera (se dicen); el signo de Ex
+del arco lo fija la figura (orientación declarada).
+
+## Capacidad implementada — ML-22, física auxiliar (2026-10-07)
+
+U(x) siempre (E ~12/15); gas ideal opcional activado (D10); órbitas G al
+final de su fase; MB/Planck/Stefan opcional activado (D12). Operación
+`fisica` (§8.2 U) con las cuatro calculadoras, en Python puro.
+
+| Tipo (§4.19) | Cálculo | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| Equilibrio y oscilación | `equilibrio`, `oscilacion`, `retrato` | U′ = 0 por barrido + bisección, U″; ω = √(U″/m); T por sen²; RK4 | T por cuadratura = RK4; retrato integrado |
+| Gas ideal (opc.) | `gas`, `ciclo` | W = −∫p dV; T por pV = nRT; T_max derivando; ΔS cerrada; ciclo poligonal | ∫dQ_rev/T; Clausius ΣQ + ΣW = 0; η = W/Q_in |
+| Kepler/órbitas (G) | `kepler`, `orbita`, `visibilidad` | Bisección + Newton; v = √(GM/a); cosθ = R/(R+h) | Sustitución; e = 0 círculo; T²/a³ |
+| MB/Planck/Stefan (opc.) | `maxwell_boltzmann`, `planck` | Momentos gaussianos; ∫x³/(eˣ−1) numérica | ∫f = 1, ⟨v²⟩; π⁴/15 con σ |
+
+**Batería:** `tests/test_mathlab_ml22.py` (17 pruebas: doradas + las 3
+propiedades de §11.3 para el bloque 19). La prueba de contrato incluye ya
+`fisica`. W = trabajo sobre el gas (Q = ΔU − W, declarado).
+
+**Lo que no se hace (y se dice):** U solo polinómica, cosenoidal, fuerza
+polinómica, tabla (tramos rectos, aproximada) o expresión (derivadas
+numéricas); 2D solo conservativo comprobado; sin mínimos no hay oscilación;
+E que escapa no confina; E a la altura de una barrera interior da periodo
+infinito y se niega (homoclínica); e ≥ 1 fuera (ligadas); mutua coaxial
+cerrada fuera; cinemática con ligaduras, choques 1D, CM, inercias, rodadura,
+conducción y Boltzmann de 2 niveles sí están (mecánica clásica de exámenes);
+dinámica de sistemas, rotación general y fluidos, fuera; finanzas y ML no
+tocan este bloque.
+
+## Capacidad implementada — ML-17, discreta/códigos/información (2026-10-07)
+
+E débil (César, Pascal) y G. Operaciones `discreta` (§8.2 J + tiempo real),
+`codigos` (§8.2 K + L) e `informacion` (§8.2 M); ℤₙ/GF(p)/GF(2) lineales de
+ML-12 reutilizados sin duplicar; Huffman de `grafos`; azar sembrado de
+`eventos`; LFSR ajeno como plug-in futuro (no importado, §4.10).
+
+| Tipo (§4.8–§4.11) | Cálculo | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| Lógica | `logica`, `equivalencia`, `cuantificador` | Tablas 2ⁿ (≤ 4 vars) + leyes nombradas; ¬∀ ≡ ∃¬ | Tablas frente a frente |
+| Conjuntos/binomio | `conjuntos`, `potencia`, `binomio`, `vandermonde` | Enumeración; filas que suman 2ⁿ; suma directa | Inclusión-exclusión; evaluar en a = b = 1 |
+| Recurrencias | `recurrencia`, `maestro`, `ruina` | Característica exacta + iteración; casos 1/2/3; p = 1/2 exacto | Iterar frente a cerrada; recurrencia punto a punto |
+| Complejidad/PD | `sumatorio`, `mochila`, `cambio` | Cerradas exactas; PD con tabla | Suma directa; fuerza bruta 2ᴺ; voraz frente a PD |
+| Tiempo real (D12) | `tiempo_real` | U → Liu-Layland → RTA por punto fijo | Cronograma entero sobre el hiperperiodo |
+| Cifrado (E) | `cesar`, `afin`, `vigenere`, `hill` | Aritmética modular con hipótesis (gcd, alfabeto) | descifrar(cifrar(x)) = x; A·A⁻¹ = I |
+| Tablas/hash | `tabla_zn`, `hash` | Tablas solo si n pequeño; P colisión | Euclides; Monte Carlo del cumpleaños |
+| GF(2ᵐ)/GF(p) | `gf2m`, `poli_gfp` | Rabin; tabla log/antilog | α^(2ᵐ−1) = 1; u·u⁻¹ = 1 |
+| Códigos | `codigo`, `sindrome`, `crc`, `paridad`, `checksum` | Sistemática por Gauss; resto 0; complemento a 1 | G·Hᵀ = 0; H·c = 0; par más cercano |
+| Secretos/clave | `shamir_*`, `rsa`, `dh`, `k_anonimato`, `dp` | Lagrange en 0; Euclides; cuadrados sucesivos | Dos subconjuntos; m^(ed) ≡ m; razón ≤ e^ε |
+| Información | `entropia`, `conjunta`, `divergencia`, `kraft`, `capacidad`, `huffman_check`, `clave` | Tablas y log₂; cadena e I ≥ 0 | Uniforme log₂N; C(0,5) = 0; H ≤ L̄ < H+1 |
+
+**Batería:** `tests/test_mathlab_ml17.py` (19 pruebas: doradas + las 11
+propiedades de §11.3 para los bloques 8–11). La prueba de contrato incluye
+ya las tres operaciones.
+
+**Lo que no se hace (y se dice):** tablas lógicas con > 4 variables (por
+leyes); enumeraciones con n > 12/20 (se dice); maestro fuera de tabla;
+RTA con periodos no enteros (solo RTA, sin cronograma); hiperperiodo > 2·10⁵
+(sin cronograma); RSA/DH/Shamir/privacidad pedagógicos (aviso fijo);
+esquema lineal vectorial GF(2) detallado, fuera (solo el marco Gauss).
+
+## Capacidad implementada — ML-18, detección y estimación (2026-10-07)
+
+Bloque 16 (G, sin exámenes: guía de Tratamiento de la Señal). Operación
+`deteccion` (§8.2 R) con los seis grupos, en Python puro (Gauss en ℚ,
+Jacobi simétrico, Cholesky, Box-Muller sembrado).
+
+| Tipo (§4.16) | Cálculo | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| Correlación/PSD | `matriz_r`, `r_ar1`, `psd`, `psd_salida` | Toeplitz hermitiana; AR(1) exacto; Wiener-Khinchin | s.d.p. y \|r\| ≤ r(0); r[0] = ∫S dF |
+| Detección | `detector`, `detector_map` | T = sᵀx; umbral NP o γ MAP/Bayes; ROC | Monte Carlo sembrado sobre la ROC |
+| Fisher/CRB | `fisher` | Cerradas (gaussiana, Bernoulli, Poisson) | Media muestral = CRB (eficiente) |
+| Gaussiano | `gauss_conjunto` | Condicionada con ECM | Ortogonalidad E[(θ−θ̂)xᵀ] = 0 |
+| Wiener | `wiener`, `yule_walker` | Gauss exacta; Yule-Walker AR(1) | Residuos R·w − p = 0; J(w) ≥ J_min |
+| Gradiente/LMS | `gradiente`, `lms`, `nlms` | Modos (1−μλ)ᵏ; E[w(n)] + Monte Carlo | Cota 2/λ_max; divergencia visible |
+
+**Batería:** `tests/test_mathlab_ml18.py` (8 pruebas con las 6 propiedades
+de §11.3 para el bloque 16). La prueba de contrato incluye `deteccion`.
+
+**Lo que no se hace (y se dice):** R singular (sin Wiener único); μ fuera
+de (0, 2/λ_max) diverge y se muestra; modelos fuera de los tres Fisher;
+estimación no gaussiana ni no lineal.
+
+## Capacidad implementada — ML-19, optimización y aprendizaje (2026-10-07)
+
+Bloque 13 (G). Operación `aprende` (§8.2 O) con los siete grupos, en
+Python puro salvo ℚ exacta donde el examen la usa; el verificador de
+gradientes de ML-12 y el Gauss/Jacobi de ML-18, reutilizados.
+
+| Tipo (§4.13) | Cálculo | Cómo se resuelve | Segundo camino |
+|---|---|---|---|
+| Descenso | `gd` | GD/momento/Adam a mano en cuadráticas; η < 2/L | Óptimo por normales; diferencias centrales |
+| Regresión | `regresion`, `lasso` | Normales exactas en ℚ; ridge; soft-threshold | Xᵀe = λw; R²; OLS frente a encogido |
+| Logística/métricas | `logistica`, `metricas`, `roc` | Xᵀ(p−y); confusión; trapecios | Pérdida que baja; Mann-Whitney |
+| Clústeres | `kmedias`, `em`, `arbol` | Lloyd; EM 1D; ganancia máxima | SSE/silueta; log L y BIC; ganancia ≥ 0 |
+| PCA/SVD | `pca`, `svd` | Espectral de la covarianza; XᵀX | Σλ = traza; VᵀV = I; mismos ejes |
+| Redes | `red`, `retroprop`, `atencion`, `rnn`, `lstm` | Tablas z/a; δ·aᵀ; softmax; puertas | Diferencias centrales; filas = 1 |
+| SVM | `svm` | Margen 2/‖w‖ con KKT | mín y·f ≥ 1 |
+
+**Batería:** `tests/test_mathlab_ml19.py` (8 pruebas con las 5 propiedades
+de §11.3 para el bloque 13). La prueba de contrato incluye `aprende`.
+
+**Lo que no se hace (y se dice):** XᵀX singular sin ridge; clases
+desbalanceadas (la exactitud engaña, se avisa); k-medias/EM dependen de la
+inicialización; w = 0 en SVM; datos no separables en logística sin
+regularizar (w → ∞, se avisa).
 
 ## 5. El motor matemático
 
@@ -1061,15 +1256,15 @@ Orden pensado para que lo **de más uso** llegue antes y cada fase sea demostrab
 | **ML-11** Pulido | Accesibilidad, rendimiento, documentación de usuario, certificación | M |
 | **ML-12** Cimientos ampliados (v2) | **Racionales multivariable** (dependencia crítica); **cuerpo como parámetro** del motor lineal y aritmética entera con trazas; distribuciones con área; **contrato con otros laboratorios** y plug-ins de verificación (§5.9); **convenciones declaradas** (§5.11); análisis dimensional; verificador de gradientes; simulador sembrado de eventos; árboles y grafos | L |
 | **ML-13** Cálculo vectorial ampliado (v2, **E**) | Operadores ∇ en cilíndricas y esféricas, laplaciano y Poisson, cambio de componentes entre bases; los 6 tipos de `V` dado y flujo por cubo; **cinemática intrínseca de curvas (D12)** **Implementado (2026-10-06):** ∇, ∇·, ∇× y ∇² con factores de escala en cartesianas, cilíndricas y esféricas (segundo camino en cartesianas por diferencias de orden 4), controles ∇·(∇×F) = 0 y ∇×∇V = 0, Poisson ρ = −ε₀∇²V, cambio de componentes con RᵀR = I y módulo invariante, V dado ⇒ E, ρ y carga en una caja por ∭ρ y ∯E·dS, cinemática intrínseca (T, N, κ, a_t, a_n, radio); calculadora `operadores` | S-M |
-| **ML-14** Señales y sistemas deterministas (v2, **E**) | Bloque 15: biblioteca de señales, convolución por tramos y digital, periódicas por señal base, energía y correlación, DTFT, DFT, z con eco e inverso | L |
-| **ML-15** Fasores y polarización (v2, **E**) | Bloque 17: fasores, onda plana, medios con pérdidas (exacto frente a aproximado), Jones con SVD; **Fresnel, Brewster, evanescente y multicapa (D12)** | M-L |
-| **ML-16** Campos y ondas (v2, **E**) | Bloque 18: carga total, Gauss por regiones, conductores y tierra, Maxwell por sustitución, ecuación de onda y trazas; **Coulomb, Biot-Savart, Ampère, condensadores, inducción y Poynting (D12, E)**; antenas y enlace (D12, G, al final de la fase); depende de ML-13 y ML-8 | L |
-| **ML-17** Discreta, modular, códigos e información (v2, E débil y **G**) | Bloques 8 a 11: lógica, inducción, recurrencias, complejidad; ℤₙ y GF(p) con el cifrado clásico (**E** 3/7 de APR), códigos lineales, CRC, Shamir, RSA y DH; entropía y Huffman; **tiempo real y privacidad (D12, G, al final)**. Dentro de la fase, el cifrado clásico (**E**) y ℤₙ van primero. GF(2ᵐ) al final, prioridad media | L |
-| **ML-18** Detección y estimación (v2, **G**) | Bloque 16: MAP, Neyman-Pearson y ROC, Cramér-Rao, Wiener, gradiente, LMS y NLMS; **PSD teórica de procesos discretos (D12)** | M |
-| **ML-19** Optimización y aprendizaje automático (v2, **G**) | Bloque 13: GD, regresión, logística, métricas, k-medias, EM, árboles, PCA y SVD, redes a mano | M |
+| **ML-14** Señales y sistemas deterministas (v2, **E**) | Bloque 15: biblioteca de señales, convolución por tramos y digital, periódicas por señal base, energía y correlación, DTFT, DFT, z con eco e inverso. **Implementado (2026-10-07):** pulsos Π/Λ/exp con integral, energía y TF cerradas (E = A²T, 2A²T/3, A²T/2) y aviso de solape; eje afín con E/|a| comprobada; convolución por rupturas = sumas de extremos con ∫y = ∫x·∫h (lineal a trozos exacta en constantes; cola exponencial por cuadratura con sello numérico), deltas que desplazan y escalan, ventana móvil; digital exacta en ℚ (L1+L2−1, tres tramos, Σy y DFT con N suficiente) y régimen geométrico; periódicas c_k = (1/T0)·X_b(k/T0) con nulos por paridad, periodo por mcm y Parseval; energía/potencia (A²/2, E_x(1+a²) del eco), correlación con r(0) = E y |r| ≤ r(0), densidad S = |X|² y retardo por el pico; DTFT (P_L con máximo L y ceros en k/L, |H|² del de primer orden, fase del retardo; Parseval y hermiticidad), DFT (X[0], hermítica, Parseval, circular = lineal con N ≥ L1+L2−1, retardo como fase) y eco (ceros en |z| = |a|^{1/L}, |H(F)|², inverso causal con b = −a y cascada que devuelve la entrada); calculadora `senales` | L |
+| **ML-15** Fasores y polarización (v2, **E**) | Bloque 17: fasores, onda plana, medios con pérdidas (exacto frente a aproximado), Jones con SVD; **Fresnel, Brewster, evanescente y multicapa (D12)**. **Implementado (2026-10-07):** suma de fasores con rectangular exacto si la fase es múltiplo de π/2, problema inverso por sistema 2×2 en (P, Q) con verificación por muestreo, x(t) idéntica con las dos convenciones; onda plana (k, λ, v, η, H por k̂×E, ⟨S⟩ por |E|²/2η y por ½Re(E×H*) y por promedio temporal, sensor con aviso de desplazamiento); medios con ñ en rama Re ≥ 0, α/β por γ y por k₀·ñ, aproximación elegida por σ/ωε con error relativo y espesor para X dB; polarización por SVD 2×2 con AR por tanχ, ψ por tan2ψ, mano por giro muestreado y Stokes; Jones (retardadores unitarios, Malus, cascada, diseño λ/4+λ/2 en malla determinista, PLF); Fresnel con R+T=1, r_p(θ_B)=0 e incidencia normal exacta; multicapa con det=1 por capa y antirreflejante λ/4 con R≈0; calculadora `polarizacion` | M-L |
+| **ML-16** Campos y ondas (v2, **E**) | Bloque 18: carga total, Gauss por regiones, conductores y tierra, Maxwell por sustitución, ecuación de onda y trazas; **Coulomb, Biot-Savart, Ampère, condensadores, inducción y Poynting (D12, E)**; antenas y enlace (D12, G, al final de la fase); depende de ML-13 y ML-8. **Implementado (2026-10-07):** carga de arco/cilindro/esfera/placa con cuadratura y homogeneidad en `a`; Gauss esférico con empalme V(∞)=0 y energía por ½ΣQV y (ε₀/2)∫E², ρ=a·rⁿ con ∇·E comprobado, cilindro con referencia en r₀ (aviso V(∞)=0) y plano; concéntricos con inducidas exactas y tierra que drena (V=0); V dado por ML-13 con Gauss por dos lados; Maxwell plana (c por dos cocientes), guía TE con Helmholtz fasorial y potencia, completar By con ∇·B=0; perfiles gauss/sech² por sustitución con retardos y energía; anillo/disco/espira/hilo con límites puntual/plano/dipolo, polígono con N→∞ a la espira; condensadores con energía doble y serie; Faraday con Lenz, Poynting con balance exacto; Friis lineal/dB, G/T y array (N=1 reproduce); calculadora `campos` | L |
+| **ML-17** Discreta, modular, códigos e información (v2, E débil y **G**) | Bloques 8 a 11: lógica, inducción, recurrencias, complejidad; ℤₙ y GF(p) con el cifrado clásico (**E** 3/7 de APR), códigos lineales, CRC, Shamir, RSA y DH; entropía y Huffman; **tiempo real y privacidad (D12, G, al final)**. Dentro de la fase, el cifrado clásico (**E**) y ℤₙ van primero. GF(2ᵐ) al final, prioridad media. **Implementado (2026-10-07):** tablas de verdad/equivalencias hasta 4 vars (si no, leyes), conjuntos por enumeración, binomio con filas 2ⁿ, recurrencias por característica con iteración, maestro casos 1/2/3, ruina con p=1/2 exacta, sumatorios cerrados, mochila PD = fuerza bruta, voraz frente a PD, tiempo real (U, Liu-Layland, RTA, hiperperiodo, cronograma); César/afín/Vigenère/Hill con ida y vuelta, tablas ℤₙ, hash con Monte Carlo, GF(2ᵐ) con Rabin y tabla log/antilog, polinomios sobre GF(p), [n,k,d] con G·Hᵀ=0, síndrome, Hamming(7,4), CRC con resto 0, paridad, checksum, Shamir con dos subconjuntos, RSA/DH con aviso pedagógico, k-anonimato, Laplace con b=Δf/ε; entropía/mutua/KL/cruzada con cadena, Kraft, BSC/BEC/Hartley, Huffman con H≤L̄<H+1, claves 2ᵏ; operaciones `discreta`, `codigos`, `informacion` | L |
+| **ML-18** Detección y estimación (v2, **G**) | Bloque 16: MAP, Neyman-Pearson y ROC, Cramér-Rao, Wiener, gradiente, LMS y NLMS; **PSD teórica de procesos discretos (D12)**. **Implementado (2026-10-07):** Toeplitz hermitiana con s.d.p., AR(1), PSD con r[0] = ∫S, S_y = S_x|H|²; señal conocida con d², umbral NP, P_D y ROC con Monte Carlo; MAP/Bayes por γ; Fisher cerrada con CRB; gaussiano con ML = MAP = MMSE y ECM; Wiener con R·w = p y J_min; Yule-Walker; gradiente por modos con cota; LMS con curva sembrada (divergencia visible) y NLMS; operación `deteccion` | M |
+| **ML-19** Optimización y aprendizaje automático (v2, **G**) | Bloque 13: GD, regresión, logística, métricas, k-medias, EM, árboles, PCA y SVD, redes a mano. **Implementado (2026-10-07):** GD/momento/Adam en cuadráticas con η < 2/L y óptimo por normales; regresión exacta en ℚ con Xᵀe = λw, ridge, lasso 1D y R²; logística con pérdida que baja; métricas, ROC/AUC por trapecios = Mann-Whitney; Lloyd con SSE y silueta, EM 1D con log L y BIC, árboles por ganancia; PCA con Σλ = traza y VᵀV = I, SVD 2×2; MLP con retropropagación verificada por diferencias, atención con filas 1, RNN/LSTM, SVM con KKT; operación `aprende` | M |
 | **ML-20** Markov, MDP y refuerzo (v2, **G**) | Bloque 12 con el simulador de eventos | M |
 | **ML-21** Matemáticas financieras (v2, **G**) | Bloque 14 completo | M-L |
-| **ML-22** Física auxiliar (v2, **E** para `U(x)`; parte térmica **opcional**; órbitas **G**) | Bloque 19: `U(x)` siempre; termodinámica del gas ideal y Maxwell-Boltzmann, Planck y Stefan solo si se activan (D10, D12); **órbitas y visibilidad (D12, G)** | S |
+| **ML-22** Física auxiliar (v2, **E** para `U(x)`; parte térmica **opcional**; órbitas **G**) | Bloque 19: `U(x)` siempre; termodinámica del gas ideal y Maxwell-Boltzmann, Planck y Stefan solo si se activan (D10, D12); **órbitas y visibilidad (D12, G)**. **Implementado (2026-10-07):** equilibrios por barrido+bisección con U″, ω exacta en cuadráticas, v_max, periodo por cuadratura sen² = RK4, retrato de fases; gas lineal/parabólico/isotermo con T_max, ΔS doble y ciclo con Clausius; Kepler por bisección+Newton (e=0 círculo), órbita circular, visibilidad; MB con norma y ⟨v²⟩, Planck π⁴/15 con σ; calculadora `fisica` | S |
 
 **Cada fase incluye las calculadoras de su bloque (§8), con pasos y verificación completos.** S ≈ días, M ≈ 1–2 semanas, L ≈ 3–5, XL > 5. **Orden recomendado (v1):** ML-0 → ML-1 → ML-2 → ML-3 → ML-5 → ML-6 → ML-7 → ML-4 → ML-8 → ML-9 → ML-10 → ML-11.
 
@@ -1138,6 +1333,13 @@ Los cuatro informes encuentran **errores o ambigüedades en soluciones oficiales
 | Dispositivos Electrónicos, Ejercicio 3 (unión PN) | La solución etiqueta «eV» una barrera que es `½·w·E_max` en voltios (unidades inconsistentes) | **Análisis dimensional** obligatorio: el sistema detecta la unidad errónea | CIRCUITS_LAB (usa el comprobador de MATH_LAB) |
 | Sistemas de Medida 2020-21, P3 c | Cita `15,152 kHz` para `x = 0` mientras b) y el resto usan `13,793 kHz` | Verificación cruzada del valor frente al cálculo directo | CIRCUITS_LAB |
 | Sistemas de Medida, actividad 1DE | `t95 = 4,8 s`, pero con retardo 1,21 s y 1,35 s el valor sería ≈ 6,2 a 6,3 s y el veredicto «cumple < 6 s» cambiaría. **No confirmado** (el texto extraído mezcla columnas) | Caso de **ajuste con retardo**: `t95 = retardo + τ·ln 20`; se marca «por confirmar» | CIRCUITS_LAB |
+| PPE, Parcial Oct-2025, P1c | `P(N > 123) = 0,036` con `N ∼ Geom(0,0081)`: el valor correcto es `(1−p)^123 ≈ 0,368` (un cero de más) | Cola geométrica exacta frente a simulación; el motor da 0,3677 verificado | MATH_LAB (bloque 6) |
+| PPE, Parcial Oct-2025, P1d | Escribe `P(Y ≥ 2)` pero resta `P(Y=0)+P(Y=1)+P(Y=2)`, i.e. calcula `P(Y > 2) ≈ 0,048` | Sucesos `≥` frente a `>` en Poisson: el motor los distingue | MATH_LAB (bloque 6) |
+| PPE, Parcial Oct-2025, P2d | Pide error `< 0,1` pero calcula con `0,2` (`0,2·√n/3 = 1,96` → n ≥ 864,5; con 0,1 sería n ≥ 3459) | Tamaño de muestra con el error del enunciado, no con el del cálculo | MATH_LAB (bloque 6) |
+| PPE, Parcial Oct-2025, P1a | Escribe `P(Bin(5;0,1) ≥ 3) = 0,0081` (solo el término k = 3); el total es 0,00856 | Suma de los tres términos k = 3, 4, 5 | MATH_LAB (bloque 6) |
+| Física, Final 2025, P3 | Vuelta isoterma con `ΔS_e = −9,0 J/K`: el área exacta es `nRT·ln(1/2) ≈ −8,3 kJ` (los −9,0 salen del trapecio en la isoterma) | Isoterma exacta frente a trapecio; `ΔS_U = +1,4 J/K` se mantiene | MATH_LAB (bloque 19) |
+| Electromagnetismo, Final 23-24, C5 | Escribe `c = 3,33×10⁻⁹` (eso es `1/c` en SI; `c = 1/√(μ₀ε₀) ≈ 3×10⁸ m/s`) | `ω/k = E₀/B₀ = c` por sustitución, con tolerancia de examen (1e−3) | MATH_LAB (bloque 18) |
+| Álgebra, 2.º Parcial 2022 (ms.) | P2b: arrastre de signo en Gram-Schmidt; P3a: el resumen dice `β = 2` y el cálculo previo da `β = −2`; P3c: dice `α+β = 3` y es `α+β = −3`. Detectadas en lectura (el propio desarrollo las corrige) | Discusión por casos con parámetros y Gram-Schmidt con `G` no estándar | MATH_LAB (bloque 3, pendientes de fijar como test) |
 
 Las de dueño CIRCUITS_LAB están además en su Anexo E (erratas conocidas como casos de prueba). Sumadas a las de §15.2, **ninguna solución oficial es oráculo**.
 

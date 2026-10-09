@@ -3852,8 +3852,10 @@ def _vectorial_calc(peticion: C.Peticion) -> C.Resultado:
     """ML-7: integrales de línea y de superficie, potencial y teoremas.
 
     ``{"calculo": "circulacion"|"linea_escalar"|"potencial"|"rotacional"|
-    "divergencia"|"flujo"|"superficie_escalar"|"green"|"stokes"|"gauss", "campo",
-    "f", "curva", "superficie", "region", "sistema", "borde", "superficies"}``.
+    "divergencia"|"flujo"|"superficie_escalar"|"green"|"stokes"|"gauss"|
+    "cuadrica"|"parametriza", "campo",
+    "f", "curva", "superficie", "region", "sistema", "borde", "superficies",
+    "matriz", "b", "c"}``.
     """
     from academic_core.domain.engineering.mathlab import vectorial as VE
 
@@ -3893,6 +3895,18 @@ def _vectorial_calc(peticion: C.Peticion) -> C.Resultado:
              else [VE.divergencia(dato("campo"), trace)])
         texto = "(" + ", ".join(mx.text(c) for c in r) + ")" if len(r) > 1 else mx.text(r[0])
         sello = V.Seal(V.VERIFIED, "derivadas exactas", texto)
+        return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+    elif calculo == "cuadrica":
+        r = VE.cuadrica(dato("matriz"), e.get("b"), e.get("c", 0), trace)
+        texto = r["tipo"] + f" {r['signatura']}"
+        if r["centro"] is not None:
+            texto += "; centro = (" + ", ".join(str(v) for v in r["centro"]) + ")"
+        sello = V.Seal(V.VERIFIED, "signatura de autovalores exactos o numéricos", texto)
+        return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+    elif calculo == "parametriza":
+        r = VE.parametriza(dato("curva"), trace)
+        texto = "r(t) = (" + ", ".join(r["r"]) + "), t ∈ [" + r["t"][0] + ", " + r["t"][1] + "]"
+        sello = V.Seal(V.VERIFIED, "curva estándar con ecuación conocida", texto)
         return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
     elif calculo == "flujo":
         v = VE.flujo(dato("campo"), dato("superficie"), trace)

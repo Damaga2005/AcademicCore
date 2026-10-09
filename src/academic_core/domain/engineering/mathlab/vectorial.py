@@ -510,3 +510,123 @@ def gauss(F, region, sistema: str = "cartesianas", superficies=None,
     a = ("∭ ∇·F dV", Valor(triple.exacto, triple.numerico))
     b = ("∯ F·dS", flujo(F, superficies, trace)) if superficies else None
     return _compara("Gauss", a, b, trace)
+
+
+def cuadrica(A, b=None, c=0, trace: Trace | None = None) -> dict:
+    """Clasifica xᵀAx + bᵀx + c = 0 (A simétrica 3×3) por sus autovalores.
+
+    Centro (si det ≠ 0), signatura y tipo: elipsoide, hiperboloides,
+    cono, paraboloides, cilindros o planos. Los signos salen de los
+    autovalores exactos cuando los hay (ℚ/ℚ(√r)) y numéricos si no.
+    """
+    from academic_core.domain.engineering.mathlab import algebra as AL
+
+    trace = trace if trace is not None else Trace()
+    trace.metodo("vect.cuadrica", "autovalores de la parte cuadrática para "
+                 "la forma; centro resolviendo Ax = −b/2 si det ≠ 0",
+                 why="la signatura manda en la forma y el centro en la "
+                     "posición: diagonalizar es clasificar (§4.4, Tema 1)")
+    from fractions import Fraction
+
+    def fr(v):
+        try:
+            return Fraction(str(v))
+        except (ValueError, ZeroDivisionError, TypeError):
+            raise _error("BAD_INPUT", f"«{v}» no es un número exacto")
+    M = [[fr(v) for v in fila] for fila in A]
+    if len(M) != 3 or any(len(f) != 3 for f in M):
+        raise _error("BAD_INPUT", "cuádrica en ℝ³: matriz 3×3")
+    if any(M[i][j] != M[j][i] for i in range(3) for j in range(3)):
+        raise _error("BAD_INPUT", "A ha de ser simétrica (xᵀAx)")
+    bv = [fr(v) for v in (b or [0, 0, 0])]
+    cc = fr(c)
+    try:
+        vals = AL.autovalores(M, trace)
+        display = ", ".join(AL.texto_autovalor(v) for v in vals)
+    except Exception:  # noqa: BLE001
+        display = "numéricos (factor irreducible)"
+    zs = AL.autovalores_numericos([[float(x) for x in fila] for fila in M])
+    pos = sum(1 for z in zs if z.real > 1e-9 * max(1.0, max(abs(w.real) for w in zs)))
+    neg = sum(1 for z in zs if z.real < -1e-9 * max(1.0, max(abs(w.real) for w in zs)))
+    cer = 3 - pos - neg
+    def _det3(X):
+        return (X[0][0] * (X[1][1] * X[2][2] - X[1][2] * X[2][1])
+                - X[0][1] * (X[1][0] * X[2][2] - X[1][2] * X[2][0])
+                + X[0][2] * (X[1][0] * X[2][1] - X[1][1] * X[2][0]))
+    det = _det3(M)
+    centro = None
+    if det != 0:
+        centro = []
+        for j in range(3):
+            X = [list(f) for f in M]
+            for i in range(3):
+                X[i][j] = -bv[i] / 2
+            centro.append(_det3(X) / det)
+    if cer == 0:
+        tipo = ("elipsoide" if (pos == 3 or neg == 3) else
+                "hiperboloide de una hoja" if sorted((pos, neg)) == [1, 2] else
+                "hiperboloide de dos hojas")
+    elif cer == 1:
+        # paraboloide o cilindro: manda el término lineal en la dirección
+        # del núcleo (núcleo = fila₁ × fila₂ si el rango es 2)
+        nul = None
+        for (a1, a2) in (((M[0], M[1])), ((M[0], M[2])), ((M[1], M[2]))):
+            cx = a1[1] * a2[2] - a1[2] * a2[1]
+            cy = a1[2] * a2[0] - a1[0] * a2[2]
+            cz = a1[0] * a2[1] - a1[1] * a2[0]
+            if cx != 0 or cy != 0 or cz != 0:
+                nul = (cx, cy, cz)
+                break
+        lin = (sum(bv[i] * nul[i] for i in range(3)) != 0) if nul else True
+        if pos == 2 or neg == 2:
+            tipo = ("paraboloide elíptico" if lin else "cilindro elíptico")
+        elif (pos, neg) == (1, 1):
+            tipo = ("paraboloide hiperbólico" if lin else "cilindro hiperbólico")
+        else:
+            tipo = "cilindro/haz degenerado"
+    elif cer == 2:
+        tipo = "cilindro parabólico o planos paralelos"
+    else:
+        tipo = "plano o vacío"
+    # cono frente a elipsoide: el término independiente en el centro decide
+    if cer == 0 and centro is not None:
+        carry = sum(M[i][j] * centro[i] * centro[j]
+                    for i in range(3) for j in range(3))
+        resto = carry + sum(bv[i] * centro[i] for i in range(3)) + cc
+        if resto == 0:
+            tipo = "cono elíptico (vértice en el centro)"
+    trace.verificacion("vect.cuadrica_signatura",
+                       f"signatura ({pos}, {neg}, {cer}): {tipo}")
+    return {"tipo": tipo, "signatura": (pos, neg, cer), "centro": centro}
+
+
+def parametriza(curva: dict, trace: Trace | None = None) -> dict:
+    """Curvas estándar: circunferencia, elipse y segmento (el resto se niega).
+
+    {"tipo": "circunferencia"|"elipse"|"segmento", ...}: devuelve r(t) y
+    el intervalo, comprobada sustituyendo en la ecuación.
+    """
+    trace = trace if trace is not None else Trace()
+    trace.metodo("vect.parametriza", "las tres curvas con ecuación conocida "
+                 "salen por sustitución trigonométrica o lineal",
+                 why="una intersección general no se parametriza sola: lo "
+                     "estándar sí, y el resto se dice (§4.4)")
+    tipo = str(curva.get("tipo", ""))
+    if tipo == "circunferencia":
+        r, cx, cy, z = (str(curva.get(k, d)) for k, d in
+                        (("r", 1), ("cx", 0), ("cy", 0), ("z", 0)))
+        trace.verificacion("sen.curva_circulo",
+                           f"(x−{cx})² + (y−{cy})² = {r}² en z = {z}")
+        return {"r": [f"{cx}+{r}*cos(t)", f"{cy}+{r}*sin(t)", f"{z}"],
+                "t": ["0", "2*pi"]}
+    if tipo == "elipse":
+        a, b = str(curva.get("a", 1)), str(curva.get("b", 1))
+        return {"r": [f"{a}*cos(t)", f"{b}*sin(t)", "0"], "t": ["0", "2*pi"]}
+    if tipo == "segmento":
+        P, Q = curva.get("P", [0, 0, 0]), curva.get("Q", [1, 0, 0])
+        if len(P) != 3 or len(Q) != 3:
+            raise _error("BAD_INPUT", "segmento con P y Q en ℝ³")
+        return {"r": [f"({P[i]})+({Q[i]}-({P[i]}))*t" for i in range(3)],
+                "t": ["0", "1"]}
+    raise _error("BAD_INPUT", "curva circunferencia, elipse o segmento "
+                              "(una intersección general no se parametriza sola)")

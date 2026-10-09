@@ -496,3 +496,28 @@ def test_bateria_aleatoria_de_leyes_frente_a_scipy():
             assert abs(float(mu) - o.mean()) < 1e-8 * max(1, abs(o.mean()))
         if var is not None:
             assert abs(float(var) - o.var()) < 1e-7 * max(1, o.var())
+
+
+def test_geometrica_p_pequena_no_cuelga():
+    """Cola geométrica con p pequeña (PPE): la densidad float no cuelga."""
+    import time
+    t0 = time.time()
+    r = pedir("variable_aleatoria", {"dist": "geometrica",
+                                     "parametros": {"p": "0.0081"},
+                                     "suceso": "P(X>123)"})
+    assert time.time() - t0 < 60
+    assert r.sello.verdict == V.VERIFIED
+    assert "0.3677" in str(r.exacto)
+
+
+def test_poisson_mayor_vs_mayor_igual():
+    """P(Y ≥ 2) ≠ P(Y > 2): el motor los distingue (errata PPE)."""
+    import math
+    a = pedir("variable_aleatoria", {"dist": "poisson",
+                                     "parametros": {"lambda": "0.81"},
+                                     "suceso": "P(X>=2)"})
+    b = pedir("variable_aleatoria", {"dist": "poisson",
+                                     "parametros": {"lambda": "0.81"},
+                                     "suceso": "P(X>2)"})
+    assert str(a.exacto) != str(b.exacto)
+    assert abs(1 - 2.13805 * math.exp(-0.81) - 0.0489) < 1e-3
