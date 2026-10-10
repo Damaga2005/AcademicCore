@@ -150,6 +150,35 @@ Se corrigieron con un guard compartido (`_diccionario`) y **quedan en 0**.
   navegables con resaltado, gráfica enlazada y teclado, probada con los botones
   y las teclas, no llamando al motor por debajo.
 
+## 6 quater. Concurrencia y superficie de entrada (2026-10-10)
+
+La lista de pendientes que salió de `ddc70dd` señalaba cuatro riesgos del motor
+y dieciocho avisos de pyflakes. Los cuatro eran reales:
+
+- **El plazo de CPU era una variable de módulo.** `integracion._LIMITE` era una
+  lista global con guardar/restaurar. Cada pestaña calcula en su hilo, así que el
+  hilo que acababa primero **restauraba su plazo sobre el del otro**, que se
+  quedaba sin tope. Corregido con un `ContextVar` (`_PLAZO`), que es por hilo, y
+  un gestor `_plazo_acortado()` para el reparto de tiempo entre estrategias. La
+  prueba es de dos hilos concurrentes con plazo de 8 s: el viejo corrompe el del
+  hilo A en +0.05 s, el nuevo mantiene ambos intactos.
+- **El escalón no se entendía en la `f` de una convolución.** `u(t)` daba
+  `PARSE_ERROR` aunque `escalon`, `heaviside` y `Heaviside` sí pasaban. No se
+  añadió `u` a la tabla global del parser —`u` es variable muda legítima en los
+  cambios de variable—; se acotó a la convolución, donde no puede ser otra cosa.
+- **El nombre del ángulo no coincidía entre módulos.** `operadores` usaba `phi`
+  donde `multiple` usa `t`. `operadores` acepta ahora θ, φ, ρ y sus grafías
+  ASCII. Salió además una tercera discrepancia no documentada: `multiple` llama
+  `rho` al radio esférico y `operadores` lo llama `r`.
+- **`centro_masas` perdía los alias siempre.** Preparseaba la densidad con
+  `leer()` antes de pasarla a `masa`, dejando un `Expr` donde `_con_alias` solo
+  actúa sobre texto. Al corregirlo apareció un `KeyError: 'cartesianas'` latente
+  en `multiple._con_alias`.
+
+También se corrigió un descuadre entre lo que la documentación daba por cubierto
+y lo que lo estaba: `guias_upc/` (53 PDF de material de la UPC) no estaba en
+`.gitignore` y un `git add -A` los habría subido al repositorio público.
+
 ## 7. Lo que NO se certifica aquí (y por qué)
 
 - **La interfaz**: el visor Qt (§6, §9) existe desde el 2026-10-10 y tiene sus
@@ -172,6 +201,7 @@ Se corrigieron con un guard compartido (`_diccionario`) y **quedan en 0**.
 | ML-10 ejercicios, corrector y generador | `f30ca5c` |
 | ML-11 el pulido (este gate) | `804303c` |
 | Pendientes cerrados, contraste profundo e interfaz de §9 | `ddc70dd` |
+| Plazo de CPU por hilo, alias unificados, 18 avisos y `.gitignore` | `6326680` |
 
 ## 9. Cierre
 
