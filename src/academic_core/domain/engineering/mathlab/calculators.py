@@ -1854,8 +1854,10 @@ def _serie(peticion: C.Peticion) -> C.Resultado:
             valor = SN.suma(T, n0, trace)
         except UnsupportedError:
             r = SN.suma_numerica(T, n0, trace)
-            sello = V.Seal(V.NUMERIC_ONLY, "suma parcial y cota geométrica de la cola",
-                           r.texto())
+            euler = any(p.rule == "suma.euler" for p in trace.steps)
+            metodo = ("aceleración de Euler: diferencias finitas, cota a₀/2^K"
+                      if euler else "suma parcial y cota geométrica de la cola")
+            sello = V.Seal(V.NUMERIC_ONLY, metodo, r.texto())
             return _finalizar(peticion, trace, r.texto(), aproximado=r.valor,
                               error=r.cota, sello=sello)
         objetivo = float(mx.valor_real(valor, {}))

@@ -1170,13 +1170,75 @@ class SumaNumerica:
                 f"y la cola mayorada por la geométrica de razón {self.q:.3g})")
 
 
+def suma_euler(T: Termino, n0: int, trace: Trace, tol: float = 1e-12) -> SumaNumerica | None:
+    """Aceleración de Euler para series alternadas: Σ(−1)ⁿ·aₙ = Σ Δᵏa₀/2ᵏ⁺¹.
+
+    La cota de Leibniz (|a_{N+1}|) no sirve como tolerancia: el cociente de una
+    alternada tiende a 1, así que llegar a 1e-12 por términos pediría ~10¹² de
+    ellos. La transformación de Euler convierte la alternada en una serie de
+    razón 1/2, y entonces |cola| ≤ a₀/2^K con K transformaciones: cuarenta y
+    pico bastan para 1e-12, y además con signo positivo.
+
+    Se exige alternancia estricta y |aₙ| no creciente; la cota usa que, con aₙ
+    decreciente y convexa, |Δᵏa₀| ≤ a₀ —igual que la vía geométrica, el criterio
+    se comprueba sobre una ventana y no se demuestra, así que el sello sigue
+    siendo «solo numérico».
+    """
+    # ventana inicial: |aₙ|, que es lo que la transformación consume
+    seq: list[float] = []
+    for n in range(n0, n0 + 220):
+        v = T.valor(n)
+        if v is None or v == 0:
+            break
+        seq.append(v)
+    if len(seq) < 30:
+        return None
+    # alternancia estricta y |aₙ| no creciente
+    for i in range(len(seq) - 1):
+        if seq[i] * seq[i + 1] >= 0:
+            return None
+        if abs(seq[i + 1]) > abs(seq[i]):
+            return None
+    magnitudes = [abs(v) for v in seq]
+
+    fila = list(magnitudes)      # Δ⁰aⱼ = aⱼ
+    total, K, cota = 0.0, 0, float("inf")
+    for k in range(len(fila)):
+        d = fila[0]
+        total += d / 2 ** (k + 1)
+        K = k + 1
+        cota = magnitudes[0] / 2 ** K     # |cola| ≤ a₀/2^K
+        if cota <= tol:
+            break
+        fila = [fila[i] - fila[i + 1] for i in range(len(fila) - 1)]
+        if not fila:
+            return None
+    if cota > tol:
+        return None
+    # el signo: la serie empieza por el signo del primer término
+    if seq[0] < 0:
+        total = -total
+    trace.regla("suma.euler",
+                f"Σ(−1)ⁿ·aₙ por transformación de Euler con K = {K}: "
+                f"S ≈ {total:.15g}; |cola| ≤ a₀/2^K = {magnitudes[0]:.4g}/{2 ** K} "
+                f"= {cota:.2g}",
+                why="aceleración de Euler: una alternada se reescribe como serie de "
+                    "razón 1/2 con diferencias finitas, y así la cota de la cola es "
+                    "geométrica en vez de tener que esperar a que aₙ sea diminuto")
+    return SumaNumerica(total, cota, n0 + K - 1, 0.5)
+
+
 def suma_numerica(T: Termino, n0: int = 1, trace: Trace | None = None,
                   tol: float = 1e-12) -> SumaNumerica:
-    """S_N más una cota de la cola: si |aₙ₊₁/aₙ| ≤ q < 1 para n ≥ N, entonces
-    |Σ_{n>N} aₙ| ≤ |a_{N+1}|/(1 − q). El límite del cociente se calcula exacto
-    (tiene que ser < 1); que el cociente no crezca desde N se comprueba en una
-    ventana de 200 términos, no se demuestra: el resultado es solo numérico."""
+    """S_N más una cota de la cola. Primero la aceleración de Euler (alternadas, con
+    cota a₀/2^K); si no, la geométrica |a_{N+1}|/(1 − q) con |aₙ₊₁/aₙ| → q < 1. El
+    límite del cociente se calcula exacto (tiene que ser < 1); que el cociente no
+    crezca desde N se comprueba en una ventana de 200 términos, no se demuestra: el
+    resultado es solo numérico."""
     trace = trace if trace is not None else Trace()
+    euler = suma_euler(T, n0, trace, tol)
+    if euler is not None:
+        return euler
     try:
         lim = LM.limite(cociente(T), T.var, "oo")
         L = abs(float(mx.valor_real(lim.expr, {}))) if lim.expr is not None else None

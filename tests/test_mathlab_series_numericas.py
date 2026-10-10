@@ -2,10 +2,13 @@
 """ML-2 (T11): series numéricas, de potencias y sumas — contrastadas con SymPy."""
 from __future__ import annotations
 
+import math
+
 import pytest
 
 import academic_core.domain.engineering.mathlab as ML
 from academic_core.domain.engineering.mathlab import series_numericas as S
+from academic_core.domain.engineering.mathlab.trace import Trace
 
 sp = pytest.importorskip("sympy")
 
@@ -54,3 +57,30 @@ def test_potencias(t, texto):
 def test_sumas_y_su_segundo_camino(t, n0, valor):
     r = ML.calcular(ML.Peticion("serie", {"calculo": "suma", "termino": t, "n0": n0}))
     assert r.exacto == valor and r.sello.verdict == "verificado"
+
+
+# Alternadas: el cociente tiende a 1, así que la cota geométrica no se puede dar.
+# La aceleración de Euler las reescribe como serie de razón 1/2 y la cota vale a₀/2^K.
+@pytest.mark.parametrize("termino,n0,forma_cerrada", [
+    ("(-1)^(n+1)/n", 1, math.log(2)),
+    ("(-1)^(n+1)/(2*n+1)", 0, -math.pi / 4),
+    ("(-1)^(n+1)/n^2", 1, math.pi ** 2 / 12),
+    ("(-1)^(n+1)/(n+n^2)", 1, 2 * math.log(2) - 1),
+    ("(-1)^(n+1)/(3*n+1)", 0, -(math.log(2) + math.pi / math.sqrt(3)) / 3),
+])
+def test_alternadas_por_aceleracion_de_euler(termino, n0, forma_cerrada):
+    r = S.suma_euler(S.leer(termino), n0, Trace())
+    assert r is not None, termino
+    # contrastar solo con «sale un número» no prueba nada: lo que se comprueba es
+    # que la cota prometida contenga el error de verdad, que es lo que sostiene
+    # el sello «solo numérico»
+    assert abs(r.valor - forma_cerrada) <= r.cota, (termino, r.valor, forma_cerrada, r.cota)
+
+
+def test_alternada_sin_forma_llegada_al_usuario():
+    """Por la puerta de la calculadora: la que no tiene forma cerrada cae a Euler."""
+    r = ML.calcular(ML.Peticion("serie", {"calculo": "suma",
+                                          "termino": "(-1)^(n+1)/(n+n^2)", "n0": 1}))
+    assert r.sello.verdict == "solo_numerico", r.sello
+    assert "Euler" in r.sello.method, r.sello.method
+    assert abs(float(r.aproximado) - (2 * math.log(2) - 1)) <= r.error_acotado
