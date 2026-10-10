@@ -2116,15 +2116,26 @@ def test_ejercicios_generados_tienen_la_solucion_correcta(semilla):
         elif tema == "ecuaciones":
             assert sp.Rational(ex.solucion) * d["a"] == d["b"]
         elif tema == "limites":
-            assert sp.Rational(ex.solucion) == sp.limit((x ** d["a"] - 1) / (x - d["b"]), x, d["b"])
+            # se contrasta contra SymPy la forma que salió, no una fija: el
+            # generador reparte entre varias y todas tienen que ser ciertas.
+            # locals traduce el «sen» y el «ln» del motor; los símbolos son los
+            # del test, no los de bonito_sympy, que serian otros objetos.
+            loc = {"x": x, "sen": sp.sin, "cos": sp.cos, "ln": sp.log, "exp": sp.exp}
+            f = sp.sympify(d["expr"].replace("^", "**").replace("·", "*"), locals=loc)
+            esperado = sp.limit(f, x, d["b"])
+            got = sp.sympify(ex.solucion.replace("^", "**").replace("·", "*"), locals=loc)
+            assert sp.simplify(got - esperado) == 0, (ex.id, ex.enunciado)
         elif tema == "espacios vectoriales":
             Q = np.array(ex.solucion, float)
             V_ = np.array(d["vectores"], float)
             assert np.allclose(Q @ Q.T, np.eye(2))
             assert np.linalg.matrix_rank(np.vstack([Q, V_])) == np.linalg.matrix_rank(V_)
         elif tema == "transformadas":
-            F = sp.laplace_transform(sp.exp(-d["a"] * t), t, s, noconds=True)
-            assert sp.simplify(sp.sympify(ex.solucion) - F) == 0
+            loc = {"t": t, "s": s, "sen": sp.sin, "cos": sp.cos, "exp": sp.exp}
+            F = sp.laplace_transform(sp.sympify(d["f"].replace("^", "**"), locals=loc),
+                                      t, s, noconds=True)
+            sol = sp.sympify(ex.solucion.replace("^", "**").replace("·", "*"), locals=loc)
+            assert sp.simplify(sol - F) == 0, (ex.id, ex.enunciado)
 
 
 def test_corrector_acepta_la_solucion_y_rechaza_otra():

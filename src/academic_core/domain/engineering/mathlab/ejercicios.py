@@ -281,26 +281,120 @@ def _reintenta(tema: str, semilla: int, dif: str, fab, vale):
 
 # --- generadores por tema; la solución la pide el motor, no la escribe ---
 
-def _g_limite(g: Generador, dif: str) -> Ejercicio:
-    """El límite notable de la potencia, resuelto por el motor de límites."""
+def _lim_potencia(g: Generador, dif: str) -> Ejercicio:
+    """(x^a − b^a)/(x − b) = a·b^(a−1), bien planteado para cualquier b.
+
+    Antes era (x^a − 1)/(x − b), que solo da 0/0 cuando b = 1: con cualquier
+    otro b el numerador no se anula, el límite no existe y el bucle de
+    reintentos lo tiraba. Por eso el tema solo producía cuatro enunciados.
+    """
     from academic_core.domain.engineering.mathlab import limite as LI
     a = g._azar(2, 5, 1)
-    b = g._azar(1, 4, 2)
-    if b == 0:
-        b = 1
+    b = g._azar(1, 5, 2)
+    expr = f"(x^{a}-{b ** a})/(x-{b})"
     t = Trace()
-    r = LI.limite(mx.parse(f"(x^{a}-1)/(x-{b})"), "x", str(b), trace=t)
+    r = LI.limite(mx.parse(expr), "x", str(b), trace=t)
     return Ejercicio(
-        id="lim-notable", tema="limites", asignatura="Cálculo",
+        id="lim-potencia", tema="limites", asignatura="Cálculo",
         tipo="expresion", respaldo="E", dificultad=dif,
-        enunciado=f"Calcula el límite de (x^{a} − 1)/(x − {b}) cuando x → {b}.",
-        datos={"a": a, "b": b},
+        enunciado=f"Calcula el límite de {expr} cuando x → {b}.",
+        datos={"expr": expr, "a": a, "b": b},
         solucion=r.valor,
-        pistas=(f"sale 0/0: factoriza x^{a} − 1 como diferencia de potencias",
-                f"al cancelar queda una suma de {a} términos, cada uno b^{a-1}",
-                f"el límite es {a}·{b}^{a - 1}"),
+        pistas=(f"sale 0/0: es la derivada de x^{a} en x = {b}",
+                f"factoriza x^{a} − {b ** a} como diferencia de potencias",
+                f"al cancelar queda una suma de {a} términos, cada uno {b}^{a - 1}"),
         solucion_pasos=t.render(),
     )
+
+
+def _lim_trig(g: Generador, dif: str) -> Ejercicio:
+    """(1 − cos(a·x))/x² = a²/2: el único límite notable que no es un cociente de potencias."""
+    from academic_core.domain.engineering.mathlab import limite as LI
+    a = g._azar(2, 6, 3)
+    expr = f"(1-cos({a}*x))/(x^2)"
+    t = Trace()
+    r = LI.limite(mx.parse(expr), "x", "0", trace=t)
+    return Ejercicio(
+        id="lim-trig", tema="limites", asignatura="Cálculo",
+        tipo="expresion", respaldo="E", dificultad=dif,
+        enunciado=f"Calcula el límite de {expr} cuando x → 0.",
+        datos={"expr": expr, "a": a, "b": 0},
+        solucion=r.valor,
+        pistas=("sustituye: sale 0/0, con el numerador de segundo orden",
+                "usa 1 − cos u ~ u²/2 en el origen",
+                f"el límite es {a}²/2"),
+        solucion_pasos=t.render(),
+    )
+
+
+def _lim_seno(g: Generador, dif: str) -> Ejercicio:
+    """sen(a·x)/(a·x) = 1: sale 0/0 y se resuelve con el límite fundamental."""
+    from academic_core.domain.engineering.mathlab import limite as LI
+    a = g._azar(2, 8, 4)
+    expr = f"sen({a}*x)/({a}*x)"
+    t = Trace()
+    r = LI.limite(mx.parse(expr), "x", "0", trace=t)
+    return Ejercicio(
+        id="lim-seno", tema="limites", asignatura="Cálculo",
+        tipo="expresion", respaldo="E", dificultad=dif,
+        enunciado=f"Calcula el límite de {expr} cuando x → 0.",
+        datos={"expr": expr, "a": a, "b": 0},
+        solucion=r.valor,
+        pistas=("sustituye: sale 0/0",
+                "es el límite fundamental del seno, sen u/u → 1",
+                f"con u = {a}·x el factor {a} se cancela y el límite es 1"),
+        solucion_pasos=t.render(),
+    )
+
+
+def _lim_exp(g: Generador, dif: str) -> Ejercicio:
+    """(exp(a·x) − 1)/x = a: el derivada de la exponencial en el origen."""
+    from academic_core.domain.engineering.mathlab import limite as LI
+    a = g._azar(2, 6, 5)
+    expr = f"(exp({a}*x)-1)/x"
+    t = Trace()
+    r = LI.limite(mx.parse(expr), "x", "0", trace=t)
+    return Ejercicio(
+        id="lim-exp", tema="limites", asignatura="Cálculo",
+        tipo="expresion", respaldo="E", dificultad=dif,
+        enunciado=f"Calcula el límite de {expr} cuando x → 0.",
+        datos={"expr": expr, "a": a, "b": 0},
+        solucion=r.valor,
+        pistas=("sustituye: sale 0/0",
+                "es la derivada de exp(a·x) en x = 0, por definición de derivada",
+                f"el límite es {a}"),
+        solucion_pasos=t.render(),
+    )
+
+
+def _lim_log(g: Generador, dif: str) -> Ejercicio:
+    """ln(1 + a·x)/x = a: el mismo procedimiento, con el logaritmo."""
+    from academic_core.domain.engineering.mathlab import limite as LI
+    a = g._azar(2, 7, 6)
+    expr = f"ln(1+{a}*x)/x"
+    t = Trace()
+    r = LI.limite(mx.parse(expr), "x", "0", trace=t)
+    return Ejercicio(
+        id="lim-log", tema="limites", asignatura="Cálculo",
+        tipo="expresion", respaldo="E", dificultad=dif,
+        enunciado=f"Calcula el límite de {expr} cuando x → 0.",
+        datos={"expr": expr, "a": a, "b": 0},
+        solucion=r.valor,
+        pistas=("sustituye: sale 0/0",
+                "es la derivada de ln(1 + u) en u = 0, por definición de derivada",
+                f"el límite es {a}"),
+        solucion_pasos=t.render(),
+    )
+
+
+#: una forma distinta por semilla. Todas bien planteadas: si el numerador no se
+#: anula en el punto, el ejercicio no es un límite notable sino una discontinuidad.
+_FORMAS_LIMITE = (_lim_potencia, _lim_trig, _lim_seno, _lim_exp, _lim_log)
+
+
+def _g_limite(g: Generador, dif: str) -> Ejercicio:
+    """Una forma por semilla, todas resueltas por el motor de límites."""
+    return _FORMAS_LIMITE[g._azar(0, len(_FORMAS_LIMITE) - 1, 9)](g, dif)
 
 
 def _limite_vale(ex: Ejercicio) -> bool:
@@ -426,25 +520,84 @@ def _g_espacio(g: Generador, dif: str) -> Ejercicio:
     return ex
 
 
-def _g_transformada(g: Generador, dif: str) -> Ejercicio:
+def _tra(g: Generador, dif: str, eid: str, f: str, enunciado: str,
+         pistas: tuple[str, ...]) -> Ejercicio:
+    """Calcula L{f(t)} por el motor y monta el ejercicio. La solución la pide la
+    calculadora, no la escribe el generador."""
     from academic_core.domain.engineering.mathlab import contract as C
-    a = g._azar(1, 4, 17)
-    r = C.calcular(C.Peticion("laplace", {"expr": f"exp(-{a}*t)", "var": "t"}))
+    r = C.calcular(C.Peticion("laplace", {"calculo": "directa", "f": f, "var": "t"}))
     # el texto de la calculadora trae la región de convergencia detrás; aquí
     # solo la expresión, que es lo que se pide
-    sol = str(r.exacto).split(";")[0].replace("F(s) = ", "").strip()
+    sol = str(r.exacto).split(";")[0].replace("F(s) =", "").strip()
     return Ejercicio(
-        id="tra-lap", tema="transformadas", asignatura="EDO y Transformadas",
+        id=eid, tema="transformadas", asignatura="EDO y Transformadas",
         tipo="expresion", respaldo="E", dificultad=dif,
-        enunciado=f"Calcula la transformada de Laplace de f(t) = exp(−{a}·t).",
-        datos={"a": a},
+        enunciado=enunciado,
+        datos={"f": f},
         solucion=sol,
-        pistas=("usa L{exp(−a·t)}(s) = 1/(s + a)",
-                "sustituye a por el valor del enunciado",
-                f"el resultado es 1/(s + {a})"),
+        pistas=pistas,
         solucion_pasos=r.traza.render(),
         grafica=r.grafica,
     )
+
+
+def _tra_exp(g: Generador, dif: str) -> Ejercicio:
+    """L{exp(−a·t)} = 1/(s + a): la exponencial que decae."""
+    a = g._azar(1, 4, 17)
+    return _tra(g, dif, "tra-lap", f"exp(-{a}*t)",
+                f"Calcula la transformada de Laplace de f(t) = exp(−{a}·t).",
+                ("usa L{exp(−a·t)}(s) = 1/(s + a)",
+                 f"sustituye a = {a} por el valor del enunciado",
+                 f"el resultado es 1/(s + {a})"))
+
+
+def _tra_monomio(g: Generador, dif: str) -> Ejercicio:
+    """L{t^n} = n!/s^(n+1): sale derivando n veces respecto de s."""
+    n = g._azar(2, 5, 18)
+    return _tra(g, dif, "tra-monomio", f"t^{n}",
+                f"Calcula la transformada de Laplace de f(t) = t^{n}.",
+                ("L{t^n}(s) = n!/s^(n+1), con n! la factorial",
+                 "sale derivando n veces respecto de s, no integrando",
+                 f"el resultado es {math.factorial(n)}/s^{n + 1}"))
+
+
+def _tra_seno(g: Generador, dif: str) -> Ejercicio:
+    """L{sen(a·t)} = a/(s² + a²): caso particular de L{sen(ωt)}."""
+    a = g._azar(2, 5, 19)
+    return _tra(g, dif, "tra-seno", f"sen({a}*t)",
+                f"Calcula la transformada de Laplace de f(t) = sen({a}·t).",
+                ("L{sen(ω·t)}(s) = ω/(s² + ω²)",
+                 "sale integrando e^{-s·t}·sen(a·t) por partes dos veces",
+                 f"el resultado es {a}/(s² + {a ** 2})"))
+
+
+def _tra_cos(g: Generador, dif: str) -> Ejercicio:
+    """L{cos(a·t)} = s/(s² + a²): la pareja del anterior."""
+    a = g._azar(2, 5, 20)
+    return _tra(g, dif, "tra-cos", f"cos({a}*t)",
+                f"Calcula la transformada de Laplace de f(t) = cos({a}·t).",
+                ("L{cos(ω·t)}(s) = s/(s² + ω²)",
+                 "sale integrando e^{-s·t}·cos(a·t) por partes",
+                 f"el resultado es s/(s² + {a ** 2})"))
+
+
+def _tra_te(g: Generador, dif: str) -> Ejercicio:
+    """L{t·exp(−a·t)} = 1/(s + a)²: la propiedad de la derivada en s."""
+    a = g._azar(1, 4, 21)
+    return _tra(g, dif, "tra-te", f"t*exp(-{a}*t)",
+                f"Calcula la transformada de Laplace de f(t) = t·exp(−{a}·t).",
+                ("L{t·f(t)} = −d/ds de L{f(t)}",
+                 f"así que es −d/ds de 1/(s + {a}), que da 1/(s + {a})^2",
+                 "el motor lo presenta developado, con el cuadrado hecho"))
+
+
+#: una forma por semilla; antes solo había una, y con cuatro valores de «a».
+_FORMAS_TRANSFORMADA = (_tra_exp, _tra_monomio, _tra_seno, _tra_cos, _tra_te)
+
+
+def _g_transformada(g: Generador, dif: str) -> Ejercicio:
+    """Una forma por semilla, todas resueltas por la calculadora de Laplace."""
+    return _FORMAS_TRANSFORMADA[g._azar(0, len(_FORMAS_TRANSFORMADA) - 1, 22)](g, dif)
 
 
 #: qué es un ejercicio **planteado** en cada tema (§7: no valen los
