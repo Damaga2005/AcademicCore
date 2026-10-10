@@ -135,11 +135,27 @@ Son bugs de programación, no mensajes para el estudiante: quien escribía `0` e
 vez de un diccionario veía un error de Python en vez de «aquí van tus datos».
 Se corrigieron con un guard compartido (`_diccionario`) y **quedan en 0**.
 
+## 6 ter. Contraste profundo e interfaz (2026-10-10)
+
+- **Oráculo de calculadoras** (`tests/test_mathlab_oraculo_calculadoras.py`):
+  cada subcálculo por la puerta de `calcular` contra un valor obtenido aparte
+  (NumPy, SymPy o una implementación escrita en el test). Se amplió a numéricos,
+  espacios vectoriales, operadores curvilíneos, distribuciones, demostraciones,
+  ejercicios y pulido. Encontró cinco defectos reales (generador de espacios
+  que reventaba, enunciado con U+202C, solución `…*2*1`, INTERNAL en
+  operadores, gráfica de `derivar` desordenada) y uno previo en fracciones
+  simples (1/(x² − 2) daba «discrepa»). Todos corregidos.
+- **Interfaz de §9** (`ui/math_lab.py`, `tests/test_mathlab_ui.py`): pestañas
+  por bloque, Calculadoras, Ejercicios con insignia E/G, vista previa, pasos
+  navegables con resaltado, gráfica enlazada y teclado, probada con los botones
+  y las teclas, no llamando al motor por debajo.
+
 ## 7. Lo que NO se certifica aquí (y por qué)
 
-- **La interfaz**: el visor Qt (§6, §9) es de otra capa. Aquí se certifica que
-  la **gráfica descrita como dato** es accesible; que el widget lo pinte bien es
-  del gate de UX, y su lector de pantalla sigue sin ejecutarse allí.
+- **La interfaz**: el visor Qt (§6, §9) existe desde el 2026-10-10 y tiene sus
+  pruebas de widget, pero se certifica en el gate de UX. Aquí se certifica que
+  la **gráfica descrita como dato** es accesible; su lector de pantalla sigue
+  sin ejecutarse.
 - **Los criterios 4 y 9**: son de juicio y de orden de entrega, no de forma.
 - **El rendimiento de la interfaz**: aquí se mide el dominio. Pintar 80 gráficas
   es otra historia.
@@ -154,7 +170,8 @@ Se corrigieron con un guard compartido (`_diccionario`) y **quedan en 0**.
 |---|---|
 | ML-0 … ML-22 (núcleo y bloques v2) | `8358789`, `1555970`, `f30ca5c` |
 | ML-10 ejercicios, corrector y generador | `f30ca5c` |
-| ML-11 el pulido (este gate) | ver `git log -1` |
+| ML-11 el pulido (este gate) | `804303c` |
+| Pendientes cerrados, contraste profundo e interfaz de §9 | `ddc70dd` |
 
 ## 9. Cierre
 

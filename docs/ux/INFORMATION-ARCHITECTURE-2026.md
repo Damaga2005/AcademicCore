@@ -64,6 +64,7 @@ Orden y semántica: de lo general (Home) a lo específico; Settings siempre al f
 | 10 | Virtual Lab | Engineering › **Lab** | `engineering/lab` | Sesiones, instrumentos, replay |
 | 11 | Logic Analyzer | Engineering › **Digital Logic** | `engineering/digital-logic` | Captura, forma de onda, transiciones |
 | 12 | Settings | **Settings** | `settings` | Apariencia, datos, acerca de |
+| 13 | Matemáticas (2026-10-10, MATH_LAB §9) | Learn › **Math** | `learn/math` | Laboratorio de matemáticas; se construye al abrirse por primera vez |
 | — | `OrbitPanel` (dentro de Engineering) | Engineering › **Aerospace** | `engineering/aerospace` | Deja de ser un bloque embebido bajo el netlist |
 | — | 7 botones globales (Add topic… Export/Import JSON) | Ver §5.3 | — | Se reubican por contexto |
 | — | Sidebar del árbol académico | **Selector de contexto** (§4) + panel de contexto en Learn | — | Ya no ocupa 300 px en todas las pestañas |
@@ -221,6 +222,7 @@ Secciones: `Appearance` · `Data` (carpeta, importar/exportar JSON) · `About` (
 | `learn/subject/{summary\|activities\|grades\|planning}` | Overview / Activities / Grades / Planning |
 | `learn/library` | Resources |
 | `learn/documents` | Authoring |
+| `learn/math` | MathLabPanel (`ui/math_lab.py`) |
 | `practice/exercises` | Exercises |
 | `engineering` | Índice de módulos |
 | `engineering/circuits` · `/analysis` · `/lab` · `/digital-logic` · `/aerospace` | Engineering · Simulation · Virtual Lab · Logic Analyzer · OrbitPanel |
