@@ -1034,5 +1034,5 @@ __all__ = [
     "PERIODOS_MUESTREADOS", "MUESTRAS_POR_PERIODO", "Caracteristicas", "Extremo",
     "Comparacion", "AproximacionGrafica", "caracteristicas", "extremos",
     "comparar", "aproximar", "grafica", "amplitud_estimada", "verifica",
-    "MUESTRAS_DE_VERIFICACION", "sin_refuso",
+    "MUESTRAS_DE_VERIFICACION",
 ]

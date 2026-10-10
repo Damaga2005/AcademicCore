@@ -34,13 +34,13 @@ def _Q(x) -> Fraction:
     if isinstance(x, float):
         if not math.isfinite(x):
             raise _error("BAD_INPUT", f"«{x}» no es un número finito")
-        return Fraction(x).limit_denominator(10**9)
+        return Fraction(repr(x))  # decimal exacto: 1.6e-19 no se hace 0
     s = str(x).strip().replace(",", ".")
     try:
         return Fraction(s)
     except (ValueError, ZeroDivisionError):
         try:
-            return Fraction(float(s)).limit_denominator(10**9)
+            return Fraction(repr(float(s)))
         except ValueError:
             raise _error("BAD_INPUT", f"«{x}» no es un número")
 
@@ -135,7 +135,15 @@ def van(flujos: list, r, trace: Trace | None = None) -> dict:
     if not r > -1:
         raise _error("BAD_INPUT", "r > −1")
     F = [_f(v) for v in flujos]
+    if not F:
+        raise _error("BAD_INPUT", "faltan los flujos")
     V = sum(f / (1 + r) ** t for t, f in enumerate(F))
+    # segundo camino: Horner hacia atrás, V = F₀ + (F₁ + (F₂ + …)/(1+r))/(1+r)
+    h = 0.0
+    for f in reversed(F):
+        h = f + h / (1 + r)
+    if abs(h - V) > 1e-9 * max(1.0, sum(abs(f) for f in F)):
+        raise _error("DISCREPANT", "VAN por suma y por Horner difieren")
     trace.verificacion("sen.van_linea", f"VAN = {V:.6g}")
     return {"VAN": V}
 
@@ -210,6 +218,9 @@ def bono(flujos: list, y, trace: Trace | None = None) -> dict:
         raise _error("BAD_INPUT", "flujos vacíos: no hay bono que valorar")
     if y <= -1:
         raise _error("BAD_INPUT", "y > −1")
+    trace.convencion("sen.bono_tiempos",
+                     "flujos[k] vence en t = k periodos: el primero es HOY (t = 0) y no "
+                     "se descuenta; un bono que paga desde t = 1 empieza por 0")
     P = sum(f / (1 + y) ** t for t, f in enumerate(F))
     if P == 0:
         # sin precio no hay duración ni convexidad que dividir: se rechaza
@@ -265,7 +276,7 @@ def payoff(S, K, tipo="call", trace: Trace | None = None) -> dict:
 
 
 def crr(S0, K, r, sigma, T, n, tipo="call", americana=False,
-        trace: Trace | None = None) -> dict:
+        trace: Trace | None = None, _comprobar: bool = True) -> dict:
     """Árbol CRR con u, d, q; americanas comparan con ejercicio inmediato."""
     trace = trace if trace is not None else Trace()
     trace.metodo("sen.crr", "árbol de precios → payoffs en hojas → retroceso "
@@ -289,6 +300,20 @@ def crr(S0, K, r, sigma, T, n, tipo="call", americana=False,
         V = [math.exp(-r * dt) * (q * V[j] + (1 - q) * V[j + 1]) for j in range(i + 1)]
         if americana:
             V = [max(v, payoff(s, K, tipo)["payoff"]) for v, s in zip(V, S[i])]
+    # segundos caminos: europea → paridad put-call exacta en el árbol;
+    # americana → nunca vale menos que la europea ni que ejercer ya
+    if not _comprobar:
+        return {"precio": V[0], "u": u, "d": d, "q": q}
+    if not americana:
+        otro = crr(S0, K, r, sg, T, n, "put" if tipo == "call" else "call", False, Trace(),
+                   _comprobar=False)
+        c_, p_ = (V[0], otro["precio"]) if tipo == "call" else (otro["precio"], V[0])
+        if abs((c_ - p_) - (S0 - K * math.exp(-r * T))) > 1e-9 * max(1.0, S0, K):
+            raise _error("DISCREPANT", "el árbol no cumple la paridad put-call")
+    else:
+        euro = crr(S0, K, r, sg, T, n, tipo, False, Trace(), _comprobar=False)["precio"]
+        if V[0] < euro - 1e-12 or V[0] < payoff(S0, K, tipo)["payoff"] - 1e-12:
+            raise _error("DISCREPANT", "la americana vale menos que la europea o que ejercer")
     trace.verificacion("sen.crr_hojas", f"precio = {V[0]:.6g} con n = {n}")
     return {"precio": V[0], "u": u, "d": d, "q": q}
 
@@ -373,6 +398,10 @@ def montecarlo_opcion(S0, K, r, sigma, T, N=20000, semilla=7, tipo="call",
     var = max(tot2 / N - media * media, 0.0)
     err = math.exp(-r * T) * math.sqrt(var / N)
     precio = math.exp(-r * T) * media
+    # segundo camino: Black-Scholes cerrado tiene que caer en ±5 errores típicos
+    bs = black_scholes(S0, K, r, sg, T, tipo, Trace())["precio"]
+    if abs(precio - bs) > 5 * err + 1e-12:
+        raise _error("DISCREPANT", f"Monte Carlo {precio:.6g} lejos de Black-Scholes {bs:.6g}")
     trace.verificacion("sen.mc_error",
                        f"precio {precio:.6g} ± {err:.3g} (1/√N)")
     return {"precio": precio, "error": err}
@@ -421,7 +450,9 @@ def markowitz(mu, Sigma, m=None, trace: Trace | None = None) -> dict:
     mu = [_Q(v) for v in mu]
     Sg = [[_Q(v) for v in fila] for fila in Sigma]
     n = len(mu)
-    if any(len(f) != n for f in Sg):
+    if n == 0:
+        raise _error("BAD_INPUT", "faltan μ y Σ: la cartera necesita al menos un activo")
+    if len(Sg) != n or any(len(f) != n for f in Sg):
         raise _error("BAD_INPUT", "Σ n×n con μ de n")
     # Hipótesis que sí se comprueba: Σ definida positiva por el criterio de
     # Sylvester (menores principales-leading > 0). Sin ella, «mínima
@@ -456,6 +487,10 @@ def markowitz(mu, Sigma, m=None, trace: Trace | None = None) -> dict:
             raise _error("BAD_INPUT", "Σ singular")
         den = sum(w)
         w = [v / den for v in w]
+        # segundo camino: en el mínimo, Σw = λ·1 (todas las componentes iguales)
+        Sw = [sum(Sg[i][j] * w[j] for j in range(n)) for i in range(n)]
+        if any(v != Sw[0] for v in Sw):
+            raise _error("DISCREPANT", "Σw no es proporcional a 1: no es el mínimo")
     else:
         m = _Q(m)
         A = [[Sg[i][j] for j in range(n)] + [-mu[i], -uno[i]] for i in range(n)]
@@ -553,6 +588,9 @@ def sharpe_var(mu_p, var_p, rf=0.0, alpha=0.05,
     sg = math.sqrt(var_p)
     q = _NORMAL().inv_cdf(_f(alpha))
     var = mu_p + sg * q
+    # segundo camino: P(R ≤ VaR) = α en la normal N(μ, σ²)
+    if abs(_NORMAL().cdf((var - mu_p) / sg) - _f(alpha)) > 1e-9:
+        raise _error("DISCREPANT", "P(R ≤ VaR) ≠ α")
     trace.verificacion("sen.sharpe_var",
                        f"Sharpe = {(mu_p - rf) / sg:.6g}; VaR = {var:.6g}")
     return {"sharpe": (mu_p - rf) / sg, "VaR": var}

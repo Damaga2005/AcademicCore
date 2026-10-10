@@ -173,11 +173,14 @@ def tabla_zn(n: int, trace: Trace | None = None) -> dict:
     n = _ent(n)
     if not n >= 2:
         raise _error("BAD_INPUT", "n ≥ 2")
-    if n > 12:
-        raise _no("n > 12: sin tabla completa (se dice)")
+    if n > 40:
+        raise _no("n > 40: la tabla no es legible (se dice); usa inverso o potencia modular")
     suma = [[(i + j) % n for j in range(n)] for i in range(n)]
     prod = [[(i * j) % n for j in range(n)] for i in range(n)]
     primo = all(n % d for d in range(2, n))
+    # segundo camino: es cuerpo ⟺ todo no nulo tiene inverso en la tabla de producto
+    if primo != all(1 in prod[i] for i in range(1, n)):
+        raise _error("DISCREPANT", "primalidad e inversos de la tabla no coinciden")
     trace.verificacion("sen.tabla_cuerpo",
                        f"ℤ_{n} {'es' if primo else 'no es'} cuerpo")
     return {"suma": suma, "producto": prod, "cuerpo": primo}
@@ -190,9 +193,9 @@ def hash_cumple(m: int, claves: list, trace: Trace | None = None) -> dict:
                  why="el módulo es la función hash del tema; la fórmula del "
                      "cumpleaños se contrasta simulando")
     m = _ent(m)
-    ks = [int(_Q(k)) % m for k in claves]
     if not m > 0:
         raise _error("BAD_INPUT", "m > 0")
+    ks = [int(_Q(k)) % m for k in claves]
     from academic_core.domain.engineering.mathlab import eventos as EV
 
     g = EV.Generador(20261007)
@@ -209,8 +212,11 @@ def hash_cumple(m: int, claves: list, trace: Trace | None = None) -> dict:
                 break
             seen.add(h)
         hits += col
+    sd = math.sqrt(max(P * (1 - P), 1e-12) / trials)
+    if abs(hits / trials - P) > 5 * sd + 1e-9:
+        raise _error("DISCREPANT", f"P = {P:.4g} fuera del Monte Carlo {hits / trials:.4g}")
     trace.verificacion("sen.hash_montecarlo",
-                       f"P = {P:.4g}; Monte Carlo {hits / trials:.4g}")
+                       f"P = {P:.4g}; Monte Carlo {hits / trials:.4g} (dentro de 5σ)")
     return {"hashes": ks, "colisiones": n - len(set(ks)), "P": P,
             "montecarlo": hits / trials}
 
@@ -407,6 +413,19 @@ def poli_gfp(coefs: list, p: int, trace: Trace | None = None) -> dict:
             v.pop()
         if len(v) != 1:
             ok = False
+    # segundo camino: probar todos los divisores mónicos de grado ≤ n/2 si caben
+    import itertools
+    if sum(p ** d for d in range(1, n // 2 + 1)) <= 20000:
+        hay = False
+        for d in range(1, n // 2 + 1):
+            for cola in itertools.product(range(p), repeat=d):
+                if not any(divmod_(c, list(cola) + [1])[1]):
+                    hay = True
+                    break
+            if hay:
+                break
+        if hay == ok:
+            raise _error("DISCREPANT", "Rabin y la búsqueda de divisores no coinciden")
     trace.verificacion("sen.poligfp_rabin",
                        f"{'irreducible' if ok else 'reducible'} sobre GF({p})")
     return {"irreducible": ok}
@@ -483,6 +502,10 @@ def sindrome(H: list[list[int]], r: list[int],
                  why="con ≤ t errores el síndrome localiza; con más, se avisa "
                      "en vez de corregir mal (§4.10)")
     n = len(r)
+    if not H or n == 0 or any(len(f) != n for f in H):
+        raise _error("BAD_INPUT", f"H tiene que tener {n} columnas (una por bit de r)")
+    if any(v not in (0, 1) for f in H for v in f) or any(v not in (0, 1) for v in r):
+        raise _error("BAD_INPUT", "H y r son binarias (0/1)")
     s = [sum(H[j][t] * r[t] for t in range(n)) % 2 for j in range(len(H))]
     if not any(s):
         trace.verificacion("sen.sindrome_cero", "s = 0: sin errores")
@@ -492,7 +515,10 @@ def sindrome(H: list[list[int]], r: list[int],
         j = cols.index(s)
         c = list(r)
         c[j] ^= 1
-        trace.verificacion("sen.sindrome_uno", f"s = columna {j}: se invierte")
+        if any(sum(H[i][t] * c[t] for t in range(n)) % 2 for i in range(len(H))):
+            raise _error("DISCREPANT", "la palabra corregida no tiene síndrome 0")
+        trace.verificacion("sen.sindrome_uno",
+                           f"s = columna {j}: se invierte y H·c = 0")
         return {"sindrome": s, "corrige": j, "palabra": c}
     trace.aviso("sen.sindrome_mas", "s sin columna: más de t errores, NO se corrige")
     raise _no("más errores de los corregibles: se avisa, no se inventa")
@@ -531,8 +557,15 @@ def paridad(bits: list[int], trace: Trace | None = None) -> dict:
     """Bit de paridad par: XOR de todos."""
     trace = trace if trace is not None else Trace()
     b = [int(x) & 1 for x in bits]
+    if not b:
+        raise _error("BAD_INPUT", "faltan los bits")
     p = sum(b) % 2
-    trace.verificacion("sen.paridad_xor", f"paridad = {p}")
+    x = 0
+    for v in b + [p]:
+        x ^= v
+    if x != 0:
+        raise _error("DISCREPANT", "el XOR de la palabra con su paridad no es 0")
+    trace.verificacion("sen.paridad_xor", f"paridad = {p}; XOR de la palabra = 0")
     return {"paridad": p, "palabra": b + [p]}
 
 
@@ -582,7 +615,10 @@ def shamir_reparto(t: int, n: int, p: int, secreto: int, semilla: int = 7,
     coef = [secreto] + [int(g.uniforme() * p) for _ in range(t - 1)]
     partes = [(i, sum(c * pow(i, k, p) for k, c in enumerate(coef)) % p)
               for i in range(1, n + 1)]
-    trace.verificacion("sen.shamir_grado", f"grado {t - 1} con f(0) = {secreto}")
+    if shamir_reconstruye(partes[:t], p, t, Trace())["secreto"] != secreto:
+        raise _error("DISCREPANT", "las t primeras partes no reconstruyen el secreto")
+    trace.verificacion("sen.shamir_grado",
+                       f"grado ≤ {t - 1} con f(0) = {secreto}; t partes lo reconstruyen")
     return {"coefs": coef, "partes": partes}
 
 
@@ -592,10 +628,15 @@ def shamir_reconstruye(partes: list, p: int, t: int,
     trace = trace if trace is not None else Trace()
     trace.metodo("sen.shamir_lagrange", "f(0) = Σ yᵢ·Πⱼ≠ᵢ(−xⱼ)/(xᵢ−xⱼ) (mod p)",
                  why="Lagrange en 0 recupera el término libre sin el polinomio")
-    p = int(_Q(p))
-    pts = [(int(_Q(x)), int(_Q(y)) % p) for x, y in partes]
+    p, t = int(_Q(p)), int(_Q(t))
+    if p < 2 or any(p % d == 0 for d in range(2, math.isqrt(p) + 1)):
+        raise _error("BAD_INPUT", "p primo")
+    pts = [(int(_Q(x)) % p, int(_Q(y)) % p) for x, y in partes]
     if len({x for x, _ in pts}) != len(pts) or any(x == 0 for x, _ in pts):
-        raise _error("BAD_INPUT", "xᵢ distintos y no nulos")
+        raise _error("BAD_INPUT", "xᵢ distintos y no nulos (módulo p)")
+    if len(pts) < t:
+        raise _error("BAD_INPUT", f"hacen falta t = {t} partes y hay {len(pts)}: con "
+                                  f"menos del umbral el secreto no está determinado")
     s = 0
     for i, (xi, yi) in enumerate(pts):
         num, den = 1, 1
@@ -604,7 +645,21 @@ def shamir_reconstruye(partes: list, p: int, t: int,
                 num = num * (-xj) % p
                 den = den * (xi - xj) % p
         s = (s + yi * num * Z.inverso_modular(den, p, Trace())) % p
-    trace.verificacion("sen.shamir_s", f"secreto = {s}")
+    # segundo camino: resolver el sistema de Vandermonde mod p por Gauss
+    m = len(pts)
+    A = [[pow(x, k, p) for k in range(m)] + [y] for x, y in pts]
+    for col in range(m):
+        piv = next(r for r in range(col, m) if A[r][col])
+        A[col], A[piv] = A[piv], A[col]
+        inv = pow(A[col][col], p - 2, p)
+        A[col] = [v * inv % p for v in A[col]]
+        for r in range(m):
+            if r != col and A[r][col]:
+                f = A[r][col]
+                A[r] = [(v - f * w) % p for v, w in zip(A[r], A[col])]
+    if A[0][m] != s:
+        raise _error("DISCREPANT", f"Lagrange da {s} y Vandermonde {A[0][m]}")
+    trace.verificacion("sen.shamir_s", f"secreto = {s} (Lagrange y Vandermonde)")
     return {"secreto": s}
 
 
@@ -657,11 +712,15 @@ def k_anonimato(registros: list[dict], quasis: list[str],
     trace = trace if trace is not None else Trace()
     trace.metodo("sen.kanon", "agrupar por quasi-identificadores y contar",
                  why="k-anonimato = toda clase con ≥ k registros")
+    if not registros or not quasis:
+        raise _error("BAD_INPUT", "faltan los registros o los cuasi-identificadores")
     clases: dict[tuple, int] = {}
     for r in registros:
         k = tuple(r.get(q) for q in quasis)
         clases[k] = clases.get(k, 0) + 1
-    kmin = min(clases.values()) if clases else 0
+    kmin = min(clases.values())
+    if sum(clases.values()) != len(registros):
+        raise _error("DISCREPANT", "las clases no reparten todos los registros")
     trace.verificacion("sen.kanon_k", f"k alcanzado = {kmin}")
     return {"k": kmin, "clases": len(clases)}
 
@@ -687,7 +746,16 @@ def dp_laplace(datos: list[float], f_suma, epsilon: float, semilla: int = 1,
         u = g.uniforme() - 0.5
         ruidos.append(-b * math.copysign(math.log(1 - 2 * abs(u)), u)
                       if u != 0 else 0.0)
+    # segundo camino: cada ruido devuelve su uniforme por la CDF de Laplace(0, b)
+    g2 = EV.Generador(int(semilla))
+    for x in ruidos:
+        u = g2.uniforme() - 0.5
+        if b > 0 and u != 0:
+            F = 0.5 * math.exp(x / b) if x < 0 else 1 - 0.5 * math.exp(-x / b)
+            if abs(F - (0.5 - u)) > 1e-9:     # X = −b·sgn(u)·ln(1−2|u|) ⇒ F(X) = ½ − u
+                raise _error("DISCREPANT", "el ruido no sigue la ley de Laplace(0, b)")
     trace.verificacion("sen.dp_ruido",
-                       f"b = {b:.4g}; error esperado {b:.4g}")
+                       f"b = Δf/ε = {b:.4g}; cada ruido invierte la CDF de Laplace; "
+                       f"E|ruido| = b")
     trace.aviso("sen.dp_aviso", AVISO_PEDAGOGICO)
     return {"b": b, "ruidos": ruidos, "aviso": AVISO_PEDAGOGICO}

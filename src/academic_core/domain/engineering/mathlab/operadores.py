@@ -193,6 +193,13 @@ def _comprueba(_, res, sistema, tipo, trace, nombre, campo=None, op=None, escala
     if sistema == "cartesianas":
         trace.verificacion(f"op.{nombre}", f"{nombre} en cartesianas: derivadas exactas")
         return
+    u, _ = _sistema(sistema)
+    for e in ([escalar] if escalar is not None else []) + list(campo or []):
+        sobran = mx.variables(e) - set(u)
+        if sobran:
+            # antes: INTERNAL «el segundo camino no se pudo evaluar»
+            raise _error("BAD_INPUT", f"en {sistema} las coordenadas son {', '.join(u)}; "
+                                      f"sobra {', '.join(sorted(sobran))}")
     fallos = 0
     comprobados = 0
     for p in _puntos(sistema):

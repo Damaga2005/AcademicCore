@@ -34,13 +34,13 @@ def _Q(x) -> Fraction:
     if isinstance(x, float):
         if not math.isfinite(x):
             raise _error("BAD_INPUT", f"«{x}» no es un número finito")
-        return Fraction(x).limit_denominator(10**9)
+        return Fraction(repr(x))  # decimal exacto: 1.6e-19 no se hace 0
     s = str(x).strip().replace(",", ".")
     try:
         return Fraction(s)
     except (ValueError, ZeroDivisionError):
         try:
-            return Fraction(float(s)).limit_denominator(10**9)
+            return Fraction(repr(float(s)))
         except ValueError:
             raise _error("BAD_INPUT", f"«{x}» no es un número")
 
@@ -136,9 +136,17 @@ def regresion(X, y, lam=0.0, grado=1, trace: Trace | None = None) -> dict:
     trace = trace if trace is not None else Trace()
     trace.metodo("sen.regresion", "ecuaciones normales XᵀXw = Xᵀy exactas en ℚ",
                  why="el óptimo anula el gradiente: Xᵀe = 0 lo comprueba")
-    if grado > 1:
-        X = [[_f(v) ** k for k in range(grado + 1)] for v in X] \
-            if all(not isinstance(v, (list, tuple)) for v in X) else X
+    grado = int(_Q(grado))
+    if not X or len(X) != len(y):
+        raise _error("BAD_INPUT", "X e y no vacías y con un dato por fila")
+    if all(not isinstance(v, (list, tuple)) for v in X):
+        # datos 1D: columnas 1, x, x², …, x^grado (con término independiente)
+        if grado < 1:
+            raise _error("BAD_INPUT", "grado ≥ 1")
+        X = [[_Q(v) ** k for k in range(grado + 1)] for v in X]
+    elif grado > 1:
+        raise _error("BAD_INPUT", "con X en filas el grado no se aplica: da las columnas "
+                                  "que quieras (incluida la de unos) o X en 1D con grado")
     M = [[_Q(v) for v in fila] for fila in X]
     yy = [_Q(v) for v in y]
     n, p = len(M), len(M[0])
@@ -174,6 +182,10 @@ def lasso_1d(xs: list, ys: list, lam, trace: Trace | None = None) -> dict:
     xs = [_f(v) for v in xs]
     ys = [_f(v) for v in ys]
     lam = _f(lam)
+    if not xs or len(xs) != len(ys):
+        raise _error("BAD_INPUT", "x e y no vacías y de la misma longitud")
+    if lam < 0:
+        raise _error("BAD_INPUT", "λ ≥ 0")
     mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
     xc = [x - mx for x in xs]
     num = sum(a * (b - my) for a, b in zip(xc, ys))
@@ -182,6 +194,11 @@ def lasso_1d(xs: list, ys: list, lam, trace: Trace | None = None) -> dict:
         raise _error("BAD_INPUT", "x sin varianza")
     z = num / den
     w = (abs(z) - lam / den) * (1 if z > 0 else -1) if abs(z) > lam / den else 0.0
+    # segundo camino: subgradiente de ½Σ(y − w·x)² + λ|w| en w (centrado)
+    r = num - w * den
+    if (w == 0 and abs(r) > lam + 1e-9 * max(1.0, abs(num))) or \
+            (w != 0 and abs(r - lam * math.copysign(1, w)) > 1e-9 * max(1.0, abs(num))):
+        raise _error("DISCREPANT", "w no cumple la condición de optimalidad del lasso")
     trace.verificacion("sen.lasso_umbral",
                        f"w_ols = {z:.6g} → w = {w:.6g} (a cero si |z| ≤ λ/den)")
     return {"w": w, "w_ols": z}
@@ -244,6 +261,12 @@ def metricas(VP, FP, FN, VN, trace: Trace | None = None) -> dict:
     pre = VP / (VP + FP) if VP + FP else 0.0
     rec = VP / (VP + FN) if VP + FN else 0.0
     f1 = 2 * pre * rec / (pre + rec) if pre + rec else 0.0
+    if min(VP, FP, FN, VN) < 0:
+        raise _error("BAD_INPUT", "recuentos ≥ 0")
+    # segundo camino: F1 = 2VP/(2VP + FP + FN)
+    f1b = 2 * VP / (2 * VP + FP + FN) if 2 * VP + FP + FN else 0.0
+    if abs(f1 - f1b) > 1e-12:
+        raise _error("DISCREPANT", "F1 por precisión/exhaustividad y por recuentos difieren")
     trace.verificacion("sen.metricas_suma", f"VP+FP+FN+VN = {N}")
     return {"acc": acc, "precision": pre, "recall": rec, "F1": f1}
 
@@ -441,15 +464,32 @@ def svd_2d(X: list, trace: Trace | None = None) -> dict:
                  why="la SVD factoriza por los mismos ejes que la PCA")
     M = [[float(_Q(v)) for v in fila] for fila in X]
     n = len(M)
+    if n == 0 or any(len(f) != 2 for f in M):
+        raise _error("BAD_INPUT", "X con filas de 2 columnas")
     XtX = [[sum(M[k][i] * M[k][j] for k in range(n)) for j in range(2)] for i in range(2)]
     lam, V = DT._jacobi(XtX)
     idx = sorted(range(2), key=lambda i: -lam[i])
     lam = [max(lam[i], 0.0) for i in idx]
     sig = [math.sqrt(v) for v in lam]
-    U = [[sum(M[r][j] * V[j][i] for j in range(2)) / (sig[i] or 1.0) for i in range(2)]
-         for r in range(n)]
-    trace.verificacion("sen.svd_singulares", f"σ = {[f'{v:.6g}' for v in sig]}")
-    return {"sigma": sig, "U": U, "V": [[V[r][i] for i in idx] for r in range(2)]}
+    Vs = [[V[r][i] for i in idx] for r in range(2)]          # columnas en el orden de σ
+    U = [[sum(M[r][j] * Vs[j][i] for j in range(2)) / sig[i] if sig[i] > 1e-12 else 0.0
+          for i in range(2)] for r in range(n)]
+    # segundo camino: U·Σ·Vᵀ reconstruye X
+    esc = max(1.0, max(abs(v) for f in M for v in f))
+    for r in range(n):
+        for c in range(2):
+            if abs(sum(U[r][k] * sig[k] * Vs[c][k] for k in range(2)) - M[r][c]) > 1e-9 * esc:
+                raise _error("DISCREPANT", "U·Σ·Vᵀ no reconstruye X")
+    # y U con columnas ortonormales (las de σ > 0): sin esto cualquier V ortogonal pasa
+    for i in range(2):
+        for j in range(2):
+            if sig[i] > 1e-12 and sig[j] > 1e-12:
+                uij = sum(U[r][i] * U[r][j] for r in range(n))
+                if abs(uij - (1.0 if i == j else 0.0)) > 1e-9:
+                    raise _error("DISCREPANT", "UᵀU ≠ I: los σ no son los valores singulares")
+    trace.verificacion("sen.svd_singulares",
+                       f"σ = {[f'{v:.6g}' for v in sig]}; U·Σ·Vᵀ = X")
+    return {"sigma": sig, "U": U, "V": Vs}
 
 
 def _act(nombre: str, z: float) -> float:
@@ -459,7 +499,9 @@ def _act(nombre: str, z: float) -> float:
         return 1 / (1 + math.exp(-max(-700.0, min(700.0, z))))
     if nombre == "tanh":
         return math.tanh(z)
-    raise _error("BAD_INPUT", "activación relu, sigmoide o tanh")
+    if nombre == "lineal":
+        return z
+    raise _error("BAD_INPUT", "activación relu, sigmoide, tanh o lineal")
 
 
 def _dact(nombre: str, z: float, a: float) -> float:
@@ -467,6 +509,8 @@ def _dact(nombre: str, z: float, a: float) -> float:
         return 1.0 if z > 0 else 0.0
     if nombre == "sigmoide":
         return a * (1 - a)
+    if nombre == "lineal":
+        return 1.0
     return 1 - a * a  # tanh
 
 
@@ -479,13 +523,18 @@ def red_mlp(x: list, capas: list, acts: list, trace: Trace | None = None) -> dic
     zs, acs = [], [a]
     if len(capas) != len(acts):
         raise _error("BAD_INPUT", "una activación por capa")
-    for Wb, act in zip(capas, acts):
+    if not capas:
+        raise _error("BAD_INPUT", "al menos una capa")
+    for k, (Wb, act) in enumerate(zip(capas, acts)):
         W, b = Wb["W"], Wb["b"]
+        if len(W) != len(b) or any(len(f) != len(a) for f in W):
+            raise _error("BAD_INPUT", f"capa {k + 1}: W tiene que ser {len(b)}×{len(a)}")
         z = [sum(W[i][j] * a[j] for j in range(len(a))) + b[i] for i in range(len(W))]
         a = [_act(act, v) for v in z]
         zs.append(z)
         acs.append(a)
-    trace.verificacion("sen.red_dims", f"salida dim {len(a)}")
+    trace.verificacion("sen.red_dims",
+                       f"dimensiones {' → '.join(str(len(v)) for v in acs)} encajan capa a capa")
     return {"z": zs, "a": acs}
 
 
@@ -502,18 +551,26 @@ def retroprop(x: list, y: float, capas: list, acts: list, perdida="mse",
     fw = red_mlp(x, capas, acts, Trace())
     zs, acs = fw["z"], fw["a"]
     L = len(capas)
+    nsal = len(acs[-1])
     if perdida == "mse":
-        delta = [acs[-1][i] - (float(_Q(y)) if len(acs[-1]) == 1 else 0.0)
-                 for i in range(len(acs[-1]))]
+        # J = ½Σ(a − y)²; y escalar (una salida) o una lista con una por salida
+        ys = [float(_Q(v)) for v in y] if isinstance(y, (list, tuple)) else [float(_Q(y))]
+        if len(ys) != nsal:
+            raise _error("BAD_INPUT", f"y necesita {nsal} valor(es), uno por salida")
+        dJda = [acs[-1][i] - ys[i] for i in range(nsal)]
     elif perdida == "entropia_cruzada":
-        # softmax + CE: δ = p − y (una sola clase 1 en y)
+        # J = −ln softmax(a)_y con y la clase correcta
         e = [math.exp(v - max(acs[-1])) for v in acs[-1]]
         s = sum(e)
         p = [v / s for v in e]
         yo = int(_Q(y))
-        delta = [p[i] - (1 if i == yo else 0) for i in range(len(p))]
+        if not 0 <= yo < nsal:
+            raise _error("BAD_INPUT", f"clase y entre 0 y {nsal - 1}")
+        dJda = [p[i] - (1 if i == yo else 0) for i in range(nsal)]
     else:
         raise _error("BAD_INPUT", "pérdida mse o entropia_cruzada")
+    # δ = ∂J/∂z de la salida: la regla de la cadena pasa por la activación de salida
+    delta = [dJda[i] * _dact(acts[-1], zs[-1][i], acs[-1][i]) for i in range(nsal)]
     grads = []
     d = list(delta)
     for l in range(L - 1, -1, -1):
@@ -525,24 +582,36 @@ def retroprop(x: list, y: float, capas: list, acts: list, perdida="mse",
                  * _dact(acts[l - 1], zs[l - 1][j], acs[l][j])
                  for j in range(len(acs[l]))]
     grads.reverse()
-    # segundo camino: diferencias centrales en un peso
-    def Jw(w00):
-        cc = [dict(W=[row[:] for row in c["W"]], b=list(c["b"])) for c in capas]
-        cc[0]["W"][0][0] = w00
+    # segundo camino: diferencias centrales en TODOS los pesos y sesgos
+    def J(cc):
         r = red_mlp(x, cc, acts, Trace())["a"][-1]
         if perdida == "mse":
-            return (r[0] - float(_Q(y))) ** 2 / 2
+            return sum((r[i] - ys[i]) ** 2 for i in range(nsal)) / 2
         e = [math.exp(v - max(r)) for v in r]
-        s = sum(e)
-        return -math.log(max(e[int(_Q(y))] / s, 1e-300))
+        return -math.log(max(e[int(_Q(y))] / sum(e), 1e-300))
 
-    w00 = capas[0]["W"][0][0]
+    def copia():
+        return [dict(W=[[float(v) for v in row] for row in c["W"]],
+                     b=[float(v) for v in c["b"]]) for c in capas]
+
     h = 1e-6
-    num = (Jw(w00 + h) - Jw(w00 - h)) / (2 * h)
-    if abs(num - grads[0][0][0][0]) > 1e-4 * max(1.0, abs(num)):
-        raise _error("DISCREPANT", "gradiente analítico ≠ numérico")
+    for l, (gW, gb) in enumerate(grads):
+        sitios = [("W", i, j, gW[i][j]) for i in range(len(gW)) for j in range(len(gW[i]))]
+        sitios += [("b", i, None, gb[i]) for i in range(len(gb))]
+        for tipo, i, j, analitico in sitios:
+            mas, menos = copia(), copia()
+            if tipo == "W":
+                mas[l]["W"][i][j] += h
+                menos[l]["W"][i][j] -= h
+            else:
+                mas[l]["b"][i] += h
+                menos[l]["b"][i] -= h
+            num = (J(mas) - J(menos)) / (2 * h)
+            if abs(num - analitico) > 1e-5 * max(1.0, abs(num)):
+                raise _error("DISCREPANT", f"∂J/∂{tipo} de la capa {l + 1}: "
+                                           f"analítico {analitico:.6g} ≠ numérico {num:.6g}")
     trace.verificacion("sen.red_num",
-                       "∂J/∂W por diferencias centrales coincide")
+                       "∂J/∂W y ∂J/∂b por diferencias centrales coinciden en todos los pesos")
     return {"grads": grads}
 
 
@@ -575,13 +644,20 @@ def rnn_pasos(xs: list, Wx, Wh, b, trace: Trace | None = None) -> dict:
                  why="la recurrencia con pesos atados es la RNN")
     h = [0.0] * len(b)
     hs = []
-    for x in xs[:3]:
+    if not xs or not b or len(Wx) != len(b) or len(Wh) != len(b) or \
+            any(len(f) != len(b) for f in Wh):
+        raise _error("BAD_INPUT", "Wx y Wh con una fila por neurona (len(b)); Wh cuadrada")
+    for x in xs:
         xv = x if isinstance(x, list) else [x]
+        if any(len(f) != len(xv) for f in Wx):
+            raise _error("BAD_INPUT", "Wx con una columna por componente de x")
         h = [math.tanh(sum(Wx[i][j] * xv[j] for j in range(len(xv)))
                        + sum(Wh[i][j] * h[j] for j in range(len(h))) + b[i])
              for i in range(len(b))]
         hs.append(list(h))
-    trace.verificacion("sen.rnn_pesos", f"{len(hs)} pasos con pesos atados")
+    if any(abs(v) > 1 for h_ in hs for v in h_):
+        raise _error("DISCREPANT", "tanh fuera de [−1, 1]")
+    trace.verificacion("sen.rnn_pesos", f"{len(hs)} pasos con pesos atados; |h| ≤ 1")
     return {"hs": hs}
 
 
@@ -593,8 +669,15 @@ def lstm_pasos(x: float, W: dict, h0=None, c0=None,
                  why="cada puerta es una sigmoide sobre [x, h]: el manual "
                      "de la celda")
     sig = lambda z: 1 / (1 + math.exp(-z))
-    h = list(h0 or [0.0] * len(W["bf"]))
-    c = list(c0 or [0.0] * len(W["bf"]))
+    claves = ("Wf", "bf", "Wi", "bi", "Wg", "bg", "Wo", "bo")
+    if any(k not in W for k in claves):
+        raise _error("BAD_INPUT", "faltan pesos: " + ", ".join(k for k in claves if k not in W))
+    nh = len(W["bf"])
+    h = list(h0 or [0.0] * nh)
+    c = list(c0 or [0.0] * nh)
+    for k in ("Wf", "Wi", "Wg", "Wo"):
+        if len(W[k]) != nh or any(len(f) != 1 + nh for f in W[k]):
+            raise _error("BAD_INPUT", f"{k} tiene que ser {nh}×{1 + nh} (x y h concatenados)")
     z = [x] + h
     lin = lambda M, bb: [sum(M[i][j] * z[j] for j in range(len(z))) + bb[i]
                          for i in range(len(bb))]
@@ -604,6 +687,11 @@ def lstm_pasos(x: float, W: dict, h0=None, c0=None,
     o = [sig(v) for v in lin(W["Wo"], W["bo"])]
     c = [ff * cc + ii * gg for ff, cc, ii, gg in zip(f, c, i, g)]
     h = [oo * math.tanh(cc) for oo, cc in zip(o, c)]
+    c_prev = list(c0 or [0.0] * nh)
+    if any(not 0 <= v <= 1 for v in f + i + o) or \
+            any(abs(cc) > abs(cp) + 1 + 1e-12 for cc, cp in zip(c, c_prev)) or \
+            any(abs(v) > 1 for v in h):
+        raise _error("DISCREPANT", "puertas fuera de [0,1], |c| > |c₀| + 1 o |h| > 1")
     trace.verificacion("sen.lstm_puertas",
                        f"f,i,o ∈ [0,1]; c = {c}; h = {h}")
     return {"f": f, "i": i, "g": g, "o": o, "c": c, "h": h}

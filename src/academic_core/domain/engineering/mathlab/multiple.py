@@ -1170,11 +1170,31 @@ _CAMBIOS = {
 }
 
 
+# cómo lo escribe el alumno → el nombre interno de cada sistema
+_ALIAS = {
+    "polares": {"θ": "t", "theta": "t"},
+    "cilindricas": {"θ": "t", "theta": "t"},
+    "esfericas": {"θ": "theta", "φ": "phi", "ρ": "rho"},
+}
+
+
+def _con_alias(x, sistema: str):
+    import re
+
+    if not isinstance(x, str):
+        return x
+    for a, b in _ALIAS[sistema].items():
+        x = re.sub(rf"(?<![A-Za-z_]){a}(?![A-Za-z_0-9])", b, x)
+    return x
+
+
 def en_coordenadas(f, sistema: str, limites, trace: Trace | None = None) -> Resultado:
-    """f en cartesianas; los límites ya en el sistema nuevo."""
+    """f en cartesianas; los límites ya en el sistema nuevo (θ, φ, ρ valen)."""
     trace = trace if trace is not None else Trace()
     if sistema not in _CAMBIOS:
         raise _error("BAD_INPUT", f"coordenadas: {', '.join(_CAMBIOS)}")
+    f = _con_alias(f, sistema)
+    limites = [[_con_alias(x, sistema) for x in item] for item in limites]
     cambio, jac, nuevas = _CAMBIOS[sistema]
     f = leer(f)
     g = f

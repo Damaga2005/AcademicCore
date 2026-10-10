@@ -358,7 +358,7 @@ class Raices:
             return f"ninguna raíz en el intervalo ({self.metodo})"
         partes = []
         for ex, v, m in self.raices:
-            t = mx.text(ex) if ex is not None else f"≈ {v:.12g}"
+            t = mx.pretty(ex) if ex is not None else f"≈ {v:.12g}"
             partes.append(t + (f" (multiplicidad {m})" if m > 1 else ""))
         return ", ".join(partes) + f" ({self.metodo}; {self.nota})"
 

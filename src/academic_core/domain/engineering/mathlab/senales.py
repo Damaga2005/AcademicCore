@@ -49,13 +49,13 @@ def _Q(x) -> Fraction:
     if isinstance(x, float):
         if not math.isfinite(x):
             raise _error("BAD_INPUT", f"«{x}» no es un número finito")
-        return Fraction(x).limit_denominator(10**9)
+        return Fraction(repr(x))  # decimal exacto: 1.6e-19 no se hace 0
     s = str(x).strip().replace(",", ".")
     try:
         return Fraction(s)
     except (ValueError, ZeroDivisionError):
         try:
-            return Fraction(float(s)).limit_denominator(10**9)
+            return Fraction(repr(float(s)))
         except ValueError:
             raise _error("BAD_INPUT", f"«{x}» no es un número")
 
@@ -234,6 +234,8 @@ def biblioteca(pulsos: list[dict], trace: Trace | None = None) -> dict:
                  why="cada pulso básico tiene su integral, su energía y su TF "
                      "en forma cerrada (§4.15, fila 1); la tabla es el método "
                      "directo y la cuadratura fina el segundo camino")
+    if not pulsos:
+        raise _error("BAD_INPUT", "faltan los pulsos de la señal")
     E = Fraction(0)
     S = Fraction(0)
     for p in pulsos:
@@ -270,24 +272,54 @@ def biblioteca(pulsos: list[dict], trace: Trace | None = None) -> dict:
             segs.extend(tri(t0, T, A))
         else:
             segs.append(exp_causal(t0, T, A))
-    pts = _ruptura_principal([s for s in segs if s.b is not None])
-    solapan = False
-    if pts:
-        lo, hi = float(min(pts)), float(max(pts))
-        if any(s.b is None for s in segs):
-            hi = lo + 10 * max(float(_Q(p.get("T", 1))) for p in pulsos)
-        n = 2000
-        h = (hi - lo) / n
-        num_E = sum(_eval_senal(segs, lo + (k + 0.5) * h) ** 2 for k in range(n)) * h
-        if abs(num_E - float(E)) > 1e-6 * max(1.0, abs(float(E))):
-            # con solape, la energía no es la suma: se informa, no se discrepa
-            solapan = True
-            trace.aviso("sen.solape",
-                        f"la cuadratura da E = {num_E:.6g} frente a la suma "
-                        f"{float(E):.6g}: los pulsos se solapan y hay energía cruzada")
+    # soportes: rect [t0 ± T/2], tri [t0 ± T], exp [t0, ∞)
+    soportes = []
+    for p in pulsos:
+        tipo = p.get("tipo", "rect")
+        t0, T = float(_Q(p.get("t0", 0))), float(_Q(p.get("T", 1)))
+        soportes.append((t0 - T / 2, t0 + T / 2) if tipo == "rect" else
+                        (t0 - T, t0 + T) if tipo == "tri" else (t0, math.inf))
+    solapan = any(max(u[0], v[0]) < min(u[1], v[1])
+                  for i, u in enumerate(soportes) for v in soportes[i + 1:])
+    # cuadratura de Gauss-Legendre (5 nodos, solo interiores) entre puntos de
+    # ruptura: exacta para x² de pulsos lineales y sin evaluar en los saltos
+    cortes = set()
+    for sg in segs:
+        cortes.add(float(sg.a))
+        if sg.b is not None:
+            cortes.add(float(sg.b))
+    for p, sop in zip(pulsos, soportes):
+        if sop[1] == math.inf:
+            T = float(_Q(p.get("T", 1)))
+            cortes.update(sop[0] + k * T / 4 for k in range(1, 161))   # e^(−80) despreciable
+    cortes = sorted(cortes)
+    nodos = ((0.0, 128 / 225), (0.5384693101056831, 0.4786286704993665),
+             (-0.5384693101056831, 0.4786286704993665),
+             (0.9061798459386640, 0.2369268850561891),
+             (-0.9061798459386640, 0.2369268850561891))
+    num_E = num_S = 0.0
+    for u, v in zip(cortes, cortes[1:]):
+        c, r = (u + v) / 2, (v - u) / 2
+        for x, w in nodos:
+            val = _eval_senal(segs, c + r * x)
+            num_E += w * r * val * val
+            num_S += w * r * val
+    if abs(num_S - float(S)) > 1e-7 * max(1.0, abs(float(S))):
+        raise _error("DISCREPANT", f"∫x por tabla {float(S):.9g} ≠ cuadratura {num_S:.9g}")
+    if solapan:
+        # con solape la energía NO es la suma de energías: falta el término
+        # cruzado 2∫xᵢxⱼ. Se da la de la cuadratura, que sí lo incluye.
+        trace.aviso("sen.solape",
+                    f"los pulsos se solapan: la suma de energías {float(E):.6g} "
+                    f"omite la energía cruzada; E = ∫x² = {num_E:.9g} (cuadratura)")
+        E = num_E
+    elif abs(num_E - float(E)) > 1e-7 * max(1.0, abs(float(E))):
+        raise _error("DISCREPANT", f"E por tabla {float(E):.9g} ≠ cuadratura {num_E:.9g}")
     trace.verificacion("sen.biblioteca_cuadratura",
-                       f"E = {_fmt_q(E)}, ∫ = {_fmt_q(S)}"
-                       + (" (con aviso de solape)" if solapan else ", cuadratura conforme"))
+                       f"E = {_fmt_q(E) if isinstance(E, Fraction) else f'{E:.9g}'}, "
+                       f"∫ = {_fmt_q(S)}"
+                       + (" (con solape: E por cuadratura)" if solapan
+                          else ", tabla y cuadratura coinciden"))
     return {"integral": S, "energia": E, "solapan": solapan}
 
 
@@ -343,24 +375,37 @@ def _eval_conv_pc(x: list[Segmento], h: list[Segmento], t: Fraction) -> Fraction
 
 
 def _eval_conv_general(x: list[Segmento], h: list[Segmento], t: float) -> float:
-    """Evaluación numérica fina de la convolución (segundo camino)."""
-    xs = [s for s in x if s.a is not None and s.b is not None]
-    hs = [s for s in h if s.a is not None and s.b is not None]
-    cola_x = [s for s in x if s.b is None]
-    cola_h = [s for s in h if s.b is None]
-    if not xs:
-        xs = [Segmento(Fraction(int(t)) - 20, Fraction(int(t)) + 20, Fraction(0))]
-    lo = min(float(s.a) for s in xs + hs)
-    hi = max(float(s.b) for s in xs + hs)
-    if cola_x or cola_h:
-        lo = min(lo, t - 30)
-        hi = max(hi, t)
-    n = 1200
-    hh = (hi - lo) / n
-    if hh <= 0:
-        return 0.0
-    return sum(_eval_senal(x, lo + (k + 0.5) * hh)
-               * _eval_senal(h, t - (lo + (k + 0.5) * hh)) for k in range(n)) * hh
+    """Evaluación numérica fina de y(t) = ∫x(u)·h(t−u)du (segundo camino).
+
+    Pareja a pareja de trozos: el integrando es suave dentro del solape
+    [max(a₁, t−b₂), min(b₁, t−a₂)], y Gauss-Legendre compuesta (5 nodos, paso ≤ T/4
+    de la exponencial más rápida) da ~1e-12. La versión anterior, punto medio con
+    1200 celdas sobre todo el soporte, erraba en la tercera cifra."""
+    xs = [sg for sg in x if isinstance(sg, Segmento)]
+    hs = [sg for sg in h if isinstance(sg, Segmento)]
+    nodos = ((0.0, 128 / 225), (0.5384693101056831, 0.4786286704993665),
+             (-0.5384693101056831, 0.4786286704993665),
+             (0.9061798459386640, 0.2369268850561891),
+             (-0.9061798459386640, 0.2369268850561891))
+    escala = [abs(1 / float(sg.r)) for sg in xs + hs if sg.r not in (None, 0)]
+    paso_max = min(escala) / 4 if escala else None
+    total = 0.0
+    for s1 in xs:
+        for s2 in hs:
+            lo = max(v for v in (float(s1.a) if s1.a is not None else -math.inf,
+                                 t - float(s2.b) if s2.b is not None else -math.inf))
+            hi = min(v for v in (float(s1.b) if s1.b is not None else math.inf,
+                                 t - float(s2.a) if s2.a is not None else math.inf))
+            if not hi > lo or math.isinf(lo) or math.isinf(hi):
+                continue
+            n = 4 if paso_max is None else max(4, min(4000, int(math.ceil((hi - lo) / paso_max))))
+            ancho = (hi - lo) / n
+            for k in range(n):
+                c, r = lo + (k + 0.5) * ancho, ancho / 2
+                for z, w in nodos:
+                    u = c + r * z
+                    total += w * r * s1.eval(u) * s2.eval(t - u)
+    return total
 
 
 def _int_poly_exp(coef: list[Fraction], k: float, lo: float, hi: float) -> float:
@@ -464,18 +509,28 @@ def convolucion(x: list[Segmento], h: list[Segmento],
                 else:
                     p1 = (yb - ya) / (b - a)
                     p0 = ya - p1 * a
-                    expr = f"{_fmt_q(p0)} + {_fmt_q(p1)}·t"
+                    mag = "t" if abs(p1) == 1 else f"{_fmt_q(abs(p1))}·t"
+                    expr = ((("−" if p1 < 0 else "") + mag) if p0 == 0 else
+                            f"{_fmt_q(p0)} {'−' if p1 < 0 else '+'} {mag}")
                 tramos.append({"a": a, "b": b, "expr": expr,
                                "ya": ya, "yb": yb, "ym": ym})
         else:
-            for i in range(len(rupturas) - 1):
-                a, b = rupturas[i], rupturas[i + 1]
-                if b <= a:
-                    continue
-                m = (float(a) + float(b)) / 2
-                ym = _eval_conv_general(base_x, base_h, m + float(des)) * float(esc)
-                tramos.append({"a": a, "b": b, "expr": f"y({m:.4g}) = {ym:.6g}",
-                               "ya": None, "yb": None, "ym": ym})
+            exactos = _conv_exacta(base_x, base_h, rupturas, des, esc)
+            if exactos is not None:
+                tramos = exactos
+                trace.regla("sen.conv_exacta",
+                            "en cada intervalo: Σ ∫ x(u)·h(t−u) du con los límites del solape",
+                            why="dentro de un intervalo entre rupturas los límites no cambian "
+                                "de fórmula: la integral es elemental y sale exacta")
+            else:
+                for i in range(len(rupturas) - 1):
+                    a, b = rupturas[i], rupturas[i + 1]
+                    if b <= a:
+                        continue
+                    m = (float(a) + float(b)) / 2
+                    ym = _eval_conv_general(base_x, base_h, m - float(des)) * float(esc)
+                    tramos.append({"a": a, "b": b, "expr": f"y({m:.4g}) = {ym:.6g}",
+                                   "ya": None, "yb": None, "ym": ym})
     # integral y duración: ∫y = ∫x·∫h (exacta por familias)
     int_x = _int_exacta(base_x, deltas_x)
     int_h = _int_exacta(base_h, deltas_h)
@@ -486,13 +541,15 @@ def convolucion(x: list[Segmento], h: list[Segmento],
         if abs(num - float(int_y)) > 1e-6 * max(1.0, abs(float(int_y))):
             raise _error("DISCREPANT",
                          f"∫y = {float(int_y):.6g} frente a cuadratura {num:.6g}")
+    elif tramos and all(t.get("exacto") for t in tramos):
+        pass        # tramos exactos: ya contrastados punto a punto con la evaluadora
     elif tramos:
         # malla fina en el soporte finito + cuadratura de la cola exponencial
         rmin, rmax = float(min(rupturas)), float(max(rupturas))
         n_fin = 3000
         paso = (rmax - rmin) / n_fin if rmax > rmin else 0.0
         num = sum(_eval_conv_general(base_x, base_h,
-                                     rmin + (k + 0.5) * paso + float(des)) * float(esc)
+                                     rmin + (k + 0.5) * paso - float(des)) * float(esc)
                   for k in range(n_fin)) * paso if paso > 0 else 0.0
         # cola exponencial hasta el infinito (los extremos finitos no la ven)
         colas = [s for s in base_x + base_h if s.b is None]
@@ -502,7 +559,7 @@ def convolucion(x: list[Segmento], h: list[Segmento],
             n_cola = 3000
             ancho = 15 * T_cola
             num += sum(_eval_conv_general(base_x, base_h,
-                                         rmax + (k + 0.5) * ancho / n_cola + float(des))
+                                         rmax + (k + 0.5) * ancho / n_cola - float(des))
                        * float(esc) for k in range(n_cola)) * ancho / n_cola
             tramos.append({"a": max(rupturas), "b": None,
                            "expr": f"cola exponencial (T = {T_cola:.4g})",
@@ -510,13 +567,127 @@ def convolucion(x: list[Segmento], h: list[Segmento],
         if abs(num - float(int_y)) > 2e-3 * max(1.0, abs(float(int_y))):
             raise _error("DISCREPANT",
                          f"∫y numérica {num:.6g} frente a ∫x·∫h = {float(int_y):.6g}")
+    exactos_ok = bool(tramos) and all(t.get("exacto") for t in tramos)
+    verificado = solo_const or exactos_ok
     trace.verificacion("sen.conv_integral",
                        f"∫y = ∫x·∫h = {_fmt_q(int_y)}"
-                       + (" (solo numérico en tramos no constantes)" if not solo_const else ""))
-    verificado = solo_const
+                       + ("" if solo_const else
+                          "; tramos exactos contrastados con la evaluadora numérica" if exactos_ok
+                          else " (solo numérico en tramos no constantes)"))
     return {"rupturas": rupturas, "tramos": tramos, "integral": int_y,
             "desplazamiento_deltas": des, "escala_deltas": esc,
             "verificado": verificado}
+
+
+def _q_txt(q: Fraction) -> str:
+    q = Fraction(q)
+    return f"({q.numerator}/{q.denominator})"
+
+
+def _seg_txt(sg: "Segmento", var: str) -> str:
+    """El trozo como expresión en ``var`` (``u`` o ``t-u``) para el integrador."""
+    if sg.r is not None and sg.r != 0:
+        o = sg.origen if sg.origen is not None else Fraction(0)
+        return (f"({_q_txt(sg.c0)} + {_q_txt(sg.c1)}*(({var}) - {_q_txt(o)}))"
+                f"*exp({_q_txt(sg.r)}*(({var}) - {_q_txt(o)}))")
+    return f"({_q_txt(sg.c0)} + {_q_txt(sg.c1)}*({var}))"
+
+
+def _producto_txt(s1: "Segmento", s2: "Segmento") -> str:
+    """x(u)·h(t−u) con UNA sola exponencial: e^{r₁(u−o₁)}·e^{r₂(t−u−o₂)} se escribe
+    e^{(r₁−r₂)u + r₂t − r₁o₁ − r₂o₂}, que el integrador sí sabe integrar en u."""
+    def pol(sg, var):
+        o = sg.origen if (sg.r not in (None, 0) and sg.origen is not None) else Fraction(0)
+        if sg.r not in (None, 0):
+            return f"({_q_txt(sg.c0)} + {_q_txt(sg.c1)}*(({var}) - {_q_txt(o)}))"
+        return f"({_q_txt(sg.c0)} + {_q_txt(sg.c1)}*({var}))"
+    r1 = s1.r if s1.r not in (None, 0) else Fraction(0)
+    r2 = s2.r if s2.r not in (None, 0) else Fraction(0)
+    o1 = s1.origen if (r1 and s1.origen is not None) else Fraction(0)
+    o2 = s2.origen if (r2 and s2.origen is not None) else Fraction(0)
+    base = f"{pol(s1, 'u')}*{pol(s2, 't - u')}"
+    if r1 == 0 and r2 == 0:
+        return base
+    return (f"{base}*exp({_q_txt(r1 - r2)}*u + {_q_txt(r2)}*t + "
+            f"{_q_txt(-r1 * o1 - r2 * o2)})")
+
+
+def _conv_exacta(base_x, base_h, rupturas, des, esc):
+    """Tramos exactos de x ∗ h: en cada intervalo, Σ ∫ x(u)·h(t−u) du con límites
+    constantes o t − c (fijos dentro del intervalo). None si algo no se integra."""
+    import importlib
+    C_ = importlib.import_module("academic_core.domain.engineering.mathlab.contract")
+    mx_ = importlib.import_module("academic_core.domain.engineering.mathlab.mvexpr")
+    puntos = list(rupturas)
+    con_cola = any(sg.b is None for sg in base_x + base_h)
+    intervalos = [(puntos[i], puntos[i + 1]) for i in range(len(puntos) - 1)
+                  if puntos[i + 1] > puntos[i]]
+    if con_cola:
+        intervalos.append((puntos[-1], None))
+    tramos = []
+    for a, b in intervalos:
+        # el intervalo en el tiempo de la convolución sin deltas
+        a0 = a - des
+        b0 = None if b is None else b - des
+        m = (a0 + b0) / 2 if b0 is not None else a0 + 1
+        piezas = []
+        for s1 in base_x:
+            for s2 in base_h:
+                inf1 = s1.a if s1.a is not None else None
+                sup1 = s1.b
+                # u ∈ [s1.a, s1.b) ∩ (m − s2.b, m − s2.a]
+                lo_c = [] if inf1 is None else [(inf1, _q_txt(inf1))]
+                if s2.b is not None:
+                    lo_c.append((m - s2.b, f"t - {_q_txt(s2.b)}"))
+                hi_c = [] if sup1 is None else [(sup1, _q_txt(sup1))]
+                if s2.a is not None:
+                    hi_c.append((m - s2.a, f"t - {_q_txt(s2.a)}"))
+                if not lo_c or not hi_c:
+                    return None
+                lo = max(lo_c, key=lambda z: z[0])
+                hi = min(hi_c, key=lambda z: z[0])
+                if not hi[0] > lo[0]:
+                    continue
+                f = _producto_txt(s1, s2)
+                try:
+                    r = C_.calcular(C_.Peticion("integrar", {"integrando": f, "var": "u",
+                                                             "desde": lo[1], "hasta": hi[1]}))
+                except Exception:
+                    return None
+                if r.sello.verdict != "verificado" or not isinstance(r.exacto_expr, mx_.Expr):
+                    return None
+                piezas.append(r.exacto_expr)
+        if not piezas:
+            expr = mx_.Num(Fraction(0))
+        else:
+            expr = piezas[0]
+            for pz in piezas[1:]:
+                expr = mx_.Add(expr, pz)
+        if esc != 1:
+            expr = mx_.Mul(mx_.Num(esc), expr)
+        if des != 0:
+            expr = mx_.substitute(expr, "t", mx_.parse(f"t - {_q_txt(des)}"))
+        try:
+            from academic_core.domain.engineering.mathlab.calculators import _presentable
+            expr = _presentable(expr, Trace(), profunda=True)
+        except Exception:
+            pass
+        tramos.append({"a": a, "b": b, "expr": mx_.pretty(expr), "_expr": expr,
+                       "ya": None, "yb": None, "ym": None, "exacto": True})
+    # segundo camino: la evaluadora numérica independiente en 3 puntos por tramo
+    for tr in tramos:
+        a, b = float(tr["a"]), (float(tr["b"]) if tr["b"] is not None else float(tr["a"]) + 5)
+        for frac in (0.17, 0.5, 0.83):
+            t = a + (b - a) * frac
+            num = _eval_conv_general(base_x, base_h, t - float(des)) * float(esc)
+            try:
+                ex = complex(mx_.evaluate(tr["_expr"], {"t": t}))
+            except Exception:
+                return None
+            if abs(ex - num) > 1e-6 * max(1.0, abs(num)):
+                return None
+        tr.pop("_expr")
+    return tramos
 
 
 def _int_seg_exacta(s: Segmento) -> Fraction:
@@ -629,10 +800,15 @@ def salida_exp(a, x: list, trace: Trace | None = None) -> dict:
                  why="la recursión de primer orden se cierra con la suma "
                      "geométrica cuando |a| < 1 (§4.15, fila 3)")
     xs = [_Q(v) for v in x]
+    if not xs:
+        raise _error("BAD_INPUT", "falta la entrada x[n]")
     y, estado = [], Fraction(0)
     for v in xs:
         estado = a * estado + v
         y.append(estado)
+    # segundo camino (exacto): la convolución con la respuesta al impulso aⁿ
+    if any(y[n] != sum(a ** (n - k) * xs[k] for k in range(n + 1)) for n in range(len(xs))):
+        raise _error("DISCREPANT", "la recursión no coincide con y = h * x, h[n] = aⁿ")
     trace.verificacion("sen.regimen_recurrencia",
                        f"último: y = a·y + x = {_fmt_q(y[-1])}")
     return {"y": y}
@@ -783,15 +959,37 @@ def clasificar(senal: list[Segmento], T0=None) -> str:
     return "energia_finita" if ifegang else "ninguna"
 
 
-def potencia_sinusoide(A) -> Fraction:
+def potencia_sinusoide(A, trace: Trace | None = None) -> Fraction:
     """P = A²/2 de una sinusoide de amplitud A."""
+    trace = trace if trace is not None else Trace()
+    trace.metodo("sen.potencia_sinusoide", "P = (1/T)∫A²cos²(ωt)dt = A²/2",
+                 why="la media de cos² en un periodo es ½")
     A = _Q(A)
-    return A * A / 2
+    P = A * A / 2
+    # segundo camino: la media de A²cos² en un periodo por cuadratura (16 puntos
+    # equiespaciados integran cos² exactamente)
+    media = sum(float(A) ** 2 * math.cos(2 * math.pi * k / 16) ** 2 for k in range(16)) / 16
+    if abs(media - float(P)) > 1e-12 * max(1.0, float(P)):
+        raise _error("DISCREPANT", "la media de A²cos² no es A²/2")
+    trace.verificacion("sen.potencia_media", f"P = A²/2 = {P}")
+    return P
 
 
-def energia_eco(E_x, a) -> Fraction:
+def energia_eco(E_x, a, trace: Trace | None = None) -> Fraction:
     """E_y = E_x·(1+a²) para y = x + a·x(t−T) sin solape (§4.15, fila 5)."""
-    return _Q(E_x) * (1 + _Q(a) ** 2)
+    trace = trace if trace is not None else Trace()
+    trace.metodo("sen.energia_eco", "E_y = ∫(x + a·x_T)² = E_x + a²E_x + 2a·r_x(T)",
+                 why="desarrollar el cuadrado: el término cruzado es la autocorrelación "
+                     "en el retardo")
+    trace.hipotesis("sen.eco_sin_solape", "x y su copia retardada no se solapan: r_x(T) = 0",
+                    "supuesto (con solape hay que sumar 2a·r_x(T))")
+    Ex, a = _Q(E_x), _Q(a)
+    if Ex < 0:
+        raise _error("BAD_INPUT", "E_x ≥ 0")
+    E = Ex * (1 + a ** 2)
+    trace.verificacion("sen.energia_eco_ok",
+                       f"E_y = E_x·(1 + a²) = {E}, válido solo bajo la hipótesis de no solape")
+    return E
 
 
 # ---------------------------------------------------------------------------
@@ -825,9 +1023,17 @@ def correlacion_exp(A, T, taus: list[float] | None = None) -> dict:
     return {"r": r, "E": float(A * A * T) / 2}
 
 
-def densidad_desde_tf(Xs: list[complex]) -> list[float]:
+def densidad_desde_tf(Xs: list[complex], trace: Trace | None = None) -> list[float]:
     """S_x = |X|² punto a punto (Wiener-Khinchin, §4.15 fila 6)."""
-    return [abs(X) ** 2 for X in Xs]
+    trace = trace if trace is not None else Trace()
+    trace.metodo("sen.densidad", "S_x(f) = |X(f)|² punto a punto",
+                 why="la densidad de energía es el módulo al cuadrado de la TF: "
+                     "Wiener-Khinchin determinista")
+    S = [abs(X) ** 2 for X in Xs]
+    if any(abs(s - (X * X.conjugate()).real) > 1e-12 * max(1.0, s) for s, X in zip(S, Xs)):
+        raise _error("DISCREPANT", "|X|² ≠ X·X*")
+    trace.verificacion("sen.densidad_ok", "S = X·X* ≥ 0 en cada punto")
+    return S
 
 
 def retardo_por_pico(r_xy: dict[float, float]) -> float:
@@ -1025,6 +1231,18 @@ def cascada_eco(a, L: int, x: list, K: int = 12,
                      "la cascada es la identidad (§4.15, fila 9)")
     trace.hipotesis("sen.eco_estable", f"|b| = {abs(float(_Q(a))):.4g} < 1",
                     "cumple" if abs(float(_Q(a))) < 1 else "falla")
+    bb = abs(float(_Q(a)))
+    if not bb < 1:
+        raise _error("BAD_INPUT", "el inverso causal del eco necesita |a| < 1")
+    xs_ = [abs(float(_Q(v))) for v in x] or [0.0]
+    if not x:
+        raise _error("BAD_INPUT", "falta la entrada x[n]")
+    # K lo bastante grande: que el inverso cubra toda x y que el término truncado
+    # |a|^{K+1}·max|x| quede por debajo de 10⁻⁹
+    K = max(int(K), len(x) // max(1, int(L)) + 1,
+            0 if bb == 0 or max(xs_) == 0 else
+            int(math.ceil(math.log(1e-9 / max(xs_)) / math.log(bb))) if bb > 0 else 0)
+    K = min(K, 5000)
     h1 = eco_h(a, L, L + 1)
     h2 = inverso_eco(a, L, K)
     y = conv_lineal([_Q(v) for v in x], h1)["y"]

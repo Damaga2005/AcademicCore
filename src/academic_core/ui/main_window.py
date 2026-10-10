@@ -31,6 +31,24 @@ from academic_core.ui.theme import apply_saved_theme, apply_theme, save_mode
 LEVELS = ("university", "degree", "year", "term", "subject")
 
 
+class _PaginaDiferida(QWidget):
+    """Construye la página la primera vez que se muestra: el motor de matemáticas
+    tarda segundos en cargar y no tiene por qué pagarse al arrancar."""
+
+    def __init__(self, fabrica, parent=None):
+        super().__init__(parent)
+        self._fabrica = fabrica
+        self.pagina: QWidget | None = None
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+    def showEvent(self, event) -> None:  # noqa: N802 — Qt override
+        if self.pagina is None:
+            self.pagina = self._fabrica()
+            self.layout().addWidget(self.pagina)
+        super().showEvent(event)
+
+
 class AcademicMainWindow(QMainWindow):
     def __init__(self, app):
         super().__init__()
@@ -141,6 +159,12 @@ class AcademicMainWindow(QMainWindow):
         self.tabs.addTab(self.simulation_panel, "Simulación")
         self.tabs.addTab(self.virtual_lab_panel, "Laboratorio virtual")
         self.tabs.addTab(self.logic_analyzer_panel, "Analizador lógico")
+
+        def _math_lab():
+            from academic_core.ui.math_lab import MathLabPanel
+            return MathLabPanel(app)
+        self.math_panel = _PaginaDiferida(_math_lab)  # MATH_LAB §9
+        self.tabs.addTab(self.math_panel, "Matemáticas")
         self.dashboard_panel.navigate.connect(self._navigate)
         config_tab = QWidget()
         config_outer = QVBoxLayout(config_tab)
@@ -354,6 +378,7 @@ class AcademicMainWindow(QMainWindow):
             "mastery": self.practice_panel,
             "circuits": self.engineering_panel, "analysis": self.simulation_panel,
             "lab": self.virtual_lab_panel, "digital": self.logic_analyzer_panel,
+            "math": self.math_panel,
             "aerospace": self.engineering_panel, "settings": self.settings_panel,
         }
         self._restoring = True

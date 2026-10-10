@@ -500,7 +500,7 @@ def discusion_parametro(matriz, parametro: str, trace: Trace | None = None):
         ceros.append(Fraction(q))
     casos = []
     if ceros:
-        cond = " y ".join(f"{parametro} != {c}" for c in sorted(ceros))
+        cond = " y ".join(f"{parametro} ≠ {c}" for c in sorted(ceros))
         casos.append((cond, n))
         for c in sorted(ceros):
             M = [[sum(cf * c ** k for k, cf in enumerate(p)) for p in fila] for fila in polys]

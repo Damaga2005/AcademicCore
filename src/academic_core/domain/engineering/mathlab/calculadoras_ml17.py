@@ -271,7 +271,9 @@ def _informacion(peticion: C.Peticion) -> C.Resultado:
     if calculo == "kraft":
         r = N.kraft(e.get("longitudes", [2, 2, 2, 2]), trace)
         return _ok(peticion, trace,
-                   "prefijo posible" if r["prefijo_posible"] else "NO prefijo",
+                   f"K = Σ2^(−lᵢ) = {r['K']}: "
+                   + ("hay código prefijo" + (" (completo)" if r["K"] == 1 else "")
+                      if r["prefijo_posible"] else "NO hay código prefijo (K > 1)"),
                    "desigualdad de Kraft", f"K = {float(r['K']):.6g}")
     if calculo == "capacidad":
         r = N.capacidad(e.get("tipo", "BSC"), e.get("param", "0.1"), trace)

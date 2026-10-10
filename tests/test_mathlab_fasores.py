@@ -115,7 +115,7 @@ def test_las_operaciones_de_fasores_son_las_de_complejos():
     v, i = fasor(3), fasor(1, mx.Mul(mx.Num(Fr(1, 2)), mx.PI))
     assert (v * i).rectangular.texto() == "3i"
     assert (v / i).rectangular.texto() == "-3i"   # 3/i is -3i
-    assert (v + i).rectangular.texto() == "3 + 1i"
+    assert (v + i).rectangular.texto() == "3 + i"   # coeficiente 1: «i», no «1i»
     assert (v - v).rectangular.texto() == "0"
     assert v.conjugado().rectangular.texto() == "3"
 

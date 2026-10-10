@@ -48,6 +48,7 @@ Three printers are provided: ``text`` (canonical ASCII, round-trips through
 from __future__ import annotations
 
 import cmath
+import functools
 import math
 import re
 from dataclasses import dataclass
@@ -822,9 +823,22 @@ def _walk(e: Expr, bound: frozenset[str] = frozenset()):
         yield from _walk(e.expr, bound | {e.var})
 
 
+_VARIABLES: dict[int, tuple] = {}
+
+
 def variables(e: Expr) -> set[str]:
-    """Free variable names (calculus bindings excluded), sorted for determinism."""
-    return {n.name for n in _walk(e) if isinstance(n, Sym)} - _bound_names(e)
+    """Free variable names (calculus bindings excluded), sorted for determinism.
+
+    Caché por identidad (las expresiones son inmutables): el estudio de una función
+    pedía esto cientos de miles de veces sobre los mismos árboles."""
+    hit = _VARIABLES.get(id(e))
+    if hit is not None and hit[0] is e:
+        return set(hit[1])
+    libres = frozenset({n.name for n in _walk(e) if isinstance(n, Sym)} - _bound_names(e))
+    if len(_VARIABLES) > 20000:
+        _VARIABLES.clear()
+    _VARIABLES[id(e)] = (e, libres)
+    return set(libres)
 
 
 def _bound_names(e: Expr) -> set[str]:
@@ -1135,9 +1149,117 @@ def evaluate(e: Expr, env: dict[str, complex | float | int | Fraction] | None = 
     """
     env = env or {}
     try:
-        return _eval(e, env, 0)
+        f = _compilada(e)
+    except (TypeError, RecursionError, ValueError):
+        f = None                       # no hashable o demasiado profunda: el intérprete
+    try:
+        return f(env) if f is not None else _eval(e, env, 0)
     except (ArithmeticError, ValueError, OverflowError, RecursionError):
         return None
+
+
+_COMPILADAS: dict[int, tuple] = {}
+
+
+def _compilada(e: "Expr"):
+    """Caché por identidad: el hash de un dataclass congelado recorre el árbol entero
+    en cada llamada y costaba tanto como evaluarlo. Se guarda la expresión junto a
+    su clausura para que su id no pueda reutilizarse mientras esté en la caché."""
+    hit = _COMPILADAS.get(id(e))
+    if hit is not None and hit[0] is e:
+        return hit[1]
+    if len(_COMPILADAS) > 8192:
+        _COMPILADAS.clear()
+    f = _compilar(e)
+    _COMPILADAS[id(e)] = (e, f)
+    return f
+
+
+def _compilar(e: "Expr"):
+    """La expresión como clausura ``env → complex`` con la MISMA semántica que
+    :func:`_eval` (mismos errores, mismas ramas). Evaluar el árbol nodo a nodo con
+    isinstance costaba ~30 µs por punto; las búsquedas de ceros y las cuadraturas
+    piden cientos de miles de puntos (una integral tardaba 70 s en eso)."""
+    return _comp(e, 0)
+
+
+def _comp(e, depth):
+    if depth > MAX_DEPTH:
+        raise ValueError("too deep")
+    if isinstance(e, Num):
+        v = complex(e.value.numerator / e.value.denominator)
+        return lambda env: v
+    if isinstance(e, Const):
+        v = _CONST_NUMERIC[e.name]
+        return lambda env: v
+    if isinstance(e, Sym):
+        nombre = e.name
+
+        def sym(env):
+            if nombre not in env:
+                raise ValueError(f"variable libre {nombre}")
+            return complex(env[nombre])
+        return sym
+    if isinstance(e, Neg):
+        a = _comp(e.arg, depth + 1)
+        return lambda env: -a(env)
+    if isinstance(e, (Add, Sub, Mul, Pow)):
+        a, b = _comp(e.left if not isinstance(e, Pow) else e.base, depth + 1), \
+            _comp(e.right if not isinstance(e, Pow) else e.exponent, depth + 1)
+        if isinstance(e, Add):
+            return lambda env: a(env) + b(env)
+        if isinstance(e, Sub):
+            return lambda env: a(env) - b(env)
+        if isinstance(e, Mul):
+            return lambda env: a(env) * b(env)
+        return lambda env: a(env) ** b(env)
+    if isinstance(e, Div):
+        a, b = _comp(e.left, depth + 1), _comp(e.right, depth + 1)
+
+        def div(env):
+            d = b(env)
+            if d == 0:
+                raise ZeroDivisionError("división por cero")
+            return a(env) / d
+        return div
+    if isinstance(e, Root):
+        a, n = _comp(e.radicand, depth + 1), e.degree
+
+        def raiz(env):
+            r = a(env)
+            if r.imag != 0:
+                return _croot(r, n)
+            if r.real < 0:
+                if n % 2 == 0:
+                    raise ValueError("raíz par de un número negativo")
+                return -((-r.real) ** (1.0 / n))
+            return r.real ** (1.0 / n)
+        return raiz
+    if isinstance(e, Call):
+        if e.name == "log":
+            base, arg = _comp(e.args[0], depth + 1), _comp(e.args[1], depth + 1)
+
+            def log(env):
+                bb, aa = base(env), arg(env)
+                if bb in (0, 1):
+                    raise ValueError("base de logaritmo inválida")
+                if aa == 0:
+                    raise ValueError("logaritmo de cero")
+                return cmath.log(aa) / cmath.log(bb)
+            return log
+        if e.name not in _FN_NUMERIC:
+            raise ValueError(f"función no evaluable {e.name}")
+        fn, a = _FN_NUMERIC[e.name], _comp(e.args[0], depth + 1)
+        if e.name == "ln":
+            def ln(env):
+                v = a(env)
+                if v == 0:
+                    raise ValueError("logaritmo de cero")
+                return fn(v)
+            return ln
+        return lambda env: fn(a(env))
+    # integrales y demás: el intérprete da el error de siempre
+    return lambda env: _eval(e, env, depth)
 
 
 def valor_real(e: Expr, env: dict[str, complex | float | int | Fraction] | None = None
@@ -1323,11 +1445,8 @@ def _print(e: Expr, power: str, style: str) -> str:
                 # the canonical form must round-trip through parse(), and "|x|"
                 # is not in the grammar, so the call form is kept here
                 return f"abs({_print(e.args[0], power, style)})"
-            # "|(" is unreadable and a stray parenthesis would dangle, so the
-            # bar closes over a self-contained argument
+            # the bars already delimit the argument: «|(x - 1)|» is noise
             inner = _print(e.args[0], power, style)
-            if isinstance(e.args[0], (Add, Sub, Mul, Div)):
-                inner = f"({inner})"
             if style == "latex":
                 return rf"\left|{inner}\right|"
             return f"|{inner}|"
@@ -1336,11 +1455,19 @@ def _print(e: Expr, power: str, style: str) -> str:
         args = ", ".join(_print(a, power, style) for a in e.args)
         if style == "latex" and e.name == "log" and len(e.args) == 2:
             return rf"\log_{{{_print(e.args[0], power, style)}}} {_print(e.args[1], power, style)}"
+        if style == "pretty" and len(e.args) == 1 and isinstance(e.args[0], Call)                 and e.args[0].name == "abs":
+            return f"{name}{args}"      # ln|x - 1|, como en la pizarra
         if style == "pretty" and e.name == "log" and len(e.args) == 2:
             return f"log_{_print(e.args[0], power, style)}({_print(e.args[1], power, style)})"
         return f"{name}({args})"
     if isinstance(e, Add):
-        return f"{wrap(e.left, 1)} + {wrap(e.right, 1)}"
+        derecha = wrap(e.right, 1)
+        if style == "pretty" and derecha.startswith("-"):
+            # «t + -t²» se lee mal: en pantalla es «t - t²». Solo el primer término
+            # de la derecha lleva el signo, así que quitarlo es exacto. «text» no se
+            # toca: tiene que volver a leerse como el mismo árbol
+            return f"{wrap(e.left, 1)} - {derecha[1:]}"
+        return f"{wrap(e.left, 1)} + {derecha}"
     if isinstance(e, Sub):
         return f"{wrap(e.left, 1)} - {wrap(e.right, 1, strict=True)}"
     if isinstance(e, Mul):

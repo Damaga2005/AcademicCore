@@ -660,8 +660,13 @@ def implicita(F: mx.Expr, x: str, y: str, trace: Trace | None = None) -> mx.Expr
 
 
 def hessiana(f: mx.Expr, vars: list[str], punto: dict | None = None,
-             trace: Trace | None = None) -> tuple[list[list[mx.Expr]], str]:
-    """Hessiana exacta y clase por Sylvester (2×2 completa; n > 2 solo definida)."""
+             trace: Trace | None = None, simbolica: bool = False
+             ) -> tuple[list[list[mx.Expr]], str]:
+    """Hessiana exacta y clase por Sylvester (2×2 completa; n > 2 solo definida).
+
+    Sin punto y con entradas que dependen de él, ``simbolica`` devuelve la matriz
+    general en vez de negarse: la clase queda para cuando se dé el punto.
+    """
 
     trace = trace if trace is not None else Trace()
     if not vars:
@@ -678,6 +683,8 @@ def hessiana(f: mx.Expr, vars: list[str], punto: dict | None = None,
                 raise _error("INTERNAL", "Hessiana no simétrica (Schwarz falla)")
     trace.verificacion("mv.hessiana_sim", "Hxy = Hyx exacta (Schwarz)")
     if punto is None and any(mx.exact_value(h) is None for fila in H for h in fila):
+        if simbolica:
+            return H, "la clase depende del punto: da «punto» para aplicar Sylvester"
         raise _no("la Hessiana depende del punto: el criterio de segundo orden no "
                   "decide sin evaluar en el punto crítico")
     M = [[_eval_exacta(h, punto or {}) if punto else mx.exact_value(h) for h in fila]

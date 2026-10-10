@@ -776,17 +776,17 @@ class Inversa:
         for i, (a, cuasi, imp) in enumerate(self.piezas):
             simb = self.simbolicas[i] if i < len(self.simbolicas) else None
             g = Q.a_expr(simb if simb else cuasi, self.t)
-            desplazado = "(t)" if Q.es_cero(a) else f"(t − {mx.text(a)})"
+            desplazado = "(t)" if Q.es_cero(a) else f"(t − {mx.pretty(a)})"
             if not Q.es_cero(g):
-                gt = mx.text(g) if Q.es_cero(a) else mx.text(limpio(mx.substitute(
+                gt = mx.pretty(g) if Q.es_cero(a) else mx.pretty(limpio(mx.substitute(
                     g, self.t, mx.Sub(mx.Sym(self.t), a))))
                 partes.append(gt if Q.es_cero(a) else f"u{desplazado}·({gt})")
             for orden, c in imp:
                 d = f"δ{'′' * orden}{desplazado}"
-                partes.append(d if mx.exact_value(c) == 1 else f"{mx.text(c)}·{d}")
+                partes.append(d if mx.exact_value(c) == 1 else f"{mx.pretty(c)}·{d}")
         texto = "f(t) = " + (" + ".join(partes) if partes else "0") + " (t ≥ 0)"
         if self.definiciones:
-            texto += " donde " + "; ".join(f"{n} = {mx.text(e)}" for n, e in self.definiciones)
+            texto += " donde " + "; ".join(f"{n} = {mx.pretty(e)}" for n, e in self.definiciones)
         return decimales(texto) + (" (coeficientes numéricos)" if self.aproximada else "")
 
 

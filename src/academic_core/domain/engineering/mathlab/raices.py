@@ -273,13 +273,26 @@ def _num(q) -> mx.Expr:
 def _raiz_simplificada(q: Fraction) -> tuple[Fraction, Fraction]:
     """√q = k·√r with r a square-free integer (q ≥ 0)."""
     num, den = q.numerator * q.denominator, q.denominator   # √(n/d) = √(n·d)/d
-    k, r, f = 1, num, 2
-    while f * f <= r:
-        while r % (f * f) == 0:
-            r //= f * f
-            k *= f
-        f += 1
-    return Fraction(k, den), Fraction(r)
+    # tanteo solo hasta ∛n: lo que queda no tiene factores ≤ ∛n, luego tiene a lo
+    # sumo dos primos (1, p, p·q o p²) y basta mirar si es un cuadrado. Exacto y
+    # O(n^⅓); el tanteo hasta √n tardaba 10 ms por llamada con n ~ 10⁹
+    k, libre, m = 1, 1, num
+    tope = round(num ** (1 / 3)) + 2
+    f = 2
+    while f <= tope and f * f <= m:
+        e = 0
+        while m % f == 0:
+            m //= f
+            e += 1
+        k *= f ** (e // 2)
+        libre *= f ** (e % 2)
+        f += 1 if f == 2 else 2
+    t = math.isqrt(m)
+    if t * t == m:
+        k *= t
+    else:
+        libre *= m
+    return Fraction(k, den), Fraction(libre)
 
 
 def _mas_raiz(c1: Fraction, c2: Fraction, r: Fraction) -> mx.Expr:

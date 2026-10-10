@@ -15,7 +15,27 @@ from academic_core.domain.engineering.mathlab import campos as F
 from academic_core.domain.engineering.mathlab import contract as C
 from academic_core.domain.engineering.mathlab import verify as V
 from academic_core.domain.engineering.mathlab.calculators import _finalizar, con_discrepancia
+from academic_core.domain.engineering.mathlab import mvexpr as _mx
 from academic_core.domain.engineering.mathlab.trace import Trace
+
+
+
+def _monomios(terminos) -> str:
+    """Σ c·xⁱ·yʲ legible: «−2·y», no «-2·x^0y^1»."""
+    from fractions import Fraction
+    sup = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+    partes = []
+    for i, j, c in terminos:
+        c = Fraction(c)
+        if c == 0:
+            continue
+        var = "·".join(v + (str(e).translate(sup) if e > 1 else "")
+                       for v, e in (("x", i), ("y", j)) if e)
+        mag = str(abs(c))
+        cuerpo = mag if not var else var if mag == "1" else f"{mag}·{var}"
+        signo = ("−" if c < 0 else "") if not partes else (" − " if c < 0 else " + ")
+        partes.append(signo + cuerpo)
+    return "".join(partes) or "0"
 
 
 def _dict(peticion: C.Peticion, que: str) -> dict:
@@ -63,7 +83,8 @@ def _campos(peticion: C.Peticion) -> C.Resultado:
             r = F.carga_arco(e.get("a", 1), e.get("R", 1),
                              e.get("t1", 0), e.get("t2"),
                              e.get("m", 2), e.get("densidad", "seno"), trace)
-            txt = f"Q = {r['Q']:.6g} C; E(O) = ({r['Ex']:.4g}, {r['Ey']:.4g}) V/m; V(O) = {r['V0']:.6g} V"
+            txt = (f"Q = {r['Q']:.6g} C; E(O) = ({r['Ex'] + 0.0:.4g}, {r['Ey'] + 0.0:.4g}) V/m; "
+                   f"V(O) = {r['V0']:.6g} V")
             return _ok(peticion, trace, txt, "carga del arco",
                        f"Q = {r['Q']:.6g} C por primitiva y cuadratura")
         elif tipo == "cilindro":
@@ -126,12 +147,20 @@ def _campos(peticion: C.Peticion) -> C.Resultado:
     if calculo == "v_dado":
         r = F.v_dado(e.get("V", "x^2+y^2+4"), e.get("caja", [0, 1, 0, 1, 0, 1]),
                      trace)
-        return _ok(peticion, trace, f"q = {r['carga']} (∭ρ y ε₀∯E·dS)",
-                   "V dado", f"q = {r['carga']} por los dos lados de Gauss")
+        # el motor integra ρ/ε₀: la carga es ε₀ por ese valor
+        q = _mx.text(r["carga"]) if isinstance(r["carga"], _mx.Expr) else str(r["carga"])
+        try:
+            qn = f" = {float(_mx.exact_value(r['carga'])) * F.EPS0:.6g} C"
+        except (TypeError, ValueError, AttributeError):
+            qn = ""
+        return _ok(peticion, trace, f"q = ({q})·ε₀{qn} (∭ρ y ε₀∯E·dS)",
+                   "V dado", f"q/ε₀ = {q} por los dos lados de Gauss")
     if calculo == "maxwell":
         r = F.maxwell_plana(e.get("E0", 3), e.get("B0", "1e-8"),
                             e.get("k", 1), e.get("omega", "3e8"), trace)
-        return _ok(peticion, trace, f"c = ω/k = E₀/B₀ = {r['c']:.6g} m/s",
+        return _ok(peticion, trace,
+                   f"ω/k = {r['omega_k']:.6g} m/s; E₀/B₀ = {r['E_B']:.6g} m/s; "
+                   f"c = {r['c']:.6g} m/s: es solución de Maxwell",
                    "Maxwell por sustitución", f"c = {r['c']:.6g} m/s")
     if calculo == "guia":
         r = F.maxwell_guia(e.get("E0", 1), e.get("a", "0.1"),
@@ -141,7 +170,7 @@ def _campos(peticion: C.Peticion) -> C.Resultado:
                    "modo guiado TE", f"β² = ω²/c² − (π/a)²; P por Poynting")
     if calculo == "completar":
         r = F.completar_By(e.get("Bx", [[1, 0, 2]]), trace)
-        txt = " + ".join(f"{c}·x^{i}y^{j}" for i, j, c in r["By"]) or "0"
+        txt = _monomios(r["By"])
         return _ok(peticion, trace, f"By = {txt}", "completar con ∇·B = 0",
                    "función de integración cero (sin campos estáticos)")
     if calculo == "perfil":
@@ -232,7 +261,7 @@ def _campos(peticion: C.Peticion) -> C.Resultado:
         r = F.faraday(e.get("B0", 1), e.get("f", 50), e.get("N", 100),
                       e.get("A", "0.01"), e.get("theta", 0), trace)
         return _ok(peticion, trace,
-                   f"ε = {r['fem_amp']:.6g}·cos(ωt) V (Lenz)",
+                   f"ε = −{r['fem_amp']:.6g}·cos(ωt) V (Lenz)",
                    "inducción de Faraday", f"V = Wb/s; signo de Lenz")
     if calculo == "mutua":
         r = F.mutua_solenoide_bobina(e.get("N", 1000), e.get("Nb", 10),
@@ -252,12 +281,12 @@ def _campos(peticion: C.Peticion) -> C.Resultado:
                    f"Pr = {r['Pr']:.6g} W = {r['Pr_dB']:.6g} dBW",
                    "enlace Friis", "lineal frente a dB")
     if calculo == "ruido":
-        r = F.ruido_sistema(e.get("G_dB", 40), e.get("T_sys", 100))
+        r = F.ruido_sistema(e.get("G_dB", 40), e.get("T_sys", 100), trace)
         return _ok(peticion, trace, f"G/T = {r['G_T']:.6g} dB/K",
                    "ruido del sistema", f"G/T = {r['G_T']:.6g} dB/K")
     if calculo == "array":
         r = F.array_factores(e.get("N", 4), e.get("d", "0.5"),
-                             e.get("lam", 1), e.get("theta"))
+                             e.get("lam", 1), e.get("theta"), trace)
         return _ok(peticion, trace,
                    f"AF = {r['AF']:.6g}; ancho ≈ {r['ancho']:.6g}",
                    "factor de array", f"N = {e.get('N', 4)}: lóbulo ≈ λ/Nd")

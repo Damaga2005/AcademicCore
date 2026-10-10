@@ -39,6 +39,22 @@ def _error(codigo: str, mensaje: str) -> ValidationError:
     return ValidationError(f"{codigo}: {mensaje}")
 
 
+def _ang(x) -> float:
+    """Ángulo en radianes; admite texto con π («pi/3», «2*pi»)."""
+    return PO._angulo(x)[1] if isinstance(x, str) else _f(x)
+
+
+def _simpson(g, a: float, b: float, n: int = 2000) -> float:
+    from academic_core.domain.engineering.mathlab.calculo_extra import _simpson as S
+    return S(g, a, b, n)
+
+
+def _coinciden(que: str, cerrada: float, numerica: float, rel: float = 1e-6) -> None:
+    """Segundo camino: la fórmula cerrada contra una integral hecha aparte."""
+    if abs(cerrada - numerica) > rel * max(abs(cerrada), abs(numerica), 1e-300):
+        raise _error("DISCREPANT", f"{que}: fórmula {cerrada:.6g} ≠ integral {numerica:.6g}")
+
+
 def _no(mensaje: str) -> UnsupportedError:
     return UnsupportedError(f"UNSUPPORTED: {mensaje}")
 
@@ -51,13 +67,13 @@ def _Q(x) -> Fraction:
     if isinstance(x, float):
         if not math.isfinite(x):
             raise _error("BAD_INPUT", f"«{x}» no es un número finito")
-        return Fraction(x).limit_denominator(10**9)
+        return Fraction(repr(x))  # decimal exacto: 1.6e-19 no se hace 0
     s = str(x).strip().replace(",", ".")
     try:
         return Fraction(s)
     except (ValueError, ZeroDivisionError):
         try:
-            return Fraction(float(s)).limit_denominator(10**9)
+            return Fraction(repr(float(s)))
         except ValueError:
             raise _error("BAD_INPUT", f"«{x}» no es un número")
 
@@ -89,8 +105,8 @@ def carga_arco(a, R, t1=0.0, t2=None, m=2.0, densidad="seno",
                  why="parametrizar el elemento e integrar: el arco es el caso "
                      "de §4.18 donde la densidad no uniforme sale cerrada")
     a, R = _f(a), _f(R)
-    t1 = _f(t1)
-    t2 = _f(t2) if t2 is not None else 2 * math.pi
+    t1 = _ang(t1)
+    t2 = _ang(t2) if t2 is not None else 2 * math.pi
     m = _f(m)
     if not R > 0:
         raise _error("BAD_INPUT", "radio no positivo")
@@ -168,6 +184,9 @@ def carga_cilindro(a, R1, R2, L, trace: Trace | None = None) -> dict:
     if not (0 <= R1 < R2 and L > 0):
         raise _error("BAD_INPUT", "se necesita 0 ≤ R₁ < R₂ y L > 0")
     Q = 2 * math.pi * L * a * (R2 ** 3 - R1 ** 3) / 3
+    # segundo camino: Q = ∫ρ dτ = ∫ a·r · r dr · 2π · L por cuadratura
+    _coinciden("carga del cilindro", Q,
+               _simpson(lambda r: a * r * r * 2 * math.pi * L, R1, R2, 200))
     trace.verificacion("sen.carga_limite",
                        f"R₁ = 0 reproduce el cilindro macizo: {2 * math.pi * L * a * R2**3 / 3:.6g}")
     return {"Q": Q}
@@ -201,9 +220,11 @@ def carga_placa(a, x0, x1, y0, y1, trace: Trace | None = None) -> dict:
     if not (x1 > x0 and y1 > y0):
         raise _error("BAD_INPUT", "rectángulo con x₁ ≤ x₀ o y₁ ≤ y₀")
     Q = a * (y1 - y0) * (x1 ** 3 - x0 ** 3) / 3
-    trace.verificacion("sen.carga_simetria",
-                       f"placa simétrica en x da lo mismo por mitades: "
-                       f"{a * (y1 - y0) * (x1**3 - x0**3) / 3:.6g}")
+    # segundo camino: Q = ∫∫σ dS por cuadratura en x
+    _coinciden("carga de la placa", Q,
+               _simpson(lambda x: a * x * x * (y1 - y0), x0, x1, 200))
+    trace.verificacion("sen.carga_doble",
+                       f"Q = {Q:.6g} C también por ∫∫σ dS numérica")
     return {"Q": Q}
 
 
@@ -286,6 +307,9 @@ def gauss_plano(sigma, trace: Trace | None = None) -> dict:
                  why="la simetría plana con el flujo solo por las tapas")
     s = _f(sigma)
     E = s / (2 * EPS0)
+    # segundo camino: disco de radio R ≫ z en su eje, E = σ/2ε₀·(1 − z/√(z²+R²))
+    z, R = 1.0, 1e9
+    _coinciden("plano infinito", E, s / (2 * EPS0) * (1 - z / math.sqrt(z * z + R * R)), 1e-8)
     trace.verificacion("sen.gauss_plano_dos", f"E = ±{E:.6g} V/m (dos caras)")
     return {"E_mas": E, "E_menos": -E}
 
@@ -393,11 +417,12 @@ def maxwell_plana(E0, B0, k, omega, trace: Trace | None = None) -> dict:
     c_med = w / k
     c_teo = 1 / math.sqrt(MU0 * EPS0)
     if abs(c_med - c_teo) > 1e-3 * c_teo:
-        raise _error("DISCREPANT", f"ω/k = {c_med:.6g} ≠ c")
+        raise _error("DISCREPANT", f"ω/k = {c_med:.6g} ≠ c: no es solución de Maxwell en vacío")
     if abs(E0 / B0 - c_teo) > 1e-3 * c_teo:
-        raise _error("DISCREPANT", f"E₀/B₀ = {E0 / B0:.6g} ≠ c")
-    trace.verificacion("sen.maxwell_c", f"c = ω/k = E₀/B₀ = {c_teo:.6g} m/s")
-    return {"c": c_teo}
+        raise _error("DISCREPANT", f"E₀/B₀ = {E0 / B0:.6g} ≠ c: no es solución de Maxwell en vacío")
+    trace.verificacion("sen.maxwell_c", f"ω/k = {c_med:.6g} y E₀/B₀ = {E0 / B0:.6g} coinciden con "
+                                        f"c = 1/√(μ₀ε₀) = {c_teo:.6g} m/s (±0,1 %)")
+    return {"c": c_teo, "omega_k": c_med, "E_B": E0 / B0}
 
 
 def maxwell_guia(E0, a, omega, trace: Trace | None = None) -> dict:
@@ -612,6 +637,23 @@ def b_coaxial(I, a, b, r, central="hilo", c=None, trace: Trace | None = None) ->
         B = MU0 * Ienc / (2 * math.pi * r)
     else:
         B, Ienc = 0.0, 0.0
+    # segundo camino: I_enc = ∫₀ʳ J(ρ)·2πρ dρ con la J de cada conductor
+    def J(p):
+        if p < a:
+            return I / (math.pi * a * a) if central == "macizo" else 0.0
+        if t0 <= p < t1:
+            return -I / (math.pi * (t1 * t1 - t0 * t0))
+        return 0.0
+    cortes = sorted({0.0, r} | {v for v in (a, t0, t1) if v < r})
+    # J es constante en cada anillo: ∫J·dS = Σ J(centro)·π(v² − u²)
+    Inum = sum(J((u + v) / 2) * math.pi * (v * v - u * u)
+               for u, v in zip(cortes, cortes[1:]))
+    if central == "hilo" and r >= a:
+        Inum += I          # el hilo fino es una corriente concentrada en ρ = 0
+    elif central == "hilo":
+        Inum = I
+    if abs(Inum - Ienc) > 1e-9 * abs(I) or             abs(B * 2 * math.pi * r - MU0 * Inum) > 1e-9 * max(abs(MU0 * I), 1e-300):
+        raise _error("DISCREPANT", f"I_enc por ∫J·dS = {Inum:.6g} ≠ {Ienc:.6g}")
     trace.verificacion("sen.bs_coaxial_continuidad",
                        f"B continua en los radios; fuera B = 0 (I_enc = {Ienc:.3g})")
     return {"B": B, "I_enc": Ienc}
@@ -627,6 +669,10 @@ def b_hilo(I, r, trace: Trace | None = None) -> dict:
     if not r > 0:
         raise _error("BAD_INPUT", "r > 0 fuera del hilo")
     B = MU0 * I / (2 * math.pi * r)
+    # segundo camino: Biot-Savart ∫ μ₀I·r dz/(4π(r²+z²)^{3/2}), z = r·tanθ
+    bs = _simpson(lambda t: MU0 * I / (4 * math.pi * r) * math.cos(t),
+                  -math.pi / 2, math.pi / 2, 400)
+    _coinciden("hilo infinito", B, bs)
     trace.verificacion("sen.bs_ampere", f"B = {B:.6g} T; ∮B·dl = μ₀I")
     return {"B": B}
 
@@ -646,6 +692,12 @@ def b_poligono(I, a, N, trace: Trace | None = None) -> dict:
         raise _error("BAD_INPUT", "apotema > 0 y N ≥ 3")
     B = MU0 * N * I / (2 * math.pi * a) * math.sin(math.pi / N)
     B_esp = MU0 * I / (2 * a)
+    # segundo camino: Biot-Savart de un lado (semilongitud a·tan(π/N)) por cuadratura
+    h = a * math.tan(math.pi / N)
+    lado = _simpson(lambda u: MU0 * I * a / (4 * math.pi * (a * a + u * u) ** 1.5), -h, h, 400)
+    _coinciden("polígono", B, N * lado)
+    if not B < B_esp:
+        raise _error("DISCREPANT", "el polígono inscrito no puede superar a la espira")
     trace.verificacion("sen.bs_limite",
                        f"B = {B:.6g} T; N → ∞ da {B_esp:.6g} T (espira)")
     return {"B": B, "limite": B_esp}
@@ -730,6 +782,9 @@ def c_esferico(eps_r, R1, R2, trace: Trace | None = None) -> dict:
     if not (e > 0 and 0 < R1 < R2):
         raise _error("BAD_INPUT", "0 < R₁ < R₂ y ε > 0")
     C = 4 * math.pi * e * EPS0 / (1 / R1 - 1 / R2)
+    # segundo camino: con Q = 1, V = ∫E·dr y C = 1/V
+    V = _simpson(lambda r: 1 / (4 * math.pi * e * EPS0 * r * r), R1, R2)
+    _coinciden("condensador esférico", C, 1 / V)
     trace.verificacion("sen.cond_limite",
                        f"C = {C:.6g} F; R₂ → ∞ da 4πεR₁ = {4 * math.pi * e * EPS0 * R1:.6g}")
     return {"C": C}
@@ -744,6 +799,9 @@ def c_cilindrico(eps_r, L, R1, R2, trace: Trace | None = None) -> dict:
     if not (e > 0 and L > 0 and 0 < R1 < R2):
         raise _error("BAD_INPUT", "L > 0 y 0 < R₁ < R₂")
     C = 2 * math.pi * e * EPS0 * L / math.log(R2 / R1)
+    # segundo camino: con Q = 1, V = ∫E·dr y C = 1/V
+    V = _simpson(lambda r: 1 / (2 * math.pi * e * EPS0 * L * r), R1, R2)
+    _coinciden("condensador cilíndrico", C, 1 / V)
     trace.verificacion("sen.cond_unidades", f"C = {C:.6g} F ([ε]·m = F)")
     return {"C": C}
 
@@ -779,7 +837,7 @@ def mutua_solenoide_bobina(N, Nb, a, L, alpha=0.0,
                  why="L ≫ R justifica B uniforme y la bobina pequeña ve campo "
                      "constante (§4.18)")
     N, Nb, a, L = _f(N), _f(Nb), _f(a), _f(L)
-    al = _f(alpha)
+    al = _ang(alpha)
     if not (N > 0 and Nb > 0 and a > 0 and L > 0):
         raise _error("BAD_INPUT", "N, Nb, a, L > 0")
     trace.hipotesis("sen.mutua_solenoide", "L ≫ R: B uniforme dentro", "cumple")
@@ -804,20 +862,26 @@ def faraday(B0, f, N, A, theta=0.0, trace: Trace | None = None) -> dict:
                      "la fem se opone (§4.18, fila 9)")
     B0, fr = _f(B0), _f(f)
     N, A = _f(N), _f(A)
-    _, th = _angulo(theta) if isinstance(theta, str) else (None, _f(theta))
+    th = _ang(theta)
     if not (fr > 0 and N > 0 and A > 0):
         raise _error("BAD_INPUT", "f, N, A > 0")
     w = 2 * math.pi * fr
+    # Φ(t) = NAB₀cosθ·sen(ωt) ⇒ ε(t) = −dΦ/dt = −amp·cos(ωt)
     amp = N * A * B0 * w * math.cos(th)
-    # Lenz: en t = 0⁺ el flujo Φ ≈ NAB₀cosθ·ωt crece ⇒ ε = −dΦ/dt < 0 si cosθ > 0
-    e = 1e-9
-    dphi = (N * A * B0 * math.cos(th) * math.sin(w * e) - 0) / e
-    if math.cos(th) > 0 and not -dphi < 0:
-        raise _error("DISCREPANT", "Lenz: la fem no se opone al flujo creciente")
+    # segundo camino: −dΦ/dt en t = 0 por diferencia central, contra ε(0) = −amp
+    h = 1e-6 / w
+
+    def phi(t):
+        return N * A * B0 * math.cos(th) * math.sin(w * t)
+
+    eps0 = -(phi(h) - phi(-h)) / (2 * h)
+    if abs(eps0 + amp) > 1e-6 * max(1.0, abs(amp)):
+        raise _error("DISCREPANT", "ε(0) por −dΦ/dt no coincide con −NAB₀ω·cosθ")
     trace.hipotesis("sen.faraday_orientacion",
                     "superficie coherente con el contorno (declarada)", "cumple")
     trace.verificacion("sen.faraday_lenz",
-                       f"ε(t) = {amp:.6g}·cos(ωt) V con el signo de Lenz")
+                       f"ε(t) = −{amp:.6g}·cos(ωt) V: se opone al flujo creciente "
+                       f"(−dΦ/dt en t = 0 da {eps0:.6g})")
     return {"fem_amp": amp, "omega": w}
 
 
@@ -870,30 +934,47 @@ def friis(Pt, Gt_dB, Gr_dB, lam, R, trace: Trace | None = None) -> dict:
     return {"Pr": Pr, "Pr_dB": Pr_dB}
 
 
-def ruido_sistema(G_dB, T_sys) -> dict:
+def ruido_sistema(G_dB, T_sys, trace: Trace | None = None) -> dict:
     """G/T = G − 10·log10(T_sys) con T_sys declarada y ruido blanco."""
+    trace = trace if trace is not None else Trace()
+    trace.metodo("sen.ruido_GT", "figura de mérito en dB: G(dB) − 10·log₁₀(T_sys)",
+                 why="en dB el cociente G/T es una resta; la temperatura de sistema "
+                     "resume todo el ruido referido a la entrada")
     G, T = _f(G_dB), _f(T_sys)
     if not T > 0:
-        raise _error("BAD_INPUT", "T_sys > 0")
-    return {"G_T": G - 10 * math.log10(T)}
+        raise _error("BAD_INPUT", "T_sys > 0 K")
+    GT = G - 10 * math.log10(T)
+    # segundo camino: en lineal, 10·log₁₀(G_lin/T)
+    lin = 10 * math.log10(10 ** (G / 10) / T)
+    if abs(lin - GT) > 1e-9 * max(1.0, abs(GT)):
+        raise _error("DISCREPANT", "G/T en dB y en lineal difieren")
+    trace.verificacion("sen.ruido_GT_lineal", f"G/T = {GT:.6g} dB/K también en lineal")
+    return {"G_T": GT}
 
 
-def array_factores(N, d, lam, theta=None) -> dict:
+def array_factores(N, d, lam, theta=None, trace: Trace | None = None) -> dict:
     """Factor de array uniforme: AF = sen(Nψ/2)/sen(ψ/2); con N = 1 da 1.
 
     Ancho del lóbulo principal ≈ λ/(N·d) en broadside.
     """
+    trace = trace if trace is not None else Trace()
+    trace.metodo("sen.array", "ψ = k·d·cosθ y suma de N fasores en progresión geométrica",
+                 why="N antenas iguales y equiespaciadas suman fasores con desfase ψ: la "
+                     "serie geométrica da sen(Nψ/2)/sen(ψ/2)")
     N = int(_Q(N))
     d, lam = _f(d), _f(lam)
     if not (N >= 1 and d > 0 and lam > 0):
         raise _error("BAD_INPUT", "N ≥ 1, d, λ > 0")
     k = 2 * math.pi / lam
-    th = _f(theta) if theta is not None else math.pi / 2
+    th = _ang(theta) if theta is not None else math.pi / 2
     psi = k * d * math.cos(th)
     AF = (math.sin(N * psi / 2) / math.sin(psi / 2)
           if abs(math.sin(psi / 2)) > 1e-15 else float(N))
-    if N == 1 and abs(AF - 1) > 1e-12:
-        raise _error("DISCREPANT", "con N = 1 no reproduce el elemento")
+    # segundo camino: la suma directa |Σₙ e^{jnψ}| frente a la forma cerrada
+    directa = abs(sum(cmath.exp(1j * n * psi) for n in range(N)))
+    if abs(directa - abs(AF)) > 1e-9 * max(1.0, N):
+        raise _error("DISCREPANT", "|AF| cerrado ≠ suma de fasores")
+    trace.verificacion("sen.array_suma", f"|AF| = {abs(AF):.6g} = |Σe^(jnψ)| (ψ = {psi:.6g})")
     return {"AF": AF, "ancho": lam / (N * d)}
 
 
@@ -918,6 +999,12 @@ def fuerza_espira(I_hilo, I_esp, a, b, x, trace: Trace | None = None) -> dict:
     Bx = MU0 * Ih / (2 * math.pi * x)
     Bxa = MU0 * Ih / (2 * math.pi * (x + a))
     F = Ie * b * (Bx - Bxa)
+    # segundo camino: |F| = I_esp·|dΦ/dx| con Φ(x) = μ₀I·b/2π·ln((x+a)/x)
+    def flujo(u):
+        return MU0 * Ih * b / (2 * math.pi) * math.log((u + a) / u)
+    hx = 1e-5 * x
+    _coinciden("fuerza sobre la espira", F,
+               -Ie * (flujo(x + hx) - flujo(x - hx)) / (2 * hx), 1e-6)
     trace.verificacion("sen.fuerza_signo",
                        f"F = {F:.6g} N hacia el hilo (B mayor cerca)")
     return {"F": F, "B_x": Bx, "B_xa": Bxa}

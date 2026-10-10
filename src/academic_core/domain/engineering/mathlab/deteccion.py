@@ -35,13 +35,13 @@ def _Q(x) -> Fraction:
     if isinstance(x, float):
         if not math.isfinite(x):
             raise _error("BAD_INPUT", f"«{x}» no es un número finito")
-        return Fraction(x).limit_denominator(10**9)
+        return Fraction(repr(x))  # decimal exacto: 1.6e-19 no se hace 0
     s = str(x).strip().replace(",", ".")
     try:
         return Fraction(s)
     except (ValueError, ZeroDivisionError):
         try:
-            return Fraction(float(s)).limit_denominator(10**9)
+            return Fraction(repr(float(s)))
         except ValueError:
             raise _error("BAD_INPUT", f"«{x}» no es un número")
 
@@ -89,9 +89,11 @@ def _gauss(A, b):
     return [M[i][n] / M[i][i] if M[i][i] != 0 else None for i in range(n)]
 
 
-def _jacobi(A, sweeps=50):
+def _jacobi(A, sweeps=None):
     """Autovalores/vectores de simétrica real por rotaciones de Jacobi."""
     n = len(A)
+    if sweeps is None:
+        sweeps = 50 + 30 * n * n          # rotaciones de una en una: crece con n²
     V = [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
     B = [[float(A[i][j]) for j in range(n)] for i in range(n)]
     for _ in range(sweeps):
@@ -102,7 +104,9 @@ def _jacobi(A, sweeps=50):
                     mx, a, b = abs(B[i][j]), i, j
         if mx < 1e-15:
             break
-        th = 0.5 * math.atan2(2 * B[a][b], B[a][a] - B[b][b])
+        # con B' = JᵀBJ el término cruzado es sc(x−y) + (c²−s²)z: se anula con
+        # tan 2θ = −2z/(x−y). El signo contrario solo acertaba con x = y.
+        th = 0.5 * math.atan2(-2 * B[a][b], B[a][a] - B[b][b])
         c, s = math.cos(th), math.sin(th)
         for i in range(n):
             if i not in (a, b):
@@ -116,7 +120,15 @@ def _jacobi(A, sweeps=50):
         for i in range(n):
             x, y = V[i][a], V[i][b]
             V[i][a], V[i][b] = c * x - s * y, s * x + c * y
-    return [B[i][i] for i in range(n)], V
+    lam = [B[i][i] for i in range(n)]
+    # comprobación: A·v = λ·v para cada par propio (residuo relativo a ‖A‖)
+    norma = max(1.0, max((abs(float(A[i][j])) for i in range(n) for j in range(n)), default=0))
+    for k in range(n):
+        for i in range(n):
+            Av = sum(float(A[i][j]) * V[j][k] for j in range(n))
+            if abs(Av - lam[k] * V[i][k]) > 1e-8 * norma:
+                raise _error("DISCREPANT", "Jacobi: A·v ≠ λ·v (no ha convergido)")
+    return lam, V
 
 
 def _cholesky(R):
@@ -205,6 +217,10 @@ def psd_salida(Sx: list, H: list, trace: Trace | None = None) -> dict:
     trace = trace if trace is not None else Trace()
     if len(Sx) != len(H):
         raise _error("BAD_INPUT", "S_x y H de igual longitud")
+    if not Sx:
+        raise _error("BAD_INPUT", "falta S_x")
+    if any(float(_Q(v)) < 0 for v in Sx):
+        raise _error("BAD_INPUT", "una PSD no es negativa")
     Sy = [float(_Q(s)) * abs(complex(h)) ** 2 for s, h in zip(Sx, H)]
     trace.verificacion("sen.psd_salida", f"S_y = S_x·|H|² en {len(Sy)} puntos")
     return {"Sy": Sy}
@@ -269,6 +285,24 @@ def _muestra_normal(g) -> float:
     return math.sqrt(-2 * math.log(u1)) * math.cos(2 * math.pi * u2)
 
 
+def _inversa(M):
+    """Inversa por Gauss-Jordan con pivote parcial (float); None si singular."""
+    n = len(M)
+    A = [list(map(float, f)) + [1.0 if i == j else 0.0 for j in range(n)] for i, f in enumerate(M)]
+    for c in range(n):
+        piv = max(range(c, n), key=lambda r: abs(A[r][c]))
+        if abs(A[piv][c]) < 1e-14:
+            return None
+        A[c], A[piv] = A[piv], A[c]
+        v = A[c][c]
+        A[c] = [x / v for x in A[c]]
+        for r in range(n):
+            if r != c and A[r][c]:
+                f = A[r][c]
+                A[r] = [x - f * y for x, y in zip(A[r], A[c])]
+    return [f[n:] for f in A]
+
+
 def detector_map(s: list, sigma: float, p0: float, p1: float, costes=None,
                  trace: Trace | None = None) -> dict:
     """Umbral MAP/Bayes: γ = P(H₀)/P(H₁) (con costes, γ = (C10−C00)P₀/(C01−C11)P₁)."""
@@ -281,12 +315,47 @@ def detector_map(s: list, sigma: float, p0: float, p1: float, costes=None,
     if not (p0 > 0 and p1 > 0):
         raise _error("BAD_INPUT", "a priori positivos")
     if costes is None:
-        gamma = p0 / p1
+        c00, c01, c10, c11 = 0.0, 1.0, 1.0, 0.0        # MAP: coste 0-1
     else:
-        (c00, c01), (c10, c11) = costes
-        gamma = (c10 - c00) * p0 / ((c01 - c11) * p1)
-    trace.verificacion("sen.det_gamma", f"γ = {gamma:.6g}")
-    return {"gamma": gamma}
+        (c00, c01), (c10, c11) = [[_f(v) for v in fila] for fila in costes]
+        if not (c10 > c00 and c01 > c11):
+            raise _error("BAD_INPUT", "equivocarse tiene que costar más que acertar: "
+                                      "C10 > C00 y C01 > C11")
+    gamma = (c10 - c00) * p0 / ((c01 - c11) * p1)
+    ss = [_f(v) for v in s]
+    sg = _f(sigma)
+    if not sg > 0:
+        raise _error("BAD_INPUT", "σ > 0")
+    d = math.sqrt(sum(v * v for v in ss)) / sg
+    if d == 0:
+        raise _error("BAD_INPUT", "señal nula: H₀ y H₁ no se distinguen")
+    # z = sᵀx/(σ‖s‖) ~ N(0,1) en H₀ y N(d,1) en H₁; Λ(z) = e^{dz − d²/2} > γ ⇔ z > η
+    eta = math.log(gamma) / d + d / 2
+
+    def riesgo(u):
+        pfa, pd = Q(u), Q(u - d)
+        return (p0 * (c00 * (1 - pfa) + c10 * pfa) + p1 * (c11 * pd + c01 * (1 - pd)))
+
+    R = riesgo(eta)
+    trace.regla("sen.det_umbral", f"Λ(z) > γ ⇔ z > η = ln γ/d + d/2 = {eta:.6g} "
+                                  f"(d = {d:.6g})",
+                why="el cociente de verosimilitudes de dos gaussianas de igual "
+                    "varianza es monótono en z")
+    # segundo camino: minimizar el riesgo de Bayes en z por búsqueda de sección áurea
+    lo, hi = eta - 10 - d, eta + 10 + d
+    phi = (math.sqrt(5) - 1) / 2
+    for _ in range(200):
+        a_, b_ = hi - phi * (hi - lo), lo + phi * (hi - lo)
+        if riesgo(a_) < riesgo(b_):
+            hi = b_
+        else:
+            lo = a_
+    if abs((lo + hi) / 2 - eta) > 1e-5 * max(1.0, abs(eta)):
+        raise _error("DISCREPANT", f"el mínimo del riesgo está en {(lo + hi) / 2:.6g}, no en η")
+    trace.verificacion("sen.det_gamma",
+                       f"γ = {gamma:.6g}; η = {eta:.6g}; riesgo = {R:.6g} "
+                       f"(mínimo comprobado por búsqueda)")
+    return {"gamma": gamma, "eta": eta, "d": d, "riesgo": R}
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +391,22 @@ def fisher(modelo: str, params: dict, trace: Trace | None = None) -> dict:
         I = N / lam
     else:
         raise _error("BAD_INPUT", "modelo gauss_media, bernoulli o poisson")
+    # segundo camino: I = N·E[(∂/∂θ ln f(X; θ))²] sumando/integrando la ley
+    if modelo == "gauss_media":
+        from academic_core.domain.engineering.mathlab.calculo_extra import _simpson
+        sd = math.sqrt(s2)
+        I1 = _simpson(lambda x: (x / s2) ** 2 * math.exp(-x * x / (2 * s2))
+                      / (sd * math.sqrt(2 * math.pi)), -12 * sd, 12 * sd, 4000)
+    elif modelo == "bernoulli":
+        I1 = p * (1 / p) ** 2 + (1 - p) * (1 / (1 - p)) ** 2
+    else:
+        I1, pk, k = 0.0, math.exp(-lam), 0
+        while k < 50 + 20 * lam:
+            I1 += pk * (k / lam - 1) ** 2
+            k += 1
+            pk *= lam / k
+    if abs(N * I1 - I) > 1e-6 * I:
+        raise _error("DISCREPANT", f"I por fórmula {I:.6g} ≠ por la esperanza {N * I1:.6g}")
     trace.hipotesis("sen.fisher_reg", "regularidad (soporte fijo, derivadas "
                     "bajo la esperanza)", "cumple en estos modelos")
     trace.verificacion("sen.fisher_crb", f"I = {I:.6g}; CRB = {1 / I:.6g}")
@@ -337,6 +422,12 @@ def gauss_conjunto(m_t: list, m_x: list, K_t: list, K_tx: list, K_x: list,
                      "E[(θ−θ̂)xᵀ] = 0 los comprueba")
     Kx = [[_f(v) for v in fila] for fila in K_x]
     n = len(Kx)
+    m_ = len(K_t)
+    if n == 0 or m_ == 0 or any(len(f) != n for f in Kx) or len(x_obs) != n or \
+            len(m_x) != n or len(m_t) != m_ or len(K_tx) != m_ or \
+            any(len(f) != n for f in K_tx) or any(len(f) != m_ for f in K_t):
+        raise _error("BAD_INPUT", "dimensiones: K_x n×n, K_θx m×n, K_θ m×m, x y m_x de n, "
+                                  "m_θ de m")
     b = [float(_Q(xo) - _Q(mo)) for xo, mo in zip(x_obs, m_x)]
     w = _gauss([row[:] for row in Kx], b)
     if w is None or any(v is None for v in w):
@@ -353,7 +444,39 @@ def gauss_conjunto(m_t: list, m_x: list, K_t: list, K_tx: list, K_x: list,
             col = _gauss([row[:] for row in Kx], [Ktx[j][a] for a in range(n)])
             fila.append(Kt[i][j] - sum(Ktx[i][a] * col[a] for a in range(n)))
         Err.append(fila)
-    trace.verificacion("sen.gauss_error", "ECM = K_θ − K_θx·K_x⁻¹·K_xθ")
+    # segundo camino: por la matriz de precisión conjunta Λ = Σ⁻¹,
+    # θ̂ = m_θ − Λ_θθ⁻¹·Λ_θx·(x − m_x) y ECM = Λ_θθ⁻¹
+    S = [[_f(v) for v in f] for f in K_t]
+    S = [S[i] + [_f(v) for v in K_tx[i]] for i in range(m_)]
+    S += [[_f(K_tx[j][i]) for j in range(m_)] + Kx[i] for i in range(n)]
+    Lam = _inversa(S)
+    if Lam is None:
+        # θ queda determinado (en parte) por x: no hay precisión conjunta. Se
+        # comprueba el principio de ortogonalidad, G·K_x = K_θx con G = K_θx·K_x⁻¹,
+        # y que el ECM sea semidefinido positivo y no supere a K_θ
+        G = [[sum(Ktx[i][a] * _gauss([row[:] for row in Kx],
+                                     [1.0 if t == j else 0.0 for t in range(n)])[a]
+                  for a in range(n)) for j in range(n)] for i in range(m_)]
+        if any(abs(sum(G[i][a] * Kx[a][j] for a in range(n)) - Ktx[i][j]) >
+               1e-9 * max(1.0, abs(Ktx[i][j])) for i in range(m_) for j in range(n)):
+            raise _error("DISCREPANT", "el error no es ortogonal a las observaciones")
+        lam_e, _ = _jacobi([[(Err[i][j] + Err[j][i]) / 2 for j in range(m_)] for i in range(m_)])
+        if min(lam_e) < -1e-9 * max(1.0, max(abs(v) for f in Kt for v in f)) or                 any(Err[i][i] > Kt[i][i] + 1e-9 for i in range(m_)):
+            raise _error("DISCREPANT", "ECM no semidefinido o mayor que la varianza a priori")
+        trace.verificacion("sen.gauss_error",
+                           "ECM = K_θ − K_θx·K_x⁻¹·K_xθ; error ortogonal a x, ECM ⪰ 0 "
+                           "(θ determinado por x en parte: conjunta singular)")
+        return {"theta_hat": th, "ECM": Err}
+    Ltt = _inversa([fila[:m_] for fila in Lam[:m_]])
+    th2 = [float(m_t[i]) - sum(Ltt[i][a] * sum(Lam[a][m_ + j] * b[j] for j in range(n))
+                               for a in range(m_)) for i in range(m_)]
+    esc = max(1.0, max(abs(v) for v in th))
+    if any(abs(x - y) > 1e-7 * esc for x, y in zip(th, th2)) or \
+            any(abs(Err[i][j] - Ltt[i][j]) > 1e-7 * max(1.0, abs(Ltt[i][j]))
+                for i in range(m_) for j in range(m_)):
+        raise _error("DISCREPANT", "θ̂ o el ECM no coinciden por la precisión conjunta")
+    trace.verificacion("sen.gauss_error", "ECM = K_θ − K_θx·K_x⁻¹·K_xθ; θ̂ y ECM "
+                                          "coinciden por la matriz de precisión conjunta")
     return {"theta_hat": th, "ECM": Err}
 
 
@@ -402,9 +525,18 @@ def yule_walker(r0: float, r1: float, trace: Trace | None = None) -> dict:
     r0, r1 = _f(r0), _f(r1)
     if r0 <= 0:
         raise _error("BAD_INPUT", "r₀ > 0")
+    if not abs(r1) < r0:
+        raise _error("BAD_INPUT", "|r₁| < r₀: si no, no es la autocorrelación de un AR(1) "
+                                  "estacionario")
     a = r1 / r0
-    trace.verificacion("sen.yw_coef", f"a = r₁/r₀ = {a:.6g}")
-    return {"a": a}
+    s2 = r0 * (1 - a * a)
+    # segundo camino: el AR(1) con (σ², a) reproduce r₀ y r₁
+    rr = r_ar1(s2, a, 2, Trace())["R"][0]
+    if abs(complex(rr[0]).real - r0) > 1e-9 * r0 or abs(complex(rr[1]).real - r1) > 1e-9 * r0:
+        raise _error("DISCREPANT", "el AR(1) de Yule-Walker no reproduce r₀, r₁")
+    trace.verificacion("sen.yw_coef", f"a = r₁/r₀ = {a:.6g}; σ² = r₀(1 − a²) = {s2:.6g}; "
+                                      f"el AR(1) reproduce r₀ y r₁")
+    return {"a": a, "sigma2": s2}
 
 
 def gradiente_modos(R: list, mu: float, trace: Trace | None = None) -> dict:
@@ -422,7 +554,10 @@ def gradiente_modos(R: list, mu: float, trace: Trace | None = None) -> dict:
                     "cumple" if 0 < mu < 2 / lmax else "FALLA: diverge")
     if not 0 < mu < 2 / lmax:
         raise _no(f"μ fuera de (0, 2/λ_max): diverge (se ve, no se itera)")
-    taus = [-1 / math.log(1 - mu * l) for l in lam]
+    # el modo k decae como |1 − μλ_k|ⁿ (con 1 < μλ < 2 oscila, y sigue convergiendo)
+    taus = [0.0 if abs(1 - mu * l) < 1e-15 else -1 / math.log(abs(1 - mu * l)) for l in lam]
+    if abs(sum(lam) - sum(Rf[i][i] for i in range(len(Rf)))) > 1e-9 * max(1.0, sum(lam)):
+        raise _error("DISCREPANT", "Σλ ≠ tr(R)")
     trace.verificacion("sen.grad_modos",
                        f"dispersión λ_max/λ_min = {lmax / min(lam):.4g}")
     return {"lambdas": lam, "taus": taus,
@@ -472,8 +607,16 @@ def lms(R: list, p: list, mu: float, pasos: int = 200, realiz: int = 200,
             J[t] += e_ * e_ / realiz
             for i in range(n):
                 w[i] += mu * e_ * x[i]
-    # teoría: E[w(n)] por modos desde w(0) = 0 hacia w₀
+    # teoría: E[w(n)] = (I − (I − μR)ⁿ)·w₀ desde w(0) = 0 (x independiente en el tiempo)
     Jmin = sd2
+    if not mu >= 2 / lmax:
+        Ew_t = [0.0] * n
+        for _ in range(pasos):
+            Ew_t = [Ew_t[i] - mu * sum(Rf[i][j] * Ew_t[j] for j in range(n)) + mu * pf[i]
+                    for i in range(n)]
+        tol = 10 * math.sqrt(mu * Jmin * max(1.0, lmax) / realiz) + 1e-3
+        if any(abs(a - b) > tol * max(1.0, abs(b)) for a, b in zip(Ew[-1], Ew_t)):
+            raise _error("DISCREPANT", "la media de LMS no sigue la teoría (I − (I−μR)ⁿ)w₀")
     trace.verificacion("sen.lms_curva",
                        f"J(0) = {J[0]:.4g} → J({pasos}) = {J[-1]:.4g} "
                        f"(J_min = {Jmin:.4g})")
@@ -488,7 +631,11 @@ def _gauss_box(g) -> float:
 def nlms_cota(R: list, trace: Trace | None = None) -> dict:
     """NLMS: 0 < μ̃ < 2 con traza como cota práctica 2/tr(R)."""
     trace = trace if trace is not None else Trace()
+    if not R or any(len(f) != len(R) for f in R):
+        raise _error("BAD_INPUT", "R cuadrada no vacía")
     tr = sum(_f(R[i][i]) for i in range(len(R)))
+    if not tr > 0:
+        raise _error("BAD_INPUT", "tr(R) > 0 (R es una autocorrelación)")
     trace.verificacion("sen.nlms_cota",
                        f"0 < μ̃ < 2; práctica μ̃ < 2/tr(R) = {2 / tr:.4g}")
     return {"cota_practica": 2 / tr}

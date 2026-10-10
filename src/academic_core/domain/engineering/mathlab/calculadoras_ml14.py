@@ -100,7 +100,8 @@ def _senales(peticion: C.Peticion) -> C.Resultado:
         x = _lee_senal(e.get("x", {}))
         h = _lee_senal(e.get("h", {}))
         r = S.convolucion(x, h, trace)
-        lineas = [f"[{t['a']}, {t['b']}]: {t['expr']}" for t in r["tramos"]]
+        lineas = [f"[{t['a']}, {'∞)' if t['b'] is None else str(t['b']) + ']'}: {t['expr']}"
+                  for t in r["tramos"]]
         texto = "y(t) = " + ("; ".join(lineas) if lineas else f"{r['integral']}·δ(t−{r['desplazamiento_deltas']})")
         texto += f"; ∫y = {r['integral']}"
         xs = [s for s in x if isinstance(s, S.Segmento)]
@@ -118,7 +119,8 @@ def _senales(peticion: C.Peticion) -> C.Resultado:
                     grafica=g)
     if calculo == "ventana":
         r = S.ventana_movil(_lee_senal(e.get("x", {})), e.get("T", 1), trace)
-        lineas = [f"[{t['a']}, {t['b']}]: {t['expr']}" for t in r["tramos"]]
+        lineas = [f"[{t['a']}, {'∞)' if t['b'] is None else str(t['b']) + ']'}: {t['expr']}"
+                  for t in r["tramos"]]
         return _ok(peticion, trace, "y(t) = " + "; ".join(lineas) + f"; ∫y = {r['integral']}",
                    "ventana móvil", f"∫y = {r['integral']}")
     if calculo == "conv_digital":
@@ -141,7 +143,7 @@ def _senales(peticion: C.Peticion) -> C.Resultado:
                              [abs(v) for v in r["ck"].values()])],
                      "k", "|c_k|", "espectro de líneas de la periódica")
         return _ok(peticion, trace,
-                   f"c_0 = {c0.real:.6g}{c0.imag:+.6g}j; P = {r['potencia']:.6g}; "
+                   f"c_0 = {C.texto_complejo(c0)}; P = {r['potencia']:.6g}; "
                    f"nulos: {nul}",
                    "señal base + TF", f"P = {r['potencia']:.6g} ≤ {r['potencia_tiempo']:.6g}",
                    grafica=g)
@@ -162,10 +164,10 @@ def _senales(peticion: C.Peticion) -> C.Resultado:
         return _ok(peticion, trace, f"E = {r['energia']}",
                    "energía", f"E = {r['energia']}")
     if calculo == "potencia_sinusoide":
-        P = S.potencia_sinusoide(e.get("A", 1))
+        P = S.potencia_sinusoide(e.get("A", 1), trace)
         return _ok(peticion, trace, f"P = {P}", "potencia de sinusoide", f"P = A²/2 = {P}")
     if calculo == "energia_eco":
-        E = S.energia_eco(e.get("Ex", 1), e.get("a", "1/2"))
+        E = S.energia_eco(e.get("Ex", 1), e.get("a", "1/2"), trace)
         return _ok(peticion, trace, f"E_y = {E}", "energía del eco",
                    f"E_y = E_x·(1+a²) = {E}")
     if calculo == "correlacion":
@@ -192,7 +194,7 @@ def _senales(peticion: C.Peticion) -> C.Resultado:
               for a in e.get("X", [])]
         if not Xs:
             raise C.error("BAD_INPUT", "densidad sin espectro X")
-        Sq = S.densidad_desde_tf(Xs)
+        Sq = S.densidad_desde_tf(Xs, trace)
         return _ok(peticion, trace, f"S = [{', '.join(f'{v:.6g}' for v in Sq)}]",
                    "densidad espectral", "S_x = |X|² punto a punto")
     if calculo == "dtft":
@@ -204,16 +206,33 @@ def _senales(peticion: C.Peticion) -> C.Resultado:
             S.comprobar_dtft(e.get("a", "1/2"), L, trace)
             detalle = f"máximo {L} en F = 0; ceros en k/{L}"
         elif tipo == "exp":
+            a_ = S._Q(e.get("a", "1/2"))
+            if not abs(float(a_)) < 1:
+                raise C.error("BAD_INPUT", "aⁿu[n] solo tiene DTFT con |a| < 1")
+            trace.metodo("sen.dtft_exp", "Σ aⁿe^{−j2πFn} es geométrica: 1/(1 − a·e^{−j2πF})",
+                         why="con |a| < 1 la serie converge y su suma es cerrada")
             Xs = [S.dtft_exp(F, e.get("a", "1/2")) for F in Fs]
+            N = max(1, int(math.ceil(math.log(1e-14) / math.log(abs(float(a_)))))) if a_ else 1
+            directa = [sum(float(a_) ** n * cmath.exp(-2j * math.pi * F * n) for n in range(N))
+                       for F in Fs]
+            if any(abs(x - y) > 1e-9 * max(1.0, abs(y)) for x, y in zip(Xs, directa)):
+                raise C.error("DISCREPANT", "la forma cerrada no coincide con la serie")
+            trace.verificacion("sen.dtft_exp_serie", f"coincide con la serie sumada hasta n = {N}")
             detalle = f"|H|² = 1/(1+a²−2a·cos2πF)"
         elif tipo == "delta":
-            Xs = [S.dtft_delta(F, int(e.get("n0", 0))) for F in Fs]
+            n0 = int(e.get("n0", 0))
+            trace.metodo("sen.dtft_delta", "δ[n − n₀] ↦ e^{−j2πFn₀}",
+                         why="un retardo de n₀ muestras es una fase lineal en F")
+            Xs = [S.dtft_delta(F, n0) for F in Fs]
+            if any(abs(X - cmath.exp(-2j * math.pi * F * n0)) > 1e-12 for F, X in zip(Fs, Xs)):
+                raise C.error("DISCREPANT", "la DTFT de la delta no es e^{−j2πFn₀}")
+            trace.verificacion("sen.dtft_delta_fase", "|X| = 1 y fase −2πFn₀ en cada F")
             detalle = "retardo = fase lineal"
         else:
             raise C.error("BAD_INPUT", "dtft pulso, exp o delta")
         g = _grafica([_serie("|X(F)|", Fs, [abs(X) for X in Xs])],
                      "F", "|X|", "DTFT: módulo en F ∈ [−1, 1]")
-        txt = "; ".join(f"F = {F}: {X.real:.6g}{X.imag:+.6g}j" for F, X in zip(Fs, Xs))
+        txt = "; ".join(f"F = {F}: {C.texto_complejo(X)}" for F, X in zip(Fs, Xs))
         return _ok(peticion, trace, txt, "DTFT", detalle, grafica=g)
     if calculo == "dft":
         x = [float(v) for v in e.get("x", [])]
@@ -223,7 +242,7 @@ def _senales(peticion: C.Peticion) -> C.Resultado:
         X = r["X"]
         g = _grafica([_serie("|X[k]|", list(range(len(X))), [abs(v) for v in X])],
                      "k", "|X|", "DFT con k > N/2 como frecuencia negativa")
-        txt = "; ".join(f"X[{k}] = {v.real:.6g}{v.imag:+.6g}j" for k, v in enumerate(X))
+        txt = "; ".join(f"X[{k}] = {C.texto_complejo(v)}" for k, v in enumerate(X))
         return _ok(peticion, trace, txt, "DFT",
                    f"X[0] = Σx; Parseval = {r['energia']:.6g}", grafica=g)
     if calculo == "dft_lineal":

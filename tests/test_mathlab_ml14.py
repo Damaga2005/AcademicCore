@@ -67,8 +67,8 @@ def test_conv_rect_rect_da_triangulo():
     r = S.convolucion([S.rect(-1, 1, 1)], [S.rect(-1, 1, 1)])
     assert r["rupturas"] == [Fraction(-2), Fraction(0), Fraction(2)]
     assert r["integral"] == Fraction(4)
-    assert r["tramos"][0]["expr"] == "2 + 1·t"
-    assert r["tramos"][1]["expr"] == "2 + -1·t"
+    assert r["tramos"][0]["expr"] == "2 + t"
+    assert r["tramos"][1]["expr"] == "2 − t"
 
 
 def test_conv_rect_exp_integral():

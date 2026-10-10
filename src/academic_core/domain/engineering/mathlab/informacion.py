@@ -132,7 +132,21 @@ def kraft(longitudes: list[int], trace: Trace | None = None) -> dict:
     ls = [int(_Q(v)) for v in longitudes]
     if any(v <= 0 for v in ls):
         raise _error("BAD_INPUT", "longitudes ≥ 1")
+    if not ls:
+        raise _error("BAD_INPUT", "faltan las longitudes")
     K = sum(Fraction(1, 2 ** v) for v in ls)
+    # segundo camino: si K ≤ 1 se construye el código canónico y se comprueba que
+    # es prefijo; si K > 1 la construcción tiene que fallar
+    palabras, c, prev = [], 0, None
+    for l in sorted(ls):
+        if prev is not None:
+            c = (c + 1) << (l - prev)
+        prev = l
+        palabras.append(format(c, f"0{l}b") if c < 2 ** l else None)
+    construible = None not in palabras and not any(
+        q.startswith(p) for i, p in enumerate(palabras) for j, q in enumerate(palabras) if i != j)
+    if construible != (K <= 1):
+        raise _error("DISCREPANT", "Kraft y la construcción canónica no coinciden")
     trace.verificacion("sen.kraft_suma",
                        f"K = {float(K):.6g} {'= 1 (completo)' if K == 1 else '≤ 1' if K < 1 else '> 1 (no prefijo)'}")
     return {"K": K, "prefijo_posible": K <= 1}

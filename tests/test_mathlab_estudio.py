@@ -38,13 +38,13 @@ def test_extremos_relativos_contra_sympy(f):
     ("x^3-3*x", ["crece en: (−∞, -1) ∪ (1, +∞)", "máximo relativo en (-1, 2)",
                  "inflexión en (0, 0)", "impar"]),
     ("(x^2+1)/(x-1)", ["oblicua y = x + 1 en +∞", "vertical x = 1",
-                       "mínimo relativo en (1 + sqrt(2), 2*sqrt(2) + 2)"]),
-    ("x*exp(-x)", ["máximo relativo en (1, exp(-1))", "inflexión en (2, 2*exp(-2))",
+                       "mínimo relativo en (1 + √2, 2·√2 + 2)"]),
+    ("x*exp(-x)", ["máximo relativo en (1, exp(-1))", "inflexión en (2, 2·exp(-2))",
                    "horizontal y = 0 en +∞"]),
     ("ln(x)/x", ["dominio: (0, +∞)", "máximo relativo en (exp(1), 1/exp(1))",
                  "vertical x = 0 (por la derecha → −∞)"]),
     ("sqrt(4-x^2)", ["dominio: [-2, 2]", "par"]),
-    ("ln(x^2-1)", ["dominio: (−∞, -1) ∪ (1, +∞)", "par", "eje X en (-sqrt(2), 0)"]),
+    ("ln(x^2-1)", ["dominio: (−∞, -1) ∪ (1, +∞)", "par", "eje X en (-√2, 0)"]),
 ])
 def test_estudio_completo(f, esperado):
     texto = E.estudiar(mx.parse(f), "x").texto()

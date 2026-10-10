@@ -1405,6 +1405,8 @@ Interfaz de §5.9; sin modelos de ingeniería.
 
 Pestañas por bloque (0 a 7, y **8 a 19 en v2**, agrupadas en «Discreta y códigos», «Datos e IA», «Señales y detección», «Campos y física») más **Calculadoras** y **Ejercicios**. Cada ejercicio muestra su insignia de respaldo (**E** examen, **G** guía) y sus convenciones declaradas. Un **editor de fórmulas** con vista previa, **panel de pasos navegable** (anterior, siguiente, reproducir) que resalta el trozo afectado, y **gráfica enlazada** a cada resultado. Todo operable con teclado; español.
 
+**Implementado (2026-10-10):** `ui/math_lab.py`, ruta «Aprender › Matemáticas» (`learn/math`), construida al abrirse por primera vez para no pagar la carga del motor al arrancar. Cada pestaña de bloque es la misma calculadora filtrada a sus operaciones (`BLOQUES`; `convencion`, `ejercicio` y `pulido` solo en «Calculadoras»), que tiene las 80. Entrada como fórmula o como JSON (precargada con la muestra de `pulido.MUESTRAS`), vista previa en vivo con `mvexpr.preview`, cálculo fuera del hilo de la interfaz, resultado con sello, hipótesis, convenciones y avisos; pasos filtrados por nivel con anterior/siguiente/reproducir y `Step.piece` resaltado dentro de su «antes»; gráfica con su descripción textual (§6). Ejercicios: tema, dificultad y semilla, insignia E/G, convenciones, pistas graduadas, corrección por el corrector del motor y solución paso a paso. Teclado: Ctrl+Intro calcula, Alt+←/→ recorren los pasos, mnemónicos en todos los botones; todos los controles con nombre accesible. Pruebas: `tests/test_mathlab_ui.py`.
+
 ---
 
 ## 10. Fases de entrega

@@ -122,7 +122,7 @@ def _polarizacion(peticion: C.Peticion) -> C.Resultado:
         r = P.medios(e.get("eps_r", 4), e.get("mu_r", 1), e.get("f", "1e9"),
                      e.get("tand"), e.get("sigma"), trace)
         n = r["n_tilde"]
-        texto = (f"ñ = {n.real:.6g}{n.imag:+.6g}j; α = {r['alfa']:.6g} Np/m; "
+        texto = (f"ñ = {C.texto_complejo(n)}; α = {r['alfa']:.6g} Np/m; "
                  f"β = {r['beta']:.6g} rad/m")
         if r["aprox"] is not None:
             a = r["aprox"]
@@ -153,7 +153,7 @@ def _polarizacion(peticion: C.Peticion) -> C.Resultado:
                      f"elipse de polarización: {r['tipo']}")
         psi_txt = "—" if r["psi"] is None else f"{r['psi'] * 180 / math.pi:.3g}°"
         return _ok(peticion, trace,
-                   f"{r['tipo']}; AR = {r['AR']:.6g}; ψ = {psi_txt}; mano {r['mano']}",
+                   f"{r['tipo']}; AR = {'∞' if r['AR'] == float('inf') else f"{r['AR']:.6g}"}; ψ = {psi_txt}; mano {r['mano']}",
                    "polarización por SVD", f"AR por SVD y por tanχ; Stokes {r['stokes'][0]:.4g}",
                    grafica=g)
     if calculo == "jones":
@@ -173,8 +173,8 @@ def _polarizacion(peticion: C.Peticion) -> C.Resultado:
         r = P.cascada(els, ent, trace)
         s = r["salida"]
         return _ok(peticion, trace,
-                   f"E = ({s[0].real:.6g}{s[0].imag:+.6g}j, "
-                   f"{s[1].real:.6g}{s[1].imag:+.6g}j); |E|² = {r['pot_out']:.6g}",
+                   f"E = ({C.texto_complejo(s[0])}, "
+                   f"{C.texto_complejo(s[1])}); |E|² = {r['pot_out']:.6g}",
                    "cascada de Jones", f"|E|²: {r['pot_in']:.6g} → {r['pot_out']:.6g}")
     if calculo == "diseno":
         r = P.disenar_cadena(e.get("AR", "3.73"), e.get("psi", "pi/4"), trace)
@@ -192,7 +192,7 @@ def _polarizacion(peticion: C.Peticion) -> C.Resultado:
         r = P.fresnel(n1, n2, ti, pol, trace)
         ang = P.angulos(n1, n2)
         txt_c = "—" if ang["critico"] is None else f"{ang['critico'] * 180 / math.pi:.4g}°"
-        texto = (f"r = {r['r'].real:.6g}{r['r'].imag:+.6g}j; R = {r['R']:.6g}; "
+        texto = (f"r = {C.texto_complejo(r['r'])}; R = {r['R']:.6g}; "
                  f"T = {r['T']:.6g}; θ_B = {ang['brewster'] * 180 / math.pi:.4g}°; "
                  f"θ_c = {txt_c}")
         npts = 90
@@ -210,7 +210,7 @@ def _polarizacion(peticion: C.Peticion) -> C.Resultado:
                    f"R = {r['R']:.6g}; T = {r['T']:.6g}",
                    "multicapa", f"det = 1 por capa; R + T = 1")
     if calculo == "antirreflejante":
-        r = P.antirreflejante(e.get("n1", 1), e.get("n2", "2.25"))
+        r = P.antirreflejante(e.get("n1", 1), e.get("n2", "2.25"), trace)
         return _ok(peticion, trace,
                    f"n_f = {r['n_f']:.6g}; d = {r['d_sobre_lambda']:.6g}·λ₀",
                    "antirreflejante λ/4", f"n_f = √(n₁·n₂) = {r['n_f']:.6g}")

@@ -44,19 +44,41 @@ def _Q(x) -> Fraction:
     if isinstance(x, float):
         if not math.isfinite(x):
             raise _error("BAD_INPUT", f"«{x}» no es un número finito")
-        return Fraction(x).limit_denominator(10**9)
+        return Fraction(repr(x))  # decimal exacto: 1.6e-19 no se hace 0
     s = str(x).strip().replace(",", ".")
     try:
         return Fraction(s)
     except (ValueError, ZeroDivisionError):
         try:
-            return Fraction(float(s)).limit_denominator(10**9)
+            return Fraction(repr(float(s)))
         except ValueError:
             raise _error("BAD_INPUT", f"«{x}» no es un número")
 
 
 def _f(x) -> float:
     return float(_Q(x))
+
+
+def _poli_texto(c: list[float]) -> str:
+    """``x³ − x`` y no ``0.0·x^0 + -1.0·x^1 + 0.0·x^2 + 1.0·x^3``."""
+    sup = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+    partes = []
+    for i in range(len(c) - 1, -1, -1):
+        ci = c[i]
+        if ci == 0:
+            continue
+        mag = f"{abs(ci):g}"
+        base = "" if i == 0 else "x" if i == 1 else "x" + str(i).translate(sup)
+        cuerpo = mag if i == 0 else base if mag == "1" else f"{mag}·{base}"
+        signo = ("−" if ci < 0 else "") if not partes else (" − " if ci < 0 else " + ")
+        partes.append(signo + cuerpo)
+    return "".join(partes) or "0"
+
+
+def _coinciden(que: str, a: float, b: float, rel: float = 1e-9) -> None:
+    """Segundo camino: dos cálculos independientes del mismo valor."""
+    if abs(a - b) > rel * max(abs(a), abs(b), 1e-300):
+        raise _error("DISCREPANT", f"{que}: {a:.10g} ≠ {b:.10g}")
 
 
 # ---------------------------------------------------------------------------
@@ -72,8 +94,7 @@ def _potencial(d: dict):
         Up = lambda x: sum(i * ci * x ** (i - 1) for i, ci in enumerate(c) if i)
         Upp = lambda x: sum(i * (i - 1) * ci * x ** (i - 2)
                             for i, ci in enumerate(c) if i > 1)
-        txt = " + ".join(f"{ci}·x^{i}" for i, ci in enumerate(c))
-        return U, Up, Upp, f"U = {txt}"
+        return U, Up, Upp, f"U = {_poli_texto(c)}"
     if tipo == "cos":
         U0, a = _f(d.get("U0", 1)), _f(d.get("a", 1))
         sgn = _f(d.get("signo", -1))
@@ -197,6 +218,15 @@ def equilibrios(d: dict, x0=-10.0, x1=10.0, trace: Trace | None = None) -> dict:
         if s == 0:
             trace.aviso("sen.eq_plano", f"x = {p:.6g}: U″ = 0, hace falta orden superior")
         eqs.append({"x": p, "U": U(p), "U2": s, "estabilidad": est})
+    # segundo camino: la fuerza −U′ se anula en cada equilibrio, medida con
+    # diferencias centrales de U (no con U′, que es con lo que se buscó)
+    if not _es_aprox(d) and d.get("tipo") != "tabla":
+        for q in eqs:
+            hh = 1e-5 * max(1.0, abs(q["x"]))
+            Fd = -(U(q["x"] + hh) - U(q["x"] - hh)) / (2 * hh)
+            escala = max(1.0, abs(U(q["x"] + hh)) / hh)
+            if abs(Fd) > 1e-5 * escala:
+                raise _error("DISCREPANT", f"x = {q['x']:.6g}: −U′ = {Fd:.3g} ≠ 0")
     trace.verificacion("sen.eq_fuerza_cero",
                        f"{len(eqs)} equilibrios con |U′| < 1e−9 en {txt}")
     return {"equilibrios": eqs, "descripcion": txt}
@@ -372,11 +402,6 @@ def potencial_2d(U_texto: str, A, B, trace: Trace | None = None) -> dict:
     return {"Fx": mx.text(Fx), "Fy": mx.text(Fy), "W": W1}
 
 
-    trace.verificacion("sen.planck_pi", f"∫ = {num:.6g} = π⁴/15")
-    sigma = 2 * math.pi ** 5 * K_B ** 4 / (15 * C_LUZ ** 2 * H_P ** 3)
-    return {"integral": num, "exacta": ex, "sigma": sigma}
-
-
 # ---------------------------------------------------------------------------
 # mecánica clásica: circular, choques, CM, inercia, rodadura, conducción,
 # poblaciones de Boltzmann (exámenes de Física; lo no potencial también cuenta)
@@ -401,8 +426,12 @@ def peralte(R, v=None, theta=None, trace: Trace | None = None) -> dict:
         th = math.atan(v * v / (G_TIERRA * R))
     else:
         th = _f(theta)
+        if not 0 <= th < math.pi / 2:
+            raise _error("BAD_INPUT", "θ en radianes con 0 ≤ θ < π/2")
     N_por_m = G_TIERRA / math.cos(th)
     v_calc = math.sqrt(G_TIERRA * R * math.tan(th)) if v is None else v
+    # segundo camino: N·senθ = v²/R (centrípeta) con N·cosθ = g (vertical)
+    _coinciden("centrípeta del peralte", N_por_m * math.sin(th), v_calc ** 2 / R)
     trace.verificacion("sen.peralte_unidades",
                        f"tanθ = {math.tan(th):.6g} = v²/gR")
     return {"theta": th, "v": v_calc, "N_por_m": N_por_m}
@@ -435,8 +464,13 @@ def pendulo_conico(L, omega=None, theta=None, trace: Trace | None = None) -> dic
         th = math.acos(G_TIERRA / (w * w * L))
     else:
         th = _f(theta)
-        w = math.sqrt(G_TIERRA / (L * math.cos(th))) if math.cos(th) > 0 else 0.0
-    T = G_TIERRA / math.cos(th) if math.cos(th) > 0 else G_TIERRA
+        if not 0 < th < math.pi / 2:
+            raise _error("BAD_INPUT", "θ en radianes con 0 < θ < π/2")
+        w = math.sqrt(G_TIERRA / (L * math.cos(th)))
+    T = G_TIERRA / math.cos(th)
+    # segundo camino: proyecciones de la 2.ª ley, vertical y radial (r = L·senθ)
+    _coinciden("vertical T·cosθ = g", T * math.cos(th), G_TIERRA)
+    _coinciden("radial T·senθ = ω²L·senθ", T * math.sin(th), w * w * L * math.sin(th))
     trace.verificacion("sen.cono_proyecciones",
                        f"T·cosθ = g y T·senθ = ω²L·senθ con θ = {th:.6g}")
     return {"theta": th, "omega": w, "T_por_m": T}
@@ -463,8 +497,11 @@ def deslice_esfera(R, v0=0.0, trace: Trace | None = None) -> dict:
     if c >= 1:
         trace.verificacion("sen.talud_no_despega",
                            f"cosθ_c = {c:.4g} ≥ 1: con esta v₀ no despega")
-        return {" despega": False, "theta_c": None}
+        return {"despega": False, "theta_c": None}
     th = math.acos(c)
+    # segundo camino: en θ_c, N = 0 ⇔ g·cosθ = v²/R con v² de la energía
+    v2 = v0 * v0 + 2 * G_TIERRA * R * (1 - math.cos(th))
+    _coinciden("despegue N = 0", G_TIERRA * math.cos(th), v2 / R)
     trace.verificacion("sen.talud_energia", f"θ_c = {th * 180 / math.pi:.4g}°")
     return {"despega": True, "theta_c": th,
             "sen_phi_c": c}
@@ -498,6 +535,10 @@ def centro_masas(puntos: list, trace: Trace | None = None) -> dict:
         raise _error("BAD_INPUT", "masa total positiva")
     X = sum((_Q(p[0]) * _Q(p[1]) for p in puntos), Fraction(0)) / M
     Y = sum((_Q(p[0]) * _Q(p[2]) for p in puntos), Fraction(0)) / M
+    # segundo camino (exacto): los momentos respecto al CM se anulan
+    if sum(_Q(p[0]) * (_Q(p[1]) - X) for p in puntos) != 0 or \
+            sum(_Q(p[0]) * (_Q(p[2]) - Y) for p in puntos) != 0:
+        raise _error("DISCREPANT", "Σmᵢ(rᵢ − r_CM) ≠ 0")
     trace.verificacion("sen.cm_pesos", f"M = {M}, CM = ({X}, {Y})")
     return {"M": M, "X": X, "Y": Y}
 
@@ -524,6 +565,20 @@ def inercia(figura: str, m, d, trace: Trace | None = None) -> dict:
     if coef is None:
         raise _error("BAD_INPUT", f"sólido: {', '.join(sorted(INERCIAS))}")
     I = coef * m * d * d
+    # segundo camino: ∫r²·dm por cuadratura con la distribución de masa de cada sólido
+    from academic_core.domain.engineering.mathlab.calculo_extra import _simpson
+    dm = {
+        "varilla_cm": (lambda x: x * x * m / d, -d / 2, d / 2),
+        "varilla_extremo": (lambda x: x * x * m / d, 0.0, d),
+        "disco": (lambda r: r * r * m / (math.pi * d * d) * 2 * math.pi * r, 0.0, d),
+        # esfera: discos de radio √(d²−z²), cada uno con I = ½·dm·ρ²
+        "esfera": (lambda z: 0.5 * (d * d - z * z) * m / (4 / 3 * math.pi * d ** 3)
+                   * math.pi * (d * d - z * z), -d, d),
+        # cascarón: anillos de radio d·senθ y masa m/2·senθ dθ
+        "cascaron": (lambda t: (d * math.sin(t)) ** 2 * m / 2 * math.sin(t), 0.0, math.pi),
+        "aro": (lambda t: d * d * m / (2 * math.pi), 0.0, 2 * math.pi),
+    }[figura]
+    _coinciden(f"I de {figura}", I, _simpson(dm[0], dm[1], dm[2], 400), 1e-8)
     trace.verificacion("sen.inercia_tabla",
                        f"I = {INERCIAS[figura]} = {I:.6g} kg·m²")
     return {"I": I, "formula": INERCIAS[figura]}
@@ -533,6 +588,8 @@ def steiner(I_cm, m, d, trace: Trace | None = None) -> dict:
     """I = I_cm + Md² (ejes paralelos)."""
     trace = trace if trace is not None else Trace()
     I, m, d = _f(I_cm), _f(m), _f(d)
+    if not (I >= 0 and m > 0):
+        raise _error("BAD_INPUT", "I_cm ≥ 0 y m > 0")
     out = I + m * d * d
     trace.verificacion("sen.steiner", f"I = {out:.6g} kg·m²")
     return {"I": out}
@@ -552,6 +609,9 @@ def rodadura(I_cm, m, R, h, trace: Trace | None = None) -> dict:
     if not all(v > 0 for v in (m, R, h)) or not I >= 0:
         raise _error("BAD_INPUT", "m, R, h > 0 e I ≥ 0")
     v = math.sqrt(2 * G_TIERRA * h / (1 + I / (m * R * R)))
+    # segundo camino: energía, mgh = ½mv² + ½I(v/R)²
+    _coinciden("energía en la rodadura", m * G_TIERRA * h,
+               0.5 * m * v * v + 0.5 * I * (v / R) ** 2)
     trace.verificacion("sen.rodadura_energia",
                        f"½mv²(1+I/mR²) = mgh con v = {v:.6g} m/s")
     return {"v": v}
@@ -566,6 +626,8 @@ def conduccion(kappa, S, dT, L, trace: Trace | None = None) -> dict:
     if not all(v > 0 for v in (k, S, L)):
         raise _error("BAD_INPUT", "κ, S, L > 0")
     I = k * S * dT / L
+    # segundo camino: resistencias térmicas en serie (la barra en 10 tramos)
+    _coinciden("ley de Fourier", I, dT / sum((L / 10) / (k * S) for _ in range(10)))
     trace.verificacion("sen.conduccion_unidades",
                        f"[κS/L] = W/K; I = {I:.6g} W")
     return {"I": I, "R_termica": L / (k * S)}
@@ -582,33 +644,67 @@ def boltzmann_niveles(N_total, dE_eV, T, trace: Trace | None = None) -> dict:
         raise _error("BAD_INPUT", "N, ΔE, T > 0")
     x = dE * 1.602176634e-19 / (K_B * T)
     Nexc = N * math.exp(-x) / (1 + math.exp(-x))
+    # segundo camino: el cociente de poblaciones es el factor de Boltzmann
+    _coinciden("N₁/N₀ = e^(−ΔE/kT)", Nexc / (N - Nexc), math.exp(-x))
     trace.verificacion("sen.boltzmann_suma",
                        f"N₀ + N₁ = {N - Nexc:.4g} + {Nexc:.4g} = N")
     return {"N_exc": Nexc, "N_base": N - Nexc, "x": x}
 
 
-def retrato(d: dict, energias: list, x0=-10.0, x1=10.0, n=240) -> dict:
-    """U(x) muestreada y trayectorias (x, v) a cada energía (RK4)."""
+def retrato(d: dict, energias: list, x0=-10.0, x1=10.0, n=240,
+            trace: Trace | None = None) -> dict:
+    """U(x) muestreada y, para cada energía, la curva de fase exacta v = ±√(2(E−U)/m)."""
+    trace = trace if trace is not None else Trace()
+    trace.metodo("sen.retrato", "conservación de la energía: v = ±√(2(E − U(x))/m) "
+                 "donde U(x) ≤ E",
+                 why="en 1D conservativo la trayectoria en (x, v) es la curva de nivel "
+                     "de la energía: no hace falta integrar en el tiempo")
     U, Up, _, _ = _potencial(d)
     m = _f(d.get("m", 1))
+    x0, x1 = _f(x0), _f(x1)
+    if not (x1 > x0 and m > 0):
+        raise _error("BAD_INPUT", "x₁ > x₀ y m > 0")
     xs = [x0 + (x1 - x0) * i / n for i in range(n + 1)]
     series = [{"nombre": "U(x)", "xs": xs, "ys": [U(x) for x in xs]}]
+    retrocesos = 0
     for E in energias:
         E = _f(E)
-        inicios = [x for x in xs if U(x) < E]
-        if not inicios:
-            continue
-        x, v, t, dt = inicios[0], math.sqrt(2 * (E - U(inicios[0])) / m), 0.0, 0.01
-        tx, tv = [], []
-        for _ in range(4000):
-            a1 = -Up(x) / m
-            x += v * dt + a1 * dt * dt / 2
-            v += a1 * dt
-            tx.append(x)
-            tv.append(v)
-            if x < x0 or x > x1:
-                break
-        series.append({"nombre": f"E = {E}", "xs": tx, "ys": tv})
+        # tramos permitidos (U ≤ E) con los retrocesos refinados por bisección
+        tramos, actual = [], None
+        for i, x in enumerate(xs):
+            dentro = U(x) <= E
+            if dentro and actual is None:
+                actual = [x]
+                if i > 0:
+                    a, b = xs[i - 1], x
+                    for _ in range(60):
+                        c = (a + b) / 2
+                        a, b = (c, b) if U(c) > E else (a, c)
+                    actual = [b]
+                    retrocesos += 1
+            elif not dentro and actual is not None:
+                a, b = xs[i - 1], x
+                for _ in range(60):
+                    c = (a + b) / 2
+                    a, b = (c, b) if U(c) <= E else (a, c)
+                actual.append(a)
+                retrocesos += 1
+                tramos.append(actual)
+                actual = None
+        if actual is not None:
+            actual.append(xs[-1])
+            tramos.append(actual)
+        for k, (a, b) in enumerate(tramos):
+            pts = [a + (b - a) * j / 120 for j in range(121)]
+            v = [math.sqrt(max(0.0, 2 * (E - U(x)) / m)) for x in pts]
+            series.append({"nombre": f"E = {E:g}" + (f" ({k + 1})" if len(tramos) > 1 else ""),
+                           "xs": pts + pts[::-1], "ys": v + [-w for w in v[::-1]]})
+            # comprobación: en los retrocesos interiores la velocidad se anula, U = E
+            for xr in (a, b):
+                if x0 < xr < x1 and abs(U(xr) - E) > 1e-9 * max(1.0, abs(E)):
+                    raise _error("DISCREPANT", f"retroceso en x = {xr:.6g} con U ≠ E")
+    trace.verificacion("sen.retrato_retrocesos",
+                       f"{retrocesos} puntos de retroceso con U(x) = E (v = 0)")
     return {"series": series}
 
 
@@ -759,7 +855,13 @@ def gas_mezcla(gases: list, trace: Trace | None = None) -> dict:
             raise _error("BAD_INPUT", "n, Cv, T > 0 en cada gas")
         num += n * Cv * T
         den += n * Cv
+    if den == 0:
+        raise _error("BAD_INPUT", "faltan los gases de la mezcla")
     Teq = num / den
+    balance = sum(_f(g.get("n", 1)) * _f(g.get("Cv", 20.785)) * (Teq - _f(g.get("T", 300)))
+                  for g in gases)
+    if abs(balance) > 1e-9 * num:
+        raise _error("DISCREPANT", f"ΣnCv(T_eq − T) = {balance:.3g} ≠ 0")
     trace.verificacion("sen.gas_mezcla_energia",
                        f"ΣnCv(T_eq−T) = {sum(_f(g.get('n',1))*_f(g.get('Cv',20.785))*(Teq-_f(g.get('T',300))) for g in gases):.3g} ≈ 0")
     return {"Teq": Teq}
@@ -779,6 +881,12 @@ def muelle_gas(h, gamma=1.0, trace: Trace | None = None) -> dict:
     if not (h > 0 and gamma >= 1):
         raise _error("BAD_INPUT", "h > 0 y γ ≥ 1")
     w = math.sqrt(gamma * 9.81 / h)
+    # segundo camino: rigidez −dF/dh de F/m = g·(h₀/h)^γ − g, derivada numérica en h₀
+    def F(x):
+        return 9.81 * (h / x) ** gamma - 9.81
+
+    dh = 1e-6 * h
+    _coinciden("ω² = k/m", w * w, -(F(h + dh) - F(h - dh)) / (2 * dh), 1e-6)
     trace.verificacion("sen.muelle_unidades",
                        f"ω = {w:.6g} rad/s ([g/h] = 1/s²)")
     return {"omega": w}
@@ -830,6 +938,9 @@ def orbita(a, M_central=5.972e24, m=1000.0, trace: Trace | None = None) -> dict:
     v = math.sqrt(GM / a)
     T = 2 * math.pi * math.sqrt(a ** 3 / GM)
     E = -GM * _f(m) / (2 * a)
+    # segundos caminos: E = ½mv² − GMm/a y la 3.ª ley T²/a³ = 4π²/GM
+    _coinciden("energía orbital", E, 0.5 * _f(m) * v * v - GM * _f(m) / a)
+    _coinciden("3.ª ley de Kepler", T * T / a ** 3, 4 * math.pi ** 2 / GM)
     trace.verificacion("sen.orbita_kepler3", f"T²/a³ = {T*T/a**3:.6g} = 4π²/GM")
     return {"v": v, "T": T, "E": E}
 
@@ -844,6 +955,9 @@ def visibilidad(R, h, trace: Trace | None = None) -> dict:
     if not (R > 0 and h > 0):
         raise _error("BAD_INPUT", "R, h > 0")
     th = math.acos(R / (R + h))
+    # segundo camino: el área del casquete 2πR²(1 − cosθ) entre la de la esfera
+    _coinciden("fracción visible", h / (2 * (R + h)),
+               2 * math.pi * R * R * (1 - math.cos(th)) / (4 * math.pi * R * R))
     trace.verificacion("sen.visibilidad_h0", "h → 0 da θ → 0 (horizonte nulo)")
     return {"theta": th, "fraccion": h / (2 * (R + h))}
 

@@ -134,7 +134,7 @@ def test_complejos_como_objetivo_del_motor():
     metodo = trig.objetivo("complejos").metodo
     i = K.Complejo(mx.ZERO, mx.Num(1))
     # sin(i) = i·sinh(1) and cos(i) = cosh(1), with the hyperbolic ones exact
-    assert metodo("sin", i).texto() == "sinh(1)i"
+    assert metodo("sin", i).texto() == "senh(1)·i"
     assert metodo("cos", i).texto() == "cosh(1)"
     # cos(3 + 4i) is NOT 3 + 4i: the whole point is that it is not
     assert metodo("cos", K.Complejo(mx.Num(3), mx.Num(4))).texto() != "(3 + 4i)"

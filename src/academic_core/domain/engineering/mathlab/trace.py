@@ -64,7 +64,9 @@ LEVELS = (RESUMEN, PASO, DETALLADO)
 
 MAX_STEPS = 2000
 MAX_FIELD = 2000
-MAX_RENDERED = 8000
+#: tope de seguridad; con 8000 un cálculo legítimo de 67 pasos (campos v_dado) no se
+#: podía mostrar. Los límites reales son MAX_STEPS y MAX_FIELD.
+MAX_RENDERED = 1_000_000
 
 #: the kinds of step the engine is allowed to record
 REGLA = "regla"
@@ -357,9 +359,13 @@ class Trace:
             block.append((key.strip(), value[1:] if value.startswith(" ") else value))
         if block:
             raise _invalid("TRACE_CORRUPT", "el último paso está incompleto")
-        for i, s in enumerate(trace.steps):
-            if s.index != i:
-                raise _invalid("TRACE_CORRUPT", f"pasos fuera de orden en la posición {i + 1}")
+        # to_text(nivel) omite los pasos de más detalle: los índices pueden saltar,
+        # pero nunca repetirse ni retroceder
+        for i, (a, b) in enumerate(zip(trace.steps, trace.steps[1:])):
+            if not b.index > a.index:
+                raise _invalid("TRACE_CORRUPT", f"pasos fuera de orden en la posición {i + 2}")
+        if trace.steps and trace.steps[0].index < 0:
+            raise _invalid("TRACE_CORRUPT", "índice de paso negativo")
         return trace
 
 

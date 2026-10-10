@@ -111,9 +111,9 @@ def describe(resultado: C.Resultado, nivel: str = "paso") -> str:
     """
     lineas = [f"operación: {resultado.operacion}"]
     if resultado.exacto is not None:
-        lineas.append(f"exacto: {resultado.exacto}")
+        lineas.append(f"exacto: {C._format_exact(resultado.exacto)}")
     if resultado.aproximado is not None:
-        lineas.append(f"aproximado: {resultado.aproximado!r} "
+        lineas.append(f"aproximado: {C._format_complex(resultado.aproximado, resultado.cifras)} "
                       f"({resultado.cifras} cifras)")
     if resultado.error_acotado is not None:
         lineas.append(f"error: ≤ {resultado.error_acotado:.3g}")

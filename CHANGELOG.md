@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-10 — MathLab: la lista de pendientes, cerrada; y la interfaz de §9
+
+- **Motor.** La primitiva por sustitución prueba primero u = g(x) (x·cos(x²) ya sale); la Hessiana sin punto devuelve la matriz general en vez de negarse; una serie sin forma cerrada (Σ1/n!) da la suma parcial con una **cota de la cola** por la geométrica del cociente (sello «solo numérico»); polares, cilíndricas y esféricas aceptan θ, φ y ρ.
+- **Primitivas racionales con denominadores irreducibles sobre ℚ.** Los factores se proponen con las raíces complejas y solo se aceptan si dividen exactamente en ℚ; x⁴ + px² + s² se integra cerrado como (x² + αx + s)(x² − αx + s), α = √(2s − p). Salen x⁴+1, x⁶+1, x⁴−x²+1 y sus mezclas, todas «verificado». De paso, x⁴+x²+1 (que sí factoriza sobre ℚ) fallaba por el caso b = d, y **1/(x²−2) daba «discrepa» con √−8**: un cuadrático con raíces reales irracionales se trataba como irreducible.
+- **Salidas legibles.** Valor medio, autovalores, valores singulares, fracciones simples (ln|x − 1|, sin «|(…)|»), sumas, complejos, Newton por diferencias, raíces, operadores y cartesianas dejan de salir en ASCII; las irracionales llevan su valor al lado («c = √3 ≈ 1.732050808»).
+- **Defectos encontrados al contrastar:** el generador de «espacios vectoriales» reventaba con DEPENDENT en vez de reintentar, y su enunciado llevaba un carácter de control invisible (U+202C) en lugar de «⟨»; la solución del ejercicio de derivadas era `…*2*1`; un gradiente con una coordenada ajena al sistema daba INTERNAL en vez de BAD_INPUT; la gráfica de `derivar` unía los puntos en desorden.
+- **Tests mal planteados, corregidos:** (−1)ⁿ/n (el veredicto es la primera palabra), Simpson con n = 10 (contra Simpson, no contra la integral), Green y el PVI en su formato, y las seis sumas esperadas comprobadas con su suma parcial. Varios tests fijaban todavía la salida ASCII.
+- **Contraste profundo** contra NumPy, SymPy o código escrito en el test: LU (PA = LU exacta), Jacobi y Gauss-Seidel con ρ(B), Newton DD, ajustes, Gauss-Newton, minimax, RK4/Euler, Lambert W; espacios vectoriales completos; ∇, ∇², ∇· y ∇× en curvilíneas; distribuciones; demostraciones (contraejemplos e inducción contra la suma directa); ejercicios de los siete temas en 12 semillas; pulido.
+- **Interfaz de §9** (`ui/math_lab.py`, «Aprender › Matemáticas»): pestañas por bloque, Calculadoras (las 80) y Ejercicios con insignia E/G; editor con vista previa; pasos con anterior/siguiente/reproducir y el trozo resaltado; gráfica enlazada con su descripción; todo con teclado. Se construye al abrirse por primera vez: el motor tarda segundos en cargar.
+
 ## 2026-10-09 — El banco canónico contrastado con el motor: cazado un error de signo
 
 Un banco de regresión que se comprueba a sí mismo no comprueba nada. Se han montado los mismos circuitos con `circuit.Circuit` y se han resuelto con `mna.solve_linear_dc`, y se han comparado las trece magnitudes con las del banco. **En el primer cruce apareció un error real.**

@@ -80,27 +80,6 @@ def dominio_de(nombre: str) -> D.Conjunto:
     return conjunto if conjunto is not None else D.REALES
 
 
-# ---------------------------------------------------------------------------
-# the safe direction: f(f⁻¹(u)) = u
-# ---------------------------------------------------------------------------
-
-
-    """``sin(asin(u)) = u`` and its sisters, where they hold everywhere (T-11).
-
-    Only the direction that is true wherever it is defined, and only in **that**
-    direction: ``sin(asin(u)) = u`` holds, but ``asin(sin(x)) = x`` is false
-    outside ``[-pi/2, pi/2]``. Matching the pair symmetrically is precisely how
-    the second one slips through, so the outer call must be the direct function
-    and the inner one its inverse — never the other way round.
-    """
-    if not (isinstance(e, mx.Call) and len(e.args) == 1):
-        return None
-    inversa = INVERSAS.get(e.name)
-    if inversa is None or not _is_call(e.args[0], inversa):
-        return None
-    return e.args[0].args[0]
-
-
 #: what each composition needs, in Spanish, for the step log (§5.7)
 HIPOTESIS_INVERSAS = {
     "sin": "sin(arcsen(u)) = u para |u| ≤ 1, que es el dominio del arcsen",

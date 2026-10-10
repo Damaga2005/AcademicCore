@@ -101,14 +101,74 @@ class Complejo:
 
     @classmethod
     def de_texto(cls, texto: str) -> "Complejo":
-        """``3+4i``, ``-i``, ``2``, ``3-4i``: rectangular, exactly."""
-        limpio = texto.replace(" ", "").replace("*", "")
-        for sufijo in ("i", "j"):
-            if limpio.endswith(sufijo):
-                cuerpo = limpio[:-1]
-                real, imag = _partes(cuerpo)
-                return cls(real, imag)
-        return cls(mx.parse(limpio), mx.ZERO)
+        """``3+4i``, ``-i``, ``2``, ``3-4i`` (rectangular, exactly) o cualquier
+        expresión: ``(1+i)^5``, ``(3+4i)/(1-2i)``, ``exp(i*pi/3)``, ``abs(3+4i)``.
+
+        Antes solo se leía el literal rectangular: lo demás se trataba como una
+        expresión real con una variable «i» y se devolvía sin calcular, y al quitar
+        los «*» ``i*pi`` se convertía en ``ipi`` (se leía p·i)."""
+        import re as _re
+
+        limpio = texto.replace(" ", "")
+        if _re.fullmatch(r"[-+]?[0-9./]*[-+]?[0-9./]*\*?[ij]?", limpio) and limpio:
+            plano = limpio.replace("*", "")
+            for sufijo in ("i", "j"):
+                if plano.endswith(sufijo):
+                    real, imag = _partes(plano[:-1])
+                    return cls(real, imag)
+        z = cls.de_expresion(mx.parse(limpio.replace("j", "i") if "j" in limpio
+                                      and "i" not in limpio else limpio))
+        return cls(_fuerte(z.real), _fuerte(z.imag))
+
+    @classmethod
+    def de_expresion(cls, e: mx.Expr) -> "Complejo":
+        """Evalúa exactamente una expresión con la unidad imaginaria ``i``."""
+        if isinstance(e, mx.Const) and e.name == "i":
+            return cls(mx.ZERO, mx.Num(Fraction(1)))
+        if isinstance(e, (mx.Num, mx.Const)):
+            return cls(e, mx.ZERO)
+        if isinstance(e, mx.Sym):
+            raise sin_refuso(f"«{e.name}» es una variable: un complejo tiene que ser un número")
+        if isinstance(e, mx.Neg):
+            z = cls.de_expresion(e.arg)
+            return cls(_normaliza(mx.Neg(z.real)), _normaliza(mx.Neg(z.imag)))
+        if isinstance(e, (mx.Add, mx.Sub, mx.Mul, mx.Div)):
+            a, b = cls.de_expresion(e.left), cls.de_expresion(e.right)
+            return (a + b if isinstance(e, mx.Add) else a - b if isinstance(e, mx.Sub)
+                    else a * b if isinstance(e, mx.Mul) else a / b)
+        if isinstance(e, mx.Pow):
+            base = cls.de_expresion(e.base)
+            k = mx.exact_value(e.exponent)
+            if k is not None and Fraction(k).denominator == 1:
+                return base ** int(k)
+            return potencia_principal(base, e.exponent)
+        if isinstance(e, mx.Root):
+            return potencia_principal(cls.de_expresion(e.radicand),
+                                      mx.Num(Fraction(1, e.degree)))
+        if isinstance(e, mx.Call) and len(e.args) == 1:
+            z = cls.de_expresion(e.args[0])
+            nombre = e.name
+            if nombre in ("abs", "valor_abs"):
+                return cls(z.modulo(), mx.ZERO)
+            if nombre == "exp":
+                # e^(a+bi) = e^a·(cos b + i·sen b)
+                w = euler(z.imag)
+                ea = mx.Call("exp", (z.real,))
+                return cls(_normaliza(mx.Mul(ea, w.real)), _normaliza(mx.Mul(ea, w.imag)))
+            if nombre in ("sin", "sen"):
+                return seno(z)
+            if nombre == "cos":
+                return coseno(z)
+            if nombre in ("tan", "tg"):
+                return tangente(z)
+            if nombre in ("ln", "log"):
+                lg = log_multi(z, 0)
+                return cls(lg.modulo, lg.angulo)
+            if nombre in ("sqrt", "raiz", "raiz2"):
+                return potencia_principal(z, mx.Num(Fraction(1, 2)))
+            if z.es_real():
+                return cls(_normaliza(mx.Call(nombre, (z.real,))), mx.ZERO)
+        raise sin_refuso(f"no sé evaluar «{mx.text(e)}» como número complejo")
 
     # --- arithmetic -------------------------------------------------------
 
@@ -223,31 +283,27 @@ class Complejo:
             mx.Sub(_principal(angulo, self), mx.Mul(mx.Num(Fraction(2)), mx.PI))
 
     def texto(self) -> str:
-        if _es_cero(self.imag):
-            return mx.text(self.real)
-        negativo = _es_negativo(self.imag)
-        if _es_cero(self.real):
-            # «0 + 1i» is the same number as «i», and only one of them reads right
-            valor = mx.exact_value(self.imag)
+        """``3 + 4i``, ``-1/2 + 1/2·√3·i``, ``π·i``: notación legible; un coeficiente
+        imaginario no numérico va separado de la i («√3i» se lee como √(3i))."""
+        def unidad(magnitud_expr: mx.Expr) -> str:
+            valor = mx.exact_value(magnitud_expr)
             if valor == 1:
                 return UNIDAD
-            if valor == -1:
-                return "-" + UNIDAD
+            m = mx.pretty(magnitud_expr)
             if valor is not None:
-                # the sign belongs to the coefficient, not to a separator here
-                return ("-" + mx.text(mx.Num(-valor)) if negativo
-                        else mx.text(mx.Num(valor))) + UNIDAD
-            magnitud = mx.text(mx.Neg(self.imag)) if negativo else mx.text(self.imag)
-            return (magnitud[1:] if negativo and magnitud.startswith("-")
-                    else magnitud) + UNIDAD
+                return m + UNIDAD
+            if any(c in m for c in "+-−") and not m.startswith("("):
+                m = f"({m})"
+            return f"{m}·{UNIDAD}"
+
+        if _es_cero(self.imag):
+            return mx.pretty(self.real)
         negativo = _es_negativo(self.imag)
-        if not negativo:
-            magnitud = mx.text(self.imag)
-        else:
-            # printed as text rather than negated as an expression: the expression
-            # route prints «- -raiz(1, 3)i», which reads as a sign and a minus
-            magnitud = mx.text(mx.Neg(self.imag)).lstrip("+-").strip() or "1"
-        return mx.text(self.real) + (" - " if negativo else " + ") + magnitud + UNIDAD
+        magnitud = _normaliza(mx.Neg(self.imag)) if negativo else self.imag
+        parte_i = unidad(magnitud)
+        if _es_cero(self.real):
+            return ("-" if negativo else "") + parte_i
+        return mx.pretty(self.real) + (" - " if negativo else " + ") + parte_i
 
     def __str__(self) -> str:   # pragma: no cover - convenience only
         return self.texto()
@@ -321,6 +377,20 @@ def _es_negativo(e: mx.Expr) -> bool:
     return valor is not None and abs(valor.imag) < 1e-12 and valor.real < 0
 
 
+def _fuerte(e: mx.Expr) -> mx.Expr:
+    """Plegado verificado (``_presentable``) más trigonometría notable: 0·ln 4 → 0,
+    √4 → 2, raiz(16, 4) → 2, atan(1) → π/4, cos(π/3) → 1/2. Solo para presentar:
+    _presentable no acepta una forma que cambie el valor en puntos sembrados."""
+    try:
+        from academic_core.domain.engineering.mathlab.calculators import _presentable
+        from academic_core.domain.engineering.mathlab.trace import Trace as _T
+        for _ in range(2):
+            e = _presentable(T.simplify(e), _T(), profunda=True)
+        return _normaliza(e)
+    except Exception:  # noqa: BLE001
+        return _normaliza(e)
+
+
 def _normaliza(e: mx.Expr) -> mx.Expr:
     """Fold the arithmetic exactly, then the trigonometry.
 
@@ -360,8 +430,8 @@ class Polar:
     angulo: mx.Expr
 
     def texto(self) -> str:
-        return (f"{mx.text(self.modulo)}·(cos({mx.text(self.angulo)}) "
-                f"+ i·sen({mx.text(self.angulo)}))")
+        m, a = mx.pretty(_fuerte(self.modulo)), mx.pretty(_fuerte(self.angulo))
+        return f"{m}·(cos({a}) + i·sen({a}))"
 
     def como_exponencial(self) -> str:
         return (f"{mx.text(self.modulo)}·e^(i·{mx.text(self.angulo)})")
@@ -411,10 +481,11 @@ def de_moivre(modulo, angulo, n: int) -> tuple[Complejo, ...]:
     valor = mx.exact_value(modulo)
     raiz = (mx.Num(Fraction(1)) if valor == 1 else
             mx.Root(n, modulo))          # the unit root has a modulus of one
-    return tuple(Complejo(
+    raices = tuple(Complejo(
         _normaliza(mx.Mul(raiz, mx.Call("cos", (desplazado,)))),
         _normaliza(mx.Mul(raiz, mx.Call("sin", (desplazado,)))))
         for desplazado in (_ramas(angulo, n)))
+    return tuple(Complejo(_fuerte(r.real), _fuerte(r.imag)) for r in raices)
 
 
 def _ramas(angulo: mx.Expr, n: int) -> list[mx.Expr]:
@@ -444,10 +515,20 @@ def log_multi(z: Complejo, k: int = 0) -> Polar:
 
 
 def potencia_principal(z: Complejo, exponente) -> Complejo:
-    """``z^w = e^(w·Log z)`` on the principal branch, and the branch is named."""
-    return Complejo(
-        mx.Call("cos", (mx.Mul(exponente, log_multi(z).angulo),)),
-        mx.Call("sin", (mx.Mul(exponente, log_multi(z).angulo),)))
+    """``z^w = e^(w·Log z)`` on the principal branch, and the branch is named.
+
+    Con Log z = ln|z| + i·θ y w = c + d·i: z^w = e^(c·ln|z| − d·θ)·(cos(d·ln|z| + c·θ)
+    + i·sen(…)). Antes faltaba el factor |z|^w: √(−4) daba i en lugar de 2i."""
+    w = exponente if isinstance(exponente, Complejo) else Complejo.de_expresion(
+        exponente if isinstance(exponente, mx.Expr) else mx.Num(Fraction(exponente)))
+    lg = log_multi(z)
+    ln_r, theta = lg.modulo, lg.angulo
+    mod = mx.Call("exp", (mx.Sub(mx.Mul(w.real, ln_r), mx.Mul(w.imag, theta)),))
+    if _es_cero(w.imag):
+        mod = mx.Pow(z.modulo(), w.real)        # |z|^c, que se simplifica mejor
+    ang = mx.Add(mx.Mul(w.imag, ln_r), mx.Mul(w.real, theta))
+    return Complejo(_fuerte(mx.Mul(mod, mx.Call("cos", (ang,)))),
+                    _fuerte(mx.Mul(mod, mx.Call("sin", (ang,)))))
 
 
 # ---------------------------------------------------------------------------

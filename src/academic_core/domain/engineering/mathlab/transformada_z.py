@@ -314,10 +314,10 @@ class InversaZ:
     def texto(self, n: str = "n") -> str:
         partes = []
         if not Q.es_cero(self.x):
-            partes.append(f"({mx.text(self.x)})·u[{n}]")
+            partes.append(f"({mx.pretty(self.x)})·u[{n}]")
         for k, c in self.deltas:
             d = f"δ[{n}]" if k == 0 else f"δ[{n} − {k}]"
-            partes.append(d if mx.exact_value(c) == 1 else f"{mx.text(c)}·{d}")
+            partes.append(d if mx.exact_value(c) == 1 else f"{mx.pretty(c)}·{d}")
         return f"x[{n}] = " + (" + ".join(partes) if partes else "0") + f" (causal; {self.polos})"
 
     def valor(self, k: int, n: str = "n") -> float:

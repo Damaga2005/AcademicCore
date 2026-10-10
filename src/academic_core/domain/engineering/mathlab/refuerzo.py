@@ -13,7 +13,7 @@ import math
 from fractions import Fraction
 
 from academic_core.domain.engineering.mathlab import eventos as EV
-from academic_core.domain.engineering.mathlab.trace import Trace
+from academic_core.domain.engineering.mathlab.trace import DETALLADO, Trace
 from academic_core.errors import UnsupportedError, ValidationError
 
 
@@ -37,13 +37,13 @@ def _Q(x) -> Fraction:
     if isinstance(x, float):
         if not math.isfinite(x):
             raise _error("BAD_INPUT", f"«{x}» no es un número finito")
-        return Fraction(x).limit_denominator(10**9)
+        return Fraction(repr(x))  # decimal exacto: 1.6e-19 no se hace 0
     s = str(x).strip().replace(",", ".")
     try:
         return Fraction(s)
     except (ValueError, ZeroDivisionError):
         try:
-            return Fraction(float(s)).limit_denominator(10**9)
+            return Fraction(repr(float(s)))
         except ValueError:
             raise _error("BAD_INPUT", f"«{x}» no es un número")
 
@@ -51,6 +51,8 @@ def _Q(x) -> Fraction:
 def _mat(P) -> list[list[Fraction]]:
     M = [[_Q(v) for v in fila] for fila in P]
     n = len(M)
+    if n == 0:
+        raise _error("BAD_INPUT", "falta la matriz de transición P")
     if any(len(f) != n for f in M):
         raise _error("BAD_INPUT", "matriz cuadrada")
     for i, f in enumerate(M):
@@ -92,6 +94,11 @@ def absorcion(P, absorbentes=None, trace: Trace | None = None) -> dict:
     n = len(M)
     if absorbentes is None:
         absorbentes = [i for i in range(n) if M[i][i] == 1]
+    absorbentes = [int(_Q(i)) for i in absorbentes]
+    if not absorbentes:
+        raise _error("BAD_INPUT", "no hay estados absorbentes (Pᵢᵢ = 1)")
+    if any(not 0 <= i < n or M[i][i] != 1 for i in absorbentes):
+        raise _error("BAD_INPUT", "un estado absorbente tiene Pᵢᵢ = 1 (y está en 0…n−1)")
     trans = [i for i in range(n) if i not in absorbentes]
     trace.hipotesis("sen.abs_barreas", f"absorbentes {absorbentes}",
                     "cumple (la entrada los declara)")
@@ -109,9 +116,17 @@ def absorcion(P, absorbentes=None, trace: Trace | None = None) -> dict:
         for j in range(len(trans)):
             if sum(N[i][k] * ImQ[k][j] for k in range(len(trans))) != (1 if i == j else 0):
                 raise _error("DISCREPANT", "N·(I−Q) ≠ I")
-    trace.verificacion("sen.abs_inversa", "N·(I−Q) = I exacto")
+    # probabilidades de absorción B = N·R (R: de transitorio a absorbente)
+    Rm = [[M[i][j] for j in absorbentes] for i in trans]
+    B = [[sum(N[i][k] * Rm[k][j] for k in range(len(trans))) for j in range(len(absorbentes))]
+         for i in range(len(trans))]
+    trace.regla("sen.abs_probabilidades", "B = N·R: probabilidad de acabar en cada absorbente",
+                why="sumar sobre las visitas a cada transitorio el salto a cada absorbente")
+    if any(sum(f) != 1 for f in B):
+        raise _error("DISCREPANT", "alguna fila de B = N·R no suma 1: la absorción no es segura")
+    trace.verificacion("sen.abs_inversa", "N·(I−Q) = I exacto; cada fila de B suma 1")
     return {"N": N, "tiempos": t, "transitorios": trans,
-            "absorbentes": list(absorbentes)}
+            "absorbentes": list(absorbentes), "B": B}
 
 
 def _cur_min(i, M, g):
@@ -148,7 +163,8 @@ def clasifica(P, trace: Trace | None = None) -> dict:
     for i in range(n):
         if vistas[i]:
             continue
-        cl = sorted(j for j in range(n) if j in reach[i] and i in reach[j])
+        # i va en su clase aunque no pueda volver a sí mismo (transitorio sin retorno)
+        cl = sorted({i} | {j for j in range(n) if j in reach[i] and i in reach[j]})
         for j in cl:
             vistas[j] = True
         cerrada = all(all(k in cl for k in reach[j]) for j in cl)
@@ -182,7 +198,7 @@ def clasifica(P, trace: Trace | None = None) -> dict:
         g = 0
         for v in rets[i]:
             g = math.gcd(g, v)
-        periodos[i] = g
+        periodos[i] = g or None     # sin retorno posible el periodo no está definido
         if g and _cur_min(i, M, g) is not None:
             raise _error("DISCREPANT", f"el periodo {g} de {i} no es mínimo")
     trace.verificacion("sen.clasifica_cierre",
@@ -266,52 +282,72 @@ def mdp_optimo(P_acciones: list, R_acciones: list, gamma, tol=1e-9,
 
 def episodio(ep: list, Q: dict, alpha=0.5, gamma=0.9,
              trace: Trace | None = None) -> dict:
-    """Actualiza la tabla Q sobre un episodio dado, por los 4 métodos.
+    """Actualiza las tablas sobre un episodio dado, por los 4 métodos de Sutton-Barto.
 
-    ep: [(s, a, r, s2, a2)] con a2 la acción realmente tomada.
+    ep: [(s, a, r, s2, a2)] con a2 la acción realmente tomada en s2 (la última
+    transición llega al estado terminal, cuyo valor es 0).
+
+    - MC de primera visita: Q(s,a) = G desde la primera visita a (s,a) (la media
+      muestral de un solo episodio: ni α ni la tabla previa).
+    - TD(0) de estados: V(s) ← V + α·(r + γ·V(s′) − V), V = 0 al empezar.
+    - SARSA: Q(s,a) ← Q + α·(r + γ·Q(s′,a′) − Q) con a′ la tomada.
+    - Q-learning: Q(s,a) ← Q + α·(r + γ·maxₐ Q(s′,a) − Q).
     """
     trace = trace if trace is not None else Trace()
     trace.metodo("sen.episodio", "retornos hacia atrás (MC); bootstrapping "
-                 "con lo tomado (SARSA) o con el max (Q-learning/TD)",
+                 "con lo tomado (SARSA), con el máximo (Q-learning) o con V (TD(0))",
                  why="cada método define su objetivo: el episodio dado los "
                      "separa (§4.12)")
     al, g = _Q(alpha), _Q(gamma)
     if not 0 < al <= 1:
         raise _error("BAD_INPUT", "0 < α ≤ 1")
+    if not 0 <= g <= 1:
+        raise _error("BAD_INPUT", "0 ≤ γ ≤ 1")
+    if not ep:
+        raise _error("BAD_INPUT", "falta el episodio")
+    if any(len(x) != 5 for x in ep):
+        raise _error("BAD_INPUT", "cada paso es (s, a, r, s′, a′)")
+    terminal = ep[-1][3]
+    trace.convencion("sen.episodio_terminal",
+                     f"el último estado, {terminal}, es terminal: su valor es 0")
     Qt = {(s, a): _Q(v) for (s, a), v in Q.items()}
-    mc = dict(Qt)
-    G, seen = Fraction(0), set()
-    for s, a, r, s2, _ in reversed(ep):
-        G = _Q(r) + g * G
-        if (s, a) not in seen:
-            seen.add((s, a))
-            n = sum(1 for x in ep if x[0] == s and x[1] == a)
-            mc[(s, a)] = mc.get((s, a), Fraction(0)) + (G - mc.get((s, a), Fraction(0))) / n
-    td = dict(Qt)
-    sar = dict(Qt)
-    ql = dict(Qt)
+
+    def q(T, s, a):
+        return Fraction(0) if s == terminal else T.get((s, a), Fraction(0))
+
+    # MC primera visita: retornos hacia atrás
+    Gs = [Fraction(0)] * len(ep)
+    G = Fraction(0)
+    for t in range(len(ep) - 1, -1, -1):
+        G = _Q(ep[t][2]) + g * G
+        Gs[t] = G
+    mc, vistos = dict(Qt), set()
+    for t, (s, a, _, _, _) in enumerate(ep):
+        if (s, a) not in vistos:
+            vistos.add((s, a))
+            mc[(s, a)] = Gs[t]
+            trace.regla("sen.mc_paso", f"Q({s},{a}) = G = {Gs[t]} (primera visita)",
+                        why="primera visita: el retorno real desde ahí", detail=DETALLADO)
+    V: dict = {}
+    sar, ql = dict(Qt), dict(Qt)
     for s, a, r, s2, a2 in ep:
         rr = _Q(r)
-        td[(s, a)] = td.get((s, a), Fraction(0)) + al * (
-            rr + g * td.get((s2, a), Fraction(0)) - td.get((s, a), Fraction(0)))
+        v2 = Fraction(0) if s2 == terminal else V.get(s2, Fraction(0))
+        V[s] = V.get(s, Fraction(0)) + al * (rr + g * v2 - V.get(s, Fraction(0)))
         sar[(s, a)] = sar.get((s, a), Fraction(0)) + al * (
-            rr + g * sar.get((s2, a2), Fraction(0)) - sar.get((s, a), Fraction(0)))
-        acts = sorted({aa for (ss, aa) in list(ql) + [(s2, a2)] if ss == s2} or [a2])
-        mxq = max(ql.get((s2, aa), Fraction(0)) for aa in acts)
+            rr + g * q(sar, s2, a2) - sar.get((s, a), Fraction(0)))
+        acts = sorted({aa for (ss, aa) in ql if ss == s2} | {a2}, key=str)
+        mxq = max(q(ql, s2, aa) for aa in acts)
         ql[(s, a)] = ql.get((s, a), Fraction(0)) + al * (rr + g * mxq - ql.get((s, a), Fraction(0)))
-    # segundo camino: con α = 1/N, MC es la media muestral exacta
-    for (s, a) in seen:
-        rets = []
-        G = Fraction(0)
-        for ss, aa, rr, _, _ in reversed(ep):
-            G = _Q(rr) + g * G
-            if (ss, aa) == (s, a):
-                rets.append(G)
-        if abs(sum(rets) / len(rets) - mc[(s, a)]) > Fraction(1, 10 ** 12):
-            raise _error("DISCREPANT", "MC ≠ media muestral")
-    trace.verificacion("sen.episodio_mc", "MC = media muestral exacta")
-    fmt = lambda T: {f"{s},{a}": float(v) for (s, a), v in sorted(T.items())}
-    return {"MC": fmt(mc), "TD": fmt(td), "SARSA": fmt(sar), "Q": fmt(ql)}
+    # segundo camino: cada G por la suma hacia delante Σ γᵏ·r_{t+k}
+    for t in range(len(ep)):
+        directo = sum((g ** k * _Q(ep[t + k][2]) for k in range(len(ep) - t)), Fraction(0))
+        if directo != Gs[t]:
+            raise _error("DISCREPANT", f"G_{t} hacia atrás ≠ Σγᵏr")
+    trace.verificacion("sen.episodio_mc", "cada retorno coincide con Σγᵏ·r hacia delante")
+    fmt = lambda T: {f"{s},{a}": float(v) for (s, a), v in sorted(T.items(), key=str)}  # noqa: E731
+    return {"MC": fmt(mc), "TD": {str(k): float(v) for k, v in sorted(V.items(), key=str)},
+            "SARSA": fmt(sar), "Q": fmt(ql)}
 
 
 # ---------------------------------------------------------------------------

@@ -255,7 +255,7 @@ def test_autovalores_corregidos():
 
     F = Fraction
     assert [AL.texto_autovalor(v) for v in AL.autovalores([[2, -1], [3, 0]])] == [
-        "1 + sqrt(2)·i", "1 − sqrt(2)·i"]
+        "1 + √2·i", "1 − √2·i"]
     assert AL.autovalores([[0, -1, 0], [1, 0, 0], [0, 0, 2]]) == [F(2), (F(0), F(1)),
                                                                   (F(0), F(-1))]
     assert AL.autovalores([[1, 1], [0, 1]]) == [F(1), F(1)]

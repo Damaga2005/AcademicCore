@@ -231,7 +231,8 @@ class FormaNormal:
 
 def _signos(texto: str) -> str:
     """«a + -b» reads «a − b»."""
-    return texto.replace("+ -", "− ").replace("- -", "+ ")
+    # «−» tipográfico en este módulo; pretty() ya escribe «a - b» en vez de «a + -b»
+    return texto.replace("+ -", "− ").replace("- -", "+ ").replace(" - ", " − ")
 
 
 def _expr(p: Poly) -> mx.Expr:

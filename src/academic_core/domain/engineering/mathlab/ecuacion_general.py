@@ -543,7 +543,32 @@ def _por_lambert(f: mx.Expr, var: str, trace: Trace) -> Resultado | None:
 
 def exactifica(f: mx.Expr, var: str, x: float) -> mx.Expr | None:
     """Racional, cuadrática (a + b√r), q·π, ln(q) o e^q: se acepta la primera que
-    anula f exactamente al sustituirla."""
+    anula f exactamente al sustituirla. Si no sale, se pule x con Newton sobre f′
+    (un cero doble viene de una búsqueda de mínimo y queda a ~1e-8) y se reintenta."""
+    e = _exactifica_en(f, var, x)
+    if e is not None:
+        return e
+    from academic_core.domain.engineering.mathlab import derive_mv as DM
+    try:
+        d1 = DM.differentiate(f, var)
+        d2 = DM.differentiate(d1, var)
+        y = x
+        for _ in range(8):
+            v1, v2 = mx.valor_real(d1, {var: y}), mx.valor_real(d2, {var: y})
+            if v1 is None or not v2:
+                return None
+            paso = v1 / v2
+            y -= paso
+            if abs(paso) < 1e-15 * max(1.0, abs(y)):
+                break
+    except Exception:  # noqa: BLE001
+        return None
+    if y == x or abs(y - x) > 1e-6 * max(1.0, abs(x)):
+        return None
+    return _exactifica_en(f, var, y)
+
+
+def _exactifica_en(f: mx.Expr, var: str, x: float) -> mx.Expr | None:
     from academic_core.domain.engineering.mathlab import raices as RZ
 
     cands = []
@@ -619,13 +644,12 @@ def resolver(f: mx.Expr, var: str = "x", trace: Trace | None = None) -> Resultad
             return _comprueba(f, var, r, trace)
     try:
         c = RZ.ceros(f, var, (-VENTANA, VENTANA))
-        sols = tuple(Solucion(z.valor if z.exacta else exactifica(f, var, z.x), z.x)
-                     for z in c.raices)
+        sols, trasladadas = _exactas_por_periodo(f, var, c.raices)
         r = Resultado(sols, c.completo, "Sturm / casos de raíces")
         trace.regla("ecuacion.ceros", f"{mx.text(f)} = 0: {c.texto()}",
                     why="raíces reales por casos exactos (polinomios, racionales, valor "
                         "absoluto, radicales) y, si no, por aislamiento numérico")
-        return _comprueba(f, var, r, trace)
+        return _comprueba(f, var, r, trace, trasladadas)
     except (UnsupportedError, ValidationError):
         pass
     rr = NU.todas_las_raices(f, var, -VENTANA, VENTANA, trace)
@@ -634,18 +658,67 @@ def resolver(f: mx.Expr, var: str = "x", trace: Trace | None = None) -> Resultad
     return _comprueba(f, var, Resultado(sols, False, rr.metodo), trace)
 
 
-def _comprueba(f, var, r: Resultado, trace: Trace) -> Resultado:
+def _exactas_por_periodo(f, var, raices):
+    """Exactifica cada cero; si f tiene periodo exacto T (análisis estructural, no
+    numérico), solo uno por clase módulo T: los demás son x₀ + k·T, exactos y
+    ciertos por periodicidad. Devuelve las soluciones y los índices trasladados."""
+    from academic_core.domain.engineering.mathlab import dominio as DOM
+
+    per = None
+    try:
+        per = DOM.periodo(f, var)
+    except Exception:  # noqa: BLE001
+        per = None
+    T = float(per) * math.pi if per else None
+    Texpr = mx.Mul(mx.Num(Fraction(per)), mx.Const("pi")) if per else None
+    base: dict[float, tuple[float, mx.Expr | None]] = {}
+    sols, trasladadas = [], set()
+    for i, z in enumerate(raices):
+        if z.exacta:
+            sols.append(Solucion(z.valor, z.x))
+            continue
+        if T is None:
+            sols.append(Solucion(exactifica(f, var, z.x), z.x))
+            continue
+        clave = round(z.x % T, 7) % round(T, 7)
+        if clave not in base:
+            base[clave] = (z.x, exactifica(f, var, z.x))
+            sols.append(Solucion(base[clave][1], z.x))
+            continue
+        x0, ex0 = base[clave]
+        k = round((z.x - x0) / T)
+        if ex0 is None:
+            sols.append(Solucion(None, z.x))     # el representante no tiene forma cerrada
+            continue
+        if abs(x0 + k * T - z.x) > 1e-7 * max(1.0, abs(z.x)):
+            sols.append(Solucion(exactifica(f, var, z.x), z.x))
+            continue
+        sols.append(Solucion(_limpio(mx.Add(ex0, mx.Mul(mx.Num(Fraction(k)), Texpr))), z.x))
+        trasladadas.add(i)
+    return tuple(sols), trasladadas
+
+
+def _comprueba(f, var, r: Resultado, trace: Trace, trasladadas=frozenset()) -> Resultado:
     limpias = []
     for s in r.soluciones:
         ex = s.exacta
         if ex is not None:
             ex = _limpio(ex)
-            corta = exactifica(f, var, s.valor)
-            if corta is not None and len(mx.text(corta)) < len(mx.text(ex)):
-                ex = corta
+            # buscar una forma más corta solo si la que hay es larga: con formas como
+            # k·π, ya mínimas, esto eran cientos de comprobaciones exactas por estudio
+            if len(mx.text(ex)) > 24:
+                corta = exactifica(f, var, s.valor)
+                if corta is not None and len(mx.text(corta)) < len(mx.text(ex)):
+                    ex = corta
         limpias.append(Solucion(ex, s.valor))
     r = Resultado(tuple(limpias), r.completo, r.metodo)
-    for s in r.soluciones:
+    for i, s in enumerate(r.soluciones):
+        if i in trasladadas:
+            # x₀ + k·T con x₀ ya comprobado y T periodo exacto: basta el valor numérico
+            v = mx.valor_real(mx.substitute(f, var, s.exacta), {})
+            if v is None or abs(v) > 1e-9:
+                raise _error("INTERNAL", f"{mx.text(s.exacta)} no cumple la ecuación")
+            continue
         if s.exacta is not None and not _es_cero_exacto(mx.substitute(f, var, s.exacta)):
             v = mx.valor_real(mx.substitute(f, var, s.exacta), {})
             if v is None or abs(v) > 1e-9:

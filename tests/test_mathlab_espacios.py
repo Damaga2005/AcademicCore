@@ -109,7 +109,7 @@ def test_independencia_parametro():
     from academic_core.domain.engineering.mathlab import espacios as EV
 
     casos = EV.discusion_parametro([["a", "1"], ["1", "1"]], "a")
-    assert ("a != 1", 2) in casos and ("a = 1", 1) in casos
+    assert ("a ≠ 1", 2) in casos and ("a = 1", 1) in casos
     with pytest.raises(Exception, match="parámetro"):
         EV.discusion_parametro([["a", "b"], ["1", "1"]], "a")
 

@@ -109,7 +109,7 @@ def texto_autovalor(v) -> str:
     from academic_core.domain.engineering.mathlab import mvexpr as mx
 
     def t(x):
-        return str(x) if isinstance(x, Fraction) else mx.text(x)
+        return str(x) if isinstance(x, Fraction) else mx.pretty(x)
     if isinstance(v, tuple):
         re, im = v
         neg = (im < 0) if isinstance(im, Fraction) else isinstance(im, mx.Neg)
@@ -207,7 +207,12 @@ def autovalores(A, trace: Trace | None = None) -> list:
 def autovalores_numericos(A) -> list[complex]:
     """Todas las raíces de p(λ) en coma flotante (Durand-Kerner), para el caso sin
     forma exacta; el llamador sella NUMERIC_ONLY."""
-    coefs = [float(c) for c in polinomio_caracteristico(A)]
+    return raices_complejas(polinomio_caracteristico(A))
+
+
+def raices_complejas(p) -> list[complex]:
+    """Durand-Kerner sobre un polinomio MÓNICO (coeficientes de grado 0 en adelante)."""
+    coefs = [float(c) for c in p]
     n = len(coefs) - 1
     z = [complex(0.4, 0.9) ** k for k in range(n)]
 

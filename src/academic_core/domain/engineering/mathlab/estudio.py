@@ -56,7 +56,7 @@ def _valor(e: mx.Expr, var: str, x: float) -> float | None:
 def _texto_punto(r: RZ.Raiz | None, lado: str = "") -> str:
     if r is None:
         return "−∞" if lado == "izq" else "+∞"
-    return mx.text(r.valor) if r.exacta else f"≈{r.x:.10g}"
+    return mx.pretty(r.valor) if r.exacta else f"≈{r.x:.10g}"
 
 
 # ---------------------------------------------------------------------------
@@ -66,31 +66,42 @@ def _texto_punto(r: RZ.Raiz | None, lado: str = "") -> str:
 
 def _fronteras(e: mx.Expr) -> list[mx.Expr]:
     """Expressions whose zeros are the only candidates for domain boundaries."""
-    salida: list[mx.Expr] = []
+    return [g for g, _ in _fronteras_con_tipo(e)]
+
+
+def _fronteras_con_tipo(e: mx.Expr) -> list[tuple[mx.Expr, bool]]:
+    """(g, excluye): ``excluye`` cuando un cero de g NUNCA está en el dominio (un
+    denominador, ln(0), el coseno de una tangente). Decidirlo evaluando f en el
+    cero en coma flotante falla: tg(π/2 redondeado) = 1.6·10¹⁶ es «finito» y el
+    dominio de tg salía ℝ."""
+    salida: list[tuple[mx.Expr, bool]] = []
 
     def recorre(n: mx.Expr):
         if isinstance(n, mx.Div):
-            salida.append(n.right)
+            salida.append((n.right, True))
         if isinstance(n, mx.Pow):
             k = mx.exact_value(n.exponent)
             if k is not None and k < 0:
-                salida.append(n.base)
+                salida.append((n.base, True))
             if k is not None and Fraction(k).denominator % 2 == 0:
-                salida.append(n.base)
+                salida.append((n.base, False))
             if k is None:
-                salida.append(n.base)
+                salida.append((n.base, False))
         if isinstance(n, mx.Root) and n.degree % 2 == 0:
-            salida.append(n.radicand)
+            salida.append((n.radicand, False))
         if isinstance(n, mx.Call):
             a = n.args[0] if n.args else None
-            if n.name in ("ln", "log", "sqrt", "raiz", "raiz2", "log10"):
-                salida.append(a)
+            if n.name in ("ln", "log", "log10"):
+                salida.append((a, True))
+            if n.name in ("sqrt", "raiz", "raiz2"):
+                salida.append((a, False))
             if n.name in ("asin", "acos"):
-                salida.extend([mx.Sub(a, mx.Num(Fraction(1))), mx.Add(a, mx.Num(Fraction(1)))])
+                salida.extend([(mx.Sub(a, mx.Num(Fraction(1))), False),
+                               (mx.Add(a, mx.Num(Fraction(1))), False)])
             if n.name in ("tan", "sec"):
-                salida.append(mx.Call("cos", (a,)))
+                salida.append((mx.Call("cos", (a,)), True))
             if n.name in ("cot", "csc"):
-                salida.append(mx.Call("sin", (a,)))
+                salida.append((mx.Call("sin", (a,)), True))
         for hijo in _hijos(n):
             recorre(hijo)
 
@@ -175,9 +186,13 @@ class Dominio:
 def dominio(e: mx.Expr, var: str, trace: Trace | None = None) -> Dominio:
     trace = trace if trace is not None else Trace()
     ceros = []
-    for g in _fronteras(e):
+    excluidos: set[float] = set()
+    for g, excluye in _fronteras_con_tipo(e):
         if mx.depends(g, var):
-            ceros.append(RZ.ceros(g, var))
+            c = RZ.ceros(g, var)
+            ceros.append(c)
+            if excluye:
+                excluidos.update(round(r.x, 9) for r in c.raices)
     puntos, completo, avisos = _une_raices(ceros)
     bordes: list[RZ.Raiz | None] = [None] + puntos + [None]
     tramos: list[Tramo] = []
@@ -188,7 +203,7 @@ def dominio(e: mx.Expr, var: str, trace: Trace | None = None) -> Dominio:
             tramos.append(t)
     # the boundary points themselves (√(4 − x²) is defined at ±2)
     for p in puntos:
-        if _valor(e, var, p.x) is None:
+        if round(p.x, 9) in excluidos or _valor(e, var, p.x) is None:
             continue
         izq = next((i for i, t in enumerate(tramos) if t.b is not None and t.b.x == p.x), None)
         der = next((i for i, t in enumerate(tramos) if t.a is not None and t.a.x == p.x), None)
@@ -472,11 +487,31 @@ def _exactifica(g, var, r):
         return r
     from academic_core.domain.engineering.mathlab import ecuacion_general as EG
 
+    x = r.x
     try:
-        e = EG.exactifica(g, var, r.x)
+        e = EG.exactifica(g, var, x)
     except Exception:  # noqa: BLE001
         e = None
-    return r if e is None else RZ.Raiz(e, r.x, r.multiplicidad, True)
+    if e is None:
+        # un cero doble sale de una búsqueda de mínimo y queda a ~1e-8: se pule con
+        # Newton sobre g′ (que ahí tiene un cero simple) y se vuelve a intentar
+        from academic_core.domain.engineering.mathlab import derive_mv as DM
+        try:
+            d1 = DM.differentiate(g, var)
+            d2 = DM.differentiate(d1, var)
+            for _ in range(8):
+                v1, v2 = mx.valor_real(d1, {var: x}), mx.valor_real(d2, {var: x})
+                if v1 is None or not v2:
+                    break
+                paso = v1 / v2
+                x -= paso
+                if abs(paso) < 1e-15 * max(1.0, abs(x)):
+                    break
+            if abs(x - r.x) < 1e-6 * max(1.0, abs(r.x)):
+                e = EG.exactifica(g, var, x)
+        except Exception:  # noqa: BLE001
+            e = None
+    return r if e is None else RZ.Raiz(e, x, r.multiplicidad, True)
 
 
 def _ceros_por_rolle(g: mx.Expr, var: str):
@@ -614,7 +649,7 @@ class Punto:
 
     def texto(self) -> str:
         y = mx.valor_real(self.y, {})
-        yt = mx.text(self.y) if self.x.exacta else f"≈{y:.10g}"
+        yt = mx.pretty(self.y) if self.x.exacta else f"≈{y:.10g}"
         return f"{self.tipo} en ({_texto_punto(self.x)}, {yt})"
 
 
@@ -652,9 +687,13 @@ class Estudio:
     inflexiones: list[Punto] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
     completo: bool = True
+    periodo: str = ""
+    dominio_texto: str = ""
 
     def texto(self) -> str:
-        lineas = [f"dominio: {self.dominio.texto()}"]
+        lineas = [f"dominio: {self.dominio_texto or self.dominio.texto()}"]
+        if self.periodo:
+            lineas.append(f"periodo: {self.periodo}")
         if self.simetria:
             lineas.append(f"simetría: {self.simetria}")
         lineas.append("cortes: " + ("; ".join(self.cortes) or "ninguno"))
@@ -697,15 +736,65 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
     dom = dominio(e, var, trace)
     est = Estudio(e, var, dom, avisos=list(dom.avisos), completo=dom.completo)
     est.simetria = _simetria(e, var, dom)
+    # periódica: se estudia un periodo [0, T) y todo se repite sumando k·T. Sin esto
+    # se listaban 31 ceros de [−50, 50] y el primer tramo se alargaba a (−∞, …), lo
+    # que hacía decir que sen x crece en (−∞, −31π/2)
+    per = None
+    try:
+        from academic_core.domain.engineering.mathlab import dominio as DOM
+        if var in mx.variables(e):
+            per = DOM.periodo_minimo(e, var)
+    except Exception:  # noqa: BLE001
+        per = None
+    T = Texpr = None
+    if per is not None and per > 0:
+        Texpr = _limpio(mx.Mul(mx.Num(Fraction(per)), mx.Const("pi")))
+        T = float(per) * math.pi
+        est.periodo = (f"T = {mx.pretty(Texpr)}: se estudia en [0, {mx.pretty(Texpr)}) y cada "
+                       f"resultado se repite sumando k·{mx.pretty(Texpr)}, k ∈ ℤ")
+        trace.regla("estudio.periodo", f"f({var} + T) = f({var}) con T = {mx.pretty(Texpr)}",
+                    why="una función periódica se estudia en un periodo: fuera de él todo "
+                        "se repite, y listar copias no añade nada (ni da intervalos infinitos)")
+    # las búsquedas internas miran [−50, 50]: con T < 50 un periodo entero está dentro,
+    # y lo que quedó «incompleto» son solo las copias de fuera, que no se listan
+    periodo_cubierto = T is not None and T < 50
+
+    def en_periodo(x: float) -> bool:
+        return T is None or (-1e-9 <= x < T - 1e-9)
+
+    def recorta(tramo):
+        """El tramo intersecado con [0, T); None si queda vacío."""
+        if tramo is None:
+            return None
+        if T is None:
+            return tramo
+        a = tramo.a.x if tramo.a is not None else -math.inf
+        b = tramo.b.x if tramo.b is not None else math.inf
+        lo, hi = max(a, 0.0), min(b, T)
+        if not hi > lo + 1e-12:
+            return None
+        ra = tramo.a if (tramo.a is not None and a >= -1e-12) else RZ.Raiz(mx.Num(Fraction(0)), 0.0)
+        rb = tramo.b if (tramo.b is not None and b <= T + 1e-12) else RZ.Raiz(Texpr, T)
+        return Tramo(ra, rb, tramo.cerrado_a and ra is tramo.a, tramo.cerrado_b and rb is tramo.b)
+    if T is not None:
+        piezas = [recorta(t) for t in dom.tramos]
+        est.dominio_texto = (" ∪ ".join(p.texto() for p in piezas if p is not None)
+                             + f" y sus traslados k·{mx.pretty(Texpr)}")
+        if periodo_cubierto:
+            est.completo = True
+            est.avisos = []
     # intercepts
     if dom.contiene(0.0):
-        est.cortes.append(f"eje Y en (0, {mx.text(_limpio(mx.substitute(e, var, mx.Num(Fraction(0)))))})")
+        est.cortes.append(f"eje Y en (0, {mx.pretty(_limpio(mx.substitute(e, var, mx.Num(Fraction(0)))))})")
     ceros = _ceros_exactos(e, var)
     for r in ceros.raices:
-        if dom.contiene(r.x):
+        if dom.contiene(r.x) and en_periodo(r.x):
+            if not r.exacta:
+                r = _exactifica(e, var, r)
             est.cortes.append(f"eje X en ({_texto_punto(r)}, 0)")
-    est.completo &= ceros.completo
-    est.avisos += list(ceros.avisos)
+    if not periodo_cubierto:
+        est.completo &= ceros.completo
+        est.avisos += list(ceros.avisos)
     # vertical asymptotes: at the finite ends of the domain pieces
     vistos = set()
     for t in dom.tramos:
@@ -717,13 +806,13 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
                 lim = LM.limite(e, var, p, lado)
             except Exception:  # noqa: BLE001
                 continue
-            if lim.valor in ("+∞", "−∞"):
+            if lim.valor in ("+∞", "−∞") and en_periodo(punto.x):
                 vistos.add(round(punto.x, 9))
                 est.asintotas.append(f"vertical x = {_texto_punto(punto)} "
                                      f"(por la {'derecha' if lado == '+' else 'izquierda'} "
                                      f"→ {lim.valor})")
-    # horizontal / oblique
-    for inf, nombre in (("oo", "+∞"), ("-oo", "−∞")):
+    # horizontal / oblique (una periódica no constante no tiene: oscila sin límite)
+    for inf, nombre in (() if T is not None else (("oo", "+∞"), ("-oo", "−∞"))):
         extremo = dom.tramos[-1].b if inf == "oo" else dom.tramos[0].a if dom.tramos else 0
         if not dom.tramos or extremo is not None:
             continue
@@ -741,7 +830,7 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
                     n = LM.limite(mx.Sub(e, mx.Mul(m.expr, mx.Sym(var))), var, inf)
                     if n.expr is not None:
                         recta = _limpio(mx.Add(mx.Mul(m.expr, mx.Sym(var)), n.expr))
-                        est.asintotas.append(f"oblicua y = {mx.text(recta)} en {nombre}")
+                        est.asintotas.append(f"oblicua y = {mx.pretty(recta)} en {nombre}")
             except Exception:  # noqa: BLE001
                 est.avisos.append(f"no sé si hay asíntota oblicua en {nombre}")
     trace.regla("estudio.asintotas", "; ".join(est.asintotas) or "ninguna",
@@ -749,13 +838,16 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
                     "u oblicua: m = lím f/x, n = lím (f − m·x) en ±∞")
     # monotony
     d1 = _limpio(DM.differentiate(e, var))
-    trace.regla("estudio.derivada", f"f′({var}) = {mx.text(d1)}")
+    trace.regla("estudio.derivada", f"f′({var}) = {mx.pretty(d1)}")
     tabla, criticos, comp1, av1 = _tabla(d1, var, dom)
-    est.completo &= comp1
-    est.avisos += av1
+    if not periodo_cubierto:
+        est.completo &= comp1
+        est.avisos += av1
     for ts in tabla:
-        (est.crece if ts.signo > 0 else est.decrece if ts.signo < 0 else []).append(
-            ts.tramo.texto())
+        pieza = recorta(ts.tramo)
+        if pieza is not None:
+            (est.crece if ts.signo > 0 else est.decrece if ts.signo < 0 else []).append(
+                pieza.texto())
     for r in _sin_repetir(list(criticos) + _singulares(d1, var, dom)):
         if not dom.contiene(r.x):
             continue
@@ -763,7 +855,7 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
                       and abs(ts.tramo.b.x - r.x) < 1e-12), None)
         despues = next((ts.signo for ts in tabla if ts.tramo.a is not None
                         and abs(ts.tramo.a.x - r.x) < 1e-12), None)
-        if antes is None or despues is None or antes == despues:
+        if antes is None or despues is None or antes == despues or not en_periodo(r.x):
             continue
         tipo = "máximo relativo" if antes > despues else "mínimo relativo"
         est.extremos.append(Punto(r, _f_en(e, var, r), tipo))
@@ -772,13 +864,16 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
                 why="signo de f′ en cada tramo entre sus ceros y los bordes del dominio")
     # concavity
     d2 = _limpio(DM.differentiate(d1, var))
-    trace.regla("estudio.segunda", f"f″({var}) = {mx.text(d2)}")
+    trace.regla("estudio.segunda", f"f″({var}) = {mx.pretty(d2)}")
     tabla2, puntos2, comp2, av2 = _tabla(d2, var, dom)
-    est.completo &= comp2
-    est.avisos += av2
+    if not periodo_cubierto:
+        est.completo &= comp2
+        est.avisos += av2
     for ts in tabla2:
-        (est.concava_arriba if ts.signo > 0 else est.concava_abajo if ts.signo < 0 else []).append(
-            ts.tramo.texto())
+        pieza = recorta(ts.tramo)
+        if pieza is not None:
+            (est.concava_arriba if ts.signo > 0 else est.concava_abajo if ts.signo < 0
+             else []).append(pieza.texto())
     for r in _sin_repetir(list(puntos2) + _singulares(d2, var, dom)):
         if not dom.contiene(r.x):
             continue
@@ -786,7 +881,8 @@ def estudiar(e: mx.Expr, var: str = "x", trace: Trace | None = None) -> Estudio:
                       and abs(ts.tramo.b.x - r.x) < 1e-12), None)
         despues = next((ts.signo for ts in tabla2 if ts.tramo.a is not None
                         and abs(ts.tramo.a.x - r.x) < 1e-12), None)
-        if antes is not None and despues is not None and antes != despues and antes and despues:
+        if antes is not None and despues is not None and antes != despues and antes and despues \
+                and en_periodo(r.x):
             est.inflexiones.append(Punto(r, _f_en(e, var, r), "inflexión"))
     est.avisos = list(dict.fromkeys(est.avisos))
     return est
@@ -804,8 +900,8 @@ class Absolutos:
     candidatos: list[tuple[str, mx.Expr]]
 
     def texto(self) -> str:
-        return (f"máximo absoluto {mx.text(self.maximo[0])} en x = {', '.join(self.maximo[1])}; "
-                f"mínimo absoluto {mx.text(self.minimo[0])} en x = {', '.join(self.minimo[1])}")
+        return (f"máximo absoluto {mx.pretty(self.maximo[0])} en x = {', '.join(self.maximo[1])}; "
+                f"mínimo absoluto {mx.pretty(self.minimo[0])} en x = {', '.join(self.minimo[1])}")
 
 
 def extremos_absolutos(e: mx.Expr, var: str, a: mx.Expr, b: mx.Expr,
@@ -823,10 +919,10 @@ def extremos_absolutos(e: mx.Expr, var: str, a: mx.Expr, b: mx.Expr,
                   if (t.a is None or t.a.x < xa or (t.cerrado_a and t.a.x <= xa))
                   and (t.b is None or t.b.x > xb or (t.cerrado_b and t.b.x >= xb))), None)
     if tramo is None:
-        raise _error("HYPOTHESIS", f"f no es continua en [{mx.text(a)}, {mx.text(b)}]: el "
+        raise _error("HYPOTHESIS", f"f no es continua en [{mx.pretty(a)}, {mx.pretty(b)}]: el "
                                    "intervalo sale del dominio o lo cruza un borde, así que "
                                    "Weierstrass no garantiza extremos absolutos")
-    trace.hipotesis("weierstrass", f"f continua en el cerrado [{mx.text(a)}, {mx.text(b)}]",
+    trace.hipotesis("weierstrass", f"f continua en el cerrado [{mx.pretty(a)}, {mx.pretty(b)}]",
                     "se cumple: el intervalo está dentro de un tramo del dominio")
     d1 = _limpio(DM.differentiate(e, var))
     candidatos: list[tuple[str, mx.Expr, float]] = []
@@ -844,7 +940,7 @@ def extremos_absolutos(e: mx.Expr, var: str, a: mx.Expr, b: mx.Expr,
                     candidatos.append((_texto_punto(r) + " (f′ no existe)", _f_en(e, var, r), r.x))
     valores = [(t, y, float(mx.valor_real(y, {}))) for t, y, _ in candidatos]
     for t, y, v in valores:
-        trace.regla("weierstrass.candidato", f"f({t}) = {mx.text(y)} ≈ {v:.10g}")
+        trace.regla("weierstrass.candidato", f"f({t}) = {mx.pretty(y)} ≈ {v:.10g}")
     vmax = max(v for _, _, v in valores)
     vmin = min(v for _, _, v in valores)
     tol = 1e-12 * max(1.0, abs(vmax), abs(vmin))

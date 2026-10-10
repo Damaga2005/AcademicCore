@@ -56,7 +56,7 @@ def _deteccion(peticion: C.Peticion) -> C.Resultado:
         r = T.r_ar1(e.get("sigma2", 1), e.get("a", "1/2"), e.get("p", 4),
                     trace)
         return _ok(peticion, trace,
-                   f"r = {[f'{float(v):.6g}' for v in r['R'][0]]}",
+                   f"r = {[f'{complex(v).real:.6g}' for v in r['R'][0]]}",
                    "AR(1)", "Yule-Walker de orden 1")
     if calculo == "psd":
         r = T.psd_teorica(e.get("r", [1, "1/2", "1/4"]),
@@ -85,8 +85,10 @@ def _deteccion(peticion: C.Peticion) -> C.Resultado:
         r = T.detector_map(e.get("s", [1, 1]), e.get("sigma", 1),
                            e.get("p0", "1/2"), e.get("p1", "1/2"),
                            e.get("costes"), trace)
-        return _ok(peticion, trace, f"γ = {r['gamma']:.6g}",
-                   "MAP/Bayes", f"γ = {r['gamma']:.6g}")
+        return _ok(peticion, trace,
+                   f"γ = {r['gamma']:.6g}; decide H₁ si sᵀx/(σ‖s‖) > η = {r['eta']:.6g}; "
+                   f"riesgo = {r['riesgo']:.6g}",
+                   "MAP/Bayes", f"γ = {r['gamma']:.6g}; η = {r['eta']:.6g}")
     if calculo == "fisher":
         r = T.fisher(e.get("modelo", "gauss_media"), e.get("params", {}),
                      trace)

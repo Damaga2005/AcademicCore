@@ -268,7 +268,10 @@ def _reintenta(tema: str, semilla: int, dif: str, fab, vale):
     """
     for intento in range(INTENTOS):
         g = Generador(semilla + intento)
-        ex = fab(g, dif)
+        try:
+            ex = fab(g, dif)
+        except (ValidationError, UnsupportedError):
+            continue        # datos degenerados (vectores ligados…): otro intento
         if vale(ex):
             return ex
     raise _no(f"«{tema}»: con la semilla {semilla} no sale un ejercicio "
@@ -307,6 +310,7 @@ def _limite_vale(ex: Ejercicio) -> bool:
 
 def _g_derivada(g: Generador, dif: str) -> Ejercicio:
     from academic_core.domain.engineering.mathlab import derive_mv as D
+    from academic_core.domain.engineering.mathlab import limite as LM
     a, n = g._azar(2, 6, 3), g._azar(2, 4, 4)
     expr = f"x^{a}*exp({n}*x)"
     t = Trace()
@@ -316,7 +320,7 @@ def _g_derivada(g: Generador, dif: str) -> Ejercicio:
         tipo="expresion", respaldo="E", dificultad=dif,
         enunciado=f"Deriva f(x) = {expr} respecto de x.",
         datos={"expr": expr},
-        solucion=mx.text(d),
+        solucion=mx.text(LM._limpio(d)),
         pistas=(f"separa en producto: u = x^{a}, v = exp({n}·x)",
                 f"u' = {a}·x^{a - 1} y v' = {n}·exp({n}·x)",
                 "aplica (uv)' = u'v + uv' y simplifica"),
@@ -405,7 +409,7 @@ def _g_espacio(g: Generador, dif: str) -> Ejercicio:
         id="esp-orton", tema="espacios vectoriales",
         asignatura="Álgebra Lineal", tipo="matriz", respaldo="E",
         dificultad=dif,
-        enunciado=f"Da una base ortonormal de ‬span{{{a}, {b}}}, {{{c}, {d}}}⟩.",
+        enunciado=f"Da una base ortonormal de span⟨({a}, {b}), ({c}, {d})⟩.",
         datos={"vectores": [[a, b], [c, d]]},
         solucion=base,
         pistas=("normaliza el primer vector: u₁ = v₁/|v₁|",

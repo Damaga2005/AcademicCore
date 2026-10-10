@@ -226,6 +226,22 @@ def bessel_i0(x: float) -> float:
     return suma
 
 
+def _bessel_ie(x: float, orden: int) -> float:
+    """``e^(−x)·Iₙ(x)`` (n = 0, 1) para x ≥ 0 sin desbordar: serie si x < 50, si no
+    la asintótica 1/√(2πx)·(1 − (4n² − 1)/(8x) + …)."""
+    if x < 50:
+        termino = (x / 2) ** orden / math.factorial(orden)
+        suma, y = termino, x * x / 4
+        for k in range(1, 4000):
+            termino *= y / (k * (k + orden))
+            suma += termino
+            if termino < suma * 1e-17:
+                break
+        return suma * math.exp(-x)
+    mu = 4 * orden * orden
+    return (1 - (mu - 1) / (8 * x) + (mu - 1) * (mu - 9) / (2 * (8 * x) ** 2)) / math.sqrt(2 * math.pi * x)
+
+
 def marcum_q1(a: float, b: float) -> float:
     """Función Q de Marcum de orden 1, ``Q₁(a, b) = P(R > b)`` para la envolvente de Rice
     de parámetro ``a`` con σ = 1 (serie de Poisson ponderada por gammas incompletas)."""
@@ -1037,13 +1053,20 @@ def _d_rice(params) -> Distribucion:
     return Distribucion(
         "Rice", {"ν²": nu2, "σ²": sigma2}, False, (0.0, math.inf), pdf,
         lambda r: 1 - marcum_q1(nu_f / s, r / s) if r > 0 else 0.0,
-        lambda: None, lambda: None,
+        lambda: _media_rice(nu_f, s), lambda: float(nu2 + 2 * sigma2) - _media_rice(nu_f, s) ** 2,
         lambda g: math.hypot(nu_f + s * normal_std(g), s * normal_std(g)),
         convenciones=conv,
         hipotesis=("trayecto directo de amplitud ν más dispersión gaussiana σ² por componente",),
         formula="f(r) = (r/σ²)·e^(−(r²+ν²)/(2σ²))·I₀(rν/σ²)",
         formula_F="F(r) = 1 − Q₁(ν/σ, r/σ)", especial="Q de Marcum",
         extra={"E[R²]": float(nu2 + 2 * sigma2)})
+
+
+def _media_rice(nu: float, s: float) -> float:
+    """E[R] = σ·√(π/2)·L_{1/2}(−ν²/2σ²), con L_{1/2}(x) = e^{x/2}[(1−x)I₀(−x/2) − x·I₁(−x/2)]."""
+    z = nu * nu / (4 * s * s)
+    x = -2 * z
+    return s * math.sqrt(math.pi / 2) * ((1 - x) * _bessel_ie(z, 0) - x * _bessel_ie(z, 1))
 
 
 def _d_laplace(params) -> Distribucion:

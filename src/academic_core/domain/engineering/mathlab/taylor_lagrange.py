@@ -74,13 +74,13 @@ class Aproximacion:
     donde: str
 
     def texto(self, var: str = "x") -> str:
-        partes = [f"P_{self.n}({var}) = {mx.text(self.P)}"]
+        partes = [f"P_{self.n}({var}) = {mx.pretty(self.P)}"]
         if self.valor is not None:
-            partes.append(f"P_{self.n}({self.donde}) = {mx.text(self.valor)} ≈ "
+            partes.append(f"P_{self.n}({self.donde}) = {mx.pretty(self.valor)} ≈ "
                           f"{float(mx.valor_real(self.valor, {})):.12g}")
         partes.append(f"|R_{self.n}| ≤ M·|{var} − a|^{self.n + 1}/{self.n + 1}! con "
-                      f"M = máx |f^({self.n + 1})| = {mx.text(self.M)}: "
-                      f"|R_{self.n}| ≤ {mx.text(self.cota)} ≈ {float(mx.valor_real(self.cota, {})):.6g}")
+                      f"M = máx |f^({self.n + 1})| = {mx.pretty(self.M)}: "
+                      f"|R_{self.n}| ≤ {mx.pretty(self.cota)} ≈ {float(mx.valor_real(self.cota, {})):.6g}")
         return "; ".join(partes)
 
 

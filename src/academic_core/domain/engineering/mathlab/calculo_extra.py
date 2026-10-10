@@ -298,6 +298,14 @@ def _abs_args(e: mx.Expr) -> list[mx.Expr]:
     return RZ._troceables(e, "x") if mx.variables(e) else []
 
 
+def _c_legible(r) -> str:
+    """«c = √3 ≈ 1.732050808» o «c ≈ 0.6823»: notación de pizarra y su valor."""
+    if not r.exacta:
+        return f"c ≈ {r.x:.12g}"
+    t = mx.pretty(r.valor)
+    return f"c = {t}" if isinstance(r.valor, mx.Num) else f"c = {t} ≈ {r.x:.10g}"
+
+
 def rolle(f, var, a: mx.Expr, b: mx.Expr, trace: Trace | None = None, valor_medio: bool = False
           ) -> Teorema:
     from academic_core.domain.engineering.mathlab import raices as RZ
@@ -313,7 +321,7 @@ def rolle(f, var, a: mx.Expr, b: mx.Expr, trace: Trace | None = None, valor_medi
         pendiente = LM._limpio(mx.Div(mx.Sub(fb, fa), mx.Sub(b, a)))
         objetivo = mx.Sub(_d(f, var), pendiente)
         nombre = "Teorema del valor medio (Lagrange)"
-        enunciado = f"existe c con f′(c) = (f(b) − f(a))/(b − a) = {mx.text(pendiente)}"
+        enunciado = f"existe c con f′(c) = (f(b) − f(a))/(b − a) = {mx.pretty(pendiente)}"
     else:
         iguales = cont and abs((_v(fa) or 0) - (_v(fb) or 0)) < 1e-12
         hipotesis.append((f"f({mx.text(a)}) = f({mx.text(b)})", iguales,
@@ -327,7 +335,7 @@ def rolle(f, var, a: mx.Expr, b: mx.Expr, trace: Trace | None = None, valor_medi
     conclusion = ""
     if all(ok for _, ok, _ in hipotesis):
         cs = [r for r in RZ.ceros(objetivo, var, (xa, xb)).raices if xa < r.x < xb]
-        conclusion = enunciado + ": c = " + (", ".join(r.texto() for r in cs) or "—")
+        conclusion = enunciado + ": " + ("; ".join(_c_legible(r) for r in cs) or "c = —")
     return Teorema(nombre, tuple(hipotesis), conclusion)
 
 
@@ -345,7 +353,7 @@ def bolzano(f, var, a: mx.Expr, b: mx.Expr, trace: Trace | None = None) -> Teore
     conclusion = ""
     if cont and signo:
         cs = [r for r in RZ.ceros(f, var, (xa, xb)).raices if xa < r.x < xb]
-        conclusion = "existe c en (a, b) con f(c) = 0: c = " + ", ".join(r.texto() for r in cs)
+        conclusion = "existe c en (a, b) con f(c) = 0: " + "; ".join(_c_legible(r) for r in cs)
     return Teorema("Teorema de Bolzano", hipotesis, conclusion)
 
 

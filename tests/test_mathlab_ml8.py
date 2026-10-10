@@ -72,8 +72,8 @@ def test_laplace_inversa_frente_a_sympy(F):
 
 
 def test_laplace_inversa_formas_de_clase():
-    assert LP.inversa("1/(s^2-2)").texto() == "f(t) = 1/2*sinh(sqrt(2)*t)*sqrt(2) (t ≥ 0)"
-    assert LP.inversa("(s+1)/(s^2+2*s-1)").texto() == "f(t) = cosh(sqrt(2)*t)*exp(-t) (t ≥ 0)"
+    assert LP.inversa("1/(s^2-2)").texto() == "f(t) = 1/2·senh(√2·t)·√2 (t ≥ 0)"
+    assert LP.inversa("(s+1)/(s^2+2*s-1)").texto() == "f(t) = cosh(√2·t)·exp(-t) (t ≥ 0)"
     assert "u(t − 1)" in LP.inversa("(1-e^(-s))/s^2").texto()
     assert "δ′(t)" in LP.inversa("(s^3+1)/(s^2+1)").texto()
 
@@ -207,9 +207,9 @@ def test_oscilador_con_q():
 
 
 def test_convolucion_y_volterra():
-    assert ED.convolucion("t", "e^(-t)").texto() == "f(t) = exp(-t) + t + -1 (t ≥ 0)"
+    assert ED.convolucion("t", "e^(-t)").texto() == "f(t) = exp(-t) + t - 1 (t ≥ 0)"
     assert ED.volterra("1", "t", "1").texto() == "f(t) = cosh(t) (t ≥ 0)"
-    assert ED.integro("y'+4*int(y)=0", "1").texto() == "f(t) = cos(2*t) (t ≥ 0)"
+    assert ED.integro("y'+4*int(y)=0", "1").texto() == "f(t) = cos(2·t) (t ≥ 0)"
 
 
 def test_picard_wronskiano_reduccion_euler():
@@ -257,7 +257,7 @@ def test_z_directa_e_inversa():
     assert TZ.transformada("3^n*sin(pi*n/2)").texto().startswith("X(z) = 3·z/(z^2 + 9)")
     assert TZ.inversa("z/(z-1)^2").texto() == "x[n] = (n)·u[n] (causal; polos: 1)"
     r = TZ.inversa("(z^2+z)/(z^2-z+1)")
-    assert "cos(1/3*pi*n)" in r.texto()
+    assert "cos(1/3·π·n)" in r.texto()
 
 
 def test_ecuacion_en_diferencias():

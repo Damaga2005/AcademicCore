@@ -144,13 +144,94 @@ def factoriza(D: list[Fraction]) -> tuple[Fraction, list[Factor]]:
             s = p[3]
             # a·d + b·(s − a) = p1 → a (d − b) = p1 − b s
             if d != b:
-                a = (p[1] - b * s) / (d - b)
+                pares = [(p[1] - b * s) / (d - b)]
+            elif p[1] == b * s:
+                # b = d: a + c = s y a·c = p2 − 2b, raíces de t² − s·t + (p2 − 2b)
+                r = _raiz_racional(s * s - 4 * (p[2] - 2 * b))
+                pares = [(s + r) / 2] if r is not None else []
+            else:
+                pares = []
+            for a in pares:
                 c = s - a
                 if b + d + a * c == p[2]:
                     q1, q2 = (b, a, Fraction(1)), (d, c, Fraction(1))
                     if all(x[1] ** 2 - 4 * x[0] < 0 for x in (q1, q2)):
                         return lider, factores + [Factor(q1, 1), Factor(q2, 1)]
-    raise _no("el denominador no se factoriza sobre ℚ en lineales y cuadráticos irreducibles")
+    return lider, factores + _sin_raices_racionales(p)
+
+
+def _raiz_racional(q: Fraction) -> Fraction | None:
+    if q < 0:
+        return None
+    n, d = math.isqrt(q.numerator), math.isqrt(q.denominator)
+    return Fraction(n, d) if n * n == q.numerator and d * d == q.denominator else None
+
+
+def _divide(p: list[Fraction], q) -> list[Fraction] | None:
+    cociente, r = RZ._divmod(p, list(q))
+    return None if any(r) else cociente
+
+
+def _bicuadrada(p) -> bool:
+    """x⁴ + P·x² + s² con s ∈ ℚ⁺ y |P| < 2s: irreducible sobre ℚ (si no, ya se habría
+    partido), pero x⁴ + P·x² + s² = (x² + s)² − (2s − P)·x² = (x² + αx + s)(x² − αx + s)
+    con α = √(2s − P) sobre ℝ, y los dos factores sin raíces reales (Δ = 2s + P > 0)."""
+    if len(p) != 5 or p[1] or p[3] or p[4] != 1:
+        return False
+    s = _raiz_racional(p[0])
+    return s is not None and s > 0 and abs(p[2]) < 2 * s
+
+
+def _sin_raices_racionales(p: list[Fraction]) -> list[Factor]:
+    """Lo que queda sin raíces racionales, partido en cuadráticos sobre ℚ y, a lo
+    sumo, cuárticos bicuadrados x⁴ + Px² + s². Las raíces complejas (Durand-Kerner)
+    solo PROPONEN los factores, x² − 2Re(z)·x + |z|² por cada par conjugado y sus
+    productos dos a dos; cada uno se acepta solo si divide EXACTAMENTE en ℚ."""
+    from academic_core.domain.engineering.mathlab import algebra as AL
+
+    falla = _no("el denominador no se factoriza sobre ℚ en lineales, cuadráticos "
+                "irreducibles y cuárticos x⁴ + px² + s²")
+    if len(RZ._mcd(p, [c * k for k, c in enumerate(p)][1:])) > 1:
+        raise falla          # factores repetidos: fuera de este camino
+    zs = AL.raices_complejas(p)
+    if any(abs(z.imag) <= 1e-9 for z in zs):
+        raise falla          # raíz real irracional: no da un cuadrático sobre ℚ
+    pares = [(-2 * z.real, abs(z) ** 2) for z in zs if z.imag > 0]
+
+    def q(*c):
+        return tuple(Fraction(v).limit_denominator(10 ** 6) for v in c)
+    factores: list[Factor] = []
+    restantes = []
+    for b, c in pares:
+        cand = q(c, b, 1)
+        if len(p) == 3 and cand == tuple(p):
+            factores.append(Factor(cand, 1))
+            p = [Fraction(1)]
+            continue
+        cociente = _divide(p, cand) if len(p) > 3 else None
+        if cociente is not None:
+            factores.append(Factor(cand, 1))
+            p = cociente
+        else:
+            restantes.append((b, c))
+    usados: set[int] = set()
+    for i, (b1, c1) in enumerate(restantes):
+        for j in range(i + 1, len(restantes)):
+            if len(p) <= 5 or i in usados or j in usados:
+                continue
+            b2, c2 = restantes[j]
+            cand = q(c1 * c2, b1 * c2 + b2 * c1, c1 + c2 + b1 * b2, b1 + b2, 1)
+            cociente = _divide(p, cand) if _bicuadrada(list(cand)) else None
+            if cociente is not None:
+                factores.append(Factor(cand, 1))
+                usados |= {i, j}
+                p = cociente
+    if len(p) == 5 and _bicuadrada(p):
+        factores.append(Factor(tuple(p), 1))
+        p = [Fraction(1)]
+    if len(p) != 1:
+        raise falla
+    return factores
 
 
 def _coef_txt(a: Fraction) -> str:
@@ -186,6 +267,9 @@ class Fracciones:
                 _, r, j, A = t
                 base = x if r == 0 else (f"({x} − {r})" if r > 0 else f"({x} + {-r})")
                 partes.append(f"{_coef_txt(A)}/{base}" + (f"^{j}" if j > 1 else ""))
+            elif t[0] == "cuartico":
+                partes.append(f"({mx.text(_poly_expr(list(t[3:]), x))})/"
+                              f"({mx.text(_poly_expr(list(t[1]), x))})")
             else:
                 _, q, j, B, C = t
                 quad = mx.text(_poly_expr(list(q) + [Fraction(1)], x))
@@ -219,6 +303,8 @@ def fracciones_simples(N: list[Fraction], D: list[Fraction], x: str,
         for j in range(1, f.multiplicidad + 1):
             if len(f.poli) == 2:
                 incognitas.append(("A", f, j))
+            elif len(f.poli) == 5:
+                incognitas.extend(("Q", f, k) for k in range(4))
             else:
                 incognitas.append(("B", f, j))
                 incognitas.append(("C", f, j))
@@ -228,7 +314,11 @@ def fracciones_simples(N: list[Fraction], D: list[Fraction], x: str,
     for kind, f, j in incognitas:
         fp = list(f.poli)
         resto, _ = RZ._divmod(Dm, _pow(fp, j))
-        col = _mul(resto, [Fraction(0), Fraction(1)]) if kind == "B" else resto
+        if kind == "Q":            # aquí j es el grado: resto·xʲ
+            resto, _ = RZ._divmod(Dm, fp)
+            col = _mul(resto, [Fraction(0)] * j + [Fraction(1)])
+        else:
+            col = _mul(resto, [Fraction(0), Fraction(1)]) if kind == "B" else resto
         col = col + [Fraction(0)] * (n - len(col))
         columnas.append(col[:n])
     filas = [[columnas[c][k] for c in range(len(incognitas))] for k in range(n)]
@@ -250,6 +340,9 @@ def fracciones_simples(N: list[Fraction], D: list[Fraction], x: str,
         elif kind == "B":
             terminos.append(("cuadratico", (f.poli[0], f.poli[1]), j, valores[i], valores[i + 1]))
             i += 2
+        elif kind == "Q" and j == 0:
+            terminos.append(("cuartico", f.poli, 1, *valores[i:i + 4]))
+            i += 4
     terminos = [t for t in terminos if any(v != 0 for v in t[3:])]
     primitiva = _integra(entera, terminos, x, trace)
     frac = Fracciones(entera, terminos, primitiva)
@@ -264,13 +357,15 @@ def _integra(entera, terminos, x: str, trace=None) -> mx.Expr:
 
     trace = trace if trace is not None else _Trace()
     X = mx.Sym(x)
-    total: mx.Expr = mx.Num(Fraction(0))
+    total: mx.Expr | None = None
     # polynomial part
     integral = [Fraction(0)] + [c / (k + 1) for k, c in enumerate(entera)]
     if any(integral):
         total = _poly_expr(integral, x)
     for t in terminos:
-        if t[0] == "lineal":
+        if t[0] == "cuartico":
+            term = _integra_bicuadrada(t[1], t[3:], x, trace)
+        elif t[0] == "lineal":
             _, r, j, A = t
             base = _desplaza(X, r)
             if j == 1:
@@ -285,17 +380,76 @@ def _integra(entera, terminos, x: str, trace=None) -> mx.Expr:
             else:
                 quad = _poly_expr([q0, q1, Fraction(1)], x)
                 delta = 4 * q0 - q1 * q1
-                raiz = mx.Root(2, mx.Num(delta))
-                parte_ln = mx.Mul(_num(B / 2), mx.Call("ln", (quad,)))
                 k = C - B * q1 / 2
-                atan = mx.Mul(mx.Mul(_num(2 * k), mx.Div(mx.Num(Fraction(1)), raiz)),
-                              mx.Call("atan", (mx.Div(_desplaza(mx.Mul(mx.Num(Fraction(2)), X), -q1),
-                                                      raiz),)))
+                r = _raiz_racional(abs(delta))
+                if delta < 0:
+                    # raíces reales irracionales (x² − 2): no es un cuadrático irreducible,
+                    # (C − Bp/2)/√Δ′·ln|(2x + p − √Δ′)/(2x + p + √Δ′)|
+                    parte_ln = mx.Mul(_num(B / 2), mx.Call("ln", (mx.Call("abs", (quad,)),)))
+                    rd = mx.Root(2, mx.Num(-delta))
+                    dos_x_p = _desplaza(mx.Mul(mx.Num(Fraction(2)), X), -q1)
+                    atan = mx.Mul(mx.Div(_num(k), rd), mx.Call("ln", (mx.Call("abs", (
+                        mx.Div(mx.Sub(dos_x_p, rd), mx.Add(dos_x_p, rd)),)),)))
+                elif r is not None:
+                    # Δ cuadrado perfecto: atan((2x + p)/r) escrito ya simplificado
+                    parte_ln = mx.Mul(_num(B / 2), mx.Call("ln", (quad,)))
+                    atan = mx.Mul(_num(2 * k / r),
+                                  mx.Call("atan", (_poly_expr([q1 / r, 2 / r], x),)))
+                else:
+                    raiz = mx.Root(2, mx.Num(delta))
+                    parte_ln = mx.Mul(_num(B / 2), mx.Call("ln", (quad,)))
+                    atan = mx.Mul(mx.Mul(_num(2 * k), mx.Div(mx.Num(Fraction(1)), raiz)),
+                                  mx.Call("atan", (mx.Div(_desplaza(mx.Mul(mx.Num(Fraction(2)), X),
+                                                                    -q1), raiz),)))
                 term = mx.Add(parte_ln, atan) if k != 0 else parte_ln
                 if B == 0:
                     term = atan
-        total = mx.Add(total, term)
-    return LM._limpio(total)
+        total = term if total is None else mx.Add(total, term)
+    return LM._limpio(total) if total is not None else mx.Num(Fraction(0))
+
+
+def _integra_bicuadrada(poli, N, x: str, trace) -> mx.Expr:
+    """∫ (n₀ + n₁x + n₂x² + n₃x³)/(x⁴ + Px² + s²) con Q± = x² ± αx + s, α = √k,
+    k = 2s − P, y Δ = 2s + P el discriminante (cambiado de signo) de los dos.
+
+    Fracciones simples sobre ℚ(α), resueltas a mano: con u = n₃/2,
+    v = (n₂ − n₀/s)/(2k), w = n₀/(2s), z = (n₁ − s·n₃)/(2k),
+        N/D = ((u − vα)x + (w − zα))/Q₊ + ((u + vα)x + (w + zα))/Q₋,
+    y cada una por su tabla. Agrupando, con g = w + vk/2 y h = z + u/2:
+        ∫ = (u/2)·ln D − (vα/2)·ln(Q₊/Q₋)
+            + (2g/√Δ)·[atan((2x + α)/√Δ) + atan((2x − α)/√Δ)]
+            + (2hα/√Δ)·[atan((2x − α)/√Δ) − atan((2x + α)/√Δ)]."""
+    P = poli[2]
+    s = _raiz_racional(poli[0])
+    n0, n1, n2, n3 = N
+    k, m = 2 * s - P, 2 * s + P
+    u, v, w, z = n3 / 2, (n2 - n0 / s) / (2 * k), n0 / (2 * s), (n1 - s * n3) / (2 * k)
+    g, h = w + v * k / 2, z + u / 2
+    X = mx.Sym(x)
+    alfa, raiz = mx.Root(2, mx.Num(k)), mx.Root(2, mx.Num(m))
+    x2 = mx.Pow(X, mx.Num(Fraction(2)))
+    Qmas = mx.Add(mx.Add(x2, mx.Mul(alfa, X)), mx.Num(s))
+    Qmenos = mx.Add(mx.Sub(x2, mx.Mul(alfa, X)), mx.Num(s))
+    dosx = mx.Mul(mx.Num(Fraction(2)), X)
+    at_mas = mx.Call("atan", (mx.Div(mx.Add(dosx, alfa), raiz),))
+    at_menos = mx.Call("atan", (mx.Div(mx.Sub(dosx, alfa), raiz),))
+    partes = []
+    if u:
+        partes.append(mx.Mul(_num(u / 2), mx.Call("ln", (_poly_expr(list(poli), x),))))
+    if v:
+        partes.append(mx.Mul(mx.Mul(_num(-v / 2), alfa), mx.Call("ln", (mx.Div(Qmas, Qmenos),))))
+    if g:
+        partes.append(mx.Mul(mx.Div(_num(2 * g), raiz), mx.Add(at_mas, at_menos)))
+    if h:
+        partes.append(mx.Mul(mx.Div(mx.Mul(_num(2 * h), alfa), raiz), mx.Sub(at_menos, at_mas)))
+    trace.regla("fracciones.bicuadrada",
+                f"{mx.text(_poly_expr(list(poli), x))} = ({mx.text(Qmas)})·({mx.text(Qmenos)})",
+                why="(x² + s)² − (2s − P)·x²: diferencia de cuadrados sobre ℝ; los dos "
+                    "factores no tienen raíces reales y cada fracción va a ln y arctan")
+    total = partes[0] if partes else mx.Num(Fraction(0))
+    for p_ in partes[1:]:
+        total = mx.Add(total, p_)
+    return total
 
 
 # ---------------------------------------------------------------------------

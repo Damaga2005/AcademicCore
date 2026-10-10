@@ -60,8 +60,8 @@ def test_a_trozos():
 @pytest.mark.parametrize("teorema,f,a,b,trozo", [
     ("rolle", "x^2-4*x", "0", "4", "c = 2"),
     ("rolle", "abs(x)", "-1", "1", "f no es derivable en x = 0"),
-    ("valor_medio", "x^3", "0", "2", "c = 2/3*sqrt(3)"),
-    ("bolzano", "x^3+x-1", "0", "1", "c = ≈ 0.682327803828"),
+    ("valor_medio", "x^3", "0", "2", "c = 2/3·√3 ≈ 1.154700538"),
+    ("bolzano", "x^3+x-1", "0", "1", "c ≈ 0.682327803828"),
     ("bolzano", "1/x", "-1", "1", "No se puede aplicar"),
 ])
 def test_teoremas(teorema, f, a, b, trozo):

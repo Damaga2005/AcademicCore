@@ -1016,11 +1016,86 @@ def potencias(T: Termino, x: str = "x", trace: Trace | None = None) -> Potencias
 # ---------------------------------------------------------------------------
 
 
+def _bernoulli(m: int) -> Fraction:
+    """Bₘ por Akiyama–Tanigawa (B₁ = +1/2; solo se usan los pares)."""
+    a = [Fraction(0)] * (m + 1)
+    for k in range(m + 1):
+        a[k] = Fraction(1, k + 1)
+        for j in range(k, 0, -1):
+            a[j - 1] = j * (a[j - 1] - a[j])
+    return a[0]
+
+
+def _zeta_par(p: int) -> mx.Expr:
+    """ζ(p) para p par: (−1)^{p/2+1}·B_p·(2π)^p/(2·p!) = q·π^p, q racional."""
+    q = (-1) ** (p // 2 + 1) * _bernoulli(p) * Fraction(2 ** p, 2 * math.factorial(p))
+    return mx.Mul(mx.Num(q), mx.Pow(mx.Const("pi"), mx.Num(Fraction(p))))
+
+
+def _catalogo(T: "Termino", n0: int, trace: Trace) -> mx.Expr | None:
+    """Sumas clásicas exactas: Σ c/nᵖ (p par) = c·ζ(p); con (−1)ⁿ, η(p) = (1 − 2^{1−p})ζ(p)
+    y η(1) = ln 2; Σ (−1)ⁿ·c/(2n+1) desde 0 = c·π/4. Se suman desde el índice natural
+    (1, o 0 en la de Leibniz) y se restan exactamente los términos que sobran."""
+    var = T.var
+    a = T.expr
+    alt = _factor_alterno(a, var)
+    nucleo = alt[1] if alt is not None else a
+    alterna = alt is not None and alt[2]
+    n = mx.Sym(var)
+    candidatos = []
+    for pot in range(1, 13):
+        c = LM._limpio(mx.Mul(nucleo, mx.Pow(n, mx.Num(Fraction(pot)))))
+        if not mx.depends(c, var) and mx.exact_value(c) is not None:
+            candidatos.append(("p", pot, mx.exact_value(c)))
+            break
+    c_leibniz = LM._limpio(mx.Mul(nucleo, mx.Add(mx.Mul(mx.Num(Fraction(2)), n), mx.Num(Fraction(1)))))
+    if not mx.depends(c_leibniz, var) and mx.exact_value(c_leibniz) is not None and alterna:
+        candidatos.append(("leibniz", 1, mx.exact_value(c_leibniz)))
+    for tipo, pot, c in candidatos:
+        inicio = 0 if tipo == "leibniz" else 1
+        a_ini = mx.exact_value(LM._limpio(mx.substitute(a, var, mx.Num(Fraction(inicio)))))
+        if a_ini is None or c == 0:
+            continue
+        # a_inicio = c/(inicio-esimo denominador)·ε con ε = ±1 el signo del primer término
+        den_ini = Fraction(1) if tipo == "leibniz" else Fraction(1)
+        eps = 1 if a_ini * den_ini / c > 0 else -1
+        if tipo == "leibniz":
+            base = mx.Mul(mx.Num(Fraction(1, 4)), mx.Const("pi"))
+            nombre = "Σ (−1)ⁿ/(2n+1) = π/4 (Leibniz)"
+        elif alterna:
+            if pot == 1:
+                base, nombre = mx.Call("ln", (mx.Num(Fraction(2)),)), "Σ (−1)ⁿ⁺¹/n = ln 2"
+            elif pot % 2 == 0:
+                base = mx.Mul(mx.Num(1 - Fraction(1, 2 ** (pot - 1))), _zeta_par(pot))
+                nombre = f"η({pot}) = (1 − 2^{1 - pot})·ζ({pot})"
+            else:
+                continue
+        else:
+            if pot % 2 or pot < 2:
+                continue
+            base, nombre = _zeta_par(pot), f"ζ({pot}) por los números de Bernoulli"
+        if n0 < inicio:
+            continue
+        total: mx.Expr = mx.Mul(mx.Num(Fraction(eps) * abs(c)), base)
+        for j in range(inicio, n0):
+            total = mx.Sub(total, LM._limpio(mx.substitute(a, var, mx.Num(Fraction(j)))))
+        total = LM._limpio(total)
+        trace.regla("suma.catalogo", f"{nombre}; desde n = {n0}: Σ = {mx.pretty(total)}",
+                    why="suma clásica con valor cerrado conocido; los términos anteriores al "
+                        "índice pedido se restan exactamente")
+        return total
+    return None
+
+
 def suma(T: Termino, n0: int = 1, trace: Trace | None = None) -> mx.Expr:
     trace = trace if trace is not None else Trace()
     if T.factoriales:
-        raise _no("suma con factoriales: solo se estudia su convergencia")
+        raise _no("suma con factoriales: sin forma cerrada en este motor (se da la suma "
+                  "numérica con su cota)")
     var = T.var
+    cat = _catalogo(T, n0, trace)
+    if cat is not None:
+        return cat
     razon = LM._limpio(cociente(T))
     if mx.depends(razon, var):
         # 3/2ⁿ⁺¹ ÷ 3/2ⁿ does not fold by itself: a constant ratio is its limit, checked
@@ -1062,23 +1137,94 @@ def _telescopica(a: mx.Expr, var: str, n0: int, trace: Trace) -> mx.Expr:
     sumandos = []
     for r in raices:
         x = mx.exact_value(r.valor)
-        if x is None or x.denominator != 1:
-            raise _no("raíz no entera del denominador: no telescopa a un número racional")
+        if x is None:
+            raise _no("raíz irracional del denominador: no telescopa a un número racional")
         A = RZ._eval(num, x) / RZ._eval(dden, x)
-        sumandos.append((A, -int(x)))          # A/(n + k)
+        sumandos.append((A, x))                 # A/(n − x)
     if sum(A for A, _ in sumandos) != 0:
         raise _no("ΣAᵢ ≠ 0: la serie no telescopa")
-    trace.regla("suma.fracciones", "aₙ = " + " + ".join(f"({A})/(n + {k})" for A, k in sumandos),
+    # telescopa si las raíces difieren en enteros (x = c + mᵢ con c común); con la
+    # digamma, Σₙ Σᵢ Aᵢ/(n − xᵢ) = −Σᵢ Aᵢ·ψ(n₀ − xᵢ) y las diferencias ψ(b + k) − ψ(b)
+    # = Σ_{j<k} 1/(b + j) son racionales (antes solo se admitían raíces enteras)
+    frac = {x - math.floor(x) for _, x in sumandos}
+    if len(frac) != 1:
+        raise _no("las raíces no difieren en enteros: no telescopa")
+    if any(n0 - x <= 0 for _, x in sumandos):
+        raise _no("un término anula el denominador dentro del rango de la suma")
+    trace.regla("suma.fracciones", "aₙ = " + " + ".join(f"({A})/(n − ({x}))" for A, x in sumandos),
                 why="fracciones simples sobre las raíces del denominador")
+    b = min(n0 - x for _, x in sumandos)
     total = Fraction(0)
-    for A, k in sumandos:
-        m = n0 + k - 1
-        if m < 0:
-            raise _no("un término se anula el denominador dentro del rango de la suma")
-        total -= A * sum((Fraction(1, j) for j in range(1, m + 1)), Fraction(0))
-    trace.regla("suma.telescopica", f"Σ = −Σ Aᵢ·H(n₀ + kᵢ − 1) = {total}",
-                why="los armónicos H(N + kᵢ) se cancelan al tender N a ∞ porque ΣAᵢ = 0")
+    for A, x in sumandos:
+        k = int(n0 - x - b)
+        total -= A * sum((1 / (b + j) for j in range(k)), Fraction(0))
+    trace.regla("suma.telescopica", f"Σ = −Σ Aᵢ·[ψ(n₀ − xᵢ) − ψ(b)] = {total}",
+                why="las colas se cancelan al tender N a ∞ porque ΣAᵢ = 0")
     return _num(total)
+
+
+@dataclass(frozen=True)
+class SumaNumerica:
+    valor: float
+    cota: float          # |S − S_N| ≤ cota
+    N: int
+    q: float             # |aₙ₊₁/aₙ| ≤ q < 1 desde N
+
+    def texto(self) -> str:
+        return (f"Σ ≈ {self.valor:.12g} (|error| ≤ {self.cota:.2g}: S_N con N = {self.N} "
+                f"y la cola mayorada por la geométrica de razón {self.q:.3g})")
+
+
+def suma_numerica(T: Termino, n0: int = 1, trace: Trace | None = None,
+                  tol: float = 1e-12) -> SumaNumerica:
+    """S_N más una cota de la cola: si |aₙ₊₁/aₙ| ≤ q < 1 para n ≥ N, entonces
+    |Σ_{n>N} aₙ| ≤ |a_{N+1}|/(1 − q). El límite del cociente se calcula exacto
+    (tiene que ser < 1); que el cociente no crezca desde N se comprueba en una
+    ventana de 200 términos, no se demuestra: el resultado es solo numérico."""
+    trace = trace if trace is not None else Trace()
+    try:
+        lim = LM.limite(cociente(T), T.var, "oo")
+        L = abs(float(mx.valor_real(lim.expr, {}))) if lim.expr is not None else None
+    except (UnsupportedError, ValidationError, TypeError, ValueError):
+        L = None
+    if L is None or not L < 1:
+        raise _no("sin forma cerrada y sin cociente que tienda a un valor < 1: no hay "
+                  "cota de la cola que dar")
+    s, n = 0.0, n0
+    terminos = []
+    while n < n0 + 5000:
+        v = T.valor(n)
+        if v is None:
+            break
+        terminos.append(v)
+        s += v
+        if len(terminos) >= 2 and terminos[-2] != 0:
+            q = abs(terminos[-1] / terminos[-2])
+            # la ventana solo se mira cuando la cola ya parece pequeña
+            ventana: list[float] = []
+            if q < 1 and abs(v) * q / (1 - q) <= tol * max(1.0, abs(s)):
+                # hasta 200 términos, o hasta donde se pueden evaluar (Γ desborda en 171!)
+                for k in range(n, n + 201):
+                    w = T.valor(k)
+                    if w is None:
+                        break
+                    ventana.append(w)
+            if len(ventana) > 20:
+                razones = [abs(ventana[i + 1] / ventana[i]) if ventana[i] else 0.0
+                           for i in range(len(ventana) - 1)]
+                if all(r <= q * (1 + 1e-12) for r in razones):
+                    cota = abs(ventana[1]) / (1 - q)
+                    if cota <= tol * max(1.0, abs(s)):
+                        trace.regla("suma.numerica",
+                                    f"S_{n} ≈ {s:.15g}; |aₙ₊₁/aₙ| ≤ {q:.4g} desde n = {n} "
+                                    f"(comprobado en {len(razones)} términos) "
+                                    f"⇒ |cola| ≤ |a_{n + 1}|/(1 − q) ≤ {cota:.2g}",
+                                    why="sin forma cerrada: la suma parcial más una cota "
+                                        "de lo que falta, mayorado por una geométrica "
+                                        f"(el cociente tiende a {L:.4g} < 1)")
+                        return SumaNumerica(s, cota, n, q)
+        n += 1
+    raise _no("la cola no baja de la tolerancia en los términos que se pueden evaluar")
 
 
 def suma_parcial(T: Termino, n0: int, N: int) -> float | None:

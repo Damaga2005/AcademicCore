@@ -229,9 +229,7 @@ def _format_exact(value: object) -> str:
 
 
 def _format_complex(value: complex, digits: int) -> str:
-    if abs(value.imag) < 1e-15:
-        return f"{value.real:.{digits}g}"
-    return f"{value.real:.{digits}g} {value.imag:+.{digits}g}i"
+    return texto_complejo(value, digits, "i")
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +312,18 @@ def operaciones() -> tuple[str, ...]:
     return tuple(sorted(_operaciones))
 
 
+def texto_complejo(z, cifras: int = 6, unidad: str = "j") -> str:
+    """«0.5 − 0.2j», «−0.2», «0»: sin «+0j» y con el ruido de redondeo a 0."""
+    z = complex(z)
+    tol = 1e-12 * max(1.0, abs(z))
+    re_, im_ = (0.0 if abs(z.real) < tol else z.real), (0.0 if abs(z.imag) < tol else z.imag)
+    if im_ == 0:
+        return f"{re_ + 0.0:.{cifras}g}"
+    if re_ == 0:
+        return f"{im_:.{cifras}g}{unidad}"
+    return f"{re_:.{cifras}g} {'−' if im_ < 0 else '+'} {abs(im_):.{cifras}g}{unidad}"
+
+
 def calcular(peticion: Peticion) -> Resultado:
     """The one entry point of §5.9.
 
@@ -344,7 +354,22 @@ def calcular(peticion: Peticion) -> Resultado:
                                      f"({exc})") from None
         if isinstance(exc, TypeError) and "NoneType" in str(exc) and _tiene_none(peticion.entrada):
             raise error("BAD_INPUT", "un dato de la petición vale None (vacío)") from None
+        if "empty" in str(exc) and _tiene_vacia(peticion.entrada):
+            raise error("BAD_INPUT", _FALTA_LISTA.format(peticion.operacion)) from None
         raise
+    except (IndexError, ZeroDivisionError):
+        # una lista que falta llega como [] y revienta al indexarla o promediarla
+        if _tiene_vacia(peticion.entrada):
+            raise error("BAD_INPUT", _FALTA_LISTA.format(peticion.operacion)) from None
+        raise
+    except AttributeError as exc:
+        if not isinstance(peticion.entrada, dict) and "has no attribute 'get'" in str(exc):
+            raise error("BAD_INPUT", f"«{peticion.operacion}» espera sus datos como "
+                                     f"diccionario, no {type(peticion.entrada).__name__}") from None
+        raise
+    except OverflowError:
+        raise error("BAD_INPUT", "un dato de la petición es demasiado grande para "
+                                 "calcular con él") from None
     return _con_plug_ins(resultado, peticion)
 
 
@@ -353,6 +378,24 @@ _DATO_MAL_ESCRITO = (
     "invalid literal for int()", "could not convert string to float",
     "Invalid literal for Fraction",
 )
+
+
+_FALTA_LISTA = "faltan datos en la petición de «{}»: hay una lista vacía"
+
+
+def _tiene_vacia(entrada) -> bool:
+    """La petición no trae datos, o trae alguna lista vacía (o la omite y el
+    cálculo cae en su ``[]`` por defecto, que la entrada no puede mostrar).
+
+    ponytail: heurística; si la petición trae una lista y omite otra, el ``[]`` por
+    defecto de la omitida no se ve y el error sale crudo. Validar en cada cálculo si
+    hace falta."""
+    if isinstance(entrada, dict):
+        return not entrada or any(_tiene_vacia(v) for v in entrada.values()) or \
+            not any(isinstance(v, (list, tuple)) for v in entrada.values())
+    if isinstance(entrada, (list, tuple)):
+        return not entrada or any(_tiene_vacia(v) for v in entrada)
+    return False
 
 
 def _tiene_none(entrada) -> bool:

@@ -263,8 +263,8 @@ def test_de_moivre_da_todas_las_raices_y_son_distintas():
 def test_las_raices_cubicas_de_la_unidad_son_exactas():
     raices = K.de_moivre(mx.Num(1), mx.ZERO, 3)
     assert raices[0].texto() == "1"
-    assert raices[1].texto() == "-1/2 + 1/2*sqrt(3)i"
-    assert raices[2].texto() == "-1/2 - 1/2*sqrt(3)i"
+    assert raices[1].texto() == "-1/2 + 1/2·√3·i"
+    assert raices[2].texto() == "-1/2 - 1/2·√3·i"
 
 
 def test_las_raices_cuadradas_de_menos_uno_son_mas_menos_i():
@@ -304,7 +304,7 @@ def test_el_logaritmo_tiene_una_rama_principal_y_las_demas():
     principal = K.log_multi(z("3+4i"))
     otra = K.log_multi(z("3+4i"), 1)
     assert "ln(5)" in principal.texto()
-    assert "+ 2*pi" in otra.texto()
+    assert "2·π" in K.Complejo(otra.modulo, otra.angulo).texto()
 
 
 def test_las_ramas_del_log_difieren_en_vueltas_enteras():

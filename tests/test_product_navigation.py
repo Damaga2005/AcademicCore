@@ -37,6 +37,6 @@ def test_go_menu_navigates_without_touching_tabs(qtbot, tmp_path):
     before = win.tabs.count()
     win.navigate_to("simulation")
     assert win.tabs.currentWidget() is win.simulation_panel
-    assert win.tabs.count() == before == 14
+    assert win.tabs.count() == before == 15
     win.navigate_to("lab")
     assert win.tabs.currentWidget() is win.virtual_lab_panel

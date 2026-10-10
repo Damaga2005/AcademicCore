@@ -16,14 +16,15 @@ def test_legacy_keys_resolve_to_known_routes():
 def test_every_page_of_the_ia_is_reachable():
     targets = {r.target for r in routes.ROUTES}
     assert targets == {"dashboard", "overview", "activities", "grades", "planning", "mastery", "library",
-                       "documents", "exercises", "sessions", "plan", "circuits", "analysis", "lab",
-                       "digital", "aerospace", "settings"}
+                       "documents", "math", "exercises", "sessions", "plan", "circuits", "analysis",
+                       "lab", "digital", "aerospace", "settings"}
 
 
 def test_areas_and_sections():
     assert [a for a, _ in routes.AREAS] == ["home", "learn", "practice", "engineering", "settings"]
     assert [r.label for r in routes.sections("learn")] == [
-        "Resumen", "Actividades", "Notas", "Planificación", "Dominio", "Biblioteca", "Documentos"]
+        "Resumen", "Actividades", "Notas", "Planificación", "Dominio", "Biblioteca", "Documentos",
+        "Matemáticas"]
     assert [r.label for r in routes.sections("practice")] == ["Ejercicios", "Sesiones", "Plan"]
     assert [r.label for r in routes.sections("engineering")] == [
         "Circuitos", "Análisis", "Laboratorio", "Lógica digital", "Aeroespacial"]

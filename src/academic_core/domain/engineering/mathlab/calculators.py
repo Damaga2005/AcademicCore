@@ -143,7 +143,7 @@ def _objetivo_declarado(traza: Trace, nombre: str) -> None:
 
 def _finalizar(peticion: C.Peticion, traza: Trace, exacto, *,
                aproximado=None, error=None, sello: V.Seal, grafica=None,
-               avisos: tuple[str, ...] = ()) -> C.Resultado:
+               avisos: tuple[str, ...] = (), expr: mx.Expr | None = None) -> C.Resultado:
     traza.level = peticion.nivel
     peticion.limites.validar(len(traza), 0)
     hipotesis = tuple(traza.hypotheses())
@@ -163,7 +163,9 @@ def _finalizar(peticion: C.Peticion, traza: Trace, exacto, *,
     return C.Resultado(
         operacion=peticion.operacion,
         exacto=_exacto_legible(exacto),
-        exacto_expr=exacto if isinstance(exacto, mx.Expr)
+        # «expr»: la expresión que acompaña a un resultado escrito como texto, para
+        # poder enviarla a otra calculadora (§8.1)
+        exacto_expr=expr if expr is not None else exacto if isinstance(exacto, mx.Expr)
         or (isinstance(exacto, dict) and all(isinstance(v, mx.Expr)
                                              for v in exacto.values()))
         else None,
@@ -331,7 +333,7 @@ def _presentable(e: mx.Expr, trace: Trace, profunda: bool = False) -> mx.Expr:
 
 def _grafica_derivada(f: mx.Expr, df: mx.Expr, var: str) -> C.Graph:
     """Function and derivative on the same axes (§6: «función y derivada»)."""
-    puntos = V.sampled_points([var], count=48)
+    puntos = sorted(V.sampled_points([var], count=48), key=lambda p: p[var])  # por x: es una polilínea
     xs = tuple(p[var] for p in puntos)
     ys = tuple(_real(mx.evaluate(f, p)) for p in puntos)
     dys = tuple(_real(mx.evaluate(df, p)) for p in puntos)
@@ -785,8 +787,9 @@ def _multivar(peticion: C.Peticion) -> C.Resultado:
                                      str(e.get("y", "y")), trace))
     elif calculo == "hessiana":
         H, clase = MV.hessiana(_expresion_de(e, "expr", "f"), vars,
-                               dict(e["punto"]) if e.get("punto") else None, trace)
-        texto = ("[" + "; ".join(", ".join(mx.text(h) for h in fila) for fila in H) + "]"
+                               dict(e["punto"]) if e.get("punto") else None, trace,
+                               simbolica=True)
+        texto = ("[" + "; ".join(", ".join(mx.pretty(h) for h in fila) for fila in H) + "]"
                  + f" → {clase}")
     elif calculo == "criticos":
         f_ = _expresion_de(e, "expr", "f")
@@ -902,7 +905,7 @@ def _espacios(peticion: C.Peticion) -> C.Resultado:
         gens = _vecs("generadores")
         vars = [str(v) for v in e.get("vars", ["x", "y", "z"])]
         ecs = EV.generadores_a_ecuaciones(gens, vars, trace)
-        texto = "; ".join(mx.text(ec) + " = 0" for ec in ecs) or "0 = 0 (todo el espacio)"
+        texto = "; ".join(mx.pretty(ec) + " = 0" for ec in ecs) or "0 = 0 (todo el espacio)"
     elif calculo == "cambio_base":
         c1 = [Fraction(str(x)) for x in _vecs("coords")]
         B1 = _vecs("B1")
@@ -962,7 +965,9 @@ def _espacios(peticion: C.Peticion) -> C.Resultado:
     elif calculo == "singulares":
         A = _vecs("matriz")
         sigmas = EV.valores_singulares(A, trace)
-        texto = "σ = " + ", ".join(_mx.text(s) for s in sigmas)
+        texto = "σ = " + ", ".join(
+            _mx.pretty(s) + ("" if isinstance(s, _mx.Num) else f" ≈ {_mx.valor_real(s, {}):.10g}")
+            for s in sigmas)
     else:
         raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
     sello = V.Seal(V.VERIFIED, "comprobado por un segundo camino",
@@ -996,6 +1001,8 @@ def _algebra(peticion: C.Peticion) -> C.Resultado:
     def _txt(v) -> str:
         if isinstance(v, Fraction):
             return str(v)
+        if isinstance(v, mx.Expr):      # real irracional: con su valor al lado
+            return f"{AL.texto_autovalor(v)} ≈ {mx.valor_real(v, {}):.10g}"
         return AL.texto_autovalor(v)
 
     A = [[_ent(v, "la matriz") for v in fila] for fila in e["matriz"]]
@@ -1842,9 +1849,16 @@ def _serie(peticion: C.Peticion) -> C.Resultado:
         sello = V.Seal(V.VERIFIED if decididos else V.NUMERIC_ONLY,
                        "radio por el cociente; extremos como series numéricas", texto)
     elif calculo == "suma":
-        valor = SN.suma(T, n0, trace)
-        texto = mx.text(valor)
+        try:
+            valor = SN.suma(T, n0, trace)
+        except UnsupportedError:
+            r = SN.suma_numerica(T, n0, trace)
+            sello = V.Seal(V.NUMERIC_ONLY, "suma parcial y cota geométrica de la cola",
+                           r.texto())
+            return _finalizar(peticion, trace, r.texto(), aproximado=r.valor,
+                              error=r.cota, sello=sello)
         objetivo = float(mx.valor_real(valor, {}))
+        texto = mx.pretty(valor) + ("" if isinstance(valor, mx.Num) else f" ≈ {objetivo:.12g}")
         parcial = SN.suma_parcial(T, n0, n0 + 100000)
         if parcial is None:
             sello = V.Seal(V.NUMERIC_ONLY, "fórmula cerrada", "sumas parciales no evaluables")
@@ -1857,7 +1871,7 @@ def _serie(peticion: C.Peticion) -> C.Resultado:
     elif calculo == "suma_potencias":
         xv = str(e.get("x") or "x")
         valor = SN.suma_potencias(T, xv, n0, trace)
-        texto = mx.text(valor)
+        texto = mx.pretty(valor)
         sello = V.Seal(V.VERIFIED, "serie de Taylor reconocida y suma parcial",
                        f"Σ = {texto}")
     else:
@@ -1896,8 +1910,8 @@ def _taylor(peticion: C.Peticion) -> C.Resultado:
             lo, hi = e["intervalo"]
             intervalo = (_expr(str(lo)), _expr(str(hi)))
         if x0 is None and intervalo is None:
-            texto, sello = _taylor_polinomio(f, var, a, int(e.get("orden", 3)), trace)
-            return _finalizar(peticion, trace, texto, aproximado=None, sello=sello)
+            texto, sello, P = _taylor_polinomio(f, var, a, int(e.get("orden", 3)), trace)
+            return _finalizar(peticion, trace, texto, aproximado=None, sello=sello, expr=P)
         r = TL.aproximar(f, var, a, int(e.get("orden", 3)), x0, intervalo, trace)
     if x0 is not None:
         real = TL.error_real(f, var, r, x0)
@@ -1908,7 +1922,7 @@ def _taylor(peticion: C.Peticion) -> C.Resultado:
                  else V.Seal(V.DISCREPANT, "error real", f"{real:.4g} > {cota:.4g}"))
     else:
         sello = V.Seal(V.VERIFIED, "coeficientes exactos; M por Weierstrass", "")
-    return _finalizar(peticion, trace, r.texto(var), aproximado=None, sello=sello)
+    return _finalizar(peticion, trace, r.texto(var), aproximado=None, sello=sello, expr=r.P)
 
 
 def _taylor_polinomio(f, var, a, n, trace):
@@ -1939,7 +1953,7 @@ def _taylor_polinomio(f, var, a, n, trace):
         sello = V.Seal(V.VERIFIED, "f − Pₙ = o((x − a)ⁿ) comprobado con el límite exacto", "")
     else:
         sello = V.Seal(V.NUMERIC_ONLY, "coeficientes exactos sin comprobación por límite", "")
-    return f"P_{n}({var}) = {mx.text(P)}; {resto}", sello
+    return f"P_{n}({var}) = {mx.pretty(P)}; {resto}", sello, P
 
 
 def _tfc(peticion: C.Peticion) -> C.Resultado:
@@ -2196,6 +2210,21 @@ def _primitiva_por_metodo(f: mx.Expr, var: str, metodo: str, trace: Trace) -> mx
                          "con primitiva de tabla")
         return PR.fracciones_simples(N, D, var, trace).primitiva
     if metodo == "sustitucion":
+        # primero el cambio u = g(x) que la expresión trae (x·cos(x²): u = x²); si no
+        # lo hay, la sustitución trigonométrica de las raíces de cuadráticas
+        import time
+
+        from academic_core.domain.engineering.mathlab import integracion as IN
+
+        trace.metodo("primitiva.cambio", "cambio de variable u = g(x)",
+                     why="si f = H(g(x))·g′(x), en u queda ∫H(u) du, de tabla")
+        IN._LIMITE[0] = time.monotonic() + IN.MAX_SEGUNDOS
+        try:
+            F = IN._cambio(f, var, trace, 0)
+        except (UnsupportedError, ValidationError, ZeroDivisionError, ValueError):
+            F = None
+        if F is not None:
+            return F
         return PR.sustitucion_trigonometrica(f, var, trace)
     raise C.error("BAD_INPUT", "metodo = fracciones_simples | sustitucion")
 
@@ -2664,6 +2693,11 @@ def _complejo(peticion: C.Peticion) -> C.Resultado:
     )
     numero = K.Complejo.de_texto(texto_z)
     exacto = numero.texto()
+    if not all(isinstance(p, mx.Num) or (isinstance(p, mx.Neg) and isinstance(p.arg, mx.Num))
+               for p in (numero.real, numero.imag)):
+        # «1/2 + 1/2·√3·i» con su valor al lado
+        re_, im_ = (float(mx.valor_real(p, {})) for p in (numero.real, numero.imag))
+        exacto += f" ≈ {re_:.10g} {'−' if im_ < 0 else '+'} {abs(im_):.10g}·i"
     hipotesis: list[str] = []
     if n is not None:
         raices = K.de_moivre(numero.modulo(), numero.argumento(), int(n))
@@ -2682,7 +2716,10 @@ def _complejo(peticion: C.Peticion) -> C.Resultado:
             "-pi, y la otra elección desplaza la fase una vuelta entera")
     elif forma == "log":
         rama = int(entrada.get("k", 0)) if isinstance(entrada, dict) else 0
-        exacto = K.log_multi(numero, rama).texto()
+        # log z = ln|z| + i·(θ + 2kπ): un número en forma RECTANGULAR. Escribirlo como
+        # ln|z|·(cos(…) + i·sen(…)) sería ln|z|·e^(iθ), otro número
+        lg = K.log_multi(numero, rama)
+        exacto = "log z = " + K.Complejo(K._fuerte(lg.modulo), K._fuerte(lg.angulo)).texto()
         hipotesis.append(
             f"logaritmo en la rama k = {rama}; la rama 0 es la principal y las "
             "demás difieren en vueltas enteras")
@@ -3997,7 +4034,7 @@ def _error_de_redondeo(valor: float) -> float:
 
 def _grafica_primitiva(integrando: mx.Expr, primitiva: mx.Expr,
                        var: str) -> C.Graph:
-    puntos = V.sampled_points([var], count=48)
+    puntos = sorted(V.sampled_points([var], count=48), key=lambda p: p[var])
     xs = tuple(p[var] for p in puntos)
     return C.Graph(
         series=(
@@ -4016,7 +4053,7 @@ def _grafica_area(integrando: mx.Expr, var: str, low, high,
                   valor: float, error: float) -> C.Graph:
     """The integrand, the region and its area (§6)."""
     lo, hi = mx.evaluate(low, {}), mx.evaluate(high, {})
-    puntos = V.sampled_points([var], count=48)
+    puntos = sorted(V.sampled_points([var], count=48), key=lambda p: p[var])
     xs, ys = [], []
     if lo is not None and hi is not None:
         left, right = min(lo.real, hi.real), max(lo.real, hi.real)
@@ -4245,15 +4282,15 @@ def _operadores_calc(peticion: C.Peticion) -> C.Resultado:
         return e[k]
 
     def vec(v):
-        return "(" + ", ".join(mx.text(c) for c in v) + ")"
+        return "(" + ", ".join(mx.pretty(c) for c in v) + ")"
     if calculo == "gradiente":
         texto = "∇V = " + vec(OP.gradiente(dato("V"), sistema, trace))
     elif calculo == "divergencia":
-        texto = "∇·F = " + mx.text(OP.divergencia(dato("campo"), sistema, trace))
+        texto = "∇·F = " + mx.pretty(OP.divergencia(dato("campo"), sistema, trace))
     elif calculo == "rotacional":
         texto = "∇×F = " + vec(OP.rotacional(dato("campo"), sistema, trace))
     elif calculo == "laplaciano":
-        texto = "∇²V = " + mx.text(OP.laplaciano(dato("V"), sistema, trace))
+        texto = "∇²V = " + mx.pretty(OP.laplaciano(dato("V"), sistema, trace))
     elif calculo == "poisson":
         texto = "ρ = " + mx.text(OP.poisson(dato("V"), sistema, trace))
     elif calculo == "cambio_base":
@@ -4347,7 +4384,7 @@ def _numericos_calc(peticion: C.Peticion) -> C.Resultado:
         tabla(t)
         texto, exacto_ok = t.texto(), False
     elif calculo == "newton_dd":
-        texto = "P(x) = " + mx.text(NU.newton_divididas(dato("puntos"), var, trace))
+        texto = "P(x) = " + mx.pretty(NU.newton_divididas(dato("puntos"), var, trace))
     elif calculo == "ajuste_polinomico":
         texto = NU.ajuste_polinomico(dato("puntos"), int(dato("grado")), trace).texto()
     elif calculo == "ajuste_linealizado":
@@ -4396,9 +4433,10 @@ def _ml8_dato(e: dict, calculo: str):
 
 def _ml8_cierre(peticion, trace, texto, metodo="comprobado por un segundo camino",
                 detalle="sustitución exacta, ida y vuelta o cuadratura según el cálculo",
-                grafica=None):
+                grafica=None, expr=None):
     sello = V.Seal(V.VERIFIED, metodo, detalle)
-    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello, grafica=grafica)
+    return _finalizar(peticion, trace, texto, aproximado=None, sello=sello, grafica=grafica,
+                      expr=expr)
 
 
 def _ml8_serie(nombre, f, a: float, b: float, n: int = 200) -> C.Serie:
@@ -4603,7 +4641,11 @@ def _laplace_calc(peticion: C.Peticion) -> C.Resultado:
                 grafica=grafica, avisos=("polos sin forma exacta sencilla",))
     else:
         raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
-    return _ml8_cierre(peticion, trace, texto.replace("+ -", "- "), grafica=grafica)
+    try:
+        expr = r.expr()
+    except Exception:  # noqa: BLE001
+        expr = None
+    return _ml8_cierre(peticion, trace, texto.replace("+ -", "- "), grafica=grafica, expr=expr)
 
 
 def _fourier_calc(peticion: C.Peticion) -> C.Resultado:
@@ -4709,7 +4751,8 @@ def _z_calc(peticion: C.Peticion) -> C.Resultado:
                 ys.append(0.0)
         return C.Serie(nombre, xs, tuple(ys))
     if calculo == "directa":
-        texto = TZ.transformada(str(dato("x", "expr")), n, trace).texto()
+        rz = TZ.transformada(str(dato("x", "expr")), n, trace)
+        texto, expr_z = rz.texto(), rz.X
         xe = __import__("academic_core.domain.engineering.mathlab.laplace",
                         fromlist=["x"])._expande(mx.parse(TZ.prepara(str(dato("x", "expr")))))
         grafica = _ml8_grafica([secuencia("x[n]", lambda k: TZ._valor_x(xe, n, k))], n, "x",
@@ -4728,7 +4771,8 @@ def _z_calc(peticion: C.Peticion) -> C.Resultado:
         grafica = _ml8_grafica(series, n, "", "respuesta impulsional y solución")
     else:
         raise C.error("BAD_INPUT", f"cálculo desconocido «{calculo}»")
-    return _ml8_cierre(peticion, trace, texto.replace("+ -", "- "), grafica=grafica)
+    return _ml8_cierre(peticion, trace, texto.replace("+ -", "- "), grafica=grafica,
+                       expr=locals().get("expr_z"))
 
 
 def _contorno_calc(peticion: C.Peticion) -> C.Resultado:

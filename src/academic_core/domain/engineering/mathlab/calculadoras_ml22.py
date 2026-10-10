@@ -75,10 +75,10 @@ def _fisica(peticion: C.Peticion) -> C.Resultado:
                    "potencial 2D", f"W por dos caminos y −ΔU = {r['W']:.6g} J")
     if calculo == "retrato":
         r = F.retrato(pot, e.get("energias", [1]), e.get("x0", -10),
-                      e.get("x1", 10))
+                      e.get("x1", 10), trace=trace)
         series = [_serie(s["nombre"], s["xs"], s["ys"]) for s in r["series"]]
         return _ok(peticion, trace, f"{len(series) - 1} niveles de energía",
-                   "retrato de fases", "trayectorias (x, v) por RK4",
+                   "retrato de fases", "curvas de nivel de la energía",
                    grafica=_grafica(series, "x", "v/U", "retrato de fases"))
     if calculo == "gas":
         d = dict(e.get("proceso", {"tipo": "lineal"}))
@@ -142,13 +142,13 @@ def _fisica(peticion: C.Peticion) -> C.Resultado:
         if sub == "peralte":
             r = F.peralte(e.get("R", 100), e.get("v"), e.get("theta"), trace)
             return _ok(peticion, trace,
-                       f"θ = {r['theta'] * 180 / math.pi:.4g}°; v = {r['v']:.6g} m/s",
+                       f"θ = {r['theta'] * 180 / math.pi:.6g}°; v = {r['v']:.6g} m/s",
                        "peralte sin rozamiento", f"tanθ = v²/gR")
         if sub == "cono":
             r = F.pendulo_conico(e.get("L", 1), e.get("omega"), e.get("theta"),
                                  trace)
             return _ok(peticion, trace,
-                       f"θ = {r['theta'] * 180 / math.pi:.4g}°; T/m = {r['T_por_m']:.6g} N/kg",
+                       f"θ = {r['theta'] * 180 / math.pi:.6g}°; T/m = {r['T_por_m']:.6g} N/kg",
                        "péndulo cónico", "T·cosθ = mg, T·senθ = mω²L·senθ")
         if sub == "talud":
             r = F.deslice_esfera(e.get("R", "2.5"), e.get("v0", 0), trace)
@@ -156,7 +156,7 @@ def _fisica(peticion: C.Peticion) -> C.Resultado:
                 return _ok(peticion, trace, "no despega con esa v₀",
                            "deslizamiento esférico", f"cosθ_c ≥ 1")
             return _ok(peticion, trace,
-                       f"θ_c = {r['theta_c'] * 180 / math.pi:.4g}° desde arriba",
+                       f"θ_c = {r['theta_c'] * 180 / math.pi:.6g}° desde arriba",
                        "deslizamiento esférico", "N = 0 en el despegue")
         raise C.error("BAD_INPUT", "circular peralte, cono o talud")
     if calculo == "choque":

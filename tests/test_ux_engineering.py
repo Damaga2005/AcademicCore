@@ -227,7 +227,7 @@ def test_route_switches_workspace_inside_the_pinned_page(qtbot, tmp_path):
     assert win.engineering_panel.workspaces.currentWidget() is win.engineering_panel.orbit_panel
     win.navigate_to("engineering/circuits")
     assert win.engineering_panel.workspaces.currentWidget() is win.engineering_panel.circuits_workspace
-    assert win.tabs.count() == 14
+    assert win.tabs.count() == 15
 
 
 # -- digital logic ---------------------------------------------------------------------------------

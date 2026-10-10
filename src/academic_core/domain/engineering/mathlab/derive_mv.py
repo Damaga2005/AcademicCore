@@ -311,7 +311,9 @@ def verify_derivative(f: mx.Expr, derivative: mx.Expr, var: str) -> V.Seal:
     central difference is its numerical form. When a single-variable exact
     comparison is available it is used instead, and the seal is stronger.
     """
-    names = sorted(mx.variables(f))
+    # la variable de derivación entra siempre en la muestra: con f constante no
+    # aparece en f, pero la diferencia finita la necesita (d/dx 1/2 = 0)
+    names = sorted(mx.variables(f) | {var})
     if names == [var]:
         try:
             seal = V.verify_against(derivative, _e01_derivative_of(f, var))

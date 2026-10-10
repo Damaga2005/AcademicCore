@@ -50,7 +50,11 @@ def _refuerzo(peticion: C.Peticion) -> C.Resultado:
     if calculo == "absorcion":
         r = R.absorcion(e.get("P", []), e.get("absorbentes"), trace)
         return _ok(peticion, trace,
-                   f"t = {[f'{float(v):.6g}' for v in r['tiempos']]}",
+                   "; ".join(
+                       f"desde {i}: t = {r['tiempos'][k]}, "
+                       + ", ".join(f"P(→{a}) = {r['B'][k][j]}"
+                                   for j, a in enumerate(r["absorbentes"]))
+                       for k, i in enumerate(r["transitorios"])),
                    "absorción por (I−Q)⁻¹", f"N·(I−Q) = I exacto")
     if calculo == "clasifica":
         r = R.clasifica(e.get("P", []), trace)
@@ -58,7 +62,9 @@ def _refuerzo(peticion: C.Peticion) -> C.Resultado:
             f"{c['estados']} {'recurrente' if c['recurrente'] else 'transitoria'}"
             for c in r["clases"])
         return _ok(peticion, trace, txt, "clasificación de estados",
-                   f"periodos {r['periodos']}")
+                   "periodos " + ", ".join(
+                       f"{i}: {'no definido (sin retorno)' if p is None else p}"
+                       for i, p in r["periodos"].items()))
     if calculo == "mdp_eval":
         r = R.mdp_eval(e.get("P", []), e.get("R", []), e.get("gamma", "0.9"),
                        trace)
@@ -77,8 +83,12 @@ def _refuerzo(peticion: C.Peticion) -> C.Resultado:
         Q = {(s, a): v for s, a, v in e.get("Q", [])}
         r = R.episodio(ep, Q, e.get("alpha", "1/2"), e.get("gamma", "0.9"),
                        trace)
-        return _ok(peticion, trace, f"Q = {r['Q']}",
-                   "episodio a mano", "MC = media muestral")
+        def _tabla(T):
+            return ", ".join(f"({k}) = {v:.6g}" for k, v in T.items())
+        return _ok(peticion, trace,
+                   f"MC: {_tabla(r['MC'])} | TD(0) V: {_tabla(r['TD'])} | "
+                   f"SARSA: {_tabla(r['SARSA'])} | Q-learning: {_tabla(r['Q'])}",
+                   "episodio a mano", "retornos comprobados por Σγᵏr")
     if calculo == "bandidos":
         r = R.bandidos(e.get("pagos", []), e.get("metodo", "incremental"),
                        e.get("c", 2), e.get("epsilon", "0.1"),

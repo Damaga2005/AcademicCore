@@ -43,7 +43,8 @@ def _demuestra(peticion: C.Peticion) -> C.Resultado:
     if calculo == "punto_fijo":
         r = D.punto_fijo(e.get("expr", e.get("f", "x/2")), var,
                          e.get("a", 0), e.get("b", 1), trace)
-        return _ok(peticion, trace, f"c = {r['texto']}",
+        c_ = f"c {r['texto']}" if str(r['texto']).startswith("≈") else f"c = {r['texto']}"
+        return _ok(peticion, trace, c_,
                    "punto fijo por Bolzano", f"f(c) = c con c = {r['texto']}")
     if calculo == "desigualdad":
         r = D.desigualdad(e.get("f", "x"), e.get("g", "0"), var,

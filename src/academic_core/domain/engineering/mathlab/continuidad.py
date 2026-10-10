@@ -102,6 +102,10 @@ def ceros(g: mx.Expr, var: str, a: float, b: float) -> list[float]:
     """
     if b <= a:
         return []
+    if var not in mx.variables(g):
+        # constante: o no se anula nunca, o es 0 en todo el intervalo (se avisa con a)
+        v = _valor(g, var, a)
+        return [a] if v == 0 else []
     h = (b - a) / MALLA
     xs = [a + i * h for i in range(MALLA + 1)]
     ys = [_valor(g, var, x) for x in xs]
@@ -125,7 +129,9 @@ def ceros(g: mx.Expr, var: str, a: float, b: float) -> list[float]:
         y_1, y0, y1 = ys[i - 1], ys[i], ys[i + 1]
         if None in (y_1, y0, y1):
             continue
-        if abs(y0) <= abs(y_1) and abs(y0) <= abs(y1) and y_1 * y1 > 0:
+        # mínimo local de |g|, estricto al menos por un lado: en una meseta (|g|
+        # constante) cada nodo cumplía la condición y lanzaba una búsqueda áurea
+        if abs(y0) <= abs(y_1) and abs(y0) <= abs(y1) and y_1 * y1 > 0 and                 (abs(y0) < abs(y_1) or abs(y0) < abs(y1)):
             x, v = _minimo(g, var, xs[i - 1], xs[i + 1])
             if v is not None and abs(v) <= 1e-9 * escala:
                 encontrados.append(x)

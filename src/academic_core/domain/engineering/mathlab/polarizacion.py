@@ -57,13 +57,13 @@ def _Q(x) -> Fraction:
     if isinstance(x, float):
         if not math.isfinite(x):
             raise _error("BAD_INPUT", f"«{x}» no es un número finito")
-        return Fraction(x).limit_denominator(10**9)
+        return Fraction(repr(x))  # decimal exacto: 1.6e-19 no se hace 0
     s = str(x).strip().replace(",", ".")
     try:
         return Fraction(s)
     except (ValueError, ZeroDivisionError):
         try:
-            return Fraction(float(s)).limit_denominator(10**9)
+            return Fraction(repr(float(s)))
         except ValueError:
             raise _error("BAD_INPUT", f"«{x}» no es un número")
 
@@ -368,7 +368,7 @@ def medios(eps_r, mu_r=1, f=1e9, tand=None, sigma=None,
     # segundo camino: γ = j·k₀·ñ, luego α = −Im(k₀·ñ), β = Re(k₀·ñ)
     k0 = w / C0
     alfa2, beta2 = -(k0 * n_t).imag, (k0 * n_t).real
-    if abs(alfa2 - alfa) > 1e-9 * max(1.0, abs(alfa) + abs(beta)):
+    if max(abs(alfa2 - alfa), abs(beta2 - beta)) > 1e-9 * max(1.0, abs(alfa) + abs(beta)):
         raise _error("DISCREPANT", "α, β por γ y por k₀·ñ difieren")
     trace.verificacion("sen.medios_gamma", f"α = {alfa:.6g} Np/m, β = {beta:.6g} rad/m")
     aprox, cond, err = None, "", None
@@ -566,6 +566,12 @@ def cascada(elementos: list[Matriz], entrada: Vector,
     for E in elementos:
         J = _mat_mul(E, J)
     salida = _mat_vec(J, (complex(entrada[0]), complex(entrada[1])))
+    # segundo camino: aplicar los elementos uno a uno al vector, sin el producto
+    v = (complex(entrada[0]), complex(entrada[1]))
+    for E in elementos:
+        v = _mat_vec(E, v)
+    if max(abs(v[0] - salida[0]), abs(v[1] - salida[1])) > 1e-12 * max(1.0, abs(v[0]) + abs(v[1])):
+        raise _error("DISCREPANT", "la cascada por matriz total y paso a paso difieren")
     pot_in = abs(complex(entrada[0])) ** 2 + abs(complex(entrada[1])) ** 2
     pot_out = abs(salida[0]) ** 2 + abs(salida[1]) ** 2
     trace.verificacion("sen.jones_potencia",
@@ -613,8 +619,19 @@ def disenar_cadena(AR_obj, psi_obj, trace: Trace | None = None) -> dict:
         return e_ar + 2 * e_ps
 
     mejor = (1e9, 0.0, 0.0)
+    # forma cerrada: la λ/4 a φ₁ da AR = 1/|tan φ₁| con el eje en φ₁, y con los
+    # convenios de retardador() y clasifica() la λ/2 a φ₂ deja ψ = φ₁ − 2φ₂ (mod π).
+    # Se prueban las dos manos y las dos ramas; la malla global queda de respaldo
+    chi = math.atan(1 / AR_t)
+    for p1 in (chi, -chi, math.pi / 2 - chi, math.pi / 2 + chi):
+        for p2 in ((p1 - psi_t) / 2, (p1 - psi_t) / 2 + math.pi / 2):
+            c = coste(p1 % math.pi, p2 % math.pi)
+            if c < mejor[0]:
+                mejor = (c, p1 % math.pi, p2 % math.pi)
+    if mejor[0] > 1e-9:
+        mejor = (1e9, 0.0, 0.0)          # la forma cerrada no basta: malla global
     paso = math.pi / 180
-    for _ in range(3):
+    for _ in range(0 if mejor[0] < 1e-9 else 3):
         p1_ini, p2_ini = mejor[1], mejor[2]
         radio = math.pi if mejor[0] > 1e8 else 4 * paso
         n = 180 if mejor[0] > 1e8 else 24
@@ -635,13 +652,16 @@ def disenar_cadena(AR_obj, psi_obj, trace: Trace | None = None) -> dict:
     c = clasifica(Ax, abs(sal[1]), d, Trace())
     ok_ar = c["tipo"] != "lineal" and abs(math.log(c["AR"] / AR_t)) < 0.02
     ps = c["psi"]
-    ok_ps = ps is not None and min(abs(ps - psi_t), math.pi - abs(ps - psi_t)) < 1 / 60
+    # circular (AR = 1): la orientación no existe y no se exige
+    ok_ps = (abs(AR_t - 1) < 1e-9 and c["tipo"].startswith("circular")) or (
+        ps is not None and min(abs(ps - psi_t), math.pi - abs(ps - psi_t)) < 1 / 60)
     if not (ok_ar and ok_ps):
         raise _no(f"la malla no alcanza AR = {AR_t} con ψ = {psi_t}: "
                   f"queda AR = {c['AR']:.4g}, ψ = {ps}")
     trace.verificacion("sen.jones_diseno_ok",
                        f"φ₁ = {p1 * 180 / math.pi:.3g}°, φ₂ = {p2 * 180 / math.pi:.3g}°: "
-                       f"AR = {c['AR']:.5g}, ψ = {ps * 180 / math.pi:.4g}°")
+                       f"AR = {c['AR']:.5g}, ψ = "
+                       + ("— (circular)" if ps is None else f"{ps * 180 / math.pi:.4g}°"))
     return {"phi1": p1, "phi2": p2, "salida": sal, "AR": c["AR"], "psi": ps}
 
 
@@ -656,6 +676,16 @@ def plf(e1: Vector, e2: Vector, trace: Trace | None = None) -> float:
     if na == 0 or nb == 0:
         raise _error("BAD_INPUT", "vector de Jones nulo")
     v = abs(a[0] * b[0].conjugate() + a[1] * b[1].conjugate()) ** 2 / (na * na * nb * nb)
+    # segundo camino: con los vectores de Stokes normalizados, PLF = (1 + ŝ₁·ŝ₂)/2
+    def stokes(e, n):
+        s0 = n * n
+        return ((abs(e[0]) ** 2 - abs(e[1]) ** 2) / s0,
+                2 * (e[0] * e[1].conjugate()).real / s0,
+                -2 * (e[0] * e[1].conjugate()).imag / s0)
+    s1, s2 = stokes(a, na), stokes(b, nb)
+    v2 = (1 + sum(x * y for x, y in zip(s1, s2))) / 2
+    if abs(v - v2) > 1e-9:
+        raise _error("DISCREPANT", f"PLF por Jones {v:.9g} ≠ por Stokes {v2:.9g}")
     trace.verificacion("sen.plf_malus", f"PLF = {v:.6g} (Malus si ambos lineales)")
     return v
 
@@ -709,9 +739,19 @@ def fresnel(n1, n2, theta_i, pol: str = "s",
         raise _error("DISCREPANT", f"R + T = {R + T:.12g} ≠ 1")
     trace.verificacion("sen.fresnel_energia", f"R + T = 1 (R = {R:.6g})")
     if abs(ti) < 1e-12 and n1 + n2 != 0:
-        r0 = (n1 - n2) / (n1 + n2)
+        # en incidencia normal s y p son la misma onda; con estos convenios de signo
+        # r_s = (n₁−n₂)/(n₁+n₂) y r_p = (n₂−n₁)/(n₂+n₁)
+        r0 = (n1 - n2) / (n1 + n2) if pol == "s" else (n2 - n1) / (n2 + n1)
         if abs(r - r0) > 1e-9:
-            raise _error("DISCREPANT", "incidencia normal no da (n₁−n₂)/(n₁+n₂)")
+            raise _error("DISCREPANT", "incidencia normal no da ±(n₁−n₂)/(n₁+n₂)")
+    elif abs(ct.imag) < 1e-15 and 0 < ti < math.pi / 2 and abs(n1 - n2) > 1e-15:
+        # segundo camino: las fórmulas de Fresnel en ángulos (sin índices)
+        tt = math.acos(max(-1.0, min(1.0, ct.real)))
+        r2 = (-math.sin(ti - tt) / math.sin(ti + tt) if pol == "s"
+              else math.tan(ti - tt) / math.tan(ti + tt) if abs(ti + tt - math.pi / 2) > 1e-12
+              else 0.0)
+        if abs(r - r2) > 1e-9:
+            raise _error("DISCREPANT", f"r por índices {r.real:.9g} ≠ por ángulos {r2:.9g}")
     return {"r": r, "t": t, "R": R, "T": T, "theta_t": cmath.phase(ct),
             "cos_theta_t": ct, "evanescente": ct.imag > 1e-12}
 
@@ -763,7 +803,8 @@ def multicapa(ns: list, ds: list, lambda0, theta0=0.0, pol: str = "s",
         C = ((cd, 1j * sd / eta), (1j * eta * sd, cd))
         if abs(C[0][0] * C[1][1] - C[0][1] * C[1][0] - 1) > 1e-9:
             raise _error("DISCREPANT", "det ≠ 1 en una capa")
-        M = _mat_mul(C, M)
+        # [B; C] = M₁·M₂·…·M_N·[1; η_s]: la capa junto a la entrada va a la izquierda
+        M = _mat_mul(M, C)
     eta0, etas = adm(ns[0], thetas[0]), adm(ns[-1], thetas[-1])
     B = M[0][0] + M[0][1] * etas
     Cc = M[1][0] + M[1][1] * etas
@@ -773,6 +814,17 @@ def multicapa(ns: list, ds: list, lambda0, theta0=0.0, pol: str = "s",
     r = (eta0 - Y) / (eta0 + Y)
     t = (1 + r) / B
     R = abs(r) ** 2
+    # segundo camino: recursión de Airy desde el sustrato hacia la entrada, con los
+    # coeficientes de interfaz por admitancias y la fase de ida y vuelta de cada capa
+    etas_ = [adm(n, th) for n, th in zip(ns, thetas)]
+    ra = (etas_[-2] - etas_[-1]) / (etas_[-2] + etas_[-1])
+    for j in range(len(ns) - 2, 0, -1):
+        dj = k0 * ns[j] * ds[j - 1] * cmath.cos(thetas[j])
+        rj = (etas_[j - 1] - etas_[j]) / (etas_[j - 1] + etas_[j])
+        ph = cmath.exp(-2j * dj)
+        ra = (rj + ra * ph) / (1 + rj * ra * ph)
+    if abs(abs(ra) ** 2 - R) > 1e-9:
+        raise _error("DISCREPANT", f"R por matrices {R:.9g} ≠ por Airy {abs(ra) ** 2:.9g}")
     T = float((etas.real * abs(t) ** 2 / eta0.real).real
               if isinstance(etas, complex) else etas * abs(t) ** 2 / eta0)
     if abs(R + T - 1) > 1e-9:
@@ -782,10 +834,22 @@ def multicapa(ns: list, ds: list, lambda0, theta0=0.0, pol: str = "s",
     return {"r": r, "t": t, "R": R, "T": T}
 
 
-def antirreflejante(n1, n2) -> dict:
+def antirreflejante(n1, n2, trace: Trace | None = None) -> dict:
     """Capa λ/4 ideal: n_f = √(n₁·n₂), d = λ₀/(4·n_f) (d en unidades de λ₀)."""
+    trace = trace if trace is not None else Trace()
+    trace.metodo("sen.antirreflejante", "capa de un cuarto de onda con índice medio "
+                 "geométrico", why="anular la reflexión en λ₀ con una sola capa (§4.17)")
     n1, n2 = float(_Q(n1)), float(_Q(n2))
     if not (n1 > 0 and n2 > 0):
         raise _error("BAD_INPUT", "índices no positivos")
     nf = math.sqrt(n1 * n2)
-    return {"n_f": nf, "d_sobre_lambda": 1 / (4 * nf)}
+    d = 1 / (4 * nf)
+    trace.regla("sen.ar_capa", f"n_f = √(n₁n₂) = {nf:.6g}; d = λ₀/(4n_f) = {d:.6g}·λ₀",
+                why="con d = λ/4 las dos reflexiones salen en contrafase y con n_f = √(n₁n₂) "
+                    "tienen la misma amplitud: se anulan")
+    # segundo camino: la pila n₁ | n_f (d) | n₂ por matrices de transferencia da R = 0
+    R = multicapa([n1, nf, n2], [d], 1, 0, "s", Trace())["R"]
+    if R > 1e-12:
+        raise _error("DISCREPANT", f"la capa diseñada refleja R = {R:.3g}, no 0")
+    trace.verificacion("sen.ar_multicapa", f"la pila n₁|n_f|n₂ da R = {R:.2g} a λ₀")
+    return {"n_f": nf, "d_sobre_lambda": d}

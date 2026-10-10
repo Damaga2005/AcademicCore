@@ -126,16 +126,23 @@ def _aprende(peticion: C.Peticion) -> C.Resultado:
     if calculo == "retroprop":
         r = A.retroprop(e.get("x", []), e.get("y", 0), e.get("capas", []),
                         e.get("acts", []), e.get("perdida", "mse"), trace)
-        return _ok(peticion, trace, "gradientes comprobados",
+        def _m(M):
+            return "[" + "; ".join(", ".join(f"{v:.6g}" for v in fila) for fila in M) + "]"
+        txt = " | ".join(f"capa {l + 1}: ∂J/∂W = {_m(gW)}, ∂J/∂b = [{', '.join(f'{v:.6g}' for v in gb)}]"
+                         for l, (gW, gb) in enumerate(r["grads"]))
+        return _ok(peticion, trace, txt,
                    "retropropagación", "analítico = numérico")
     if calculo == "atencion":
         r = A.atencion(e.get("Q", []), e.get("K", []), e.get("V", []), trace)
-        return _ok(peticion, trace, f"{len(r['Y'])}×{len(r['Y'][0])} salida",
+        return _ok(peticion, trace,
+                   "Y = [" + "; ".join(", ".join(f"{v:.6g}" for v in f) for f in r["Y"]) + "]",
                    "atención", "filas suman 1")
     if calculo == "rnn":
         r = A.rnn_pasos(e.get("x", []), e.get("Wx", []), e.get("Wh", []),
                         e.get("b", []), trace)
-        return _ok(peticion, trace, f"{len(r['hs'])} pasos",
+        return _ok(peticion, trace,
+                   "; ".join(f"h{t + 1} = [{', '.join(f'{v:.6g}' for v in h)}]"
+                             for t, h in enumerate(r["hs"])),
                    "RNN desenrollada", "pesos atados")
     if calculo == "lstm":
         r = A.lstm_pasos(e.get("x", 0), e.get("W", {}), e.get("h0"),
