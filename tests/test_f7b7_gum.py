@@ -1065,6 +1065,20 @@ class TestExplicitKValidationFinding4:
         with pytest.raises(ValueError, match="strictly positive"):
             evaluate_gum(model, inputs, explicit_k=float("inf"))
 
+    def test_explicit_k_no_convertible_da_el_error_previsto(self):
+        """Un k que ni float() ni Decimal() aceptan tiene que dar el ValueError escrito.
+
+        El manejador captura (InvalidOperation, ValueError, TypeError). Si InvalidOperation
+        no estuviera importado, Python evaluaría esa tupla al propagating y reventaría con
+        NameError, y el mensaje que el autor escribió nunca se vería.
+        """
+        model = MeasurementModel(measurand="Y", equation="X", output_unit="V")
+        inputs = {"X": InputQuantity.explicit("X", 10.0, 0.5, unit="V")}
+        with pytest.raises(ValueError, match="valid positive number"):
+            evaluate_gum(model, inputs, explicit_k="abc")
+        with pytest.raises(ValueError, match="valid positive number"):
+            evaluate_gum(model, inputs, explicit_k=object())
+
     def test_coverage_factor_provenance_distinctions(self):
         model = MeasurementModel(measurand="Y", equation="X", output_unit="V")
 
