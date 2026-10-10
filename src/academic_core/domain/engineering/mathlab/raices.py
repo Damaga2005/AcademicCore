@@ -46,7 +46,9 @@ class Raiz:
     exacta: bool = True
 
     def texto(self) -> str:
-        t = mx.text(self.valor) if self.exacta else f"≈ {self.x:.12g}"
+        # pretty, no text: las raíces se muestran en notación matemática
+        # (√(5 + 2·√6)) y no en ASCII. El test de ceros fija esta forma.
+        t = mx.pretty(self.valor) if self.exacta else f"≈ {self.x:.12g}"
         return t + (f" (multiplicidad {self.multiplicidad})" if self.multiplicidad > 1 else "")
 
 

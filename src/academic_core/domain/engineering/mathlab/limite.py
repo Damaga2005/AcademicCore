@@ -1573,15 +1573,33 @@ def _texto_termino(t: Termino, var: str, punto: str, lado: int) -> str:
         base = f"1/{base}"
     partes = [mx.text(t.c)]
     if t.p:
-        partes.append(base if t.p == 1 else f"{base}^{t.p}")
+        partes.append(_potencia(base, t.p))
     if t.q:
         q = t.q if t.q.denominator < 10 ** 4 else f"{float(t.q):.6g}"
-        partes.append(f"e^({q}·{base})")
+        partes.append(f"e^({_menos(q)}·{base})")
     if t.r:
-        partes.append(f"ln({base})" + ("" if t.r == 1 else f"^{t.r}"))
+        partes.append(f"ln({base})" + ("" if t.r == 1 else mx.superindice(t.r)))
     if t.s:
-        partes.append(f"ln(ln({base}))" + ("" if t.s == 1 else f"^{t.s}"))
+        partes.append(f"ln(ln({base}))" + ("" if t.s == 1 else mx.superindice(t.s)))
     return "·".join(partes)
+
+
+def _potencia(base: str, e) -> str:
+    """base^e en superíndice cuando la base es un símbolo solo (n⁻²).
+
+    Con una base compuesta (1/(x − a)) se deja la potencia explícita: un
+    superíndice sobre un cociente se lee mal.
+    """
+    if e == 1:
+        return base
+    if base.strip("()").replace("−", "").isalpha():
+        return f"{base}{mx.superindice(e)}"
+    return f"{base}^({e})"
+
+
+def _menos(valor) -> str:
+    """El signo menos del Unicode («−»), que no es el guion del teclado («-»)."""
+    return str(valor).replace("-", "−")
 
 
 # ---------------------------------------------------------------------------

@@ -42,15 +42,15 @@ def test_polinomios_contra_sympy_real_roots():
 
 @pytest.mark.parametrize("e,texto,completo", [
     ("(1-ln(x))/x^2", "exp(1)", True),
-    ("exp(2*x)-3", "1/2*ln(3)", True),
+    ("exp(2*x)-3", "1/2·ln(3)", True),
     ("2-sqrt(x+1)", "3", True),
-    ("x^3-3*x", "-sqrt(3), 0, sqrt(3)", True),
-    ("x^4-10*x^2+1", "-sqrt(5 + 2*sqrt(6)), -sqrt(5 - 2*sqrt(6)), sqrt(5 - 2*sqrt(6)), "
-                     "sqrt(5 + 2*sqrt(6))", True),
+    ("x^3-3*x", "-√3, 0, √3", True),
+    ("x^4-10*x^2+1", "-√(5 + 2·√6), -√(5 - 2·√6), √(5 - 2·√6), "
+                     "√(5 + 2·√6)", True),
     ("x^2*exp(x)*(x+2)", "-2, 0 (multiplicidad 2)", True),
     ("exp(x)+1", "ninguno", True),
     ("x/(x-1)", "0", True),
-    ("ln(x^2)-1", "-sqrt(exp(1)), sqrt(exp(1))", True),
+    ("ln(x^2)-1", "-√(exp(1)), √(exp(1))", True),
     ("cos(x)-x", "≈ 0.739085133215", False),
 ])
 def test_ceros(e, texto, completo):

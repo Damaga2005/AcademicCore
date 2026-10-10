@@ -1373,6 +1373,18 @@ _SUP = {"0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
         "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", "n": "ⁿ"}
 
 
+def superindice(n) -> str:
+    """−2 → ⁻², para escribir exponentes sueltos («Σ n⁻²») sin montar la potencia.
+
+    Un número que no quepa en superíndice (o que no sea entero) se devuelve tal
+    cual: es mejor un ``−2`` legible que un superíndice equivocado.
+    """
+    s = str(n)
+    if s and all(c in _SUP for c in s) and len(s) <= 2:
+        return "".join(_SUP[c] for c in s)
+    return s
+
+
 def _prec(e: Expr) -> int:
     if isinstance(e, (int, Fraction)):
         return 1 if e < 0 else (2 if Fraction(e).denominator != 1 else 5)
@@ -1432,8 +1444,10 @@ def _print(e: Expr, power: str, style: str) -> str:
             if style != "pretty":
                 return f"sqrt({inner})"
             # «√x² + 1» reads as (√x²) + 1: a compound radicand keeps its
-            # parentheses (found 2026-10-06)
-            if isinstance(e.radicand, (Sym, Num, Const, Call)) and not (
+            # parentheses (found 2026-10-06). Un Call también: «√exp(1)» se
+            # lee como √·exp·1, no como √(exp(1)) — los paréntesis que trae
+            # la llamada no son los del radicando.
+            if isinstance(e.radicand, (Sym, Num, Const)) and not (
                     isinstance(e.radicand, Num) and e.radicand.value.denominator != 1):
                 return f"√{inner}"
             return f"√({inner})"

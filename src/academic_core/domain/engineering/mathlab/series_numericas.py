@@ -270,10 +270,10 @@ def _comparacion(b: mx.Expr, var: str) -> Veredicto | None:
                          f"{desc}: comparación con una geométrica")
     if p != -1:
         return Veredicto("converge absolutamente" if p < -1 else "diverge",
-                         f"{desc}: comparación en el límite con Σ n^({p}), "
+                         f"{desc}: comparación en el límite con Σ n{mx.superindice(p)}, "
                          f"{'p < −1' if p < -1 else 'p ≥ −1'}")
     return Veredicto("converge absolutamente" if r < -1 else "diverge",
-                     f"{desc}: serie de Bertrand Σ 1/(n·ln(n)^{-r}), "
+                     f"{desc}: serie de Bertrand Σ 1/(n·ln(n){mx.superindice(-r)}), "
                      f"{'converge' if r < -1 else 'diverge'}")
 
 
