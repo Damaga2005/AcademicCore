@@ -241,6 +241,17 @@ def _en(e: mx.Expr, var: str, t0: Punto) -> mx.Expr:
 
 _DISTRIBUCION = re.compile(r"(delta|δ|u|escalon|heaviside)\s*('*)\s*\(", re.IGNORECASE)
 
+# El escalón se escribe u(...) dentro de expr, pero mx.parse no conoce u como
+# función (u es una variable muda legítima en los cambios de variable). Esta
+# reescritura se aplica solo donde el sentido es inequívoco: la f de una
+# convolución con impulsos, donde f es una señal y no lleva variables mudas.
+_ESCALON_U = re.compile(r"(?<![A-Za-z_0-9])[uU]\s*\(")
+
+
+def normaliza_escalon(texto: str) -> str:
+    """u(...) / U(...) -> escalon(...), el resto del texto sin tocar."""
+    return _ESCALON_U.sub("escalon(", texto)
+
 
 def _terminos(texto: str) -> list[tuple[int, str]]:
     """Split at top-level + and − (keeping the sign)."""

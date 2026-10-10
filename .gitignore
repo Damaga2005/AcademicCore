@@ -24,6 +24,8 @@ documentos/
 backups/
 assets/
 content/corpus/
+guias_upc/
+*.pdf
 
 # Indexes / caches / models
 .index/
@@ -42,7 +44,9 @@ Thumbs.db
 # AI agent local config
 .claude/
 .cursor/
+.agents/
 AGENTS.local.md
+skills-lock.json
 
 # Test / coverage
 .pytest_cache/

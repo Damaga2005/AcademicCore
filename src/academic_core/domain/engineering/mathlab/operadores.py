@@ -53,6 +53,27 @@ BASE = {
 }
 NOMBRES = frozenset({"theta", "phi", "rho", "eps0"})
 
+# Cómo lo escribe el alumno → el nombre interno de cada sistema. Se usa el mismo
+# criterio que multiple._ALIAS para que los dos módulos hablen de una sola manera:
+# θ/phi valen igual y ρ es el radio. Aquí el nombre interno del radio es r (en
+# multiple es rho) y el ángulo acimutal de las cilíndricas es phi (en multiple es
+# t, porque allí t es el parámetro, no el ángulo), así que se acepta cualquiera de
+# las dos grafías y se normaliza a la de este módulo.
+_ALIAS = {
+    "cilindricas": {"θ": "phi", "theta": "phi", "φ": "phi"},
+    "esfericas": {"θ": "theta", "φ": "phi", "ρ": "r", "rho": "r"},
+}
+
+
+def _con_alias(texto: str, sistema: str | None) -> str:
+    if sistema is None or not isinstance(texto, str):
+        return texto
+    import re
+
+    for a, b in _ALIAS.get(sistema, {}).items():
+        texto = re.sub(rf"(?<![A-Za-z_]){a}(?![A-Za-z_0-9])", b, texto)
+    return texto
+
 
 def _error(codigo: str, mensaje: str) -> ValidationError:
     return ValidationError(f"{codigo}: {mensaje}")
@@ -62,12 +83,12 @@ def _no(mensaje: str) -> UnsupportedError:
     return UnsupportedError(f"UNSUPPORTED: {mensaje}")
 
 
-def leer(e) -> mx.Expr:
+def leer(e, sistema: str | None = None) -> mx.Expr:
     if isinstance(e, mx.Expr):
         return e
     if isinstance(e, (int,)):
         return MI.leer(e)
-    return mx.parse(str(e), nombres=NOMBRES)
+    return mx.parse(_con_alias(str(e), sistema), nombres=NOMBRES)
 
 
 def _sistema(nombre: str):
@@ -87,10 +108,10 @@ def _txt(v) -> str:
     return "(" + ", ".join(mx.text(c) for c in v) + ")"
 
 
-def _vec(F, n: int = 3) -> list[mx.Expr]:
+def _vec(F, n: int = 3, sistema: str | None = None) -> list[mx.Expr]:
     if not isinstance(F, (list, tuple)) or len(F) != n:
         raise _error("BAD_INPUT", f"un campo es una lista de {n} componentes")
-    return [leer(c) for c in F]
+    return [leer(c, sistema) for c in F]
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +122,7 @@ def _vec(F, n: int = 3) -> list[mx.Expr]:
 def gradiente(V, sistema: str = "cartesianas", trace: Trace | None = None) -> list[mx.Expr]:
     trace = trace if trace is not None else Trace()
     u, h = _sistema(sistema)
-    V = leer(V)
+    V = leer(V, sistema)
     g = [MI._limpio(mx.Div(_d(V, ui), hi)) for ui, hi in zip(u, h)]
     trace.regla("op.grad", f"∇V = (1/hᵢ)·∂V/∂uᵢ en {sistema} = {_txt(g)}",
                 why=f"factores de escala h = ({', '.join(mx.text(x) for x in h)})")
@@ -112,7 +133,7 @@ def gradiente(V, sistema: str = "cartesianas", trace: Trace | None = None) -> li
 def divergencia(F, sistema: str = "cartesianas", trace: Trace | None = None) -> mx.Expr:
     trace = trace if trace is not None else Trace()
     u, h = _sistema(sistema)
-    F = _vec(F)
+    F = _vec(F, sistema=sistema)
     H = mx.Mul(mx.Mul(h[0], h[1]), h[2])
     terminos = []
     for i in range(3):
@@ -128,7 +149,7 @@ def divergencia(F, sistema: str = "cartesianas", trace: Trace | None = None) -> 
 def rotacional(F, sistema: str = "cartesianas", trace: Trace | None = None) -> list[mx.Expr]:
     trace = trace if trace is not None else Trace()
     u, h = _sistema(sistema)
-    F = _vec(F)
+    F = _vec(F, sistema=sistema)
     H = MI._limpio(mx.Mul(mx.Mul(h[0], h[1]), h[2]))
     hf = [MI._limpio(mx.Mul(h[i], F[i])) for i in range(3)]
     comp = []
@@ -144,7 +165,7 @@ def rotacional(F, sistema: str = "cartesianas", trace: Trace | None = None) -> l
 def laplaciano(V, sistema: str = "cartesianas", trace: Trace | None = None) -> mx.Expr:
     trace = trace if trace is not None else Trace()
     u, h = _sistema(sistema)
-    V = leer(V)
+    V = leer(V, sistema)
     H = mx.Mul(mx.Mul(h[0], h[1]), h[2])
     terminos = []
     for i in range(3):
@@ -338,7 +359,7 @@ def cambio_base(F, de: str, a: str, punto: dict | None = None,
     """Componentes de F (dadas en la base de ``de``) en la base de ``a``; con
     ``punto`` (en las coordenadas de ``de``) se evalúan ahí."""
     trace = trace if trace is not None else Trace()
-    F = _vec(F)
+    F = _vec(F, sistema=de)
     _sistema(de)
     _sistema(a)
     # a cartesianas: F_cart = Bᵀ·F
@@ -363,7 +384,7 @@ def cambio_base(F, de: str, a: str, punto: dict | None = None,
                 f"F_{a} = {_txt(out)}", why="la base es ortonormal: R⁻¹ = Rᵀ")
     _comprueba_base(de, trace)
     if punto is not None:
-        env = {k: leer(v) for k, v in punto.items()}
+        env = {k: leer(v, de) for k, v in punto.items()}
         out = [MI._limpio(_sustituye(c, env)) for c in out]
         modulo_antes = math.sqrt(sum(float(mx.valor_real(_sustituye(c, env), {})) ** 2
                                      for c in F))

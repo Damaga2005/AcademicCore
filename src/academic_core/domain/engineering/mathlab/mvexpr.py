@@ -48,7 +48,6 @@ Three printers are provided: ``text`` (canonical ASCII, round-trips through
 from __future__ import annotations
 
 import cmath
-import functools
 import math
 import re
 from dataclasses import dataclass

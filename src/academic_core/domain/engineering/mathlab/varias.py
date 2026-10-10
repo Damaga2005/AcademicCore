@@ -62,7 +62,7 @@ def _a_frac(valor, que: str) -> Fraction:
     if isinstance(valor, str):
         try:
             return Fraction(valor)
-        except (ValueError, ZeroDivisionError) as exc:
+        except (ValueError, ZeroDivisionError):
             raise _error("BAD_INPUT", f"«{valor}» no es un número para {que}") from None
     if isinstance(valor, mx.Expr):
         v = mx.exact_value(valor)
@@ -636,7 +636,6 @@ def cadena(f: mx.Expr, sustituciones: dict[str, mx.Expr], t: str,
 def implicita(F: mx.Expr, x: str, y: str, trace: Trace | None = None) -> mx.Expr:
     """y′ = −Fx/Fy con Fy ≠ 0 comprobado; identidad Fx + Fy·y′ = 0 exacta."""
     from academic_core.domain.engineering.mathlab import limite as LM
-    from academic_core.domain.engineering.mathlab import verify as V
 
     trace = trace if trace is not None else Trace()
     Fx, Fy = _d(F, x, trace), _d(F, y, trace)
@@ -1772,9 +1771,6 @@ class Recinto:
 def extremos_recinto(f: mx.Expr, vars: list[str], recinto: tuple,
                       trace: Trace | None = None) -> Recinto:
     """Weierstrass en un rectángulo: interior (críticos) + 4 lados 1V + esquinas."""
-    from academic_core.domain.engineering.mathlab import estudio as ES
-    from academic_core.domain.engineering.mathlab import limite as LM
-
     trace = trace if trace is not None else Trace()
     if isinstance(recinto, (tuple, list)) and len(recinto) == 2 and recinto[0] == "region":
         return _extremos_region(f, vars, recinto[1], trace)

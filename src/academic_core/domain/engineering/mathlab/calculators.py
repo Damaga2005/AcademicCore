@@ -1144,7 +1144,8 @@ def _distribucion(peticion: C.Peticion) -> C.Resultado:
         sello = V.Seal(V.VERIFIED, "integral de cada tramo (Barrow) + áreas de las deltas",
                        texto)
     elif calculo == "convolucion":
-        f = _expresion_de(e, "f")
+        # el escalón se escribe igual que en expr: u(t) es el escalón de Heaviside
+        f = _expresion_de({**e, "f": DS.normaliza_escalon(str(e.get("f", "")))}, "f")
         valor = DS.convolucion_con_impulsos(f, D, trace)
         texto = mx.text(valor)
         sello = V.Seal(V.VERIFIED, "f * δ(t − t₀) = f(t − t₀)", texto)
@@ -2218,7 +2219,7 @@ def _primitiva_por_metodo(f: mx.Expr, var: str, metodo: str, trace: Trace) -> mx
 
         trace.metodo("primitiva.cambio", "cambio de variable u = g(x)",
                      why="si f = H(g(x))·g′(x), en u queda ∫H(u) du, de tabla")
-        IN._LIMITE[0] = time.monotonic() + IN.MAX_SEGUNDOS
+        IN._fijar_plazo(time.monotonic() + IN.MAX_SEGUNDOS)
         try:
             F = IN._cambio(f, var, trace, 0)
         except (UnsupportedError, ValidationError, ZeroDivisionError, ValueError):

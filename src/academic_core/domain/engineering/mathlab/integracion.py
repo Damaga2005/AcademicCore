@@ -19,6 +19,10 @@ Orden de estrategias (la primera que da una primitiva verificada gana):
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+import time
+from collections.abc import Iterator
 from fractions import Fraction
 
 from academic_core.domain.engineering.mathlab import mvexpr as mx
@@ -27,7 +31,31 @@ from academic_core.errors import UnsupportedError, ValidationError
 
 MAX_PROFUNDIDAD = 4
 MAX_SEGUNDOS = 8.0
-_LIMITE = [0.0]
+
+# El plazo de CPU vive en un ContextVar, no en una global: cada pestaña de la
+# interfaz calcula en su propio hilo y un ContextVar es por hilo, así que dos
+# cálculos simultáneos ya no se pisan ni se amplian el plazo el uno al otro.
+_PLAZO: contextvars.ContextVar[float] = contextvars.ContextVar("mathlab_plazo", default=0.0)
+
+
+def _fijar_plazo(momento: float) -> None:
+    _PLAZO.set(momento)
+
+
+def _agotado() -> bool:
+    return time.monotonic() > _PLAZO.get()
+
+
+@contextlib.contextmanager
+def _plazo_acortado(minimo: float = 0.5) -> Iterator[None]:
+    """Da a un subcálculo como mucho la mitad del plazo que queda (nunca menos de `minimo`)."""
+    anterior = _PLAZO.get()
+    ahora = time.monotonic()
+    _PLAZO.set(min(anterior, ahora + max(minimo, (anterior - ahora) / 2)))
+    try:
+        yield
+    finally:
+        _PLAZO.set(anterior)
 
 
 def _no(mensaje: str) -> UnsupportedError:
@@ -143,12 +171,10 @@ def _tabla_sec(f: mx.Expr, var: str, profundidad: int):
 
 def primitiva(f: mx.Expr, var: str, trace: Trace | None = None, profundidad: int = 0
               ) -> mx.Expr:
-    import time
-
     trace = trace if trace is not None else Trace()
     if profundidad == 0:
-        _LIMITE[0] = time.monotonic() + MAX_SEGUNDOS
-    elif time.monotonic() > _LIMITE[0]:
+        _fijar_plazo(time.monotonic() + MAX_SEGUNDOS)
+    elif _agotado():
         raise _no("tiempo agotado buscando la primitiva")
     if profundidad > MAX_PROFUNDIDAD:
         raise _no("demasiadas integraciones anidadas")
@@ -165,20 +191,17 @@ def primitiva(f: mx.Expr, var: str, trace: Trace | None = None, profundidad: int
         return MI.primitiva(f, var, trace)
     except UnsupportedError:
         pass
-    import time as _t
 
     for nombre, estrategia in (("especial", _especial), ("cambio", _cambio),
                                ("trigonometrica", _trigonometrica), ("partes", _partes)):
         t = Trace()
-        anterior = _LIMITE[0]
-        if nombre == "cambio":       # que no agote el tiempo de las demás
-            _LIMITE[0] = min(anterior, _t.monotonic() + max(0.5, (anterior - _t.monotonic()) / 2))
-        try:
-            F = estrategia(f, var, t, profundidad)
-        except (UnsupportedError, ValidationError, ZeroDivisionError, ValueError):
-            F = None
-        finally:
-            _LIMITE[0] = anterior
+        # 'cambio' es la más cara: se le acorta el plazo para que no se lo coma todo
+        acotado = _plazo_acortado() if nombre == "cambio" else contextlib.nullcontext()
+        with acotado:
+            try:
+                F = estrategia(f, var, t, profundidad)
+            except (UnsupportedError, ValidationError, ZeroDivisionError, ValueError):
+                F = None
         if F is not None:
             F = _limpio(F)
             if comprueba(F, f, var):
@@ -244,10 +267,9 @@ def _partes(f: mx.Expr, var: str, trace: Trace, prof: int) -> mx.Expr | None:
         if k is not None and k >= 2:
             u2 = mx.Sym(var) if k == 2 else mx.Pow(mx.Sym(var), mx.Num(Fraction(k - 1)))
             opciones.append((u2, LM._reconstruye(resto + [mx.Sym(var)], dens)))
-    import time
 
     for u, dv in opciones:
-        if time.monotonic() > _LIMITE[0]:
+        if _agotado():
             return None
         if dv == f:
             continue
@@ -267,18 +289,15 @@ def _partes(f: mx.Expr, var: str, trace: Trace, prof: int) -> mx.Expr | None:
             trace.regla("integral.ciclica", f"∫ v du = {c}·I ⇒ I = u·v/(1 + {c})",
                         why="la integral reaparece: se despeja")
             return I
-        anterior = _LIMITE[0]
-        _LIMITE[0] = min(anterior, time.monotonic() + max(0.5, (anterior - time.monotonic()) / 2))
-        try:
-            resto_int = primitiva(nuevo, var, Trace(), prof + 1)
-        except UnsupportedError:
-            _LIMITE[0] = anterior
-            # segunda vuelta de partes para la cíclica (eˣ·sen x)
-            r = _partes_ciclica(u, v, nuevo, f, var, trace, prof)
-            if r is not None:
-                return r
-            continue
-        _LIMITE[0] = anterior
+        with _plazo_acortado():
+            try:
+                resto_int = primitiva(nuevo, var, Trace(), prof + 1)
+            except UnsupportedError:
+                # segunda vuelta de partes para la cíclica (eˣ·sen x)
+                r = _partes_ciclica(u, v, nuevo, f, var, trace, prof)
+                if r is not None:
+                    return r
+                continue
         return mx.Sub(mx.Mul(u, v), resto_int)
     return None
 
@@ -416,8 +435,6 @@ def _inversa(g: mx.Expr, var: str, U: mx.Expr) -> list[mx.Expr]:
 def _cambio(f: mx.Expr, var: str, trace: Trace, prof: int) -> mx.Expr | None:
     """Primero se preparan todos los cambios que dejan una integral solo en u; se
     prueban de la más corta a la más larga, cada uno con su parte del tiempo."""
-    import time
-
     libres = [c for c in "uwvtsz" if c not in mx.variables(f) and c != var]
     if not libres:
         return None
@@ -445,14 +462,11 @@ def _cambio(f: mx.Expr, var: str, trace: Trace, prof: int) -> mx.Expr | None:
         opciones.append((len(mx.text(H)), g, dg, H))
     opciones.sort(key=lambda o: o[0])
     for _, g, dg, H in opciones:
-        anterior = _LIMITE[0]
-        _LIMITE[0] = min(anterior, time.monotonic() + max(0.5, (anterior - time.monotonic()) / 2))
-        try:
-            FU = primitiva(H, U, Trace(), prof + 1)
-        except UnsupportedError:
-            continue
-        finally:
-            _LIMITE[0] = anterior
+        with _plazo_acortado():
+            try:
+                FU = primitiva(H, U, Trace(), prof + 1)
+            except UnsupportedError:
+                continue
         F = _limpio(_raices_positivas(mx.substitute(FU, U, g), var))
         if not comprueba(F, f, var):
             continue

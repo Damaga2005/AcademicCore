@@ -388,7 +388,7 @@ def test_rnn_muestra_los_estados():
 def test_lstm_un_paso():
     s = lambda z: 1 / (1 + math.exp(-z))  # noqa: E731
     z = 0.1 * 1.0
-    f = i = o = s(z)
+    i = o = s(z)
     g = math.tanh(z)
     c = i * g
     W = {k: [[0.1, 0.2]] for k in ("Wf", "Wi", "Wg", "Wo")}

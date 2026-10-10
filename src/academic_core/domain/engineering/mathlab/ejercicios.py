@@ -439,7 +439,7 @@ def _g_transformada(g: Generador, dif: str) -> Ejercicio:
         enunciado=f"Calcula la transformada de Laplace de f(t) = exp(−{a}·t).",
         datos={"a": a},
         solucion=sol,
-        pistas=(f"usa L{{exp(−a·t)}}(s) = 1/(s + a)",
+        pistas=("usa L{exp(−a·t)}(s) = 1/(s + a)",
                 "sustituye a por el valor del enunciado",
                 f"el resultado es 1/(s + {a})"),
         solucion_pasos=r.traza.render(),

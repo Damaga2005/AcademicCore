@@ -55,7 +55,7 @@ def _demuestra(peticion: C.Peticion) -> C.Resultado:
                        "desigualdad refutada", f"contraejemplo x = {r['contraejemplo']:.6g}")
         return _ok(peticion, trace,
                    f"cierta: mínimo {r['min']:.6g} en x = {r['xmin']:.6g}",
-                   "desigualdad probada", f"mínimo global en compacto")
+                   "desigualdad probada", "mínimo global en compacto")
     if calculo == "subespacio":
         r = D.subespacio(e.get("conds", e.get("condiciones", [])),
                          [str(v) for v in e.get("vars", ["x", "y", "z"])], trace)

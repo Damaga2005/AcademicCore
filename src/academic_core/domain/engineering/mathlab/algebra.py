@@ -614,10 +614,6 @@ def factores_irreducibles(p: list[Fraction]) -> list[tuple[list[Fraction], int]]
     resto se parte libre de cuadrados (mcd con p′) y cada parte se trocea probando
     productos de sus raíces numéricas: un factor solo se acepta si DIVIDE
     exactamente (con coeficientes racionales) — nunca por aproximación."""
-    import itertools
-
-    from academic_core.domain.engineering.mathlab import raices as RZ
-
     p = _p_recorta([Fraction(c) for c in p])
     racionales, resto = _quitar_racionales(p)
     salida: dict[tuple, int] = {}

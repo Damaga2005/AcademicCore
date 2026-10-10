@@ -203,7 +203,6 @@ def _signos(e: mx.Expr, var: str, exps: list, signo: list) -> mx.Expr:
         return mx.Mul(_signos(e.left, var, exps, signo), _signos(e.right, var, exps, signo))
     if isinstance(e, mx.Div):
         izq = _signos(e.left, var, exps, signo)
-        antes = len(exps)
         der = _signos(e.right, var, exps, signo)
         # (−1)^k in a denominator is (−1)^k as well (its inverse equals itself)
         return mx.Div(izq, der)
@@ -367,7 +366,6 @@ def _dirichlet_serie(a: mx.Expr, var: str) -> str | None:
     devuelve None y el rechazo sigue siendo honesto.
     """
     from academic_core.domain.engineering.mathlab import derive_mv as DM
-    from academic_core.domain.engineering.mathlab import raices as RZ
 
     nums, _dens = _factores_serie(a)
     hallado, resto = None, []
@@ -838,7 +836,6 @@ def _igual_a_sobre(resto: mx.Expr, n: str, a: Fraction, b: Fraction):
 
 def _constante_en_n(resto: mx.Expr, n: str):
     """K(x) con resto = K/F_0 (F_0 el factorial); None si depende de n."""
-    e = mx.substitute(resto, "F_0", mx.Sym("_f0"))
     # K = resto·F_0 evaluado en F_0 = 1 es K si K no depende de n
     cand = LM._limpio(mx.substitute(resto, "F_0", mx.Num(Fraction(1))))
     if mx.depends(cand, n):
@@ -969,9 +966,7 @@ def _separa_potencia(T: Termino, x: str) -> tuple[mx.Expr, mx.Expr, int, Termino
     expo = RZ._polinomio_de(pot.exponent, n)
     if expo is None or len(expo) != 2 or expo[1].denominator != 1 or expo[1] <= 0:
         raise _no(f"el exponente tiene que ser k·{n} + m con k entero positivo")
-    k, m = int(expo[1]), expo[0]
-    resto = mx.substitute(T.expr, x, mx.Add(mx.Num(x0) if x0 >= 0 else mx.Neg(mx.Num(-x0)),
-                                            mx.Sym("_y1")))
+    k = int(expo[1])
     coef = LM._limpio(mx.Div(mx.substitute(T.expr, x, mx.Add(_num(x0), mx.Num(Fraction(1)))),
                              mx.Num(Fraction(1))))
     # cₙ = term evaluated at x − x₀ = 1

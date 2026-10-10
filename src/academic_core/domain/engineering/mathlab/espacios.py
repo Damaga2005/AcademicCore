@@ -371,7 +371,7 @@ def proyeccion(v, H, trace: Trace | None = None):
         proy = [proy[i] + num * u[i] / den for i in range(len(v))]
     comp = [v[i] - proy[i] for i in range(len(v))]
     d2 = sum(c * c for c in comp)
-    trace.regla("espacios.proyeccion", f"pr = Σ(v·uᵢ)/(uᵢ·uᵢ)·uᵢ con base ortogonal",
+    trace.regla("espacios.proyeccion", "pr = Σ(v·uᵢ)/(uᵢ·uᵢ)·uᵢ con base ortogonal",
                 why="Gram-Schmidt dentro: con base ortogonal cada coeficiente va solo")
     for u in orto:
         if sum(comp[i] * u[i] for i in range(len(v))) != 0:

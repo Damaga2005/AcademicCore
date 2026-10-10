@@ -23,7 +23,7 @@ dependencies = [
 academic-core = "academic_core.app:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-qt>=4.4"]
+dev = ["pytest>=8.0", "pytest-qt>=4.4", "pytest-xdist>=3.6"]
 pdf = ["pypdf>=5.0"]
 html = ["beautifulsoup4>=4.12", "lxml>=5.0", "markdownify>=1.2", "mathml2latex>=0.1.0"]
 anki = ["genanki>=0.13.0"]

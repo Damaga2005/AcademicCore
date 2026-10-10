@@ -1183,7 +1183,7 @@ def _con_alias(x, sistema: str):
 
     if not isinstance(x, str):
         return x
-    for a, b in _ALIAS[sistema].items():
+    for a, b in _ALIAS.get(sistema, {}).items():
         x = re.sub(rf"(?<![A-Za-z_]){a}(?![A-Za-z_0-9])", b, x)
     return x
 
@@ -1452,12 +1452,18 @@ def centro_masas(densidad, limites, sistema: str = "cartesianas",
     trace = trace if trace is not None else Trace()
     dim = len(limites)
     coords = ["x", "y", "z"][:dim]
-    M = masa(densidad, limites, sistema, trace)
+    # Los alias (θ, φ, ρ) se resuelven sobre el TEXTO, antes de construir la
+    # expresión: en cuanto la densidad es un Expr ya no queda texto al que
+    # sustituir y _con_alias se queda sin hacer nada. Aplicarlos aquí es
+    # idempotente, así que masa() puede volver a pasarlos sin efecto.
+    densidad_txt = _con_alias(densidad, sistema)
+    limites = [[_con_alias(x, sistema) for x in item] for item in limites]
+    M = masa(densidad_txt, limites, sistema, trace)
     if abs(M.numerico) < 1e-300:
         raise _error("BAD_INPUT", "masa nula: no hay centro de masas")
     out = []
     for c in coords:
-        mom = masa(mx.Mul(leer(c), leer(densidad)), limites, sistema, Trace())
+        mom = masa(mx.Mul(leer(c), leer(densidad_txt)), limites, sistema, Trace())
         ex = None
         if mom.exacto is not None and M.exacto is not None:
             ex = _limpio(mx.Div(mom.exacto, M.exacto))
